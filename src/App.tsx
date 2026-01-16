@@ -32,8 +32,6 @@ import { CustomerDashboard } from './pages/customer/CustomerDashboard';
 import { CustomerBillingPage } from './pages/customer/CustomerBillingPage';
 import { CustomerLandingPage } from './pages/customer/CustomerLandingPage';
 import { NavigationTest } from './components/debug/NavigationTest';
-import { ServerStatusIndicator } from './components/ServerStatusIndicator';
-import { startHealthCheck } from './lib/serverHealth';
 import './lib/i18n';
 
 function AppContent() {
@@ -42,19 +40,10 @@ function AppContent() {
   useEffect(() => {
     document.documentElement.dir = i18n.language === 'ar' ? 'rtl' : 'ltr';
     document.documentElement.lang = i18n.language;
-    
-    // Start server health monitoring
-    startHealthCheck();
-    
-    // Cleanup on unmount
-    return () => {
-      // Health check cleanup is handled by the utility
-    };
   }, [i18n.language]);
 
   return (
     <>
-      <ServerStatusIndicator />
       <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/signup" element={<SignupPage />} />

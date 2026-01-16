@@ -320,10 +320,20 @@ export function PublicBookingPage() {
         const errorMessage = tenantError?.message || 'Unknown error';
         console.error('Full tenant error:', tenantError);
         
+        // Don't show alert for timeout errors - just log and retry silently
+        if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
+          console.warn('Tenant request timed out, will retry automatically');
+          // Retry after a short delay
+          setTimeout(() => {
+            fetchTenantAndServices();
+          }, 2000);
+          return;
+        }
+        
         if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-          alert('Network error. Please check if the backend server is running on port 3001.');
+          console.error('Network error fetching tenant. Backend may not be running.');
         } else {
-          alert(`Failed to load tenant: ${errorMessage}. Please check the console for details.`);
+          console.error(`Failed to load tenant: ${errorMessage}`);
         }
         setLoading(false);
         return;

@@ -36,7 +36,10 @@ class DatabaseClient {
       const url = `${this.baseUrl}${endpoint}`;
       
       // Use longer timeout in WebContainer/Bolt environments
-      const timeout = url.startsWith('/') ? 30000 : 10000; // 30s for relative URLs, 10s for absolute
+      // Increase timeout for tenant queries which may be slower
+      const isTenantQuery = endpoint.includes('tenants') || endpoint.includes('query') && endpoint.includes('table=tenants');
+      const baseTimeout = url.startsWith('/') ? 30000 : 10000; // 30s for relative URLs, 10s for absolute
+      const timeout = isTenantQuery ? baseTimeout * 2 : baseTimeout; // 60s for tenant queries, 30s/10s for others
       
       const response = await fetch(url, {
         ...options,
@@ -128,7 +131,8 @@ class DatabaseClient {
         }
         errorCode = 'SERVER_NOT_RUNNING';
       } else if (errorMessage.includes('timeout') || errorName === 'AbortError' || errorMessage.includes('signal timed out')) {
-        userFriendlyMessage = 'Request timed out. The server may be slow or still starting. Please wait a moment and try again.';
+        // For timeout errors, return a more graceful message that doesn't require user action
+        userFriendlyMessage = 'Request is taking longer than expected. Please wait...';
         errorCode = 'TIMEOUT';
       }
       
