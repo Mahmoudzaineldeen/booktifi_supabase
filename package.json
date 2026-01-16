@@ -7,7 +7,7 @@
     "dev": "concurrently \"npm:dev:frontend\" \"npm:dev:backend\"",
     "dev:frontend": "vite",
     "dev:backend": "npm run setup:server-env && npm run install:server-deps && cd server && npm run dev",
-    "install:server-deps": "cd server && node -e \"try { require('fs').accessSync('node_modules/express'); } catch(e) { process.exit(1); }\" || npm install",
+    "install:server-deps": "node scripts/check-server-deps.cjs || (cd server && npm install)",
     "setup:server-env": "node scripts/setup-server-env.cjs",
     "build": "vite build",
     "lint": "eslint .",
