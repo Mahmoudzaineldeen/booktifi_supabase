@@ -8,6 +8,7 @@ import { Input } from '../../components/ui/Input';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { validatePhoneNumberByCountry } from '../../lib/countryCodes';
 import { ArrowLeft, Phone, User, Shield } from 'lucide-react';
+import { db } from '../../lib/db';
 
 interface BookingData {
   serviceId: string;
@@ -36,6 +37,7 @@ export function PhoneEntryPage() {
   const [otpCode, setOtpCode] = useState('');
   const [otpError, setOtpError] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [tenant, setTenant] = useState<any>(null);
 
   // Get booking data from navigation state
   const bookingData: BookingData | null = location.state as BookingData | null;
@@ -46,6 +48,29 @@ export function PhoneEntryPage() {
       navigate(`/${tenantSlug}/book`);
     }
   }, [bookingData, tenantSlug, navigate]);
+
+  // Fetch tenant data
+  useEffect(() => {
+    async function fetchTenant() {
+      if (!tenantSlug) return;
+      
+      try {
+        const { data } = await db
+          .from('tenants')
+          .select('id, name, name_ar, slug')
+          .eq('slug', tenantSlug)
+          .maybeSingle();
+        
+        if (data) {
+          setTenant(data);
+        }
+      } catch (err) {
+        console.error('Error fetching tenant:', err);
+      }
+    }
+    
+    fetchTenant();
+  }, [tenantSlug]);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -102,7 +127,10 @@ export function PhoneEntryPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ phone: phoneNumber }),
+        body: JSON.stringify({ 
+          phone: phoneNumber,
+          tenant_id: tenant?.id,
+        }),
       });
 
       if (!response.ok) {
