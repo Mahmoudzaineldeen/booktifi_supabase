@@ -1,0 +1,932 @@
+{
+	"info": {
+		"_postman_id": "9e7db0bd-f493-4685-aeb2-b32416b5b766",
+		"name": "Paymob Onboarding External",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "11285723"
+	},
+	"item": [
+		{
+			"name": "Fetch Auth Token",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"let response = pm.response.json();",
+							"",
+							"pm.collectionVariables.set(\"auth_token\", response.token);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"username\": \"{{partner_username}}\",\n    \"password\": \"{{partner_password}}\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{ACCEPT_BASE_API_URL}}/api/auth/tokens",
+					"host": [
+						"{{ACCEPT_BASE_API_URL}}"
+					],
+					"path": [
+						"api",
+						"auth",
+						"tokens"
+					]
+				}
+			},
+			"response": [
+				{
+					"name": "Fetch Auth Token",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"api_key\": \"{{partner_key}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{ACCEPT_BASE_API_URL}}/api/auth/tokens",
+							"host": [
+								"{{ACCEPT_BASE_API_URL}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"tokens"
+							]
+						}
+					},
+					"status": "Created",
+					"code": 201,
+					"_postman_previewlanguage": "json",
+					"header": null,
+					"cookie": [],
+					"body": "{\n    \"profile\": {\n        \"id\": 17,\n        \"user\": {\n            \"id\": 104786,\n            \"username\": \"paymob_external_prtr\",\n            \"first_name\": \"\",\n            \"last_name\": \"\",\n            \"date_joined\": \"2025-06-02T12:13:17.859617+03:00\",\n            \"email\": \"\",\n            \"is_active\": true,\n            \"is_staff\": false,\n            \"is_superuser\": false,\n            \"last_login\": null,\n            \"groups\": [],\n            \"user_permissions\": []\n        },\n        \"created_at\": \"2025-06-02T12:14:32.542944+03:00\",\n        \"active\": true,\n        \"profile_type\": \"Partner\",\n        \"phones\": [],\n        \"company_emails\": [],\n        \"company_name\": \"\",\n        \"state\": \"\",\n        \"country\": \"\",\n        \"city\": \"\",\n        \"postal_code\": \"\",\n        \"street\": \"\",\n        \"email_notification\": false,\n        \"name\": null,\n        \"code\": null,\n        \"domain\": null,\n        \"onboarding_partner\": {\n            \"name\": \"paymob_external\",\n            \"verbose_name\": \"paymob_external\",\n            \"connection_method\": \"\",\n            \"url\": \"https://google.com\",\n            \"free_promo\": null,\n            \"side_title\": null,\n            \"side_logo\": null,\n            \"partner_logo\": null\n        },\n        \"activation_method\": 0,\n        \"signed_up_through\": 0,\n        \"failed_attempts\": 0,\n        \"custom_export_columns\": [],\n        \"server_IP\": [],\n        \"username\": null,\n        \"primary_phone_number\": null,\n        \"primary_phone_verified\": false,\n        \"is_temp_password\": false,\n        \"is_2fa_enabled\": false,\n        \"otp_2fa_sent_at\": null,\n        \"otp_2fa_attempt\": null,\n        \"otp_sent_at\": null,\n        \"otp_sent_to\": null,\n        \"otp_validated_at\": null,\n        \"secure_pin_code\": null,\n        \"awb_banner\": null,\n        \"email_banner\": null,\n        \"commercial_registration_name\": null,\n        \"commercial_registration_area\": null,\n        \"identification_number\": null,\n        \"tax_number\": null,\n        \"preferred_language\": \"ar\",\n        \"type\": 0,\n        \"hold_transfers\": false,\n        \"permissions\": [],\n        \"merchants\": [\n            229484\n        ]\n    },\n    \"token\": \"ZXlKaGJHY2lPaUpJVXpVeE1pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SmpiR0Z6Y3lJNklsQmhjblJ1WlhJaUxDSndjbTltYVd4bFgzQnJJam94Tnl3aWNHaGhjMmdpT2lKa1l6Y3dPV1ZoTkRaaU1qSTBZek5tT0dFeU5EQmxNelU1WVdNMk1HSmtZV1ptTVRZMk9HVmtaVEUxTTJReE1EZzFOV0kxTWpBM1ltUmlaRFZtWkdNd0lpd2laWGh3SWpveE56VTBPVGN5TmpVeWZRLkx1a2VJTnpIMGlxaVZIcGFkSjZ4ZGU5S0R2NkdON1BGTDZ5UzFYTm1vTHdldm85VjRRQ1hKV1hBMUJKMENfWWgxTElBdWljOTVKcUlRZ084TzdWNEZB\"\n}"
+				}
+			]
+		},
+		{
+			"name": "Register a merchant",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"let response = pm.response.json();",
+							"",
+							"pm.collectionVariables.set(\"merchant_id\", response.merchant_id);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{auth_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer ZXlKaGJHY2lPaUpJVXpVeE1pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SmpiR0Z6Y3lJNklsQmhjblJ1WlhJaUxDSndjbTltYVd4bFgzQnJJam94Tnl3aWNHaGhjMmdpT201MWJHd3NJbVY0Y0NJNk1UYzFORGsyT0RBME5uMC5tYXdpUUlqR1M2ZV9DUGk1QkFkOVJCcXhzMVM1QXRHSFlGQzg1VHB5Y3RrZ0cyRjgyLXhVU3otVFA2UUlHSnJ3OXdMN29kZzFuNUxCaEpXSkgzbjNFdw==",
+						"type": "text",
+						"disabled": true
+					},
+					{
+						"key": "X-Partner-Api-Key",
+						"value": "{{partner_key}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"phone_number\": \"01010130623\",\n    \"phone_country_code\": \"+2\",\n    \"full_name\": \"test test\",\n    \"email\": \"test@123bbtest.com\",\n    \"send_pass_to_merchant\": \"false\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{ACCEPT_BASE_API_URL}}/api/onboarding/auth/partner-register",
+					"host": [
+						"{{ACCEPT_BASE_API_URL}}"
+					],
+					"path": [
+						"api",
+						"onboarding",
+						"auth",
+						"partner-register"
+					]
+				}
+			},
+			"response": [
+				{
+					"name": "Register a merchant",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer ZXlKaGJHY2lPaUpJVXpVeE1pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SmpiR0Z6Y3lJNklsQmhjblJ1WlhJaUxDSndjbTltYVd4bFgzQnJJam94Tnl3aWNHaGhjMmdpT201MWJHd3NJbVY0Y0NJNk1UYzFORGsyT0RBME5uMC5tYXdpUUlqR1M2ZV9DUGk1QkFkOVJCcXhzMVM1QXRHSFlGQzg1VHB5Y3RrZ0cyRjgyLXhVU3otVFA2UUlHSnJ3OXdMN29kZzFuNUxCaEpXSkgzbjNFdw==",
+								"type": "text",
+								"disabled": true
+							},
+							{
+								"key": "X-Partner-Api-Key",
+								"value": "{{partner_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"phone_number\": \"01011130619\",\n    \"phone_country_code\": \"+2\",\n    \"full_name\": \"test test\",\n    \"email\": \"test@123bbtest.com\",\n    \"send_pass_to_merchant\": \"false\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{ACCEPT_BASE_API_URL}}/api/onboarding/auth/partner-register",
+							"host": [
+								"{{ACCEPT_BASE_API_URL}}"
+							],
+							"path": [
+								"api",
+								"onboarding",
+								"auth",
+								"partner-register"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": null,
+					"cookie": [],
+					"body": "{\n    \"message\": \"Merchant Created Successfully.\",\n    \"phone_number\": \"01011131619\",\n    \"country_code\": \"EGY\",\n    \"phone_country_code\": \"+2\",\n    \"merchant_id\": 229484\n}"
+				}
+			]
+		},
+		{
+			"name": "Get Onboarding Token & URL",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"let response = pm.response.json();",
+							"",
+							"pm.collectionVariables.set(\"jwt_token\", response.auth_token);",
+							"pm.collectionVariables.set(\"partner\", response.partner);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [
+					{
+						"key": "X-Partner-Api-Key",
+						"value": "{{partner_key}}",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "{{ACCEPT_BASE_API_URL}}/api/onboarding/flow-utils/get_partner_token?paymob_mid={{merchant_id}}",
+					"host": [
+						"{{ACCEPT_BASE_API_URL}}"
+					],
+					"path": [
+						"api",
+						"onboarding",
+						"flow-utils",
+						"get_partner_token"
+					],
+					"query": [
+						{
+							"key": "paymob_mid",
+							"value": "{{merchant_id}}"
+						}
+					]
+				}
+			},
+			"response": [
+				{
+					"name": "Get Onboarding Token & URL",
+					"originalRequest": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Partner-Api-Key",
+								"value": "{{partner_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{ACCEPT_BASE_API_URL}}/api/onboarding/flow-utils/get_partner_token?paymob_mid={{merchant_id}}",
+							"host": [
+								"{{ACCEPT_BASE_API_URL}}"
+							],
+							"path": [
+								"api",
+								"onboarding",
+								"flow-utils",
+								"get_partner_token"
+							],
+							"query": [
+								{
+									"key": "paymob_mid",
+									"value": "{{merchant_id}}"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": null,
+					"cookie": [],
+					"body": "{\n    \"url\": \"https://staging.onboarding.paymob.com/?partner=paymob_external&is_partner_auth=true&onboarding_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzU0OTY4OTE3LCJpYXQiOjE3NTQ5NjUzMTcsImp0aSI6IjNhY2U0NTRhMjdiYzRkNmJhNDE3YjcxY2UyMTY4N2ZjIiwicGFydG5lcl9uYW1lIjoicGF5bW9iX2V4dGVybmFsIiwibWVyY2hhbnRfaWQiOiIyMjk0ODQiLCJ1c2VyX2lkIjoxMDQ3ODYsImlzX3BhcnRuZXJfYXV0aCI6dHJ1ZX0.vVvQk4vnzOvc43hcnA6BZQLSvMhytFdFqSBL8r45nyQ\",\n    \"auth_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzU0OTY4OTE3LCJpYXQiOjE3NTQ5NjUzMTcsImp0aSI6IjNhY2U0NTRhMjdiYzRkNmJhNDE3YjcxY2UyMTY4N2ZjIiwicGFydG5lcl9uYW1lIjoicGF5bW9iX2V4dGVybmFsIiwibWVyY2hhbnRfaWQiOiIyMjk0ODQiLCJ1c2VyX2lkIjoxMDQ3ODYsImlzX3BhcnRuZXJfYXV0aCI6dHJ1ZX0.vVvQk4vnzOvc43hcnA6BZQLSvMhytFdFqSBL8r45nyQ\",\n    \"partner\": \"paymob_external\"\n}"
+				}
+			]
+		},
+		{
+			"name": "Schema",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"let response = pm.response.json();",
+							"",
+							"pm.collectionVariables.set(\"schema_id\", response.schema_id);",
+							"pm.collectionVariables.set(\"step_id\", response.step.step_id);"
+						],
+						"type": "text/javascript"
+					}
+				},
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [
+					{
+						"key": "X-Partner-Api-Key",
+						"value": "{{partner_key}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{ACCEPT_BASE_API_URL}}/onboarding/flow/schema?partner={{partner}}&resubmission={{resubmission}}&paymob_mid={{merchant_id}}",
+					"host": [
+						"{{ACCEPT_BASE_API_URL}}"
+					],
+					"path": [
+						"onboarding",
+						"flow",
+						"schema"
+					],
+					"query": [
+						{
+							"key": "partner",
+							"value": "{{partner}}"
+						},
+						{
+							"key": "resubmission",
+							"value": "{{resubmission}}"
+						},
+						{
+							"key": "paymob_mid",
+							"value": "{{merchant_id}}"
+						}
+					]
+				}
+			},
+			"response": [
+				{
+					"name": "Schema [Success]",
+					"originalRequest": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Partner-Api-Key",
+								"value": "{{partner_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{ACCEPT_BASE_API_URL}}/onboarding/flow/schema?partner={{partner}}&resubmission={{resubmission}}&paymob_mid={{merchant_id}}",
+							"host": [
+								"{{ACCEPT_BASE_API_URL}}"
+							],
+							"path": [
+								"onboarding",
+								"flow",
+								"schema"
+							],
+							"query": [
+								{
+									"key": "partner",
+									"value": "{{partner}}"
+								},
+								{
+									"key": "resubmission",
+									"value": "{{resubmission}}"
+								},
+								{
+									"key": "paymob_mid",
+									"value": "{{merchant_id}}"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"name": "Content-Type",
+							"description": "",
+							"type": "text"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"schema_id\": \"paymob_external_5af9e7\",\n    \"flow_title\": \"Flow External\",\n    \"ups_text\": \"<p>-</p>\",\n    \"ups_image\": null,\n    \"flow_description\": \"<p>-</p>\",\n    \"logo\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/flows/draft_doc.png\",\n    \"partner\": \"paymob_external\",\n    \"step\": {\n        \"step_id\": \"step_paymob_external_5af9e7_1c50e7\",\n        \"step_title\": \"Single Step\",\n        \"step_description\": \"Single Body\",\n        \"step_rank\": 1,\n        \"fields\": [\n            {\n                \"same_row\": false,\n                \"rank\": 1,\n                \"validations\": {\n                    \"regex\": [],\n                    \"max_file_size\": null,\n                    \"allowed_file_types\": null,\n                    \"is_required\": true\n                },\n                \"field_id\": \"field_text_d977fc\",\n                \"label\": \"Signatory Name\",\n                \"placeholder\": \"ex : QA-Test\",\n                \"type\": \"text_input\",\n                \"input_type\": \"text\",\n                \"hint\": \"\",\n                \"info\": \"\",\n                \"options\": []\n            },\n            {\n                \"same_row\": false,\n                \"rank\": 2,\n                \"validations\": {\n                    \"regex\": [],\n                    \"max_file_size\": 5.0,\n                    \"allowed_file_types\": [\n                        \"pdf\",\n                        \"jpg\",\n                        \"png\",\n                        \"jpeg\",\n                        \"jfif\"\n                    ],\n                    \"is_required\": true\n                },\n                \"field_id\": \"field_file_215826\",\n                \"label\": \"Rent Contract\",\n                \"placeholder\": \"\",\n                \"type\": \"file_input\",\n                \"input_type\": \"file\",\n                \"hint\": \"\",\n                \"info\": \"\",\n                \"options\": []\n            },\n            {\n                \"same_row\": false,\n                \"rank\": 3,\n                \"validations\": {\n                    \"regex\": [],\n                    \"max_file_size\": null,\n                    \"allowed_file_types\": null,\n                    \"is_required\": true\n                },\n                \"field_id\": \"field_text_57d52c\",\n                \"label\": \"IBAN\",\n                \"placeholder\": \"EG-27digits\",\n                \"type\": \"text_input\",\n                \"input_type\": \"text\",\n                \"hint\": \"\",\n                \"info\": \"\",\n                \"options\": []\n            },\n            {\n                \"same_row\": false,\n                \"rank\": 4,\n                \"validations\": {\n                    \"regex\": [],\n                    \"max_file_size\": null,\n                    \"allowed_file_types\": null,\n                    \"is_required\": true\n                },\n                \"field_id\": \"field_array_0c9645\",\n                \"label\": \"Payment Methods\",\n                \"placeholder\": \"\",\n                \"type\": \"toggle_input\",\n                \"input_type\": \"array\",\n                \"hint\": \"\",\n                \"info\": \"\",\n                \"options\": [\n                    {\n                        \"label\": \"Credit/ Debit Card\",\n                        \"value\": \"16\",\n                        \"image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/field/options/icons/Featured_icon_2.png\",\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"SYMPL\",\n                        \"value\": \"28\",\n                        \"image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/field/options/icons/Featured_icon.png\",\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Google Pay\",\n                        \"value\": \"185\",\n                        \"image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/field/options/icons/Featured_icon_1.png\",\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Tabby\",\n                        \"value\": \"131\",\n                        \"image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/field/options/icons/Featured_icon_3.png\",\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"KIOSK\",\n                        \"value\": \"5\",\n                        \"image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/field/options/icons/image_6_X6LiGo1.png\",\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"VALU\",\n                        \"value\": \"106\",\n                        \"image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/field/options/icons/Featured_icon_5.png\",\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Wallet\",\n                        \"value\": \"105\",\n                        \"image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/field/options/icons/wallet.png\",\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Apple Pay\",\n                        \"value\": \"178\",\n                        \"image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/field/options/icons/Featured_icon_2dZ3aRQ.png\",\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Premium\",\n                        \"value\": \"97\",\n                        \"image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/field/options/icons/premium_card_1.png\",\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"SYMPL2\",\n                        \"value\": \"102\",\n                        \"image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/field/options/icons/Featured_icon_4_0pmmyj1.png\",\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Premium2\",\n                        \"value\": \"96\",\n                        \"image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/field/options/icons/premium_card_1_c0V7HBr.png\",\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Forsa\",\n                        \"value\": \"86\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"NowPay\",\n                        \"value\": \"59\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"MIGS MOTO\",\n                        \"value\": \"15\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"MIGS Auth\",\n                        \"value\": \"67\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Omannet online\",\n                        \"value\": \"161\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"OMAN NET MOTO\",\n                        \"value\": \"181\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    }\n                ]\n            },\n            {\n                \"same_row\": false,\n                \"rank\": 5,\n                \"validations\": {\n                    \"regex\": [],\n                    \"max_file_size\": null,\n                    \"allowed_file_types\": [],\n                    \"is_required\": false\n                },\n                \"field_id\": \"field_text_ee6564\",\n                \"label\": \"Promo Code\",\n                \"placeholder\": \"\",\n                \"type\": \"text_input\",\n                \"input_type\": \"text\",\n                \"hint\": \"\",\n                \"info\": \"\",\n                \"options\": []\n            },\n            {\n                \"same_row\": false,\n                \"rank\": 6,\n                \"validations\": {\n                    \"regex\": [],\n                    \"max_file_size\": 5.0,\n                    \"allowed_file_types\": [\n                        \"pdf\",\n                        \"jpg\",\n                        \"png\",\n                        \"jpeg\",\n                        \"jfif\"\n                    ],\n                    \"is_required\": true\n                },\n                \"field_id\": \"field_file_818605\",\n                \"label\": \"Tax Card\",\n                \"placeholder\": \"\",\n                \"type\": \"file_input\",\n                \"input_type\": \"file\",\n                \"hint\": \"\",\n                \"info\": \"\",\n                \"options\": []\n            },\n            {\n                \"same_row\": false,\n                \"rank\": 7,\n                \"validations\": {\n                    \"regex\": [],\n                    \"max_file_size\": null,\n                    \"allowed_file_types\": null,\n                    \"is_required\": true\n                },\n                \"field_id\": \"field_text_fa2931\",\n                \"label\": \"Industry Type\",\n                \"placeholder\": \"Select from the list\",\n                \"type\": \"dropdown\",\n                \"input_type\": \"text\",\n                \"hint\": \"\",\n                \"info\": \"\",\n                \"options\": [\n                    {\n                        \"label\": \"Banking\",\n                        \"value\": \"Banking\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Entertainment\",\n                        \"value\": \"Entertainment\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Cleaning Services\",\n                        \"value\": \"Cleaning Services\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Residential & Community\",\n                        \"value\": \"Residential & Community\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Courier\",\n                        \"value\": \"Courier\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Consulting\",\n                        \"value\": \"Consulting\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    },\n                    {\n                        \"label\": \"Commerce\",\n                        \"value\": \"Commerce\",\n                        \"image\": null,\n                        \"hint\": \"\"\n                    }\n                ]\n            },\n            {\n                \"same_row\": false,\n                \"rank\": 8,\n                \"validations\": {\n                    \"regex\": [],\n                    \"max_file_size\": null,\n                    \"allowed_file_types\": null,\n                    \"is_required\": true\n                },\n                \"field_id\": \"field_text_6cf4e3\",\n                \"label\": \"Business Name\",\n                \"placeholder\": \"ex. Maghrib Furnitures\",\n                \"type\": \"text_input\",\n                \"input_type\": \"text\",\n                \"hint\": \"\",\n                \"info\": \"\",\n                \"options\": []\n            },\n            {\n                \"same_row\": false,\n                \"rank\": 9,\n                \"validations\": {\n                    \"regex\": [],\n                    \"max_file_size\": 5.0,\n                    \"allowed_file_types\": [\n                        \"pdf\",\n                        \"jpg\",\n                        \"png\",\n                        \"jpeg\",\n                        \"jfif\"\n                    ],\n                    \"is_required\": true\n                },\n                \"field_id\": \"field_file_28706e\",\n                \"label\": \"Passport\",\n                \"placeholder\": \"\",\n                \"type\": \"file_input\",\n                \"input_type\": \"file\",\n                \"hint\": \"\",\n                \"info\": \"Click to upload or drag and drop\",\n                \"options\": []\n            }\n        ],\n        \"submit_button_text\": \"Submit Single\",\n        \"item_icon\": null,\n        \"item_title\": \"\",\n        \"item_description\": \"\",\n        \"add_more_button_text\": \"\",\n        \"single_item_title\": \"\",\n        \"can_repeat\": false\n    },\n    \"step_count\": 1,\n    \"type\": \"step\",\n    \"partner_verbose\": \"paymob_external\",\n    \"partner_url\": \"https://google.com\",\n    \"clean_start\": true,\n    \"data\": {}\n}"
+				},
+				{
+					"name": "Schema [Final Page]",
+					"originalRequest": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Partner-Api-Key",
+								"value": "{{partner_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{ACCEPT_BASE_API_URL}}/onboarding/flow/schema?partner={{partner}}&resubmission={{resubmission}}&paymob_mid={{merchant_id}}",
+							"host": [
+								"{{ACCEPT_BASE_API_URL}}"
+							],
+							"path": [
+								"onboarding",
+								"flow",
+								"schema"
+							],
+							"query": [
+								{
+									"key": "partner",
+									"value": "{{partner}}"
+								},
+								{
+									"key": "resubmission",
+									"value": "{{resubmission}}"
+								},
+								{
+									"key": "paymob_mid",
+									"value": "{{merchant_id}}"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"name": "Content-Type",
+							"description": "",
+							"type": "text"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"schema_id\": \"paymob_external_5af9e7\",\n    \"flow_title\": \"Flow External\",\n    \"ups_text\": \"<p>-</p>\",\n    \"ups_image\": null,\n    \"flow_description\": \"<p>-</p>\",\n    \"logo\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/flows/draft_doc.png\",\n    \"partner\": \"paymob_external\",\n    \"step_count\": 2,\n    \"type\": \"final_page\",\n    \"partner_verbose\": \"paymob_external\",\n    \"partner_url\": \"https://google.com\",\n    \"clean_start\": null,\n    \"data\": null,\n    \"step\": {\n        \"step_id\": \"final_page\",\n        \"end_of_flow_title\": \"End External\",\n        \"end_of_flow_description\": \"End External\",\n        \"end_of_flow_image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/flows/draft_doc_DTKShwk.png\",\n        \"partner_url\": \"https://google.com\"\n    }\n}"
+				},
+				{
+					"name": "Schema [T&C]",
+					"originalRequest": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Partner-Api-Key",
+								"value": "{{partner_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{ACCEPT_BASE_API_URL}}/onboarding/flow/schema?partner={{partner}}&resubmission={{resubmission}}&paymob_mid={{merchant_id}}",
+							"host": [
+								"{{ACCEPT_BASE_API_URL}}"
+							],
+							"path": [
+								"onboarding",
+								"flow",
+								"schema"
+							],
+							"query": [
+								{
+									"key": "partner",
+									"value": "{{partner}}"
+								},
+								{
+									"key": "resubmission",
+									"value": "{{resubmission}}"
+								},
+								{
+									"key": "paymob_mid",
+									"value": "{{merchant_id}}"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"name": "Content-Type",
+							"description": "",
+							"type": "text"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"schema_id\": \"paymob_external_5af9e7\",\n    \"flow_title\": \"Flow External\",\n    \"ups_text\": \"<p>-</p>\",\n    \"ups_image\": null,\n    \"flow_description\": \"<p>-</p>\",\n    \"logo\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/flows/draft_doc.png\",\n    \"partner\": \"paymob_external\",\n    \"step_count\": 2,\n    \"type\": \"terms_and_conditions\",\n    \"partner_verbose\": \"paymob_external\",\n    \"partner_url\": \"https://google.com\",\n    \"clean_start\": null,\n    \"data\": null,\n    \"step\": {\n        \"step_id\": \"terms_and_conditions\",\n        \"body\": \"<p>This agreement governs and regulates your commercial relationship with us. By clicking on the &ldquo;Accept&rdquo; button below, you agree to the following terms that will bind you, but if you do not agree to the following terms, don&rsquo;t click on the checkbox button below.&nbsp;<br />\\r\\n<br />\\r\\n<strong>Who are we and what is the purpose of this agreement?&nbsp;</strong><br />\\r\\nWe are Paymob Technologies LLC (<strong>Paymob</strong>) with registered office at Onyx Tower 1, Office 406, The Greens, Sheikh Zayed Road, Dubai, United Arab Emirates. We license you to use:&nbsp;<br />\\r\\nPaymob App - mobile application program, the data provided with the program (the application) and any updates or extensions thereto.&nbsp;<br />\\r\\nRelated online or electronic documents (documents).&nbsp;<br />\\r\\nThe service you connect to through the application and the content we provide to you through it (the Service).&nbsp;<br />\\r\\nAs permitted in these terms.&nbsp;<br />\\r\\n<br />\\r\\n<strong>Operating system requirements</strong><br />\\r\\nThese terms apply to Merchants who use the Service to receive payments (&ldquo;Merchants&rdquo; or &ldquo;you&rdquo;) and any of their employees or other third parties they have authorized to use the Service (&ldquo;Authorized Personnel&rdquo;). They do not apply to anyone who uses the Paymob App to make a payment (we call them &ldquo;Customers&rdquo; in these terms). If a Merchant uses the Service to make a payment to someone else, they will be acting as a customer and so these Terms will not apply to the Merchant when making that payment.&nbsp;<br />\\r\\nWe allow some Merchants to accept contactless card or mobile wallet payments from their customers using eligible mobile device with an Application support and how to inform us about problems&nbsp;<br />\\r\\nService can be used by Merchants to receive customer payments made using card payments, provided Merchants have an eligible device. If you would like to know more about the application or the service or have any problems during your use of it, please look at our support resources at www.paymob.com.&nbsp;&nbsp;<br />\\r\\nIf you believe that the application or services are defective or misdescribed or want to contact us for any other reason, please email our customer service team at support@paymob.com &nbsp;<br />\\r\\nIf we must notify you of something or contact you, we will do so by email, SMS, by e-mail or speak to you directly through a recorded call using the contact details you have provided to us.&nbsp;<br />\\r\\n<br />\\r\\n<strong>Confidentiality&nbsp;</strong><br />\\r\\nWe are responsible for maintaining confidentiality of your data, which will not be disclosed except at the request of supervisory authorities or as required by legal procedures or after your approval. However, you are responsible for protecting your data with the username and password that allow you to enter the application.&nbsp;<br />\\r\\n<br />\\r\\n<strong>Data Protection&nbsp;</strong><br />\\r\\nYou acknowledge that we need to share certain information about you with other third parties to allow you to use the Service.&nbsp;&nbsp;<br />\\r\\n&nbsp;<br />\\r\\nAssigning the application to another person&nbsp;<br />\\r\\nWe give you the right to use the application and the service as described above, accordingly, you shall not otherwise assign the application or the service to another person, whether for money or anything else or for free. If you wish to sell your device on which the application is installed, you shall remove the application therefrom first.&nbsp;<br />\\r\\n&nbsp;<br />\\r\\n<strong>Changes to these terms&nbsp;</strong><br />\\r\\nWe may need to change these terms to incorporate changes as required by law or best practice or to add additional features or services that we offer, in which case we will notify you of any change by sending an SMS with details of the change or notify you of the change the next time the application is operated.&nbsp;<br />\\r\\n<br />\\r\\nApplication update and service changes&nbsp;<br />\\r\\nFrom time to time, we may automatically update the application and change the service to improve performance, improve functions, introduce changes to the operating system, address security issues, or provide additional services. At times, we may ask you to update the application for the same reasons.&nbsp;<br />\\r\\nIf you choose not to install these updates or if you choose not to subscribe to automatic updates, you will not be able to continue using the application and services.&nbsp;<br />\\r\\nThe application will always work with the current or previous version of the operating system (as it may be updated from time to time).&nbsp;<br />\\r\\n<br />\\r\\n<strong>Licensing restrictions&nbsp;</strong><br />\\r\\nYou agree to:&nbsp;<br />\\r\\nNot rent, lease, sublicense, loan, make available or otherwise make available the application or the services, in whole or in part, to any person without our prior written consent;&nbsp;<br />\\r\\nNot copy application, the documentation or the services, except as part of normal the use of the application or when it is necessary for purpose of backup or operational security;&nbsp;<br />\\r\\nNot translate, integrate, adapt, alter, change or modify all or part of the application, the documentation or the services and not allow the application or the services or any part thereof to be incorporated into any other software, except as is necessary to use the application and the services on devices as permitted under these terms;&nbsp;<br />\\r\\nComply with all applicable technology control export laws and regulations that apply to technology used or supported by the application or any service.&nbsp;<br />\\r\\n<br />\\r\\n<strong>Warnings and limitations of use&nbsp;</strong><br />\\r\\nYou shall not use the application or any service in any unlawful manner, or for any unlawful purpose, or in any manner inconsistent with these terms, or in transactions for political purposes, whether internal or external, or act in a fraudulent or harmful manner, for example by hacking or inserting malicious programming code, such as viruses or harmful data into the application or any service or any operating system;&nbsp;&nbsp;<br />\\r\\nYou shall not infringe our intellectual property rights or the rights of any third party in connection with your use of the application or any service;&nbsp;&nbsp;<br />\\r\\nYou shall not transmit any defamatory, offensive or otherwise objectionable material in connection with your use of the application or any service;&nbsp;&nbsp;<br />\\r\\nYou shall not use the application or any service in such manner that may damage, disable, overburden or harm our systems or security, or interfere with other users; and,&nbsp;&nbsp;<br />\\r\\nYou shall not collect any information or data from any service or from our systems or attempt to decrypt any transmissions to or from the servers running any service.&nbsp;<br />\\r\\nIt is prohibited to add any commissions or additional expenses to the declared prices for the Merchant &rsquo;s customers as a result of using payment through the application or using this application to pay off another card indebtedness, or in exchange for the value of the transaction in cash.&nbsp;<br />\\r\\nIt is also prohibited to use the program in trading in prohibited activity as per the applicable laws in the United Arab Emirates.&nbsp;&nbsp;<br />\\r\\nYou must only use the Service for commercial purposes and not for any personal, family or household purposes;&nbsp;<br />\\r\\nYou accept full responsibility for the behavior of any Authorized Personnel that you have authorized to use the Service on their eligible devices;&nbsp;<br />\\r\\nYou must ensure that your Authorized Personnel complies with these Terms;&nbsp;<br />\\r\\nYou must only use the Service to accept payments in the United Arab Emirates.&nbsp;<br />\\r\\nYou must not discriminate against certain types of cards when a Customer presents them to you for payment; and you must not apply any surcharges on top of the amount of the transaction just because Customer wants to use a particular card.&nbsp;<br />\\r\\nIntellectual property rights&nbsp;<br />\\r\\nAll intellectual property rights in the application, documentation and services worldwide are owned by us and the rights in the application and services are licensed (not sold) to you. You have no intellectual property rights over the application, documentation, or services other than the right to use them in accordance with these terms.&nbsp;<br />\\r\\n&nbsp;</p>\",\n        \"step_rank\": 2\n    }\n}"
+				}
+			]
+		},
+		{
+			"name": "Submit",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"let response = pm.response.json();",
+							"",
+							"pm.collectionVariables.set(\"schema_id\", response.schema.schema_id);",
+							"pm.collectionVariables.set(\"step_id\", response.schema.step.step_id);"
+						],
+						"type": "text/javascript"
+					}
+				},
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "X-Partner-Api-Key",
+						"value": "{{partner_key}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "field_text_d977fc",
+							"value": "signatory_test_extrr",
+							"type": "text"
+						},
+						{
+							"key": "field_text_57d52c",
+							"value": "EG123456789012345678901234567",
+							"type": "text"
+						},
+						{
+							"key": "field_array_0c9645",
+							"value": "[16]",
+							"type": "text"
+						},
+						{
+							"key": "field_text_ee6564",
+							"value": "test_promo_ext",
+							"type": "text"
+						},
+						{
+							"key": "field_text_fa2931",
+							"value": "Banking",
+							"type": "text"
+						},
+						{
+							"key": "field_text_6cf4e3",
+							"value": "test_business_name_ext",
+							"type": "text"
+						},
+						{
+							"key": "accept_terms_and_conditions",
+							"value": "true",
+							"type": "text",
+							"disabled": true
+						},
+						{
+							"key": "field_file_215826",
+							"type": "file",
+							"src": "/home/youssefabdelsattar/Pictures/histogram_legal_docs_revamp.png"
+						},
+						{
+							"key": "field_file_818605",
+							"type": "file",
+							"src": "/home/youssefabdelsattar/Pictures/Speedscope.png"
+						},
+						{
+							"key": "field_file_28706e",
+							"type": "file",
+							"src": "/home/youssefabdelsattar/Pictures/histogram_legal_docs_revamp.png"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{ACCEPT_BASE_API_URL}}/onboarding/flow/submit/{{schema_id}}/{{step_id}}?resubmission={{resubmission}}&paymob_mid={{merchant_id}}",
+					"host": [
+						"{{ACCEPT_BASE_API_URL}}"
+					],
+					"path": [
+						"onboarding",
+						"flow",
+						"submit",
+						"{{schema_id}}",
+						"{{step_id}}"
+					],
+					"query": [
+						{
+							"key": "resubmission",
+							"value": "{{resubmission}}"
+						},
+						{
+							"key": "paymob_mid",
+							"value": "{{merchant_id}}"
+						}
+					]
+				}
+			},
+			"response": [
+				{
+					"name": "Submit [Success]  Terms",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Partner-Api-Key",
+								"value": "{{partner_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "field_40",
+									"type": "file",
+									"src": "/home/mustafa/Pictures/Screenshots/Screenshot from 2024-02-26 11-30-04.png"
+								},
+								{
+									"key": "field_38",
+									"value": "30",
+									"type": "text"
+								}
+							],
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{ACCEPT_BASE_API_URL}}/onboarding/flow/submit/{{schema_id}}/{{step_id}}?resubmission={{resubmission}}&paymob_mid={{merchant_id}}",
+							"host": [
+								"{{ACCEPT_BASE_API_URL}}"
+							],
+							"path": [
+								"onboarding",
+								"flow",
+								"submit",
+								"{{schema_id}}",
+								"{{step_id}}"
+							],
+							"query": [
+								{
+									"key": "resubmission",
+									"value": "{{resubmission}}"
+								},
+								{
+									"key": "paymob_mid",
+									"value": "{{merchant_id}}"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"name": "Content-Type",
+							"description": "",
+							"type": "text"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"message\": \"step submitted successfully\",\n    \"type\": \"terms_and_conditions\",\n    \"schema\": {\n        \"schema_id\": \"paymob_external_5af9e7\",\n        \"step_id\": \"terms_and_conditions\",\n        \"body\": \"<p>This agreement governs and regulates your commercial relationship with us. By clicking on the &ldquo;Accept&rdquo; button below, you agree to the following terms that will bind you, but if you do not agree to the following terms, don&rsquo;t click on the checkbox button below.&nbsp;<br />\\r\\n<br />\\r\\n<strong>Who are we and what is the purpose of this agreement?&nbsp;</strong><br />\\r\\nWe are Paymob Technologies LLC (<strong>Paymob</strong>) with registered office at Onyx Tower 1, Office 406, The Greens, Sheikh Zayed Road, Dubai, United Arab Emirates. We license you to use:&nbsp;<br />\\r\\nPaymob App - mobile application program, the data provided with the program (the application) and any updates or extensions thereto.&nbsp;<br />\\r\\nRelated online or electronic documents (documents).&nbsp;<br />\\r\\nThe service you connect to through the application and the content we provide to you through it (the Service).&nbsp;<br />\\r\\nAs permitted in these terms.&nbsp;<br />\\r\\n<br />\\r\\n<strong>Operating system requirements</strong><br />\\r\\nThese terms apply to Merchants who use the Service to receive payments (&ldquo;Merchants&rdquo; or &ldquo;you&rdquo;) and any of their employees or other third parties they have authorized to use the Service (&ldquo;Authorized Personnel&rdquo;). They do not apply to anyone who uses the Paymob App to make a payment (we call them &ldquo;Customers&rdquo; in these terms). If a Merchant uses the Service to make a payment to someone else, they will be acting as a customer and so these Terms will not apply to the Merchant when making that payment.&nbsp;<br />\\r\\nWe allow some Merchants to accept contactless card or mobile wallet payments from their customers using eligible mobile device with an Application support and how to inform us about problems&nbsp;<br />\\r\\nService can be used by Merchants to receive customer payments made using card payments, provided Merchants have an eligible device. If you would like to know more about the application or the service or have any problems during your use of it, please look at our support resources at www.paymob.com.&nbsp;&nbsp;<br />\\r\\nIf you believe that the application or services are defective or misdescribed or want to contact us for any other reason, please email our customer service team at support@paymob.com &nbsp;<br />\\r\\nIf we must notify you of something or contact you, we will do so by email, SMS, by e-mail or speak to you directly through a recorded call using the contact details you have provided to us.&nbsp;<br />\\r\\n<br />\\r\\n<strong>Confidentiality&nbsp;</strong><br />\\r\\nWe are responsible for maintaining confidentiality of your data, which will not be disclosed except at the request of supervisory authorities or as required by legal procedures or after your approval. However, you are responsible for protecting your data with the username and password that allow you to enter the application.&nbsp;<br />\\r\\n<br />\\r\\n<strong>Data Protection&nbsp;</strong><br />\\r\\nYou acknowledge that we need to share certain information about you with other third parties to allow you to use the Service.&nbsp;&nbsp;<br />\\r\\n&nbsp;<br />\\r\\nAssigning the application to another person&nbsp;<br />\\r\\nWe give you the right to use the application and the service as described above, accordingly, you shall not otherwise assign the application or the service to another person, whether for money or anything else or for free. If you wish to sell your device on which the application is installed, you shall remove the application therefrom first.&nbsp;<br />\\r\\n&nbsp;<br />\\r\\n<strong>Changes to these terms&nbsp;</strong><br />\\r\\nWe may need to change these terms to incorporate changes as required by law or best practice or to add additional features or services that we offer, in which case we will notify you of any change by sending an SMS with details of the change or notify you of the change the next time the application is operated.&nbsp;<br />\\r\\n<br />\\r\\nApplication update and service changes&nbsp;<br />\\r\\nFrom time to time, we may automatically update the application and change the service to improve performance, improve functions, introduce changes to the operating system, address security issues, or provide additional services. At times, we may ask you to update the application for the same reasons.&nbsp;<br />\\r\\nIf you choose not to install these updates or if you choose not to subscribe to automatic updates, you will not be able to continue using the application and services.&nbsp;<br />\\r\\nThe application will always work with the current or previous version of the operating system (as it may be updated from time to time).&nbsp;<br />\\r\\n<br />\\r\\n<strong>Licensing restrictions&nbsp;</strong><br />\\r\\nYou agree to:&nbsp;<br />\\r\\nNot rent, lease, sublicense, loan, make available or otherwise make available the application or the services, in whole or in part, to any person without our prior written consent;&nbsp;<br />\\r\\nNot copy application, the documentation or the services, except as part of normal the use of the application or when it is necessary for purpose of backup or operational security;&nbsp;<br />\\r\\nNot translate, integrate, adapt, alter, change or modify all or part of the application, the documentation or the services and not allow the application or the services or any part thereof to be incorporated into any other software, except as is necessary to use the application and the services on devices as permitted under these terms;&nbsp;<br />\\r\\nComply with all applicable technology control export laws and regulations that apply to technology used or supported by the application or any service.&nbsp;<br />\\r\\n<br />\\r\\n<strong>Warnings and limitations of use&nbsp;</strong><br />\\r\\nYou shall not use the application or any service in any unlawful manner, or for any unlawful purpose, or in any manner inconsistent with these terms, or in transactions for political purposes, whether internal or external, or act in a fraudulent or harmful manner, for example by hacking or inserting malicious programming code, such as viruses or harmful data into the application or any service or any operating system;&nbsp;&nbsp;<br />\\r\\nYou shall not infringe our intellectual property rights or the rights of any third party in connection with your use of the application or any service;&nbsp;&nbsp;<br />\\r\\nYou shall not transmit any defamatory, offensive or otherwise objectionable material in connection with your use of the application or any service;&nbsp;&nbsp;<br />\\r\\nYou shall not use the application or any service in such manner that may damage, disable, overburden or harm our systems or security, or interfere with other users; and,&nbsp;&nbsp;<br />\\r\\nYou shall not collect any information or data from any service or from our systems or attempt to decrypt any transmissions to or from the servers running any service.&nbsp;<br />\\r\\nIt is prohibited to add any commissions or additional expenses to the declared prices for the Merchant &rsquo;s customers as a result of using payment through the application or using this application to pay off another card indebtedness, or in exchange for the value of the transaction in cash.&nbsp;<br />\\r\\nIt is also prohibited to use the program in trading in prohibited activity as per the applicable laws in the United Arab Emirates.&nbsp;&nbsp;<br />\\r\\nYou must only use the Service for commercial purposes and not for any personal, family or household purposes;&nbsp;<br />\\r\\nYou accept full responsibility for the behavior of any Authorized Personnel that you have authorized to use the Service on their eligible devices;&nbsp;<br />\\r\\nYou must ensure that your Authorized Personnel complies with these Terms;&nbsp;<br />\\r\\nYou must only use the Service to accept payments in the United Arab Emirates.&nbsp;<br />\\r\\nYou must not discriminate against certain types of cards when a Customer presents them to you for payment; and you must not apply any surcharges on top of the amount of the transaction just because Customer wants to use a particular card.&nbsp;<br />\\r\\nIntellectual property rights&nbsp;<br />\\r\\nAll intellectual property rights in the application, documentation and services worldwide are owned by us and the rights in the application and services are licensed (not sold) to you. You have no intellectual property rights over the application, documentation, or services other than the right to use them in accordance with these terms.&nbsp;<br />\\r\\n&nbsp;</p>\",\n        \"type\": \"terms_and_conditions\",\n        \"step_count\": 2,\n        \"step_rank\": 2\n    }\n}"
+				},
+				{
+					"name": "Submit [Success]  Final Page",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Partner-Api-Key",
+								"value": "{{partner_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "field_40",
+									"type": "file",
+									"src": "/home/mustafa/Pictures/Screenshots/Screenshot from 2024-02-26 11-30-04.png"
+								},
+								{
+									"key": "field_38",
+									"value": "30",
+									"type": "text"
+								}
+							],
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{ACCEPT_BASE_API_URL}}/onboarding/flow/submit/{{schema_id}}/{{step_id}}?resubmission={{resubmission}}&paymob_mid={{merchant_id}}",
+							"host": [
+								"{{ACCEPT_BASE_API_URL}}"
+							],
+							"path": [
+								"onboarding",
+								"flow",
+								"submit",
+								"{{schema_id}}",
+								"{{step_id}}"
+							],
+							"query": [
+								{
+									"key": "resubmission",
+									"value": "{{resubmission}}"
+								},
+								{
+									"key": "paymob_mid",
+									"value": "{{merchant_id}}"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"name": "Content-Type",
+							"description": "",
+							"type": "text"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"message\": \"step submitted successfully\",\n    \"type\": \"final_page\",\n    \"schema\": {\n        \"step_id\": \"final_page\",\n        \"schema_id\": \"paymob_external_5af9e7\",\n        \"end_of_flow_title\": \"End External\",\n        \"end_of_flow_description\": \"End External\",\n        \"end_of_flow_image\": \"https://accept-alpha.paymob.com/api/onboarding/proxy/media/onboarding/flows/draft_doc_DTKShwk.png\",\n        \"partner_url\": \"https://google.com\",\n        \"type\": \"final_page\",\n        \"partner\": \"paymob_external\",\n        \"partner_verbose\": \"paymob_external\"\n    }\n}"
+				}
+			]
+		},
+		{
+			"name": "Partner Merchant Inquiry",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [
+					{
+						"key": "X-Partner-Api-Key",
+						"value": "{{partner_key}}",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "{{ACCEPT_BASE_API_URL}}/api/onboarding/auth/partner-merchant-inquiry?paymob_mid={{merchant_id}}",
+					"host": [
+						"{{ACCEPT_BASE_API_URL}}"
+					],
+					"path": [
+						"api",
+						"onboarding",
+						"auth",
+						"partner-merchant-inquiry"
+					],
+					"query": [
+						{
+							"key": "paymob_mid",
+							"value": "{{merchant_id}}"
+						}
+					]
+				}
+			},
+			"response": [
+				{
+					"name": "Partner Merchant Inquiry",
+					"originalRequest": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Partner-Api-Key",
+								"value": "{{partner_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{ACCEPT_BASE_API_URL}}/api/onboarding/auth/partner-merchant-inquiry?paymob_mid={{merchant_id}}",
+							"host": [
+								"{{ACCEPT_BASE_API_URL}}"
+							],
+							"path": [
+								"api",
+								"onboarding",
+								"auth",
+								"partner-merchant-inquiry"
+							],
+							"query": [
+								{
+									"key": "paymob_mid",
+									"value": "{{merchant_id}}"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": null,
+					"cookie": [],
+					"body": "{\n    \"id\": 229484,\n    \"onboarding_status\": \"Final Page\",\n    \"legal_status\": \"Pending Review\",\n    \"public_key\": \"egy_pk_live_ITdnmdFJ5mtMx9pjz9HkFzFzaaFX8E87\",\n    \"live_integrations\": [\n        {\n            \"id\": 232,\n            \"service_name\": \"MIGS-online\"\n        },\n        {\n            \"id\": 233,\n            \"service_name\": \"VALU-online\"\n        }\n    ]\n}"
+				}
+			]
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{partner_key}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "ACCEPT_BASE_API_URL",
+			"value": "https://accept-alpha.paymob.com/api"
+		},
+		{
+			"key": "partner",
+			"value": "paymob_external"
+		},
+		{
+			"key": "merchant_id",
+			"value": "228867"
+		},
+		{
+			"key": "schema_id",
+			"value": ""
+		},
+		{
+			"key": "step_id",
+			"value": ""
+		},
+		{
+			"key": "partner_key",
+			"value": "ZXlKaGJHY2lPaUpJVXpVeE1pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SmpiR0Z6Y3lJNklsQmhjblJ1WlhJaUxDSndjbTltYVd4bFgzQnJJam94Tnl3aWJtRnRaU0k2SWtsdWFYUnBZV3dpZlEuQ0FLWTFELVZ3ek9PR0xReUFKSW9adDlMeGd4Q3ZkN2VjSUJEVUhoeDJ0bkVpNHlfMmpfamd5by1YU3l3endVOVMwdzViaUhmM1QxMy11RW5Va3kyMVE=",
+			"type": "string"
+		},
+		{
+			"key": "auth_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "jwt_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "resubmission",
+			"value": "False",
+			"type": "string"
+		},
+		{
+			"key": "partner_username",
+			"value": "paymob_external_prtr",
+			"type": "string"
+		},
+		{
+			"key": "partner_password",
+			"value": "Paymob@123",
+			"type": "string"
+		}
+	]
+}

@@ -1,0 +1,7 @@
+﻿archive\ARCHIVED_FILES.txt
+archive\README.md
+archive\lib\capacityUtils.ts
+archive\pages\employee\EmployeePage.tsx
+archive\pages\tenant\EmployeesPage.tsx
+archive\pages\tenant\EmployeesPageWrapper.tsx
+archive\server\src\routes\employees.ts

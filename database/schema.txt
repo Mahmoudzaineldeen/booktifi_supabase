@@ -1,0 +1,761 @@
+[
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS audit_logs (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  tenant_id UUID,\n  user_id UUID,\n  action_type TEXT NOT NULL,\n  resource_type TEXT NOT NULL,\n  resource_id UUID,\n  old_values JSONB,\n  new_values JSONB,\n  ip_address TEXT,\n  user_agent TEXT,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS booking_locks (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  slot_id UUID NOT NULL,\n  reserved_by_session_id TEXT NOT NULL,\n  reserved_capacity INTEGER(32,0) NOT NULL DEFAULT 1,\n  lock_acquired_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  lock_expires_at TIMESTAMP WITH TIME ZONE NOT NULL\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS bookings (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  tenant_id UUID NOT NULL,\n  service_id UUID NOT NULL,\n  slot_id UUID NOT NULL,\n  employee_id UUID,\n  customer_name TEXT NOT NULL,\n  customer_phone TEXT NOT NULL,\n  customer_email TEXT,\n  visitor_count INTEGER(32,0) NOT NULL DEFAULT 1,\n  total_price NUMERIC(10,2) NOT NULL,\n  status booking_status NOT NULL DEFAULT 'pending'::booking_status,\n  payment_status payment_status NOT NULL DEFAULT 'unpaid'::payment_status,\n  notes TEXT,\n  qr_token TEXT,\n  created_by_user_id UUID,\n  checked_in_at TIMESTAMP WITH TIME ZONE,\n  checked_in_by_user_id UUID,\n  status_changed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  booking_group_id UUID,\n  package_subscription_id UUID,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  customer_id UUID,\n  offer_id UUID,\n  adult_count INTEGER(32,0) NOT NULL,\n  child_count INTEGER(32,0) NOT NULL DEFAULT 0,\n  qr_scanned BOOLEAN NOT NULL DEFAULT false,\n  qr_scanned_at TIMESTAMP WITH TIME ZONE,\n  qr_scanned_by_user_id UUID,\n  package_id UUID,\n  zoho_invoice_id TEXT,\n  zoho_invoice_created_at TIMESTAMP WITH TIME ZONE,\n  language TEXT NOT NULL DEFAULT 'en'::text\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS customers (id UUID NOT NULL DEFAULT gen_random_uuid(),\n  tenant_id UUID NOT NULL,\n  phone TEXT NOT NULL,\n  name TEXT NOT NULL,\n  email TEXT,\n  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),\n  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),\n  last_booking_at TIMESTAMP WITH TIME ZONE,\n  total_bookings INTEGER(32,0) DEFAULT 0\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS employee_services (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  employee_id UUID NOT NULL,\n  service_id UUID NOT NULL,\n  tenant_id UUID NOT NULL,\n  shift_id UUID,\n  duration_minutes INTEGER(32,0),\n  capacity_per_slot INTEGER(32,0) DEFAULT 1,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS otp_requests (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  phone TEXT,\n  otp_code TEXT NOT NULL,\n  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,\n  verified BOOLEAN DEFAULT false,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  purpose TEXT DEFAULT 'password_reset'::text,\n  email TEXT\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS package_services (id UUID NOT NULL DEFAULT gen_random_uuid(),\n  package_id UUID NOT NULL,\n  service_id UUID NOT NULL,\n  quantity INTEGER(32,0) NOT NULL,\n  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS package_subscription_usage (id UUID NOT NULL DEFAULT gen_random_uuid(),\n  subscription_id UUID NOT NULL,\n  service_id UUID NOT NULL,\n  original_quantity INTEGER(32,0) NOT NULL,\n  remaining_quantity INTEGER(32,0) NOT NULL,\n  used_quantity INTEGER(32,0) NOT NULL DEFAULT 0,\n  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS package_subscriptions (id UUID NOT NULL DEFAULT gen_random_uuid(),\n  tenant_id UUID NOT NULL,\n  customer_id UUID NOT NULL,\n  package_id UUID NOT NULL,\n  status TEXT NOT NULL DEFAULT 'active'::text,\n  subscribed_at TIMESTAMP WITH TIME ZONE DEFAULT now(),\n  expires_at TIMESTAMP WITH TIME ZONE,\n  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS payments (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  booking_id UUID NOT NULL,\n  tenant_id UUID NOT NULL,\n  provider TEXT,\n  amount NUMERIC(10,2) NOT NULL,\n  currency TEXT DEFAULT 'SAR'::text,\n  status TEXT,\n  gateway_txn_id TEXT,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS queue_jobs (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  job_type TEXT NOT NULL,\n  status TEXT DEFAULT 'pending'::text,\n  payload JSONB NOT NULL,\n  attempts INTEGER(32,0) DEFAULT 0,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  started_at TIMESTAMP WITH TIME ZONE,\n  completed_at TIMESTAMP WITH TIME ZONE\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS reviews (id UUID NOT NULL DEFAULT gen_random_uuid(),\n  tenant_id UUID NOT NULL,\n  service_id UUID NOT NULL,\n  booking_id UUID,\n  customer_id UUID NOT NULL,\n  rating INTEGER(32,0) NOT NULL,\n  comment TEXT,\n  comment_ar TEXT,\n  is_approved BOOLEAN NOT NULL DEFAULT false,\n  is_visible BOOLEAN NOT NULL DEFAULT true,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  image_url TEXT\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS service_categories (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  tenant_id UUID NOT NULL,\n  name TEXT NOT NULL,\n  name_ar TEXT NOT NULL DEFAULT ''::text,\n  description TEXT,\n  description_ar TEXT,\n  display_order INTEGER(32,0) DEFAULT 0,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS service_offers (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  service_id UUID NOT NULL,\n  tenant_id UUID NOT NULL,\n  name TEXT NOT NULL,\n  name_ar TEXT,\n  description TEXT,\n  description_ar TEXT,\n  price NUMERIC(10,2) NOT NULL,\n  original_price NUMERIC(10,2),\n  discount_percentage INTEGER(32,0),\n  duration_minutes INTEGER(32,0),\n  perks JSONB DEFAULT '[]'::jsonb,\n  perks_ar JSONB DEFAULT '[]'::jsonb,\n  badge TEXT,\n  badge_ar TEXT,\n  display_order INTEGER(32,0) DEFAULT 0,\n  is_active BOOLEAN NOT NULL DEFAULT true,\n  closing_time TIME WITHOUT TIME ZONE,\n  meeting_point TEXT,\n  meeting_point_ar TEXT,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS service_packages (id UUID NOT NULL DEFAULT gen_random_uuid(),\n  tenant_id UUID NOT NULL,\n  name TEXT NOT NULL,\n  name_ar TEXT NOT NULL,\n  description TEXT,\n  description_ar TEXT,\n  total_price NUMERIC(10,2) NOT NULL,\n  is_active BOOLEAN DEFAULT true,\n  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),\n  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),\n  original_price NUMERIC(10,2),\n  discount_percentage INTEGER(32,0),\n  image_url TEXT,\n  gallery_urls JSONB DEFAULT '[]'::jsonb\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS services (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  tenant_id UUID NOT NULL,\n  category_id UUID,\n  name TEXT NOT NULL,\n  name_ar TEXT NOT NULL DEFAULT ''::text,\n  description TEXT,\n  description_ar TEXT,\n  duration_minutes INTEGER(32,0) NOT NULL,\n  base_price NUMERIC(10,2) NOT NULL,\n  capacity_per_slot INTEGER(32,0) NOT NULL DEFAULT 1,\n  capacity_mode capacity_mode NOT NULL DEFAULT 'employee_based'::capacity_mode,\n  service_duration_minutes INTEGER(32,0) NOT NULL,\n  service_capacity_per_slot INTEGER(32,0),\n  is_public BOOLEAN NOT NULL DEFAULT false,\n  assigned_employee_id UUID,\n  image_url TEXT,\n  gallery_urls JSONB DEFAULT '[]'::jsonb,\n  is_active BOOLEAN NOT NULL DEFAULT true,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  average_rating NUMERIC(3,2) DEFAULT 0,\n  total_reviews INTEGER(32,0) DEFAULT 0,\n  original_price NUMERIC(10,2),\n  discount_percentage INTEGER(32,0),\n  child_price NUMERIC(10,2)\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS shifts (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  tenant_id UUID NOT NULL,\n  service_id UUID NOT NULL,\n  days_of_week _int4[] NOT NULL,\n  start_time_utc TIME WITHOUT TIME ZONE NOT NULL,\n  end_time_utc TIME WITHOUT TIME ZONE NOT NULL,\n  is_active BOOLEAN NOT NULL DEFAULT true,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS slots (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  tenant_id UUID NOT NULL,\n  shift_id UUID NOT NULL,\n  employee_id UUID,\n  slot_date DATE NOT NULL,\n  start_time TIME WITHOUT TIME ZONE NOT NULL,\n  end_time TIME WITHOUT TIME ZONE NOT NULL,\n  start_time_utc TIMESTAMP WITH TIME ZONE NOT NULL,\n  end_time_utc TIMESTAMP WITH TIME ZONE NOT NULL,\n  available_capacity INTEGER(32,0) NOT NULL,\n  booked_count INTEGER(32,0) NOT NULL DEFAULT 0,\n  is_available BOOLEAN NOT NULL DEFAULT true,\n  is_overbooked BOOLEAN NOT NULL DEFAULT false,\n  original_capacity INTEGER(32,0) NOT NULL,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS sms_logs (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  tenant_id UUID,\n  phone TEXT NOT NULL,\n  message TEXT NOT NULL,\n  status TEXT,\n  provider_response JSONB,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS tenant_features (id UUID NOT NULL DEFAULT gen_random_uuid(),\n  tenant_id UUID NOT NULL,\n  employees_enabled BOOLEAN NOT NULL DEFAULT true,\n  employee_assignment_mode TEXT NOT NULL DEFAULT 'both'::text,\n  packages_enabled BOOLEAN NOT NULL DEFAULT true,\n  landing_page_enabled BOOLEAN NOT NULL DEFAULT true,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS tenant_zoho_configs (id UUID NOT NULL DEFAULT gen_random_uuid(),\n  tenant_id UUID NOT NULL,\n  client_id CHARACTER VARYING(255) NOT NULL,\n  client_secret CHARACTER VARYING(255) NOT NULL,\n  redirect_uri CHARACTER VARYING(500) DEFAULT 'http://localhost:3001/api/zoho/callback'::character varying,\n  scopes _text[] DEFAULT ARRAY['ZohoInvoice.invoices.CREATE'::text, 'ZohoInvoice.invoices.READ'::text, 'ZohoInvoice.contacts.CREATE'::text, 'ZohoInvoice.contacts.READ'::text],\n  region CHARACTER VARYING(50) DEFAULT 'com'::character varying,\n  is_active BOOLEAN DEFAULT true,\n  created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),\n  updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS tenants (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  name TEXT NOT NULL,\n  name_ar TEXT NOT NULL DEFAULT ''::text,\n  slug TEXT NOT NULL,\n  industry TEXT NOT NULL,\n  contact_email TEXT,\n  contact_phone TEXT,\n  address TEXT,\n  tenant_time_zone TEXT NOT NULL DEFAULT 'Asia/Riyadh'::text,\n  announced_time_zone TEXT NOT NULL DEFAULT 'Asia/Riyadh'::text,\n  subscription_start TIMESTAMP WITH TIME ZONE DEFAULT now(),\n  subscription_end TIMESTAMP WITH TIME ZONE,\n  is_active BOOLEAN NOT NULL DEFAULT true,\n  public_page_enabled BOOLEAN NOT NULL DEFAULT true,\n  maintenance_mode BOOLEAN NOT NULL DEFAULT false,\n  maintenance_message TEXT,\n  theme_preset TEXT DEFAULT 'blue-gold'::text,\n  logo_url TEXT,\n  custom_theme_config JSONB,\n  landing_page_settings JSONB,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  smtp_settings JSONB,\n  whatsapp_settings JSONB\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS time_slots (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  tenant_id UUID NOT NULL,\n  service_id UUID NOT NULL,\n  shift_id UUID NOT NULL,\n  start_time_utc TIMESTAMP WITH TIME ZONE NOT NULL,\n  end_time_utc TIMESTAMP WITH TIME ZONE NOT NULL,\n  total_capacity INTEGER(32,0) NOT NULL,\n  remaining_capacity INTEGER(32,0) NOT NULL,\n  is_available BOOLEAN NOT NULL DEFAULT true,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS users (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  tenant_id UUID,\n  email TEXT,\n  username TEXT,\n  phone TEXT,\n  full_name TEXT NOT NULL,\n  full_name_ar TEXT DEFAULT ''::text,\n  role user_role NOT NULL,\n  is_active BOOLEAN NOT NULL DEFAULT true,\n  capacity_per_slot INTEGER(32,0) NOT NULL DEFAULT 1,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  password_hash TEXT\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS zoho_invoice_logs (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  booking_id UUID,\n  tenant_id UUID,\n  zoho_invoice_id TEXT,\n  status TEXT NOT NULL,\n  error_message TEXT,\n  request_payload JSONB,\n  response_payload JSONB,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()\n);"
+  },
+  {
+    "create_table_statement": "CREATE TABLE IF NOT EXISTS zoho_tokens (id UUID NOT NULL DEFAULT uuid_generate_v4(),\n  tenant_id UUID,\n  access_token TEXT NOT NULL,\n  refresh_token TEXT NOT NULL,\n  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,\n  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),\n  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()\n);"
+  }
+]
+
+[
+  {
+    "function_name": "acquire_booking_lock",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.acquire_booking_lock(p_slot_id uuid, p_session_id text, p_reserved_capacity integer, p_lock_duration_seconds integer DEFAULT 120)\n RETURNS uuid\n LANGUAGE plpgsql\nAS $function$\r\nDECLARE\r\n  v_slot_record RECORD;\r\n  v_locked_capacity integer;\r\n  v_available_capacity integer;\r\n  v_lock_id uuid;\r\nBEGIN\r\n  SELECT id, available_capacity, is_available, original_capacity\r\n  INTO v_slot_record\r\n  FROM slots\r\n  WHERE id = p_slot_id\r\n  FOR UPDATE;\r\n  \r\n  IF NOT FOUND THEN\r\n    RAISE EXCEPTION 'Slot not found';\r\n  END IF;\r\n  \r\n  IF NOT v_slot_record.is_available THEN\r\n    RAISE EXCEPTION 'Slot is not available';\r\n  END IF;\r\n  \r\n  SELECT COALESCE(SUM(reserved_capacity), 0)\r\n  INTO v_locked_capacity\r\n  FROM booking_locks\r\n  WHERE slot_id = p_slot_id\r\n    AND lock_expires_at > now();\r\n  \r\n  v_available_capacity := v_slot_record.available_capacity - v_locked_capacity;\r\n  \r\n  IF v_available_capacity < p_reserved_capacity THEN\r\n    RAISE EXCEPTION 'Not enough tickets available. Only % available, but % requested.', \r\n      v_available_capacity, p_reserved_capacity;\r\n  END IF;\r\n  \r\n  INSERT INTO booking_locks (\r\n    slot_id, reserved_by_session_id, reserved_capacity, lock_expires_at\r\n  ) VALUES (\r\n    p_slot_id, p_session_id, p_reserved_capacity,\r\n    now() + (p_lock_duration_seconds || ' seconds')::interval\r\n  )\r\n  RETURNING id INTO v_lock_id;\r\n  \r\n  RETURN v_lock_id;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "check_slot_overbooked",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.check_slot_overbooked()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  IF NEW.available_capacity < NEW.booked_count THEN\r\n    NEW.is_overbooked := true;\r\n  ELSE\r\n    NEW.is_overbooked := false;\r\n  END IF;\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "cleanup_expired_locks",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.cleanup_expired_locks()\n RETURNS integer\n LANGUAGE plpgsql\nAS $function$\r\nDECLARE\r\n  v_deleted_count integer;\r\nBEGIN\r\n  DELETE FROM booking_locks WHERE lock_expires_at <= now();\r\n  GET DIAGNOSTICS v_deleted_count = ROW_COUNT;\r\n  RETURN v_deleted_count;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "create_booking_with_lock",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.create_booking_with_lock(p_slot_id uuid, p_service_id uuid, p_tenant_id uuid, p_customer_name text, p_customer_phone text, p_customer_email text, p_visitor_count integer, p_adult_count integer, p_child_count integer, p_total_price numeric, p_notes text, p_employee_id uuid, p_lock_id uuid, p_session_id text, p_customer_id uuid, p_offer_id uuid, p_language text DEFAULT 'en'::text)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nDECLARE\r\n  v_slot_record RECORD;\r\n  v_lock_record RECORD;\r\n  v_service_record RECORD;\r\n  v_tenant_record RECORD;\r\n  v_booking_id uuid;\r\n  v_locked_capacity integer;\r\n  v_available_capacity integer;\r\n  v_booking jsonb;\r\nBEGIN\r\n  -- Validate required fields\r\n  IF p_slot_id IS NULL OR p_service_id IS NULL OR p_tenant_id IS NULL OR \r\n     p_customer_name IS NULL OR p_customer_phone IS NULL THEN\r\n    RAISE EXCEPTION 'Missing required fields';\r\n  END IF;\r\n\r\n  -- Validate visitor_count matches adult_count + child_count\r\n  IF p_visitor_count != (p_adult_count + p_child_count) THEN\r\n    RAISE EXCEPTION 'visitor_count (%) does not match adult_count (%) + child_count (%)', \r\n      p_visitor_count, p_adult_count, p_child_count;\r\n  END IF;\r\n\r\n  -- Get and lock slot\r\n  SELECT id, available_capacity, is_available, original_capacity, booked_count, tenant_id\r\n  INTO v_slot_record\r\n  FROM slots\r\n  WHERE id = p_slot_id\r\n  FOR UPDATE;\r\n\r\n  IF NOT FOUND THEN\r\n    RAISE EXCEPTION 'Slot not found';\r\n  END IF;\r\n\r\n  -- Verify slot belongs to tenant\r\n  IF v_slot_record.tenant_id != p_tenant_id THEN\r\n    RAISE EXCEPTION 'Slot does not belong to the specified tenant';\r\n  END IF;\r\n\r\n  -- Check if slot is available\r\n  IF NOT v_slot_record.is_available THEN\r\n    RAISE EXCEPTION 'Slot is not available';\r\n  END IF;\r\n\r\n  -- Get service\r\n  SELECT id, tenant_id, is_active\r\n  INTO v_service_record\r\n  FROM services\r\n  WHERE id = p_service_id;\r\n\r\n  IF NOT FOUND THEN\r\n    RAISE EXCEPTION 'Service not found';\r\n  END IF;\r\n\r\n  -- Verify service belongs to tenant\r\n  IF v_service_record.tenant_id != p_tenant_id THEN\r\n    RAISE EXCEPTION 'Service does not belong to the specified tenant';\r\n  END IF;\r\n\r\n  -- Check if service is active\r\n  IF NOT v_service_record.is_active THEN\r\n    RAISE EXCEPTION 'Service is not active';\r\n  END IF;\r\n\r\n  -- Get tenant\r\n  SELECT id, is_active\r\n  INTO v_tenant_record\r\n  FROM tenants\r\n  WHERE id = p_tenant_id;\r\n\r\n  IF NOT FOUND THEN\r\n    RAISE EXCEPTION 'Tenant not found';\r\n  END IF;\r\n\r\n  -- Check if tenant is active\r\n  IF NOT v_tenant_record.is_active THEN\r\n    RAISE EXCEPTION 'Tenant account is deactivated';\r\n  END IF;\r\n\r\n  -- Validate lock if provided\r\n  IF p_lock_id IS NOT NULL AND p_session_id IS NOT NULL THEN\r\n    SELECT id, slot_id, reserved_by_session_id, reserved_capacity, lock_expires_at\r\n    INTO v_lock_record\r\n    FROM booking_locks\r\n    WHERE id = p_lock_id;\r\n\r\n    IF NOT FOUND THEN\r\n      RAISE EXCEPTION 'Lock not found';\r\n    END IF;\r\n\r\n    IF v_lock_record.lock_expires_at <= now() THEN\r\n      RAISE EXCEPTION 'Lock has expired';\r\n    END IF;\r\n\r\n    IF v_lock_record.reserved_by_session_id != p_session_id THEN\r\n      RAISE EXCEPTION 'Lock does not belong to this session';\r\n    END IF;\r\n\r\n    IF v_lock_record.slot_id != p_slot_id THEN\r\n      RAISE EXCEPTION 'Lock does not match the specified slot';\r\n    END IF;\r\n\r\n    IF v_lock_record.reserved_capacity < p_visitor_count THEN\r\n      RAISE EXCEPTION 'Lock reserved capacity (%) is less than requested visitor count (%)', \r\n        v_lock_record.reserved_capacity, p_visitor_count;\r\n    END IF;\r\n  END IF;\r\n\r\n  -- Calculate currently locked capacity (excluding the current lock if provided)\r\n  SELECT COALESCE(SUM(reserved_capacity), 0)\r\n  INTO v_locked_capacity\r\n  FROM booking_locks\r\n  WHERE slot_id = p_slot_id\r\n    AND lock_expires_at > now()\r\n    AND (p_lock_id IS NULL OR id != p_lock_id);\r\n\r\n  -- Calculate available capacity\r\n  v_available_capacity := v_slot_record.available_capacity - v_locked_capacity;\r\n\r\n  -- Check if there's enough capacity\r\n  IF v_available_capacity < p_visitor_count THEN\r\n    RAISE EXCEPTION 'Not enough tickets available. Only % available, but % requested.', \r\n      v_available_capacity, p_visitor_count;\r\n  END IF;\r\n\r\n  -- Create booking\r\n  INSERT INTO bookings (\r\n    tenant_id,\r\n    service_id,\r\n    slot_id,\r\n    employee_id,\r\n    customer_name,\r\n    customer_phone,\r\n    customer_email,\r\n    visitor_count,\r\n    adult_count,\r\n    child_count,\r\n    total_price,\r\n    status,\r\n    payment_status,\r\n    notes,\r\n    created_by_user_id,\r\n    customer_id,\r\n    offer_id,\r\n    language\r\n  ) VALUES (\r\n    p_tenant_id,\r\n    p_service_id,\r\n    p_slot_id,\r\n    p_employee_id,\r\n    p_customer_name,\r\n    p_customer_phone,\r\n    p_customer_email,\r\n    p_visitor_count,\r\n    p_adult_count,\r\n    p_child_count,\r\n    p_total_price,\r\n    'pending',\r\n    'unpaid',\r\n    p_notes,\r\n    p_customer_id,\r\n    p_customer_id,\r\n    p_offer_id,\r\n    p_language\r\n  )\r\n  RETURNING id INTO v_booking_id;\r\n\r\n  -- Delete the lock if it was used\r\n  IF p_lock_id IS NOT NULL THEN\r\n    DELETE FROM booking_locks WHERE id = p_lock_id;\r\n  END IF;\r\n\r\n  -- Get the created booking with related data\r\n  SELECT jsonb_build_object(\r\n    'id', b.id,\r\n    'tenant_id', b.tenant_id,\r\n    'service_id', b.service_id,\r\n    'slot_id', b.slot_id,\r\n    'employee_id', b.employee_id,\r\n    'customer_name', b.customer_name,\r\n    'customer_phone', b.customer_phone,\r\n    'customer_email', b.customer_email,\r\n    'visitor_count', b.visitor_count,\r\n    'adult_count', b.adult_count,\r\n    'child_count', b.child_count,\r\n    'total_price', b.total_price,\r\n    'status', b.status,\r\n    'payment_status', b.payment_status,\r\n    'notes', b.notes,\r\n    'customer_id', b.customer_id,\r\n    'offer_id', b.offer_id,\r\n    'language', b.language,\r\n    'created_at', b.created_at,\r\n    'updated_at', b.updated_at\r\n  )\r\n  INTO v_booking\r\n  FROM bookings b\r\n  WHERE b.id = v_booking_id;\r\n\r\n  RETURN v_booking;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "create_tenant_features_for_new_tenant",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.create_tenant_features_for_new_tenant()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n  INSERT INTO tenant_features (tenant_id)\r\n  VALUES (NEW.id)\r\n  ON CONFLICT (tenant_id) DO NOTHING;\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "decrement_package_usage_on_booking",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.decrement_package_usage_on_booking()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  IF NEW.package_subscription_id IS NOT NULL AND NEW.status != 'cancelled' THEN\r\n    UPDATE package_subscription_usage\r\n    SET remaining_quantity = remaining_quantity - 1,\r\n        used_quantity = used_quantity + 1,\r\n        updated_at = now()\r\n    WHERE subscription_id = NEW.package_subscription_id\r\n      AND service_id = NEW.service_id\r\n      AND remaining_quantity > 0;\r\n    \r\n    IF NOT FOUND THEN\r\n      RAISE EXCEPTION 'No available package quantity for service in subscription %', NEW.package_subscription_id;\r\n    END IF;\r\n  END IF;\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "generate_slots_for_shift",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.generate_slots_for_shift(p_shift_id uuid, p_start_date date, p_end_date date)\n RETURNS integer\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nDECLARE\r\n  v_tenant_id uuid;\r\n  v_service_id uuid;\r\n  v_start_time_utc time;\r\n  v_end_time_utc time;\r\n  v_days_of_week integer[];\r\n  v_service_duration_minutes integer;\r\n  v_service_capacity_per_slot integer;\r\n  v_capacity_mode capacity_mode;\r\n  v_employee_record record;\r\n  v_current_date date;\r\n  v_slot_start_minutes integer;\r\n  v_slot_end_minutes integer;\r\n  v_shift_start_minutes integer;\r\n  v_shift_end_minutes integer;\r\n  v_shift_duration_minutes integer;\r\n  v_slots_generated integer := 0;\r\n  v_start_time time;\r\n  v_end_time time;\r\n  v_start_timestamp timestamptz;\r\n  v_end_timestamp timestamptz;\r\n  v_employees_count integer;\r\n  v_employee_duration integer;\r\n  v_employee_capacity integer;\r\n  v_slot_capacity integer;\r\nBEGIN\r\n  SELECT sh.tenant_id, sh.service_id, sh.start_time_utc, sh.end_time_utc, sh.days_of_week,\r\n         srv.service_duration_minutes, COALESCE(srv.service_capacity_per_slot, 1) as service_capacity_per_slot,\r\n         srv.capacity_mode\r\n  INTO v_tenant_id, v_service_id, v_start_time_utc, v_end_time_utc, v_days_of_week,\r\n       v_service_duration_minutes, v_service_capacity_per_slot, v_capacity_mode\r\n  FROM shifts sh\r\n  JOIN services srv ON sh.service_id = srv.id\r\n  WHERE sh.id = p_shift_id;\r\n\r\n  IF NOT FOUND THEN\r\n    RAISE EXCEPTION 'Shift not found';\r\n  END IF;\r\n\r\n  v_shift_start_minutes := EXTRACT(HOUR FROM v_start_time_utc) * 60 + EXTRACT(MINUTE FROM v_start_time_utc);\r\n  v_shift_end_minutes := EXTRACT(HOUR FROM v_end_time_utc) * 60 + EXTRACT(MINUTE FROM v_end_time_utc);\r\n  v_shift_duration_minutes := v_shift_end_minutes - v_shift_start_minutes;\r\n\r\n  IF v_shift_duration_minutes < v_service_duration_minutes THEN\r\n    RAISE EXCEPTION 'Shift duration (%) is shorter than service duration (%)', \r\n      v_shift_duration_minutes, v_service_duration_minutes;\r\n  END IF;\r\n\r\n  DELETE FROM slots\r\n  WHERE shift_id = p_shift_id\r\n    AND slot_date >= p_start_date\r\n    AND slot_date <= p_end_date;\r\n\r\n  SELECT COUNT(*) INTO v_employees_count\r\n  FROM employee_services\r\n  WHERE shift_id = p_shift_id;\r\n\r\n  IF v_capacity_mode = 'service_based' THEN\r\n    v_slot_capacity := v_service_capacity_per_slot;\r\n    IF v_slot_capacity IS NULL OR v_slot_capacity = 0 THEN\r\n      RAISE EXCEPTION 'Service capacity not configured for service-based mode';\r\n    END IF;\r\n  ELSE\r\n    IF v_employees_count = 0 THEN\r\n      RAISE EXCEPTION 'No employees assigned to this shift for employee-based service';\r\n    END IF;\r\n  END IF;\r\n\r\n  v_current_date := p_start_date;\r\n  WHILE v_current_date <= p_end_date LOOP\r\n    IF EXTRACT(DOW FROM v_current_date)::integer = ANY(v_days_of_week) THEN\r\n      IF v_capacity_mode = 'service_based' THEN\r\n        v_slot_start_minutes := v_shift_start_minutes;\r\n        WHILE v_slot_start_minutes + v_service_duration_minutes <= v_shift_end_minutes LOOP\r\n          v_slot_end_minutes := v_slot_start_minutes + v_service_duration_minutes;\r\n          v_start_time := make_time(v_slot_start_minutes / 60, v_slot_start_minutes % 60, 0);\r\n          v_end_time := make_time(v_slot_end_minutes / 60, v_slot_end_minutes % 60, 0);\r\n          v_start_timestamp := v_current_date + v_start_time;\r\n          v_end_timestamp := v_current_date + v_end_time;\r\n\r\n          INSERT INTO slots (\r\n            tenant_id, shift_id, employee_id, slot_date, start_time, end_time,\r\n            start_time_utc, end_time_utc, available_capacity, original_capacity, booked_count, is_available\r\n          ) VALUES (\r\n            v_tenant_id, p_shift_id, NULL, v_current_date, v_start_time, v_end_time,\r\n            v_start_timestamp, v_end_timestamp, v_slot_capacity, v_slot_capacity, 0, true\r\n          );\r\n\r\n          v_slots_generated := v_slots_generated + 1;\r\n          v_slot_start_minutes := v_slot_start_minutes + v_service_duration_minutes;\r\n        END LOOP;\r\n      ELSE\r\n        FOR v_employee_record IN\r\n          (SELECT DISTINCT es.employee_id,\r\n                  COALESCE(es.duration_minutes, v_service_duration_minutes) as duration_minutes,\r\n                  COALESCE(es.capacity_per_slot, v_service_capacity_per_slot) as capacity_per_slot\r\n           FROM employee_services es\r\n           WHERE es.shift_id = p_shift_id\r\n           UNION\r\n           SELECT DISTINCT es.employee_id,\r\n                  COALESCE(es.duration_minutes, v_service_duration_minutes) as duration_minutes,\r\n                  COALESCE(es.capacity_per_slot, v_service_capacity_per_slot) as capacity_per_slot\r\n           FROM employee_services es\r\n           WHERE es.service_id = v_service_id AND es.shift_id IS NULL AND v_employees_count = 0\r\n           UNION\r\n           SELECT DISTINCT u.id as employee_id,\r\n                  v_service_duration_minutes as duration_minutes,\r\n                  v_service_capacity_per_slot as capacity_per_slot\r\n           FROM users u\r\n           WHERE u.tenant_id = v_tenant_id AND u.role = 'employee' AND u.is_active = true\r\n             AND v_employees_count = 0\r\n             AND NOT EXISTS (SELECT 1 FROM employee_services WHERE service_id = v_service_id))\r\n        LOOP\r\n          v_employee_duration := v_employee_record.duration_minutes;\r\n          v_employee_capacity := v_employee_record.capacity_per_slot;\r\n          v_slot_start_minutes := v_shift_start_minutes;\r\n\r\n          WHILE v_slot_start_minutes + v_employee_duration <= v_shift_end_minutes LOOP\r\n            v_slot_end_minutes := v_slot_start_minutes + v_employee_duration;\r\n            v_start_time := make_time(v_slot_start_minutes / 60, v_slot_start_minutes % 60, 0);\r\n            v_end_time := make_time(v_slot_end_minutes / 60, v_slot_end_minutes % 60, 0);\r\n            v_start_timestamp := v_current_date + v_start_time;\r\n            v_end_timestamp := v_current_date + v_end_time;\r\n\r\n            INSERT INTO slots (\r\n              tenant_id, shift_id, employee_id, slot_date, start_time, end_time,\r\n              start_time_utc, end_time_utc, available_capacity, original_capacity, booked_count, is_available\r\n            ) VALUES (\r\n              v_tenant_id, p_shift_id, v_employee_record.employee_id, v_current_date,\r\n              v_start_time, v_end_time, v_start_timestamp, v_end_timestamp,\r\n              v_employee_capacity, v_employee_capacity, 0, true\r\n            );\r\n\r\n            v_slots_generated := v_slots_generated + 1;\r\n            v_slot_start_minutes := v_slot_start_minutes + v_employee_duration;\r\n          END LOOP;\r\n        END LOOP;\r\n      END IF;\r\n    END IF;\r\n    v_current_date := v_current_date + 1;\r\n  END LOOP;\r\n\r\n  RETURN v_slots_generated;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "generate_tenant_slug",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.generate_tenant_slug()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  IF NEW.slug IS NULL THEN\r\n    NEW.slug := lower(regexp_replace(NEW.name, '[^a-zA-Z0-9]+', '', 'g'));\r\n  END IF;\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "get_active_locks_for_slots",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.get_active_locks_for_slots(p_slot_ids uuid[])\n RETURNS TABLE(slot_id uuid, total_locked_capacity integer)\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  RETURN QUERY\r\n  SELECT bl.slot_id, COALESCE(SUM(bl.reserved_capacity), 0)::integer as total_locked_capacity\r\n  FROM booking_locks bl\r\n  WHERE bl.slot_id = ANY(p_slot_ids) AND bl.lock_expires_at > now()\r\n  GROUP BY bl.slot_id;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "get_current_user_info",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.get_current_user_info()\n RETURNS TABLE(user_role user_role, user_tenant_id uuid)\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\nBEGIN\r\n  RETURN QUERY\r\n  SELECT u.role, u.tenant_id\r\n  FROM public.users u\r\n  WHERE u.id = auth.uid()\r\n  LIMIT 1;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "initialize_package_usage",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.initialize_package_usage()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n  INSERT INTO package_subscription_usage (subscription_id, service_id, original_quantity, remaining_quantity, used_quantity)\r\n  SELECT NEW.id, ps.service_id, ps.quantity, ps.quantity, 0\r\n  FROM package_services ps\r\n  WHERE ps.package_id = NEW.package_id;\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "reduce_slot_capacity_on_booking",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.reduce_slot_capacity_on_booking()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n  IF NEW.status = 'confirmed' THEN\r\n    UPDATE slots\r\n    SET available_capacity = GREATEST(0, available_capacity - NEW.visitor_count),\r\n        booked_count = booked_count + NEW.visitor_count\r\n    WHERE id = NEW.slot_id;\r\n  END IF;\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "restore_overlapping_slot_capacity",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.restore_overlapping_slot_capacity()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nDECLARE\r\n  v_booking_slot_date date;\r\n  v_booking_start_time time;\r\n  v_booking_end_time time;\r\n  v_employee_id uuid;\r\nBEGIN\r\n  IF OLD.status = 'confirmed' AND NEW.status IN ('cancelled', 'completed') THEN\r\n    SELECT s.slot_date, s.start_time, s.end_time, b.employee_id\r\n    INTO v_booking_slot_date, v_booking_start_time, v_booking_end_time, v_employee_id\r\n    FROM slots s\r\n    JOIN bookings b ON b.slot_id = s.id\r\n    WHERE b.id = NEW.id;\r\n\r\n    IF v_employee_id IS NOT NULL THEN\r\n      UPDATE slots\r\n      SET available_capacity = LEAST(original_capacity, available_capacity + OLD.visitor_count)\r\n      WHERE id IN (\r\n        SELECT s2.id\r\n        FROM slots s2\r\n        WHERE s2.employee_id = v_employee_id\r\n          AND s2.slot_date = v_booking_slot_date\r\n          AND (s2.start_time < v_booking_end_time AND s2.end_time > v_booking_start_time)\r\n          AND s2.id != OLD.slot_id\r\n      );\r\n    END IF;\r\n  END IF;\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "restore_package_usage_on_cancellation",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.restore_package_usage_on_cancellation()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n  IF NEW.status = 'cancelled' AND OLD.status != 'cancelled' AND NEW.package_subscription_id IS NOT NULL THEN\r\n    IF NEW.service_id IS NOT NULL THEN\r\n      UPDATE package_subscription_usage\r\n      SET used_quantity = GREATEST(0, used_quantity - NEW.visitor_count),\r\n          remaining_quantity = remaining_quantity + NEW.visitor_count,\r\n          updated_at = now()\r\n      WHERE subscription_id = NEW.package_subscription_id AND service_id = NEW.service_id;\r\n    END IF;\r\n  END IF;\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "restore_slot_capacity_on_booking",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.restore_slot_capacity_on_booking()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n  IF OLD.status = 'confirmed' AND NEW.status IN ('cancelled', 'completed') THEN\r\n    UPDATE slots\r\n    SET available_capacity = LEAST(original_capacity, available_capacity + OLD.visitor_count),\r\n        booked_count = GREATEST(0, booked_count - OLD.visitor_count)\r\n    WHERE id = OLD.slot_id;\r\n  END IF;\r\n\r\n  IF OLD.status != 'confirmed' AND NEW.status = 'confirmed' THEN\r\n    UPDATE slots\r\n    SET available_capacity = GREATEST(0, available_capacity - NEW.visitor_count),\r\n        booked_count = booked_count + NEW.visitor_count\r\n    WHERE id = NEW.slot_id;\r\n  END IF;\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "sync_all_slots_with_service_capacity",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.sync_all_slots_with_service_capacity()\n RETURNS TABLE(service_id uuid, service_name text, slots_updated integer)\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nDECLARE\r\n  v_service_record RECORD;\r\n  v_updated_count integer;\r\nBEGIN\r\n  FOR v_service_record IN\r\n    SELECT s.id, s.name, s.service_capacity_per_slot\r\n    FROM services s\r\n    WHERE s.capacity_mode = 'service_based' AND s.service_capacity_per_slot IS NOT NULL\r\n  LOOP\r\n    UPDATE slots sl\r\n    SET original_capacity = v_service_record.service_capacity_per_slot,\r\n        available_capacity = GREATEST(0, v_service_record.service_capacity_per_slot - sl.booked_count),\r\n        is_overbooked = (sl.booked_count > v_service_record.service_capacity_per_slot)\r\n    FROM shifts sh\r\n    WHERE sh.service_id = v_service_record.id\r\n      AND sl.shift_id = sh.id\r\n      AND sl.slot_date >= CURRENT_DATE\r\n      AND (sl.original_capacity != v_service_record.service_capacity_per_slot\r\n           OR sl.available_capacity != GREATEST(0, v_service_record.service_capacity_per_slot - sl.booked_count));\r\n    \r\n    GET DIAGNOSTICS v_updated_count = ROW_COUNT;\r\n    service_id := v_service_record.id;\r\n    service_name := v_service_record.name;\r\n    slots_updated := v_updated_count;\r\n    RETURN NEXT;\r\n  END LOOP;\r\n  RETURN;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "trigger_zoho_receipt_on_insert",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.trigger_zoho_receipt_on_insert()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  IF NEW.payment_status = 'paid' AND NEW.zoho_invoice_id IS NULL THEN\r\n    INSERT INTO queue_jobs (job_type, payload, status)\r\n    VALUES ('zoho_receipt',\r\n            jsonb_build_object('booking_id', NEW.id, 'tenant_id', NEW.tenant_id, 'attempt', 0),\r\n            'pending');\r\n  END IF;\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "trigger_zoho_receipt_on_payment",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.trigger_zoho_receipt_on_payment()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  IF NEW.payment_status = 'paid' AND (OLD.payment_status IS NULL OR OLD.payment_status != 'paid') THEN\r\n    IF NEW.zoho_invoice_id IS NULL THEN\r\n      INSERT INTO queue_jobs (job_type, payload, status)\r\n      VALUES ('zoho_receipt',\r\n              jsonb_build_object('booking_id', NEW.id, 'tenant_id', NEW.tenant_id, 'attempt', 0),\r\n              'pending');\r\n    END IF;\r\n  END IF;\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "update_customer_updated_at",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.update_customer_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  NEW.updated_at = now();\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "update_package_usage_updated_at",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.update_package_usage_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  NEW.updated_at = now();\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "update_service_offers_updated_at",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.update_service_offers_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  NEW.updated_at = now();\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "update_service_packages_updated_at",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.update_service_packages_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  NEW.updated_at = now();\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "update_slots_on_service_capacity_change",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.update_slots_on_service_capacity_change()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nDECLARE\r\n  v_new_capacity integer;\r\n  v_old_capacity integer;\r\n  v_updated_count integer;\r\nBEGIN\r\n  IF NEW.capacity_mode = 'service_based' AND NEW.service_capacity_per_slot IS NOT NULL THEN\r\n    v_new_capacity := NEW.service_capacity_per_slot;\r\n    v_old_capacity := OLD.service_capacity_per_slot;\r\n    \r\n    UPDATE slots s\r\n    SET original_capacity = v_new_capacity,\r\n        available_capacity = GREATEST(0, v_new_capacity - s.booked_count),\r\n        is_overbooked = (s.booked_count > v_new_capacity)\r\n    FROM shifts sh\r\n    WHERE sh.service_id = NEW.id AND s.shift_id = sh.id AND s.slot_date >= CURRENT_DATE;\r\n    \r\n    GET DIAGNOSTICS v_updated_count = ROW_COUNT;\r\n    \r\n    IF v_old_capacity IS DISTINCT FROM v_new_capacity THEN\r\n      RAISE NOTICE 'Updated % slots for service %: capacity changed from % to %', \r\n        v_updated_count, NEW.id, COALESCE(v_old_capacity::text, 'NULL'), v_new_capacity;\r\n    ELSE\r\n      RAISE NOTICE 'Updated % slots for service %: capacity set to %', \r\n        v_updated_count, NEW.id, v_new_capacity;\r\n    END IF;\r\n  END IF;\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "update_tenant_features_updated_at",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.update_tenant_features_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  NEW.updated_at = now();\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "update_tenant_zoho_configs_updated_at",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.update_tenant_zoho_configs_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  NEW.updated_at = NOW();\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "update_zoho_tokens_updated_at",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.update_zoho_tokens_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  NEW.updated_at = now();\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  {
+    "function_name": "validate_booking_lock",
+    "function_definition": "CREATE OR REPLACE FUNCTION public.validate_booking_lock(p_lock_id uuid, p_session_id text)\n RETURNS boolean\n LANGUAGE plpgsql\nAS $function$\r\nDECLARE\r\n  v_lock_record RECORD;\r\nBEGIN\r\n  SELECT id, slot_id, reserved_by_session_id, reserved_capacity, lock_expires_at\r\n  INTO v_lock_record\r\n  FROM booking_locks\r\n  WHERE id = p_lock_id;\r\n  \r\n  IF NOT FOUND THEN\r\n    RETURN false;\r\n  END IF;\r\n  \r\n  IF v_lock_record.lock_expires_at <= now() THEN\r\n    RETURN false;\r\n  END IF;\r\n  \r\n  IF v_lock_record.reserved_by_session_id != p_session_id THEN\r\n    RETURN false;\r\n  END IF;\r\n  \r\n  RETURN true;\r\nEND;\r\n$function$\n"
+  }
+]
+
+[
+  {
+    "create_type_statement": "CREATE TYPE booking_status AS ENUM ('pending', 'confirmed', 'checked_in', 'completed', 'cancelled');"
+  },
+  {
+    "create_type_statement": "CREATE TYPE capacity_mode AS ENUM ('employee_based', 'service_based');"
+  },
+  {
+    "create_type_statement": "CREATE TYPE payment_status AS ENUM ('unpaid', 'paid_manual', 'awaiting_payment', 'paid', 'refunded');"
+  },
+  {
+    "create_type_statement": "CREATE TYPE user_role AS ENUM ('solution_owner', 'tenant_admin', 'receptionist', 'cashier', 'employee', 'customer');"
+  }
+]
+[
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX audit_logs_pkey ON public.audit_logs USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_audit_logs_created_at ON public.audit_logs USING btree (created_at DESC);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_audit_logs_resource_type_id ON public.audit_logs USING btree (resource_type, resource_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_audit_logs_tenant_id ON public.audit_logs USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX booking_locks_pkey ON public.booking_locks USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_booking_locks_expires_at ON public.booking_locks USING btree (lock_expires_at);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_booking_locks_session_id ON public.booking_locks USING btree (reserved_by_session_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_booking_locks_slot_expires ON public.booking_locks USING btree (slot_id, lock_expires_at);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_booking_locks_slot_id ON public.booking_locks USING btree (slot_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX bookings_pkey ON public.bookings USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_created_at ON public.bookings USING btree (created_at DESC);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_customer_id ON public.bookings USING btree (customer_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_customer_phone ON public.bookings USING btree (customer_phone);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_group_id ON public.bookings USING btree (booking_group_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_language ON public.bookings USING btree (language);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_offer_id ON public.bookings USING btree (offer_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_package_id ON public.bookings USING btree (package_id) WHERE (package_id IS NOT NULL);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_package_subscription ON public.bookings USING btree (package_subscription_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_service_id ON public.bookings USING btree (service_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_slot_id ON public.bookings USING btree (slot_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_status ON public.bookings USING btree (status);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_tenant_id ON public.bookings USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_bookings_zoho_invoice_id ON public.bookings USING btree (zoho_invoice_id) WHERE (zoho_invoice_id IS NOT NULL);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX customers_pkey ON public.customers USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX customers_tenant_id_phone_key ON public.customers USING btree (tenant_id, phone);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_customers_tenant_id ON public.customers USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_customers_tenant_phone ON public.customers USING btree (tenant_id, phone);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX employee_services_employee_id_service_id_shift_id_key ON public.employee_services USING btree (employee_id, service_id, shift_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX employee_services_pkey ON public.employee_services USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_employee_services_employee_id ON public.employee_services USING btree (employee_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_employee_services_service_id ON public.employee_services USING btree (service_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_employee_services_shift_id ON public.employee_services USING btree (shift_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_employee_services_tenant_id ON public.employee_services USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_otp_requests_email ON public.otp_requests USING btree (email) WHERE (email IS NOT NULL);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_otp_requests_email_purpose ON public.otp_requests USING btree (email, purpose, verified, expires_at) WHERE (email IS NOT NULL);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_otp_requests_phone_purpose ON public.otp_requests USING btree (phone, purpose, verified, expires_at) WHERE (phone IS NOT NULL);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_otp_requests_purpose ON public.otp_requests USING btree (purpose) WHERE (purpose IS NOT NULL);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX otp_requests_pkey ON public.otp_requests USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_package_services_package_id ON public.package_services USING btree (package_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_package_services_service_id ON public.package_services USING btree (service_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX package_services_package_id_service_id_key ON public.package_services USING btree (package_id, service_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX package_services_pkey ON public.package_services USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_package_usage_service ON public.package_subscription_usage USING btree (service_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_package_usage_subscription ON public.package_subscription_usage USING btree (subscription_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX package_subscription_usage_pkey ON public.package_subscription_usage USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX package_subscription_usage_subscription_id_service_id_key ON public.package_subscription_usage USING btree (subscription_id, service_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_package_subscriptions_customer ON public.package_subscriptions USING btree (customer_id, status);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_package_subscriptions_package ON public.package_subscriptions USING btree (package_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_package_subscriptions_tenant ON public.package_subscriptions USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX package_subscriptions_pkey ON public.package_subscriptions USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX payments_pkey ON public.payments USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX queue_jobs_pkey ON public.queue_jobs USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_reviews_approved ON public.reviews USING btree (is_approved, is_visible);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_reviews_customer_id ON public.reviews USING btree (customer_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_reviews_service_id ON public.reviews USING btree (service_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_reviews_tenant_id ON public.reviews USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX reviews_booking_id_key ON public.reviews USING btree (booking_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX reviews_pkey ON public.reviews USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_service_categories_tenant_id ON public.service_categories USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX service_categories_pkey ON public.service_categories USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_service_offers_is_active ON public.service_offers USING btree (is_active);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_service_offers_service_id ON public.service_offers USING btree (service_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_service_offers_tenant_id ON public.service_offers USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX service_offers_pkey ON public.service_offers USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_service_packages_active ON public.service_packages USING btree (tenant_id, is_active);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_service_packages_tenant_id ON public.service_packages USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX service_packages_pkey ON public.service_packages USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_services_capacity_mode ON public.services USING btree (capacity_mode);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_services_category_id ON public.services USING btree (category_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_services_is_public ON public.services USING btree (is_public) WHERE (is_public = true);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_services_tenant_id ON public.services USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX services_pkey ON public.services USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_shifts_service_id ON public.shifts USING btree (service_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_shifts_tenant_id ON public.shifts USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX shifts_pkey ON public.shifts USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_slots_date ON public.slots USING btree (slot_date);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_slots_employee_id ON public.slots USING btree (employee_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_slots_overbooked ON public.slots USING btree (is_overbooked) WHERE (is_overbooked = true);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_slots_shift_id ON public.slots USING btree (shift_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_slots_tenant_id ON public.slots USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX slots_pkey ON public.slots USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX sms_logs_pkey ON public.sms_logs USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX tenant_features_pkey ON public.tenant_features USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX tenant_features_tenant_id_key ON public.tenant_features USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_tenant_zoho_configs_active ON public.tenant_zoho_configs USING btree (tenant_id, is_active);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_tenant_zoho_configs_tenant_id ON public.tenant_zoho_configs USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX tenant_zoho_configs_pkey ON public.tenant_zoho_configs USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX tenant_zoho_configs_tenant_id_key ON public.tenant_zoho_configs USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_tenants_slug ON public.tenants USING btree (slug);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX tenants_pkey ON public.tenants USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX tenants_slug_key ON public.tenants USING btree (slug);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_time_slots_available ON public.time_slots USING btree (is_available) WHERE (is_available = true);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_time_slots_service_id ON public.time_slots USING btree (service_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_time_slots_start_time ON public.time_slots USING btree (start_time_utc);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_time_slots_tenant_id ON public.time_slots USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX time_slots_pkey ON public.time_slots USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_users_capacity ON public.users USING btree (capacity_per_slot);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_users_password_hash ON public.users USING btree (password_hash) WHERE (password_hash IS NOT NULL);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_users_role ON public.users USING btree (role);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_users_tenant_id ON public.users USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_users_username ON public.users USING btree (username);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX users_username_key ON public.users USING btree (username);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_zoho_invoice_logs_booking_id ON public.zoho_invoice_logs USING btree (booking_id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_zoho_invoice_logs_created_at ON public.zoho_invoice_logs USING btree (created_at);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_zoho_invoice_logs_status ON public.zoho_invoice_logs USING btree (status);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_zoho_invoice_logs_tenant_id ON public.zoho_invoice_logs USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX zoho_invoice_logs_pkey ON public.zoho_invoice_logs USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_zoho_tokens_expires_at ON public.zoho_tokens USING btree (expires_at);"
+  },
+  {
+    "create_index_statement": "CREATE INDEX idx_zoho_tokens_tenant_id ON public.zoho_tokens USING btree (tenant_id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX zoho_tokens_pkey ON public.zoho_tokens USING btree (id);"
+  },
+  {
+    "create_index_statement": "CREATE UNIQUE INDEX zoho_tokens_tenant_id_key ON public.zoho_tokens USING btree (tenant_id);"
+  }
+]
+[
+  {
+    "create_trigger_statement": "CREATE TRIGGER create_tenant_features_trigger AFTER INSERT ON public.tenants FOR EACH ROW EXECUTE FUNCTION create_tenant_features_for_new_tenant();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER customers_updated_at BEFORE UPDATE ON public.customers FOR EACH ROW EXECUTE FUNCTION update_customer_updated_at();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER decrement_package_usage_on_booking AFTER INSERT ON public.bookings FOR EACH ROW EXECUTE FUNCTION decrement_package_usage_on_booking();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER initialize_subscription_usage AFTER INSERT ON public.package_subscriptions FOR EACH ROW EXECUTE FUNCTION initialize_package_usage();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER package_usage_updated_at BEFORE UPDATE ON public.package_subscription_usage FOR EACH ROW EXECUTE FUNCTION update_package_usage_updated_at();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER service_packages_updated_at BEFORE UPDATE ON public.service_packages FOR EACH ROW EXECUTE FUNCTION update_service_packages_updated_at();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER set_tenant_slug BEFORE INSERT ON public.tenants FOR EACH ROW EXECUTE FUNCTION generate_tenant_slug();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER tenant_zoho_configs_updated_at BEFORE UPDATE ON public.tenant_zoho_configs FOR EACH ROW EXECUTE FUNCTION update_tenant_zoho_configs_updated_at();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER trigger_check_slot_overbooked BEFORE UPDATE OF available_capacity ON public.slots FOR EACH ROW EXECUTE FUNCTION check_slot_overbooked();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER trigger_manage_slot_capacity_on_update AFTER UPDATE ON public.bookings FOR EACH ROW EXECUTE FUNCTION restore_slot_capacity_on_booking();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER trigger_reduce_slot_capacity_on_insert AFTER INSERT ON public.bookings FOR EACH ROW EXECUTE FUNCTION reduce_slot_capacity_on_booking();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER trigger_restore_package_usage_on_cancellation AFTER UPDATE ON public.bookings FOR EACH ROW EXECUTE FUNCTION restore_package_usage_on_cancellation();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER trigger_update_service_offers_updated_at BEFORE UPDATE ON public.service_offers FOR EACH ROW EXECUTE FUNCTION update_service_offers_updated_at();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER trigger_update_slots_on_service_capacity_change AFTER UPDATE OF service_capacity_per_slot, capacity_mode ON public.services FOR EACH ROW WHEN (((new.capacity_mode = 'service_based'::capacity_mode) AND (new.service_capacity_per_slot IS NOT NULL))) EXECUTE FUNCTION update_slots_on_service_capacity_change();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER update_tenant_features_updated_at_trigger BEFORE UPDATE ON public.tenant_features FOR EACH ROW EXECUTE FUNCTION update_tenant_features_updated_at();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER zoho_receipt_trigger AFTER UPDATE OF payment_status ON public.bookings FOR EACH ROW WHEN (((new.payment_status = 'paid'::payment_status) AND ((old.payment_status IS NULL) OR (old.payment_status <> 'paid'::payment_status)))) EXECUTE FUNCTION trigger_zoho_receipt_on_payment();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER zoho_receipt_trigger_insert AFTER INSERT ON public.bookings FOR EACH ROW WHEN ((new.payment_status = 'paid'::payment_status)) EXECUTE FUNCTION trigger_zoho_receipt_on_insert();"
+  },
+  {
+    "create_trigger_statement": "CREATE TRIGGER zoho_tokens_updated_at BEFORE UPDATE ON public.zoho_tokens FOR EACH ROW EXECUTE FUNCTION update_zoho_tokens_updated_at();"
+  }
+]
+[
+  {
+    "create_fk_statement": "ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE booking_locks ADD CONSTRAINT booking_locks_slot_id_fkey FOREIGN KEY (slot_id) REFERENCES slots(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE bookings ADD CONSTRAINT bookings_checked_in_by_user_id_fkey FOREIGN KEY (checked_in_by_user_id) REFERENCES users(id) ON DELETE SET NULL;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE bookings ADD CONSTRAINT bookings_created_by_user_id_fkey FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE bookings ADD CONSTRAINT bookings_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE SET NULL;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE bookings ADD CONSTRAINT bookings_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE SET NULL;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE bookings ADD CONSTRAINT bookings_offer_id_fkey FOREIGN KEY (offer_id) REFERENCES service_offers(id) ON DELETE SET NULL;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE bookings ADD CONSTRAINT bookings_package_id_fkey FOREIGN KEY (package_id) REFERENCES service_packages(id) ON DELETE SET NULL;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE bookings ADD CONSTRAINT bookings_qr_scanned_by_user_id_fkey FOREIGN KEY (qr_scanned_by_user_id) REFERENCES users(id) ON DELETE SET NULL;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE bookings ADD CONSTRAINT bookings_service_id_fkey FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE bookings ADD CONSTRAINT bookings_slot_id_fkey FOREIGN KEY (slot_id) REFERENCES slots(id) ON DELETE RESTRICT;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE bookings ADD CONSTRAINT bookings_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE customers ADD CONSTRAINT customers_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE employee_services ADD CONSTRAINT employee_services_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE employee_services ADD CONSTRAINT employee_services_service_id_fkey FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE employee_services ADD CONSTRAINT employee_services_shift_id_fkey FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE employee_services ADD CONSTRAINT employee_services_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE package_services ADD CONSTRAINT package_services_package_id_fkey FOREIGN KEY (package_id) REFERENCES service_packages(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE package_services ADD CONSTRAINT package_services_service_id_fkey FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE package_subscription_usage ADD CONSTRAINT package_subscription_usage_service_id_fkey FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE package_subscription_usage ADD CONSTRAINT package_subscription_usage_subscription_id_fkey FOREIGN KEY (subscription_id) REFERENCES package_subscriptions(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE package_subscriptions ADD CONSTRAINT package_subscriptions_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE package_subscriptions ADD CONSTRAINT package_subscriptions_package_id_fkey FOREIGN KEY (package_id) REFERENCES service_packages(id) ON DELETE RESTRICT;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE package_subscriptions ADD CONSTRAINT package_subscriptions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE payments ADD CONSTRAINT payments_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE payments ADD CONSTRAINT payments_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE reviews ADD CONSTRAINT reviews_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE reviews ADD CONSTRAINT reviews_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE reviews ADD CONSTRAINT reviews_service_id_fkey FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE reviews ADD CONSTRAINT reviews_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE service_categories ADD CONSTRAINT service_categories_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE service_offers ADD CONSTRAINT service_offers_service_id_fkey FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE service_offers ADD CONSTRAINT service_offers_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE service_packages ADD CONSTRAINT service_packages_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE services ADD CONSTRAINT services_assigned_employee_id_fkey FOREIGN KEY (assigned_employee_id) REFERENCES users(id) ON DELETE SET NULL;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE services ADD CONSTRAINT services_category_id_fkey FOREIGN KEY (category_id) REFERENCES service_categories(id) ON DELETE SET NULL;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE services ADD CONSTRAINT services_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE shifts ADD CONSTRAINT shifts_service_id_fkey FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE shifts ADD CONSTRAINT shifts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE slots ADD CONSTRAINT slots_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE SET NULL;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE slots ADD CONSTRAINT slots_shift_id_fkey FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE slots ADD CONSTRAINT slots_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE sms_logs ADD CONSTRAINT sms_logs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE tenant_features ADD CONSTRAINT tenant_features_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE tenant_zoho_configs ADD CONSTRAINT tenant_zoho_configs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE time_slots ADD CONSTRAINT time_slots_service_id_fkey FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE time_slots ADD CONSTRAINT time_slots_shift_id_fkey FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE time_slots ADD CONSTRAINT time_slots_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE users ADD CONSTRAINT users_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE zoho_invoice_logs ADD CONSTRAINT zoho_invoice_logs_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE zoho_invoice_logs ADD CONSTRAINT zoho_invoice_logs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  },
+  {
+    "create_fk_statement": "ALTER TABLE zoho_tokens ADD CONSTRAINT zoho_tokens_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;"
+  }
+]

@@ -1,0 +1,76 @@
+﻿
+> vite-react-typescript-starter@0.0.0 test
+> vitest run
+
+
+ RUN  v2.1.9 E:/New folder/sauidi tower/project
+
+ Γ£ô tests/unit/qr.test.ts (7 tests) 10ms
+node.exe : stderr | tests/integration/booking.test.ts > Booking Creation Integration
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (stderr | tests/...ion Integration:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[db.request] Network error: {
+  message: 'fetch failed',
+  name: 'TypeError',
+  url: 'http://localhost:3001/api/insert/tenants',
+  stack: 'TypeError: fetch failed\n' +
+    '    at node:internal/deps/undici/undici:13510:13\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n' +
+    '    at DatabaseClient.request (E:\\New folder\\sauidi tower\\project\\src\\lib\\db.ts:32:24)\n' +
+    '    at Object.single (E:\\New folder\\sauidi tower\\project\\src\\lib\\db.ts:213:28)\n' +
+    '    at Module.createTestTenant (E:\\New folder\\sauidi tower\\project\\tests\\utils\\test-helpers.ts:34:27)\n' +
+    '    at E:\\New folder\\sauidi tower\\project\\tests\\integration\\booking.test.ts:16:20\n' +
+    '    at callSuiteHook 
+(file:///E:/New%20folder/sauidi%20tower/project/node_modules/@vitest/runner/dist/index.js:964:22)\n' +
+    '    at runSuite 
+(file:///E:/New%20folder/sauidi%20tower/project/node_modules/@vitest/runner/dist/index.js:1175:29)\n' +
+    '    at runSuite 
+(file:///E:/New%20folder/sauidi%20tower/project/node_modules/@vitest/runner/dist/index.js:1205:15)\n' +
+    '    at runFiles (file:///E:/New%20folder/sauidi%20tower/project/node_modules/@vitest/runner/dist/index.js:1262:5)'
+}
+
+stderr | tests/integration/booking.test.ts > Booking Creation Integration
+[db.request] Network error: {
+  message: 'fetch failed',
+  name: 'TypeError',
+  url: 'http://localhost:3001/api/delete/bookings',
+  stack: 'TypeError: fetch failed\n' +
+    '    at node:internal/deps/undici/undici:13510:13\n' +
+    '    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n' +
+    '    at DatabaseClient.request (E:\\New folder\\sauidi tower\\project\\src\\lib\\db.ts:32:24)\n' +
+    '    at Object.then (E:\\New folder\\sauidi tower\\project\\src\\lib\\db.ts:306:28)'
+}
+
+ Γ¥» tests/integration/booking.test.ts (3 tests | 3 skipped) 52ms
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Failed Suites 1 ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+ FAIL  tests/integration/booking.test.ts > Booking Creation Integration
+
+Unknown Error: Backend server is not running. Please start the server:
+
+1. Open terminal
+2. cd to project/server
+3. Run: npm run dev
+
+Or double-click start-server.bat
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[1/2]ΓÄ»
+
+ FAIL  tests/integration/booking.test.ts > Booking Creation Integration
+Unknown Error: Backend server is not running. Please start the server:
+
+1. Open terminal
+2. cd to project/server
+3. Run: npm run dev
+
+Or double-click start-server.bat
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[2/2]ΓÄ»
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  7 passed | 3 skipped (10)
+   Start at  18:22:59
+   Duration  1.61s (transform 154ms, setup 78ms, collect 190ms, tests 62ms, environment 1ms, prepare 608ms)
+
