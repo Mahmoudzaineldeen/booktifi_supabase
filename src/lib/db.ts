@@ -1,7 +1,24 @@
 // PostgreSQL Database Client
 // Replaces Supabase client with direct PostgreSQL connection via API
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+// In Bolt/WebContainer, use relative URLs to go through Vite proxy
+// Otherwise use the configured API URL or default to localhost
+const getApiUrl = () => {
+  // Check if we're in a WebContainer/Bolt environment
+  const isWebContainer = typeof window !== 'undefined' && 
+    (window.location.hostname.includes('webcontainer') || 
+     window.location.hostname.includes('bolt') ||
+     window.location.hostname === 'localhost' && window.location.port === '5173');
+  
+  if (isWebContainer || !import.meta.env.VITE_API_URL) {
+    // Use relative URL - Vite proxy will handle it
+    return '/api';
+  }
+  
+  return import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+};
+
+const API_URL = getApiUrl();
 
 class DatabaseClient {
   private baseUrl: string;
@@ -18,6 +35,9 @@ class DatabaseClient {
       const token = localStorage.getItem('auth_token');
       const url = `${this.baseUrl}${endpoint}`;
       
+      // Use longer timeout in WebContainer/Bolt environments
+      const timeout = url.startsWith('/') ? 30000 : 10000; // 30s for relative URLs, 10s for absolute
+      
       const response = await fetch(url, {
         ...options,
         headers: {
@@ -25,7 +45,7 @@ class DatabaseClient {
           ...(token && { Authorization: `Bearer ${token}` }),
           ...options.headers,
         },
-        signal: AbortSignal.timeout(10000), // 10 second timeout
+        signal: AbortSignal.timeout(timeout),
       });
 
       if (!response.ok) {
@@ -96,10 +116,19 @@ class DatabaseClient {
           errorMessage.includes('Failed to fetch') ||
           errorName === 'TypeError' ||
           errorMessage.includes('network')) {
-        userFriendlyMessage = 'Backend server is not running. Please start the server:\n\n1. Open terminal\n2. cd to project/server\n3. Run: npm run dev\n\nOr double-click start-server.bat';
+        // Check if we're in Bolt/WebContainer
+        const isWebContainer = typeof window !== 'undefined' && 
+          (window.location.hostname.includes('webcontainer') || 
+           window.location.hostname.includes('bolt'));
+        
+        if (isWebContainer) {
+          userFriendlyMessage = 'Cannot connect to backend. In Bolt/WebContainer, make sure:\n\n1. The backend server is running (check terminal)\n2. Both frontend and backend are started with: npm run dev\n3. Wait a few seconds for services to initialize';
+        } else {
+          userFriendlyMessage = 'Backend server is not running. Please start the server:\n\n1. Open terminal\n2. cd to project/server\n3. Run: npm run dev\n\nOr double-click start-server.bat';
+        }
         errorCode = 'SERVER_NOT_RUNNING';
-      } else if (errorMessage.includes('timeout') || errorName === 'AbortError') {
-        userFriendlyMessage = 'Request timed out. The server may be slow or not responding.';
+      } else if (errorMessage.includes('timeout') || errorName === 'AbortError' || errorMessage.includes('signal timed out')) {
+        userFriendlyMessage = 'Request timed out. The server may be slow or still starting. Please wait a moment and try again.';
         errorCode = 'TIMEOUT';
       }
       

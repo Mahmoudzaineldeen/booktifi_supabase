@@ -44,7 +44,12 @@ async function cleanupExpiredLocks() {
       .lte('lock_expires_at', now);
 
     if (selectError) {
-      throw selectError;
+      // Only log if it's not a network error (which is common in some environments)
+      if (selectError.message && !selectError.message.includes('fetch failed') && !selectError.message.includes('network')) {
+        throw selectError;
+      }
+      // Silently skip network errors - they're not critical for cleanup
+      return;
     }
 
     // Delete the expired locks
@@ -54,7 +59,12 @@ async function cleanupExpiredLocks() {
       .lte('lock_expires_at', now);
 
     if (deleteError) {
-      throw deleteError;
+      // Only log if it's not a network error
+      if (deleteError.message && !deleteError.message.includes('fetch failed') && !deleteError.message.includes('network')) {
+        throw deleteError;
+      }
+      // Silently skip network errors
+      return;
     }
 
     if (locksToDelete && locksToDelete.length > 0) {
@@ -64,7 +74,11 @@ async function cleanupExpiredLocks() {
       });
     }
   } catch (error: any) {
-    logger.error('Error cleaning up expired locks', error);
+    // Only log non-network errors
+    if (error?.message && !error.message.includes('fetch failed') && !error.message.includes('network')) {
+      logger.error('Error cleaning up expired locks', error);
+    }
+    // Silently ignore network errors - they're not critical
   }
 }
 
