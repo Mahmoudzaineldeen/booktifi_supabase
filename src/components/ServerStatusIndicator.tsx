@@ -56,12 +56,6 @@ export function ServerStatusIndicator() {
             >
               {isChecking ? 'Checking...' : 'Retry'}
             </button>
-            <div className="text-sm">
-              <p className="font-medium">Quick Start:</p>
-              <p className="text-red-100">
-                <code className="bg-red-700 px-2 py-1 rounded">cd server && npm run dev</code>
-              </p>
-            </div>
           </div>
         </div>
       </div>
