@@ -196,12 +196,12 @@ router.post('/insert/:table', async (req, res) => {
       });
     } else {
       query = supabase.from(table).insert(records);
-      
-      // Handle ON CONFLICT based on table
-      if (table === 'package_services') {
-        query = query.ignoreDuplicates();
-      } else if (table === 'employee_services') {
-        query = query.ignoreDuplicates();
+
+    // Handle ON CONFLICT based on table
+    if (table === 'package_services') {
+      query = query.ignoreDuplicates();
+    } else if (table === 'employee_services') {
+      query = query.ignoreDuplicates();
       }
     }
 

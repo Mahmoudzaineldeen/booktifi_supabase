@@ -67,7 +67,7 @@ export function SettingsPage() {
   });
   const [zohoLoading, setZohoLoading] = useState(false);
   const [zohoTestLoading, setZohoTestLoading] = useState(false);
-  const [zohoMessage, setZohoMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [zohoMessage, setZohoMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [showZohoSecret, setShowZohoSecret] = useState(false);
   const [zohoStatus, setZohoStatus] = useState<{
     has_config: boolean;
@@ -597,7 +597,7 @@ export function SettingsPage() {
     }
   }
 
-  function handleZohoConnect() {
+  async function handleZohoConnect() {
     if (!tenant?.id) {
       setZohoMessage({ type: 'error', text: 'Tenant not found' });
       return;
@@ -608,18 +608,92 @@ export function SettingsPage() {
       return;
     }
 
-    // Verify redirect URI is set
-    const redirectUri = zohoSettings.redirect_uri || `${window.location.origin}/api/zoho/callback`;
-    if (!redirectUri.includes('3001')) {
+    // Check if backend server is running first
+    setZohoMessage({ type: 'info', text: 'Checking server connection...' });
+    
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const healthCheckUrl = API_URL.replace('/api', '') || 'http://localhost:3001';
+      
+      const healthCheck = await fetch(`${healthCheckUrl}/health`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(3000), // 3 second timeout
+      });
+
+      if (!healthCheck.ok) {
+        throw new Error('Server health check failed');
+      }
+    } catch (error: any) {
+      const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
+      
+      // Check for specific connection refused error
+      const isConnectionRefused = 
+        error.message?.includes('ERR_CONNECTION_REFUSED') ||
+        error.message?.includes('Failed to fetch') ||
+        error.message?.includes('network') ||
+        error.name === 'TypeError' ||
+        error.name === 'AbortError';
+      
+      let errorMessage: string;
+      
+      if (isBolt) {
+        if (isConnectionRefused) {
+          errorMessage = '❌ Backend server is not running!\n\n' +
+            'The error "ERR_CONNECTION_REFUSED" means the server at http://localhost:3001 is not accessible.\n\n' +
+            'In Bolt, you must:\n' +
+            '1. Keep the terminal open where you ran "npm run dev"\n' +
+            '2. Make sure the server is still running (look for "🚀 API Server running")\n' +
+            '3. If you closed the terminal, restart the server:\n' +
+            '   - Open a new terminal in Bolt\n' +
+            '   - Run: npm run dev\n' +
+            '   - Wait for "🚀 API Server running on http://localhost:3001"\n' +
+            '4. Then try "Connect to Zoho" again\n\n' +
+            '⚠️ Note: The redirect URI http://localhost:3001/api/zoho/callback is correct, but it requires the server to be running.';
+        } else {
+          errorMessage = 'Backend server is not running. In Bolt, you must keep the server terminal open.\n\n' +
+            'To fix:\n' +
+            '1. Check the terminal where you ran "npm run dev"\n' +
+            '2. Make sure the server is still running\n' +
+            '3. If closed, restart with: npm run dev\n' +
+            '4. Wait for "🚀 API Server running" message';
+        }
+      } else {
+        if (isConnectionRefused) {
+          errorMessage = '❌ Backend server is not running!\n\n' +
+            'The error "ERR_CONNECTION_REFUSED" means the server at http://localhost:3001 is not accessible.\n\n' +
+            'To fix:\n' +
+            '1. Open terminal\n' +
+            '2. cd to project/server\n' +
+            '3. Run: npm run dev\n' +
+            '4. Wait for "🚀 API Server running on http://localhost:3001"\n' +
+            '5. Then try "Connect to Zoho" again\n\n' +
+            'Or double-click start-server.bat in the server folder';
+        } else {
+          errorMessage = 'Backend server is not running. Please start the server:\n\n' +
+            '1. Open terminal\n' +
+            '2. cd to project/server\n' +
+            '3. Run: npm run dev\n\n' +
+            'Or double-click start-server.bat';
+        }
+      }
+      
       setZohoMessage({ 
         type: 'error', 
-        text: `Redirect URI must use port 3001 (backend). Current: ${redirectUri}. Please update in Settings and Zoho Developer Console.` 
+        text: errorMessage 
       });
       return;
     }
 
+    // HYBRID APPROACH: Pass origin to backend for dynamic redirect URI
+    // Get current origin (works for both local and Bolt)
+    const currentOrigin = window.location.origin;
+    
+    // Construct auth URL with origin parameter
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-    const authUrl = `${API_URL}/zoho/auth?tenant_id=${tenant.id}`;
+    const authUrl = `${API_URL}/zoho/auth?tenant_id=${tenant.id}&origin=${encodeURIComponent(currentOrigin)}`;
+    
+    console.log('[Zoho Connect] Passing origin to backend:', currentOrigin);
+    console.log('[Zoho Connect] Auth URL:', authUrl);
     
     // Open OAuth flow in popup window
     const popup = window.open(
@@ -1317,13 +1391,17 @@ export function SettingsPage() {
             <CardContent className="p-6">
               <div className="space-y-4">
                 {zohoMessage && (
-                  <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${
+                  <div className={`p-3 rounded-lg text-sm flex items-center gap-2 whitespace-pre-line ${
                     zohoMessage.type === 'success'
                       ? 'bg-green-50 border border-green-200 text-green-700'
+                      : zohoMessage.type === 'info'
+                      ? 'bg-blue-50 border border-blue-200 text-blue-700'
                       : 'bg-red-50 border border-red-200 text-red-700'
                   }`}>
                     {zohoMessage.type === 'success' ? (
                       <CheckCircle className="w-4 h-4" />
+                    ) : zohoMessage.type === 'info' ? (
+                      <MessageCircle className="w-4 h-4" />
                     ) : (
                       <XCircle className="w-4 h-4" />
                     )}

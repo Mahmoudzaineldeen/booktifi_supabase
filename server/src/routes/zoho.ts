@@ -18,17 +18,76 @@ router.get('/auth', async (req, res) => {
       return res.status(400).json({ error: 'tenant_id is required' });
     }
 
+    // HYBRID APPROACH: Dynamic redirect URI detection
+    // Priority 1: Frontend-provided origin (most reliable)
+    let origin: string | undefined = req.query.origin as string | undefined;
+    let originSource = 'Unknown';
+    
+    // Priority 2: Request headers (Origin or Referer)
+    if (!origin) {
+      origin = req.headers.origin as string | undefined;
+      if (origin) {
+        originSource = 'Origin Header';
+      } else if (req.headers.referer) {
+        // If no Origin header, try to extract from Referer
+        try {
+          const refererUrl = new URL(req.headers.referer);
+          origin = `${refererUrl.protocol}//${refererUrl.host}`;
+          originSource = 'Referer Header';
+        } catch (e) {
+          // Invalid referer URL, ignore
+        }
+      }
+    } else {
+      originSource = 'Frontend';
+    }
+    
+    // Priority 3: Environment variable
+    if (!origin) {
+      origin = process.env.APP_URL;
+      if (origin) {
+        originSource = 'Environment Variable (APP_URL)';
+      }
+    }
+    
+    // Priority 4: Construct from Host header (for same-origin requests)
+    if (!origin) {
+      const host = req.headers.host;
+      const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+      if (host) {
+        origin = `${protocol}://${host}`;
+        originSource = 'Host Header';
+      }
+    }
+    
+    // Final fallback: Default localhost
+    if (!origin) {
+      origin = 'http://localhost:3001';
+      originSource = 'Default';
+    }
+    
+    // Construct redirect URI from detected origin
+    const redirectUri = `${origin}/api/zoho/callback`;
+    
+    // Log the redirect URI being used for debugging
+    console.log(`[Zoho Routes] ========================================`);
+    console.log(`[Zoho Routes] INITIATING OAUTH FLOW`);
+    console.log(`[Zoho Routes] Tenant ID: ${tenantId}`);
+    console.log(`[Zoho Routes] Detected Origin: ${origin}`);
+    console.log(`[Zoho Routes] Origin Source: ${originSource}`);
+    console.log(`[Zoho Routes] Using Redirect URI: ${redirectUri}`);
+    console.log(`[Zoho Routes] ⚠️  Make sure this EXACT URI is configured in Zoho Developer Console`);
+    console.log(`[Zoho Routes] ========================================`);
+
     // Load tenant-specific credentials (or fall back to global)
     const clientId = await zohoCredentials.getClientIdForTenant(tenantId);
-    const redirectUri = await zohoCredentials.getRedirectUriForTenant(tenantId);
     const scope = (await zohoCredentials.getScopeForTenant(tenantId)).join(',');
 
-    // Log the redirect URI being used for debugging
-    console.log(`[Zoho Routes] Using redirect URI: ${redirectUri}`);
-    console.log(`[Zoho Routes] Make sure this EXACT URI is configured in Zoho Developer Console`);
-
-    // Store tenant_id in session or state parameter for callback
-    const state = Buffer.from(JSON.stringify({ tenant_id: tenantId })).toString('base64');
+    // Store tenant_id and redirect_uri in state parameter for callback verification
+    const state = Buffer.from(JSON.stringify({ 
+      tenant_id: tenantId,
+      redirect_uri: redirectUri // Store for verification in callback
+    })).toString('base64');
 
     // Determine Zoho accounts URL based on region (if tenant has custom region)
     let accountsUrl = 'https://accounts.zoho.com/oauth/v2/auth';
@@ -67,18 +126,11 @@ router.get('/auth', async (req, res) => {
       `redirect_uri=${encodeURIComponent(redirectUri)}&` +
       `state=${state}`;
 
-    console.log(`[Zoho Routes] ========================================`);
-    console.log(`[Zoho Routes] INITIATING OAUTH FLOW`);
-    console.log(`[Zoho Routes] Tenant ID: ${tenantId}`);
     console.log(`[Zoho Routes] Client ID: ${clientId.substring(0, 10)}...`);
-    console.log(`[Zoho Routes] Redirect URI: ${redirectUri}`);
     console.log(`[Zoho Routes] Access Type: offline (for refresh_token)`);
     console.log(`[Zoho Routes] Prompt: consent (force consent screen)`);
     console.log(`[Zoho Routes] ⚠️  These parameters ensure refresh_token is returned`);
     console.log(`[Zoho Routes] Full Auth URL: ${authUrl.substring(0, 150)}...`);
-    console.log(`[Zoho Routes] ⚠️  IMPORTANT: Make sure the redirect URI "${redirectUri}" is configured in Zoho Developer Console`);
-    console.log(`[Zoho Routes] ⚠️  The redirect URI must match EXACTLY - no trailing slashes, no extra spaces`);
-    console.log(`[Zoho Routes] ========================================`);
     
     res.redirect(authUrl);
   } catch (error: any) {
@@ -199,8 +251,9 @@ router.get('/callback', async (req, res) => {
       return res.status(400).json({ error: 'Invalid authorization code' });
     }
 
-    // Decode state to get tenant_id
+    // Decode state to get tenant_id and redirect_uri
     let tenantId: string;
+    let redirectUri: string | undefined;
     try {
       const stateString: string = typeof state === 'string' 
         ? state 
@@ -212,7 +265,15 @@ router.get('/callback', async (req, res) => {
       }
       const stateData = JSON.parse(Buffer.from(stateString, 'base64').toString());
       tenantId = stateData.tenant_id;
-    } catch {
+      redirectUri = stateData.redirect_uri; // Get redirect_uri from state if present
+      
+      console.log(`[Zoho Routes] State decoded:`, {
+        tenantId,
+        hasRedirectUri: !!redirectUri,
+        redirectUri: redirectUri || 'not in state'
+      });
+    } catch (error: any) {
+      console.error(`[Zoho Routes] Failed to decode state:`, error.message);
       return res.status(400).json({ error: 'Invalid state parameter' });
     }
 
@@ -221,7 +282,17 @@ router.get('/callback', async (req, res) => {
       // Load tenant-specific credentials (or fall back to global)
       const clientId = await zohoCredentials.getClientIdForTenant(tenantId);
       const clientSecret = await zohoCredentials.getClientSecretForTenant(tenantId);
-      const redirectUri = await zohoCredentials.getRedirectUriForTenant(tenantId);
+      
+      // Use redirect URI from state (stored during auth initiation)
+      // This ensures we use the EXACT same redirect URI that was sent to Zoho
+      if (!redirectUri) {
+        // Fallback if redirect_uri not in state (shouldn't happen with Solution 8, but safe fallback)
+        redirectUri = await zohoCredentials.getRedirectUriForTenant(tenantId);
+        console.log(`[Zoho Routes] ⚠️  Redirect URI not in state, using credentials (fallback): ${redirectUri}`);
+      } else {
+        console.log(`[Zoho Routes] ✅ Using redirect URI from state: ${redirectUri}`);
+      }
+      
       const region = await zohoCredentials.getRegionForTenant(tenantId);
 
       // Determine token endpoint based on region
@@ -239,6 +310,9 @@ router.get('/callback', async (req, res) => {
       console.log(`[Zoho Routes] ========================================`);
       console.log(`[Zoho Routes] TOKEN EXCHANGE STARTING`);
       console.log(`[Zoho Routes] Using token endpoint: ${tokenEndpoint} for region: ${region}`);
+      console.log(`[Zoho Routes] ⚠️  CRITICAL: Redirect URI must match EXACTLY what was sent to Zoho during authorization`);
+      console.log(`[Zoho Routes] Redirect URI being used: ${redirectUri}`);
+      console.log(`[Zoho Routes] ⚠️  Make sure this EXACT URI is in Zoho Developer Console`);
       console.log(`[Zoho Routes] Token exchange params:`, {
         grant_type: 'authorization_code',
         client_id: clientId.substring(0, 15) + '...',

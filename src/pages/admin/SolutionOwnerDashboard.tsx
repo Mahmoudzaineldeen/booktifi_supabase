@@ -539,13 +539,13 @@ export function SolutionOwnerDashboard() {
                             >
                               <Edit className="w-4 h-4" />
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleToggleActive(tenant)}
-                            >
-                              {tenant.is_active ? t('admin.deactivate') : t('admin.activate')}
-                            </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleToggleActive(tenant)}
+                          >
+                            {tenant.is_active ? t('admin.deactivate') : t('admin.activate')}
+                          </Button>
                             <Button
                               size="sm"
                               variant="ghost"
