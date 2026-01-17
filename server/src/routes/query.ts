@@ -177,13 +177,32 @@ router.post('/insert/:table', async (req, res) => {
     console.log(`[Insert] Using: ${isUsingServiceRole ? 'SERVICE_ROLE key' : 'ANON key (may fail due to RLS)'}`);
 
     // Use Supabase insert with upsert options based on table
-    let query = supabase.from(table).insert(records);
-
-    // Handle ON CONFLICT based on table
-    if (table === 'package_services') {
-      query = query.ignoreDuplicates();
-    } else if (table === 'employee_services') {
-      query = query.ignoreDuplicates();
+    let query;
+    
+    // For users table, use upsert to handle duplicate IDs gracefully
+    if (table === 'users') {
+      // Use upsert with conflict resolution on 'id' column
+      // This will update existing records or insert new ones
+      query = supabase.from(table).upsert(records, { 
+        onConflict: 'id',
+        ignoreDuplicates: false 
+      });
+    } else if (table === 'tenants') {
+      // For tenants table, use upsert to handle duplicate slugs gracefully
+      // This will update existing records or insert new ones
+      query = supabase.from(table).upsert(records, { 
+        onConflict: 'slug',
+        ignoreDuplicates: false 
+      });
+    } else {
+      query = supabase.from(table).insert(records);
+      
+      // Handle ON CONFLICT based on table
+      if (table === 'package_services') {
+        query = query.ignoreDuplicates();
+      } else if (table === 'employee_services') {
+        query = query.ignoreDuplicates();
+      }
     }
 
     // Apply select for returning
@@ -228,6 +247,56 @@ router.post('/insert/:table', async (req, res) => {
       // Handle unique constraint violations
       if (error.code === '23505') {
         const constraintMatch = error.message.match(/Key \(([^)]+)\)=\([^)]+\) already exists/);
+        
+        // For users table, try to return the existing record instead of error
+        if (table === 'users' && records.length === 1 && records[0].id) {
+          console.log(`[Insert] User with ID ${records[0].id} already exists, fetching existing record...`);
+          const { data: existingUser, error: fetchError } = await supabase
+            .from('users')
+            .select(returning && returning !== '*' ? returning : '*')
+            .eq('id', records[0].id)
+            .single();
+          
+          if (!fetchError && existingUser) {
+            console.log(`[Insert] Returning existing user record`);
+            return res.json(Array.isArray(data) ? [existingUser] : existingUser);
+          }
+        }
+        
+        // For tenants table, try to return the existing record instead of error
+        if (table === 'tenants' && records.length === 1) {
+          // Try to find by slug first (most common conflict)
+          const slug = records[0].slug;
+          if (slug) {
+            console.log(`[Insert] Tenant with slug "${slug}" already exists, fetching existing record...`);
+            const { data: existingTenant, error: fetchError } = await supabase
+              .from('tenants')
+              .select(returning && returning !== '*' ? returning : '*')
+              .eq('slug', slug)
+              .single();
+            
+            if (!fetchError && existingTenant) {
+              console.log(`[Insert] Returning existing tenant record`);
+              return res.json(Array.isArray(data) ? [existingTenant] : existingTenant);
+            }
+          }
+          
+          // Fallback: try to find by ID if provided
+          if (records[0].id) {
+            console.log(`[Insert] Tenant with ID ${records[0].id} already exists, fetching existing record...`);
+            const { data: existingTenant, error: fetchError } = await supabase
+              .from('tenants')
+              .select(returning && returning !== '*' ? returning : '*')
+              .eq('id', records[0].id)
+              .single();
+            
+            if (!fetchError && existingTenant) {
+              console.log(`[Insert] Returning existing tenant record`);
+              return res.json(Array.isArray(data) ? [existingTenant] : existingTenant);
+            }
+          }
+        }
+        
         if (constraintMatch) {
           throw new Error(
             `Duplicate entry: ${constraintMatch[1]} already exists. ` +

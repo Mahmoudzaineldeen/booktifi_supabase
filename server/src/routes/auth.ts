@@ -2159,5 +2159,184 @@ router.post('/guest/verify-otp', async (req, res) => {
   }
 });
 
+// Middleware to authenticate solution owner only
+function authenticateSolutionOwner(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header required' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    
+    if (decoded.role !== 'solution_owner') {
+      return res.status(403).json({ 
+        error: 'Access denied. Only Solution Owner can perform this action.',
+        userRole: decoded.role
+      });
+    }
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      tenant_id: decoded.tenant_id,
+    };
+    
+    next();
+  } catch (error: any) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+// Create Solution Owner (only accessible by existing Solution Owner)
+router.post('/create-solution-owner', authenticateSolutionOwner, async (req, res) => {
+  try {
+    const { email, password, full_name } = req.body;
+
+    if (!email || !password || !full_name) {
+      return res.status(400).json({ 
+        error: 'Email, password, and full name are required' 
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    // Validate password strength
+    if (password.length < 8) {
+      return res.status(400).json({ 
+        error: 'Password must be at least 8 characters long' 
+      });
+    }
+
+    // Check if user already exists
+    const { data: existingUser, error: checkError } = await supabase
+      .from('users')
+      .select('id, email')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('Error checking existing user:', checkError);
+      return res.status(500).json({ error: 'Failed to check if user exists' });
+    }
+
+    if (existingUser) {
+      return res.status(400).json({ error: 'An account with this email already exists' });
+    }
+
+    // Step 1: Create Supabase Auth user
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email: email,
+      password: password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: full_name,
+        role: 'solution_owner'
+      }
+    });
+
+    if (authError) {
+      console.error('Error creating auth user:', authError);
+      return res.status(500).json({ 
+        error: `Failed to create auth user: ${authError.message}` 
+      });
+    }
+
+    if (!authData.user) {
+      return res.status(500).json({ error: 'Failed to create auth user: No user returned' });
+    }
+
+    const authUserId = authData.user.id;
+
+    // Step 2: Hash password for password_hash column
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Step 3: Create user profile in users table
+    const { data: userProfile, error: profileError } = await supabase
+      .from('users')
+      .insert({
+        id: authUserId,
+        email: email,
+        full_name: full_name.trim(),
+        role: 'solution_owner',
+        is_active: true,
+        tenant_id: null, // CRITICAL: Solution Owner has NULL tenant_id for system-wide access
+        password_hash: passwordHash // Store hashed password
+      })
+      .select('id, email, full_name, role, tenant_id, is_active')
+      .single();
+
+    if (profileError) {
+      // If profile creation fails, try to delete the auth user
+      try {
+        await supabase.auth.admin.deleteUser(authUserId);
+      } catch (deleteError) {
+        console.error('Error cleaning up auth user after profile creation failure:', deleteError);
+      }
+
+      console.error('Error creating user profile:', profileError);
+      return res.status(500).json({ 
+        error: `Failed to create user profile: ${profileError.message}` 
+      });
+    }
+
+    // Step 4: Verify tenant_id is NULL
+    if (userProfile.tenant_id !== null) {
+      console.warn('⚠️  WARNING: tenant_id is not NULL! Updating to NULL...');
+      const { error: fixError } = await supabase
+        .from('users')
+        .update({ tenant_id: null })
+        .eq('id', authUserId);
+
+      if (fixError) {
+        console.error('❌ Error fixing tenant_id:', fixError);
+        // Continue anyway - the user is created
+      } else {
+        // Refresh userProfile
+        const { data: updatedProfile } = await supabase
+          .from('users')
+          .select('id, email, full_name, role, tenant_id, is_active')
+          .eq('id', authUserId)
+          .single();
+        
+        if (updatedProfile) {
+          Object.assign(userProfile, updatedProfile);
+        }
+      }
+    }
+
+    console.log('✅ Solution Owner created successfully:', {
+      id: userProfile.id,
+      email: userProfile.email,
+      role: userProfile.role,
+      tenant_id: userProfile.tenant_id
+    });
+
+    res.json({
+      success: true,
+      message: 'Solution Owner created successfully',
+      user: {
+        id: userProfile.id,
+        email: userProfile.email,
+        full_name: userProfile.full_name,
+        role: userProfile.role,
+        tenant_id: userProfile.tenant_id,
+        is_active: userProfile.is_active
+      }
+    });
+  } catch (error: any) {
+    console.error('Create Solution Owner error:', error);
+    res.status(500).json({ 
+      error: error.message || 'Internal server error' 
+    });
+  }
+});
+
 export { router as authRoutes };
 

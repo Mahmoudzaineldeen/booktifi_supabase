@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
-import { Building2, Users, Calendar, LogOut, Plus, Settings } from 'lucide-react';
+import { Building2, Users, Calendar, LogOut, Plus, Settings, Edit, Trash2, UserPlus, Shield } from 'lucide-react';
 import { Tenant } from '../../types';
 
 export function SolutionOwnerDashboard() {
@@ -18,7 +18,15 @@ export function SolutionOwnerDashboard() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showCreateSolutionOwnerModal, setShowCreateSolutionOwnerModal] = useState(false);
+  const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
+  const [deletingTenant, setDeletingTenant] = useState<Tenant | null>(null);
   const [creating, setCreating] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [creatingSolutionOwner, setCreatingSolutionOwner] = useState(false);
   const [error, setError] = useState('');
 
   const [newTenant, setNewTenant] = useState({
@@ -29,6 +37,12 @@ export function SolutionOwnerDashboard() {
     contact_phone: '',
     address: '',
     admin_password: '',
+  });
+
+  const [newSolutionOwner, setNewSolutionOwner] = useState({
+    email: '',
+    password: '',
+    full_name: '',
   });
 
   useEffect(() => {
@@ -200,6 +214,147 @@ export function SolutionOwnerDashboard() {
     }
   }
 
+  async function handleEditTenant(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingTenant) return;
+
+    setUpdating(true);
+    setError('');
+
+    try {
+      const client = db;
+
+      const { error: updateError } = await client
+        .from('tenants')
+        .update({
+          name: newTenant.name,
+          name_ar: newTenant.name_ar,
+          industry: newTenant.industry,
+          contact_email: newTenant.contact_email,
+          contact_phone: newTenant.contact_phone,
+          address: newTenant.address,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingTenant.id);
+
+      if (updateError) throw updateError;
+
+      setShowEditModal(false);
+      setEditingTenant(null);
+      setNewTenant({
+        name: '',
+        name_ar: '',
+        industry: 'restaurant',
+        contact_email: '',
+        contact_phone: '',
+        address: '',
+        admin_password: '',
+      });
+      fetchTenants();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update tenant');
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  async function handleDeleteTenant() {
+    if (!deletingTenant) return;
+
+    setDeleting(true);
+    setError('');
+
+    try {
+      const client = db;
+
+      // Delete tenant (cascade will handle related records)
+      const { error: deleteError } = await client
+        .from('tenants')
+        .delete()
+        .eq('id', deletingTenant.id);
+
+      if (deleteError) throw deleteError;
+
+      setShowDeleteModal(false);
+      setDeletingTenant(null);
+      fetchTenants();
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete tenant');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function openEditModal(tenant: Tenant) {
+    setEditingTenant(tenant);
+    setNewTenant({
+      name: tenant.name || '',
+      name_ar: tenant.name_ar || '',
+      industry: tenant.industry || 'restaurant',
+      contact_email: tenant.contact_email || '',
+      contact_phone: tenant.contact_phone || '',
+      address: tenant.address || '',
+      admin_password: '', // Don't show password when editing
+    });
+    setError('');
+    setShowEditModal(true);
+  }
+
+  function openDeleteModal(tenant: Tenant) {
+    setDeletingTenant(tenant);
+    setError('');
+    setShowDeleteModal(true);
+  }
+
+  async function handleCreateSolutionOwner(e: React.FormEvent) {
+    e.preventDefault();
+    setCreatingSolutionOwner(true);
+    setError('');
+
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const token = localStorage.getItem('auth_token');
+      
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+
+      const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+      const response = await fetch(`${baseUrl}/auth/create-solution-owner`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          email: newSolutionOwner.email,
+          password: newSolutionOwner.password,
+          full_name: newSolutionOwner.full_name,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create Solution Owner');
+      }
+
+      setShowCreateSolutionOwnerModal(false);
+      setNewSolutionOwner({
+        email: '',
+        password: '',
+        full_name: '',
+      });
+      
+      // Show success message (you could add a toast notification here)
+      alert('Solution Owner created successfully!');
+    } catch (err: any) {
+      setError(err.message || 'Failed to create Solution Owner');
+    } finally {
+      setCreatingSolutionOwner(false);
+    }
+  }
+
   async function handleLogout() {
     // Sign out and redirect to login
     await signOut();
@@ -238,6 +393,15 @@ export function SolutionOwnerDashboard() {
               >
                 <Settings className="w-4 h-4 mr-2" />
                 Tenant Features
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowCreateSolutionOwnerModal(true)}
+                className="text-blue-600 hover:text-blue-700"
+              >
+                <UserPlus className="w-4 h-4 mr-2" />
+                Create Solution Owner
               </Button>
               <span className="text-sm text-gray-600">
                 {userProfile?.full_name || 'Solution Owner'}
@@ -366,13 +530,32 @@ export function SolutionOwnerDashboard() {
                             : t('admin.noExpiry')}
                         </td>
                         <td className="px-4 py-3">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleToggleActive(tenant)}
-                          >
-                            {tenant.is_active ? t('admin.deactivate') : t('admin.activate')}
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openEditModal(tenant)}
+                              title="Edit tenant"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleToggleActive(tenant)}
+                            >
+                              {tenant.is_active ? t('admin.deactivate') : t('admin.activate')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openDeleteModal(tenant)}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              title="Delete tenant"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -476,6 +659,269 @@ export function SolutionOwnerDashboard() {
               variant="secondary"
               fullWidth
               onClick={() => setShowCreateModal(false)}
+            >
+              {t('common.cancel')}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Tenant Modal */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditingTenant(null);
+          setError('');
+        }}
+        title={t('admin.editTenant') || 'Edit Tenant'}
+        size="lg"
+      >
+        <form onSubmit={handleEditTenant} className="space-y-4">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+
+          <Input
+            label={t('admin.tenantName')}
+            value={newTenant.name}
+            onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })}
+            required
+            placeholder="e.g., Premium Salon"
+          />
+
+          <Input
+            label={t('admin.tenantNameArabic')}
+            value={newTenant.name_ar}
+            onChange={(e) => setNewTenant({ ...newTenant, name_ar: e.target.value })}
+            required
+            placeholder="على سبيل المثال، صالون بريميوم"
+            dir="rtl"
+          />
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {t('tenant.industry')} <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={newTenant.industry}
+              onChange={(e) => setNewTenant({ ...newTenant, industry: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            >
+              <option value="restaurant">{t('admin.industries.restaurant')}</option>
+              <option value="salon">{t('admin.industries.salon')}</option>
+              <option value="clinic">{t('admin.industries.clinic')}</option>
+              <option value="parking">{t('admin.industries.parking')}</option>
+              <option value="venue">{t('admin.industries.venue')}</option>
+              <option value="other">{t('admin.industries.other')}</option>
+            </select>
+          </div>
+
+          <Input
+            type="email"
+            label={t('tenant.contactEmail')}
+            value={newTenant.contact_email}
+            onChange={(e) => setNewTenant({ ...newTenant, contact_email: e.target.value })}
+            placeholder="contact@tenant.com"
+            required
+          />
+
+          <Input
+            type="tel"
+            label={t('tenant.contactPhone')}
+            value={newTenant.contact_phone}
+            onChange={(e) => setNewTenant({ ...newTenant, contact_phone: e.target.value })}
+            placeholder="+966501234567"
+          />
+
+          <Input
+            label={t('tenant.address')}
+            value={newTenant.address}
+            onChange={(e) => setNewTenant({ ...newTenant, address: e.target.value })}
+            placeholder="123 Main St, Riyadh"
+          />
+
+          <div className="flex gap-3 pt-4">
+            <Button type="submit" fullWidth loading={updating}>
+              {t('common.save') || 'Save Changes'}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              fullWidth
+              onClick={() => {
+                setShowEditModal(false);
+                setEditingTenant(null);
+                setError('');
+              }}
+            >
+              {t('common.cancel')}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Tenant Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false);
+          setDeletingTenant(null);
+          setError('');
+        }}
+        title={t('admin.deleteTenant') || 'Delete Tenant'}
+        size="md"
+      >
+        <div className="space-y-4">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <p className="text-sm text-yellow-800 font-medium mb-2">
+              ⚠️ Warning: This action cannot be undone
+            </p>
+            <p className="text-sm text-yellow-700">
+              Deleting this tenant will permanently remove:
+            </p>
+            <ul className="list-disc list-inside text-sm text-yellow-700 mt-2 space-y-1">
+              <li>The tenant and all its data</li>
+              <li>All associated users, services, bookings, and related records</li>
+              <li>All customer accounts linked to this tenant</li>
+            </ul>
+          </div>
+
+          {deletingTenant && (
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-sm font-medium text-gray-900 mb-1">Tenant to delete:</p>
+              <p className="text-lg font-semibold text-gray-900">
+                {i18n.language === 'ar' && deletingTenant.name_ar ? deletingTenant.name_ar : deletingTenant.name}
+              </p>
+              <p className="text-sm text-gray-600 mt-1">
+                {deletingTenant.contact_email || deletingTenant.contact_phone || 'No contact info'}
+              </p>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-4">
+            <Button
+              variant="secondary"
+              fullWidth
+              onClick={() => {
+                setShowDeleteModal(false);
+                setDeletingTenant(null);
+                setError('');
+              }}
+              disabled={deleting}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              fullWidth
+              onClick={handleDeleteTenant}
+              loading={deleting}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              {t('common.delete') || 'Delete Tenant'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Create Solution Owner Modal */}
+      <Modal
+        isOpen={showCreateSolutionOwnerModal}
+        onClose={() => {
+          setShowCreateSolutionOwnerModal(false);
+          setError('');
+          setNewSolutionOwner({
+            email: '',
+            password: '',
+            full_name: '',
+          });
+        }}
+        title="Create Solution Owner"
+        size="md"
+      >
+        <form onSubmit={handleCreateSolutionOwner} className="space-y-4">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <Shield className="w-5 h-5 text-blue-600 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-blue-900 mb-1">
+                  Solution Owner Account
+                </p>
+                <p className="text-xs text-blue-700">
+                  This will create a new Solution Owner with system-wide access. The new account will have full administrative privileges.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <Input
+            type="email"
+            label="Email"
+            value={newSolutionOwner.email}
+            onChange={(e) => setNewSolutionOwner({ ...newSolutionOwner, email: e.target.value })}
+            required
+            placeholder="solution.owner@example.com"
+            autoComplete="email"
+          />
+
+          <Input
+            type="text"
+            label="Full Name"
+            value={newSolutionOwner.full_name}
+            onChange={(e) => setNewSolutionOwner({ ...newSolutionOwner, full_name: e.target.value })}
+            required
+            placeholder="John Doe"
+          />
+
+          <Input
+            type="password"
+            label="Password"
+            value={newSolutionOwner.password}
+            onChange={(e) => setNewSolutionOwner({ ...newSolutionOwner, password: e.target.value })}
+            required
+            placeholder="Minimum 8 characters"
+            autoComplete="new-password"
+            minLength={8}
+          />
+
+          <div className="text-xs text-gray-500">
+            Password must be at least 8 characters long.
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <Button type="submit" fullWidth loading={creatingSolutionOwner}>
+              <UserPlus className="w-4 h-4 mr-2" />
+              Create Solution Owner
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              fullWidth
+              onClick={() => {
+                setShowCreateSolutionOwnerModal(false);
+                setError('');
+                setNewSolutionOwner({
+                  email: '',
+                  password: '',
+                  full_name: '',
+                });
+              }}
             >
               {t('common.cancel')}
             </Button>
