@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
+    "@supabase/supabase-js": "^2.90.1",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "heic2any": "^0.0.4",
