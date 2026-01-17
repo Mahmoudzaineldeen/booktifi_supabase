@@ -25,20 +25,31 @@ export function ManagementLoginPage() {
     setError('');
     setLoading(true);
 
-    // Simple username/password validation
+    // Trim and compare username/password
+    const trimmedUsername = username.trim();
+    const trimmedPassword = password.trim();
+
+    console.log('Login attempt:', {
+      provided: trimmedUsername,
+      expected: SOLUTION_OWNER_CREDENTIALS.username,
+      match: trimmedUsername === SOLUTION_OWNER_CREDENTIALS.username
+    });
+
+    // Simple username/password validation (case-sensitive)
     if (
-      username === SOLUTION_OWNER_CREDENTIALS.username &&
-      password === SOLUTION_OWNER_CREDENTIALS.password
+      trimmedUsername === SOLUTION_OWNER_CREDENTIALS.username &&
+      trimmedPassword === SOLUTION_OWNER_CREDENTIALS.password
     ) {
       // Store a session token in localStorage to mark as authenticated
       localStorage.setItem('management_auth', 'true');
-      localStorage.setItem('management_user', username);
+      localStorage.setItem('management_user', trimmedUsername);
 
       // Small delay for better UX
       setTimeout(() => {
         navigate('/solution-admin');
       }, 500);
     } else {
+      console.error('Login failed - credentials do not match');
       setError(t('admin.invalidCredentials'));
       setLoading(false);
     }
@@ -112,6 +123,13 @@ export function ManagementLoginPage() {
         <div className="mt-6 text-center text-xs text-slate-500">
           <p>{t('admin.restrictedArea')}</p>
           <p className="mt-1">{t('admin.accessLogged')}</p>
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mt-4 p-2 bg-yellow-900/20 border border-yellow-700/50 rounded text-yellow-400">
+              <p className="font-mono text-xs">Debug: Expected Username = "{SOLUTION_OWNER_CREDENTIALS.username}"</p>
+              <p className="font-mono text-xs">Debug: Password Length = {SOLUTION_OWNER_CREDENTIALS.password.length} chars</p>
+              <p className="text-xs mt-1">Build Time: {new Date().toISOString()}</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
