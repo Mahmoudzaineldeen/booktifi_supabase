@@ -9,7 +9,7 @@ import { Shield } from 'lucide-react';
 
 const SOLUTION_OWNER_CREDENTIALS = {
   username: 'Bookatiadmin',
-  password: 'Flipper@6722',
+  password: 'Book@king6722',
 };
 
 export function ManagementLoginPage() {
