@@ -23,6 +23,16 @@ router.get('/auth', async (req, res) => {
     let origin: string | undefined = req.query.origin as string | undefined;
     let originSource = 'Unknown';
     
+    // Debug: Log all available information
+    console.log(`[Zoho Routes] ========================================`);
+    console.log(`[Zoho Routes] DEBUG: Origin Detection`);
+    console.log(`[Zoho Routes] Query params:`, req.query);
+    console.log(`[Zoho Routes] Origin from query:`, req.query.origin);
+    console.log(`[Zoho Routes] Origin header:`, req.headers.origin);
+    console.log(`[Zoho Routes] Referer header:`, req.headers.referer);
+    console.log(`[Zoho Routes] Host header:`, req.headers.host);
+    console.log(`[Zoho Routes] ========================================`);
+    
     // Priority 2: Request headers (Origin or Referer)
     if (!origin) {
       origin = req.headers.origin as string | undefined;
@@ -130,7 +140,10 @@ router.get('/auth', async (req, res) => {
     console.log(`[Zoho Routes] Access Type: offline (for refresh_token)`);
     console.log(`[Zoho Routes] Prompt: consent (force consent screen)`);
     console.log(`[Zoho Routes] ⚠️  These parameters ensure refresh_token is returned`);
-    console.log(`[Zoho Routes] Full Auth URL: ${authUrl.substring(0, 150)}...`);
+    console.log(`[Zoho Routes] ⚠️  CRITICAL: Redirect URI being sent to Zoho: ${redirectUri}`);
+    console.log(`[Zoho Routes] ⚠️  This EXACT URI must be in Zoho Developer Console`);
+    console.log(`[Zoho Routes] Full Auth URL: ${authUrl.substring(0, 200)}...`);
+    console.log(`[Zoho Routes] ⚠️  If Zoho redirects to localhost:3001, check Zoho Developer Console for this URI`);
     
     res.redirect(authUrl);
   } catch (error: any) {

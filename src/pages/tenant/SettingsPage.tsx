@@ -687,13 +687,34 @@ export function SettingsPage() {
     // HYBRID APPROACH: Pass origin to backend for dynamic redirect URI
     // Get current origin (works for both local and Bolt)
     const currentOrigin = window.location.origin;
+    const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
     
     // Construct auth URL with origin parameter
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+    // In Bolt, use relative URL to go through Vite proxy
+    // This ensures the request goes to Bolt's backend, not localhost
+    let API_URL: string;
+    if (isBolt) {
+      API_URL = '/api'; // Relative URL - goes through Vite proxy to Bolt's backend
+    } else {
+      API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+    }
+    
     const authUrl = `${API_URL}/zoho/auth?tenant_id=${tenant.id}&origin=${encodeURIComponent(currentOrigin)}`;
     
-    console.log('[Zoho Connect] Passing origin to backend:', currentOrigin);
+    console.log('[Zoho Connect] ========================================');
+    console.log('[Zoho Connect] Environment Detection:');
+    console.log('[Zoho Connect] Window Location:', {
+      origin: window.location.origin,
+      hostname: window.location.hostname,
+      href: window.location.href
+    });
+    console.log('[Zoho Connect] Current Origin:', currentOrigin);
+    console.log('[Zoho Connect] Is Bolt:', isBolt);
+    console.log('[Zoho Connect] API URL:', API_URL);
     console.log('[Zoho Connect] Auth URL:', authUrl);
+    console.log('[Zoho Connect] Passing origin to backend:', currentOrigin);
+    console.log('[Zoho Connect] ⚠️  Expected redirect URI:', `${currentOrigin}/api/zoho/callback`);
+    console.log('[Zoho Connect] ========================================');
     
     // Open OAuth flow in popup window
     const popup = window.open(
