@@ -221,21 +221,58 @@ export function BookingsPage() {
       console.log('[BookingsPage] Downloading invoice:', zohoInvoiceId);
       console.log('[BookingsPage] Environment:', { isBolt, API_URL, downloadUrl: downloadUrl.replace(token || '', '***') });
       
-      // Use direct link approach - this bypasses CORS completely
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `invoice-${zohoInvoiceId}.pdf`;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      
-      // Clean up after a short delay
-      setTimeout(() => {
-        document.body.removeChild(link);
-        setDownloadingInvoice(null);
-      }, 1000);
-      
-      console.log('[BookingsPage] Download initiated via direct link');
+      // Use fetch to download the PDF and create a blob URL
+      // This approach is more reliable than direct link, especially in Bolt
+      try {
+        const response = await fetch(downloadUrl, {
+          method: 'GET',
+          headers: token ? {
+            'Authorization': `Bearer ${token}`,
+          } : {},
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to download invoice: ${response.status} ${response.statusText}. ${errorText}`);
+        }
+
+        // Get the PDF as a blob
+        const blob = await response.blob();
+        
+        // Create a blob URL and trigger download
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = `invoice-${zohoInvoiceId}.pdf`;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        
+        // Clean up
+        setTimeout(() => {
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(blobUrl);
+          setDownloadingInvoice(null);
+        }, 100);
+        
+        console.log('[BookingsPage] Download completed successfully');
+      } catch (fetchError: any) {
+        console.error('[BookingsPage] Fetch error:', fetchError);
+        // Fallback to direct link approach if fetch fails
+        console.log('[BookingsPage] Falling back to direct link approach');
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `invoice-${zohoInvoiceId}.pdf`;
+        link.target = '_blank';
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        
+        setTimeout(() => {
+          document.body.removeChild(link);
+          setDownloadingInvoice(null);
+        }, 1000);
+      }
       
     } catch (error: any) {
       console.error('[BookingsPage] Error downloading invoice:', error);
@@ -372,7 +409,7 @@ export function BookingsPage() {
                             onClick={() => downloadInvoice(booking.id, booking.zoho_invoice_id!)}
                             disabled={downloadingInvoice === booking.id}
                             className="flex items-center gap-2 text-sm"
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
                           >
                             <Download className="w-4 h-4" />

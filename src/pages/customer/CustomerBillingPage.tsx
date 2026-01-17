@@ -4,9 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
+import { Card, CardContent, CardHeader } from '../../components/ui/Card';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
-import { ArrowLeft, FileText, Download, Calendar, CreditCard, Package, Mail, Phone, CheckCircle, XCircle, Clock, Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { ArrowLeft, FileText, Download, Calendar, CheckCircle, XCircle, Clock, Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface Invoice {
@@ -39,7 +39,7 @@ interface PaginationInfo {
 
 export function CustomerBillingPage() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
   const navigate = useNavigate();
   const { userProfile, signOut, loading: authLoading } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -95,7 +95,9 @@ export function CustomerBillingPage() {
     
     try {
       setLatestInvoiceFromDB(prev => ({ ...prev, loading: true }));
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      // Detect Bolt/WebContainer environment and use relative URLs
+      const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
+      const API_URL = isBolt ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
       const token = localStorage.getItem('auth_token');
       
       const response = await fetch(`${API_URL}/customers/invoices/latest`, {
@@ -197,7 +199,9 @@ export function CustomerBillingPage() {
       console.log('[CustomerBillingPage] Fetching invoices for customer:', userProfile.id, 'Page:', page, 'Search:', search);
       
       // Use API endpoint to fetch invoices with pagination
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      // Detect Bolt/WebContainer environment and use relative URLs
+      const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
+      const API_URL = isBolt ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
       const token = localStorage.getItem('auth_token');
       const limit = pagination.limit;
 
@@ -415,7 +419,7 @@ export function CustomerBillingPage() {
 
             <div className="flex items-center gap-3">
               <Button
-                variant="outline"
+                variant="ghost"
                 onClick={() => {
                   setSearchQuery('');
                   setSearchInput('');
@@ -438,7 +442,7 @@ export function CustomerBillingPage() {
               </Button>
               <LanguageToggle />
               <Button
-                variant="outline"
+                variant="ghost"
                 onClick={() => signOut()}
                 className="flex items-center gap-2"
               >
@@ -505,8 +509,8 @@ export function CustomerBillingPage() {
                     className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2"
                     style={{
                       borderColor: `${primaryColor}30`,
-                      focusRingColor: primaryColor,
-                    }}
+                      '--tw-ring-color': primaryColor,
+                    } as React.CSSProperties & { '--tw-ring-color': string }}
                   />
                   {searchInput && (
                     <button
@@ -613,7 +617,7 @@ export function CustomerBillingPage() {
                     </div>
                   </div>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={fetchLatestInvoiceFromDB}
                     disabled={latestInvoiceFromDB.loading}
@@ -636,9 +640,9 @@ export function CustomerBillingPage() {
             )}
 
             {invoices.map((invoice, index) => (
-              <Card 
+              <div 
                 key={invoice.id} 
-                className="hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1"
+                className="bg-white rounded-lg shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1"
                 style={{
                   border: `2px solid ${primaryColor}15`,
                   background: index % 2 === 0 
@@ -658,11 +662,11 @@ export function CustomerBillingPage() {
                         >
                           <FileText className="w-5 h-5" style={{ color: primaryColor }} />
                         </div>
-                        <CardTitle className="text-xl font-bold" style={{ color: primaryColor }}>
+                        <h3 className="text-xl font-bold" style={{ color: primaryColor }}>
                           {i18n.language === 'ar' 
                             ? (invoice.service_name_ar || invoice.service_name) 
                             : (invoice.service_name || invoice.service_name_ar)}
-                        </CardTitle>
+                        </h3>
                       </div>
                       <div className="flex items-center gap-6 text-sm text-gray-600 flex-wrap">
                         <div className="flex items-center gap-2">
@@ -771,7 +775,7 @@ export function CustomerBillingPage() {
                     </Button>
                   </div>
                 </CardContent>
-              </Card>
+              </div>
             ))}
 
             {/* Lazy Loading Trigger */}
@@ -785,7 +789,7 @@ export function CustomerBillingPage() {
                 ) : (
                   <Button
                     onClick={loadMoreInvoices}
-                    variant="outline"
+                    variant="ghost"
                     className="flex items-center gap-2"
                   >
                     {i18n.language === 'ar' ? 'تحميل المزيد' : 'Load More'}
@@ -800,7 +804,7 @@ export function CustomerBillingPage() {
                 <Button
                   onClick={() => handlePageChange(pagination.page - 1)}
                   disabled={!pagination.hasPrevPage}
-                  variant="outline"
+                  variant="ghost"
                   className="flex items-center gap-2"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -824,7 +828,7 @@ export function CustomerBillingPage() {
                       <Button
                         key={pageNum}
                         onClick={() => handlePageChange(pageNum)}
-                        variant={pagination.page === pageNum ? "default" : "outline"}
+                        variant={pagination.page === pageNum ? "primary" : "ghost"}
                         className="min-w-[40px]"
                         style={
                           pagination.page === pageNum
@@ -844,7 +848,7 @@ export function CustomerBillingPage() {
                 <Button
                   onClick={() => handlePageChange(pagination.page + 1)}
                   disabled={!pagination.hasNextPage}
-                  variant="outline"
+                  variant="ghost"
                   className="flex items-center gap-2"
                 >
                   {i18n.language === 'ar' ? 'التالي' : 'Next'}
