@@ -6,7 +6,7 @@ import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/auth/LoginPage';
 import { SignupPage } from './pages/auth/SignupPage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
-// REMOVED: ManagementLoginPage - now using unified LoginPage
+import { ManagementLoginPage } from './pages/admin/ManagementLoginPage';
 import { SolutionOwnerDashboard } from './pages/admin/SolutionOwnerDashboard';
 import { TenantFeaturesPage } from './pages/admin/TenantFeaturesPage';
 import { TenantDashboard } from './pages/tenant/TenantDashboard';
@@ -49,7 +49,7 @@ function AppContent() {
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-      <Route path="/management" element={<Navigate to="/login" replace />} />
+      <Route path="/management" element={<ManagementLoginPage />} />
       <Route path="/solution-admin" element={<SolutionOwnerDashboard />} />
       <Route path="/management/features" element={<TenantFeaturesPage />} />
 
