@@ -97,8 +97,15 @@ export function SettingsPage() {
       return;
     }
 
-    // Only allow tenant_admin, receptionist, cashier, and solution_owner
-    const allowedRoles = ['tenant_admin', 'receptionist', 'cashier', 'solution_owner'];
+    // SECURITY: Solution Owner should access /solution-admin, not tenant settings
+    if (userProfile.role === 'solution_owner') {
+      console.warn('[SettingsPage] Solution Owner attempted to access tenant settings, redirecting to solution-admin', { role: userProfile.role });
+      navigate('/solution-admin');
+      return;
+    }
+
+    // Only allow tenant_admin, receptionist, and cashier
+    const allowedRoles = ['tenant_admin', 'receptionist', 'cashier'];
     if (!allowedRoles.includes(userProfile.role)) {
       console.warn('[SettingsPage] Unauthorized role attempted to access settings', { role: userProfile.role });
       navigate('/');

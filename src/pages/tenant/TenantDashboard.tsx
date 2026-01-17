@@ -124,6 +124,15 @@ export function TenantDashboard() {
       return;
     }
 
+    // SECURITY: Solution Owner should access /solution-admin, not tenant dashboard
+    if (userProfile.role === 'solution_owner') {
+      console.log('[TenantDashboard] Solution Owner attempted to access tenant dashboard, redirecting to solution-admin', {
+        role: userProfile.role,
+      });
+      navigate('/solution-admin');
+      return;
+    }
+
     // Only tenant_admin can access admin dashboard
     if (userProfile.role !== 'tenant_admin') {
       console.log('[TenantDashboard] Wrong role, redirecting to home', {

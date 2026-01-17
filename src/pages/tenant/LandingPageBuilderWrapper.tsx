@@ -33,6 +33,11 @@ export function LandingPageBuilderWrapper() {
     return <Navigate to="/login" replace />;
   }
 
+  // SECURITY: Solution Owner should access /solution-admin, not tenant routes
+  if (userProfile.role === 'solution_owner') {
+    return <Navigate to="/solution-admin" replace />;
+  }
+
   if (userProfile.role !== 'tenant_admin') {
     return <Navigate to="/login" replace />;
   }

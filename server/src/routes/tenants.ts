@@ -62,12 +62,38 @@ function authenticateTenantAdmin(req: express.Request, res: express.Response, ne
   }
 }
 
+// Helper function to check if user is solution owner
+function isSolutionOwner(req: express.Request): boolean {
+  return req.user?.role === 'solution_owner';
+}
+
+// Helper function to get tenant_id for queries (handles solution_owner)
+function getTenantIdForQuery(req: express.Request, requiredTenantId?: string): string | null {
+  // If solution owner and requiredTenantId provided, use it (for tenant-specific operations)
+  if (isSolutionOwner(req) && requiredTenantId) {
+    return requiredTenantId;
+  }
+  // If solution owner without requiredTenantId, return null (for system-wide queries)
+  if (isSolutionOwner(req)) {
+    return null;
+  }
+  // For other roles, use their tenant_id
+  return req.user?.tenant_id || null;
+}
+
 // Get SMTP settings for tenant
 router.get('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
   try {
-    const tenantId = req.user!.tenant_id;
+    // Solution Owner needs to provide tenant_id in query params for tenant-specific operations
+    const tenantId = req.query.tenant_id as string || req.user!.tenant_id;
     
     if (!tenantId) {
+      if (isSolutionOwner(req)) {
+        return res.status(400).json({ 
+          error: 'Tenant ID is required. Please provide tenant_id as a query parameter.',
+          hint: 'Solution Owner must specify which tenant\'s settings to retrieve.'
+        });
+      }
       return res.status(400).json({ error: 'Tenant ID not found' });
     }
 
