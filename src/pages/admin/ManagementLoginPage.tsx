@@ -20,6 +20,11 @@ export function ManagementLoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  React.useEffect(() => {
+    const runtimeUrl = window.location.origin;
+    console.log('🌐 RUNTIME URL:', runtimeUrl);
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
