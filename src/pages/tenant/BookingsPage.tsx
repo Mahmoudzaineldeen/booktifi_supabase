@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
-import { Calendar, Clock, User, List, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Button } from '../../components/ui/Button';
+import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
@@ -15,7 +16,10 @@ interface Booking {
   visitor_count: number;
   total_price: number;
   status: string;
+  payment_status?: string;
   created_at: string;
+  zoho_invoice_id?: string | null;
+  zoho_invoice_created_at?: string | null;
   services: {
     name: string;
     name_ar?: string;
@@ -35,6 +39,7 @@ export function BookingsPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [calendarDate, setCalendarDate] = useState(new Date());
+  const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
 
   useEffect(() => {
     fetchBookings();
@@ -55,7 +60,10 @@ export function BookingsPage() {
           visitor_count,
           total_price,
           status,
+          payment_status,
           created_at,
+          zoho_invoice_id,
+          zoho_invoice_created_at,
           service_id,
           slot_id,
           services:service_id (
@@ -190,6 +198,46 @@ export function BookingsPage() {
     return layout;
   }
 
+  async function downloadInvoice(bookingId: string, zohoInvoiceId: string) {
+    try {
+      setDownloadingInvoice(bookingId);
+      
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const token = localStorage.getItem('auth_token');
+      
+      // Ensure API_URL doesn't have trailing slash
+      const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+      // Add token as query parameter to bypass CORS header issues
+      const downloadUrl = `${baseUrl}/zoho/invoices/${zohoInvoiceId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      
+      console.log('[BookingsPage] Downloading invoice:', zohoInvoiceId);
+      
+      // Use direct link approach - this bypasses CORS completely
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `invoice-${zohoInvoiceId}.pdf`;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      
+      // Clean up after a short delay
+      setTimeout(() => {
+        document.body.removeChild(link);
+        setDownloadingInvoice(null);
+      }, 1000);
+      
+      console.log('[BookingsPage] Download initiated via direct link');
+      
+    } catch (error: any) {
+      console.error('[BookingsPage] Error downloading invoice:', error);
+      const errorMessage = error.message || 'Unknown error occurred';
+      alert(i18n.language === 'ar' 
+        ? `فشل تنزيل الفاتورة: ${errorMessage}. يرجى المحاولة مرة أخرى.` 
+        : `Failed to download invoice: ${errorMessage}. Please try again.`);
+      setDownloadingInvoice(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-4 md:p-8">
@@ -251,9 +299,9 @@ export function BookingsPage() {
         ) : (
           <div className="space-y-4">
             {bookings.map((booking) => (
-              <Card key={booking.id}>
+              <Card key={booking.id} className="hover:shadow-lg transition-shadow">
                 <CardContent className="py-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-4 mb-2">
                         <div className="flex items-center gap-2">
@@ -270,15 +318,72 @@ export function BookingsPage() {
                           </span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4 text-sm text-gray-600">
+                      <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
                         <span>{i18n.language === 'ar' ? booking.services?.name_ar : booking.services?.name}</span>
                         <span>•</span>
                         <span>{booking.visitor_count} {t('booking.visitorCount')}</span>
                         <span>•</span>
-                        <span>{booking.total_price} {t('service.price')}</span>
+                        <span className="font-semibold">{booking.total_price} {t('service.price')}</span>
                       </div>
+                      
+                      {/* Invoice Section */}
+                      {booking.zoho_invoice_id ? (
+                        <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                          <div className="flex items-start justify-between gap-4 mb-3">
+                            <div className="flex items-center gap-2">
+                              <FileText className="w-5 h-5 text-blue-600" />
+                              <div>
+                                <h4 className="font-semibold text-blue-900 text-sm">
+                                  {i18n.language === 'ar' ? 'الفاتورة' : 'Invoice'}
+                                </h4>
+                                <p className="text-xs text-blue-700 font-mono mt-1">
+                                  {booking.zoho_invoice_id}
+                                </p>
+                              </div>
+                            </div>
+                            {booking.payment_status === 'paid' ? (
+                              <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                                <CheckCircle className="w-3 h-3" />
+                                {i18n.language === 'ar' ? 'مدفوع' : 'Paid'}
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
+                                <XCircle className="w-3 h-3" />
+                                {i18n.language === 'ar' ? 'غير مدفوع' : 'Unpaid'}
+                              </span>
+                            )}
+                          </div>
+                          {booking.zoho_invoice_created_at && (
+                            <p className="text-xs text-blue-600 mb-3">
+                              {i18n.language === 'ar' ? 'تاريخ الإنشاء:' : 'Created:'}{' '}
+                              {format(new Date(booking.zoho_invoice_created_at), 'MMM dd, yyyy HH:mm', { locale: i18n.language === 'ar' ? ar : undefined })}
+                            </p>
+                          )}
+                          <Button
+                            onClick={() => downloadInvoice(booking.id, booking.zoho_invoice_id!)}
+                            disabled={downloadingInvoice === booking.id}
+                            className="flex items-center gap-2 text-sm"
+                            variant="outline"
+                            size="sm"
+                          >
+                            <Download className="w-4 h-4" />
+                            {downloadingInvoice === booking.id 
+                              ? (i18n.language === 'ar' ? 'جاري التنزيل...' : 'Downloading...')
+                              : (i18n.language === 'ar' ? 'تنزيل PDF' : 'Download PDF')}
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          <p className="text-xs text-gray-600 flex items-center gap-2">
+                            <FileText className="w-4 h-4" />
+                            {i18n.language === 'ar' 
+                              ? 'لا توجد فاتورة لهذا الحجز' 
+                              : 'No invoice for this booking'}
+                          </p>
+                        </div>
+                      )}
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
                       booking.status === 'confirmed' ? 'bg-green-100 text-green-800' :
                       booking.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                       booking.status === 'cancelled' ? 'bg-red-100 text-red-800' :

@@ -197,6 +197,8 @@ export function TenantDashboardContent() {
           payment_status,
           notes,
           created_at,
+          zoho_invoice_id,
+          zoho_invoice_created_at,
           slot_id,
           service_id,
           services:service_id (
@@ -243,6 +245,8 @@ export function TenantDashboardContent() {
           payment_status,
           notes,
           created_at,
+          zoho_invoice_id,
+          zoho_invoice_created_at,
           slot_id,
           service_id,
           services:service_id (
