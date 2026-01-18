@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["nodejs-22_x"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[start]
+cmd = "npm run dev"

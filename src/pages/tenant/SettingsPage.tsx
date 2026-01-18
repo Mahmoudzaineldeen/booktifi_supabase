@@ -8,43 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Input } from '../../components/ui/Input';
 import { Settings, Save, Building2, Lock, Eye, EyeOff, Mail, CheckCircle, XCircle, MessageCircle, FileText, ExternalLink } from 'lucide-react';
 
-// In Bolt/WebContainer, use relative URLs to go through Vite proxy
-// Otherwise use the configured API URL or default to localhost
-const getApiUrl = () => {
-  // Check if we're in a WebContainer/Bolt environment
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    const origin = window.location.origin;
-    
-    // More comprehensive detection for Bolt/WebContainer environments
-    const isWebContainer = 
-      hostname.includes('webcontainer') || 
-      hostname.includes('bolt') ||
-      hostname.includes('local-credentialless') ||
-      hostname.includes('webcontainer-api.io') ||
-      origin.includes('bolt.host') ||
-      (hostname === 'localhost' && window.location.port === '5173');
-    
-    // In Bolt/WebContainer, always use relative URL regardless of VITE_API_URL
-    if (isWebContainer) {
-      console.log('[SettingsPage] Bolt/WebContainer detected, using relative API URL:', {
-        hostname,
-        origin,
-        detected: true
-      });
-      return '/api';
-    }
-    
-    console.log('[SettingsPage] Not in Bolt/WebContainer, using configured API URL:', {
-      hostname,
-      origin,
-      viteApiUrl: import.meta.env.VITE_API_URL
-    });
-  }
-  
-  // For local development or if VITE_API_URL is explicitly set
-  return import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-};
+import { getApiUrl } from '../../lib/apiUrl';
 
 export function SettingsPage() {
   const navigate = useNavigate();

@@ -2,30 +2,7 @@
 // All database operations go through backend API - NO direct Supabase calls
 // Backend uses service role key to ensure proper authentication
 
-// In Bolt/WebContainer, use relative URLs to go through Vite proxy
-// Otherwise use the configured API URL or default to localhost
-const getApiUrl = () => {
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    const origin = window.location.origin;
-    
-    // Comprehensive detection for Bolt/WebContainer environments
-    const isWebContainer = 
-      hostname.includes('webcontainer') || 
-      hostname.includes('bolt') ||
-      hostname.includes('local-credentialless') ||
-      hostname.includes('webcontainer-api.io') ||
-      origin.includes('bolt.host') ||
-      (hostname === 'localhost' && window.location.port === '5173');
-    
-    if (isWebContainer) {
-      console.log('[db] Bolt/WebContainer detected, using relative API URL');
-      return '/api';
-    }
-  }
-  
-  return import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-};
+import { getApiUrl } from './apiUrl';
 
 const API_URL = getApiUrl();
 

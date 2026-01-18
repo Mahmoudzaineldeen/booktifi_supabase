@@ -3,19 +3,7 @@
  * Checks if the backend server is running and accessible
  */
 
-// In Bolt/WebContainer, use relative URLs
-const getApiBaseUrl = () => {
-  const isWebContainer = typeof window !== 'undefined' && 
-    (window.location.hostname.includes('webcontainer') || 
-     window.location.hostname.includes('bolt') ||
-     window.location.hostname === 'localhost' && window.location.port === '5173');
-  
-  if (isWebContainer || !import.meta.env.VITE_API_URL) {
-    return ''; // Relative URL - Vite proxy will handle it
-  }
-  
-  return import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001';
-};
+import { getApiBaseUrl } from './apiUrl';
 
 const API_BASE_URL = getApiBaseUrl();
 const HEALTH_CHECK_INTERVAL = 30000; // Check every 30 seconds

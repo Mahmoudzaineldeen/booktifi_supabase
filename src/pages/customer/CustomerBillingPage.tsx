@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader } from '../../components/ui/Card';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { ArrowLeft, FileText, Download, Calendar, CheckCircle, XCircle, Clock, Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { getApiUrl } from '../../lib/apiUrl';
 
 interface Invoice {
   id: string;
@@ -95,9 +96,8 @@ export function CustomerBillingPage() {
     
     try {
       setLatestInvoiceFromDB(prev => ({ ...prev, loading: true }));
-      // Detect Bolt/WebContainer environment and use relative URLs
-      const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
-      const API_URL = isBolt ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
+      // Use centralized API URL detection
+      const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
       
       const response = await fetch(`${API_URL}/customers/invoices/latest`, {
@@ -199,9 +199,8 @@ export function CustomerBillingPage() {
       console.log('[CustomerBillingPage] Fetching invoices for customer:', userProfile.id, 'Page:', page, 'Search:', search);
       
       // Use API endpoint to fetch invoices with pagination
-      // Detect Bolt/WebContainer environment and use relative URLs
-      const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
-      const API_URL = isBolt ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
+      // Use centralized API URL detection
+      const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
       const limit = pagination.limit;
 
