@@ -232,6 +232,12 @@ class DatabaseClient {
       limit: null,
     };
 
+    // Helper to check if we should use Supabase fallback
+    const shouldUseSupabaseFallback = async () => {
+      const available = await isBackendAvailable();
+      return !available && supabaseClient !== null;
+    };
+
     const builder: any = {
       select: (columns: string = '*') => {
         queryParams.select = columns;
@@ -274,6 +280,18 @@ class DatabaseClient {
         return builder;
       },
       maybeSingle: async () => {
+        if (await shouldUseSupabaseFallback()) {
+          let query = supabaseClient!.from(table).select(queryParams.select);
+          Object.keys(queryParams.where).forEach(key => {
+            query = query.eq(key, queryParams.where[key]);
+          });
+          if (queryParams.orderBy) {
+            query = query.order(queryParams.orderBy.column, { ascending: queryParams.orderBy.ascending });
+          }
+          const { data, error } = await query.limit(1).maybeSingle();
+          return { data, error };
+        }
+
         queryParams.limit = 1;
         const result = await self.request(`/query?${new URLSearchParams({
           table: queryParams.table,
@@ -285,6 +303,18 @@ class DatabaseClient {
         return { data: result.data?.[0] || null, error: result.error };
       },
       single: async () => {
+        if (await shouldUseSupabaseFallback()) {
+          let query = supabaseClient!.from(table).select(queryParams.select);
+          Object.keys(queryParams.where).forEach(key => {
+            query = query.eq(key, queryParams.where[key]);
+          });
+          if (queryParams.orderBy) {
+            query = query.order(queryParams.orderBy.column, { ascending: queryParams.orderBy.ascending });
+          }
+          const { data, error } = await query.limit(1).single();
+          return { data, error };
+        }
+
         queryParams.limit = 1;
         const result = await self.request(`/query?${new URLSearchParams({
           table: queryParams.table,
@@ -300,6 +330,26 @@ class DatabaseClient {
         return { data: result.data[0], error: null };
       },
       then: async (resolve?: any, reject?: any) => {
+        if (await shouldUseSupabaseFallback()) {
+          let query = supabaseClient!.from(table).select(queryParams.select);
+          Object.keys(queryParams.where).forEach(key => {
+            query = query.eq(key, queryParams.where[key]);
+          });
+          if (queryParams.orderBy) {
+            query = query.order(queryParams.orderBy.column, { ascending: queryParams.orderBy.ascending });
+          }
+          if (queryParams.limit) {
+            query = query.limit(queryParams.limit);
+          }
+          const { data, error } = await query;
+          if (error) {
+            if (reject) reject(error);
+            return { data: null, error };
+          }
+          if (resolve) resolve({ data, error: null });
+          return { data, error: null };
+        }
+
         const params = new URLSearchParams({
           table: queryParams.table,
           select: queryParams.select,
@@ -307,7 +357,7 @@ class DatabaseClient {
         });
         if (queryParams.orderBy) params.append('orderBy', JSON.stringify(queryParams.orderBy));
         if (queryParams.limit) params.append('limit', queryParams.limit.toString());
-        
+
         const result = await self.request(`/query?${params.toString()}`);
         if (result.error) {
           if (reject) reject(result.error);
@@ -319,6 +369,15 @@ class DatabaseClient {
       insert: (data: any | any[]) => ({
         select: (columns: string = '*') => ({
           single: async () => {
+            if (await shouldUseSupabaseFallback()) {
+              const { data: result, error } = await supabaseClient!
+                .from(table)
+                .insert(data)
+                .select(columns)
+                .single();
+              return { data: result, error };
+            }
+
             const result = await self.request(`/insert/${table}`, {
               method: 'POST',
               body: JSON.stringify({ data, returning: columns }),
@@ -327,6 +386,19 @@ class DatabaseClient {
             return { data: Array.isArray(data) ? result.data[0] : result.data, error: null };
           },
           then: async (resolve?: any, reject?: any) => {
+            if (await shouldUseSupabaseFallback()) {
+              const { data: result, error } = await supabaseClient!
+                .from(table)
+                .insert(data)
+                .select(columns);
+              if (error) {
+                if (reject) reject(error);
+                return { data: null, error };
+              }
+              if (resolve) resolve({ data: result, error: null });
+              return { data: result, error: null };
+            }
+
             const result = await self.request(`/insert/${table}`, {
               method: 'POST',
               body: JSON.stringify({ data, returning: columns }),
@@ -340,6 +412,19 @@ class DatabaseClient {
           },
         }),
         then: async (resolve?: any, reject?: any) => {
+          if (await shouldUseSupabaseFallback()) {
+            const { data: result, error } = await supabaseClient!
+              .from(table)
+              .insert(data)
+              .select();
+            if (error) {
+              if (reject) reject(error);
+              return { data: null, error };
+            }
+            if (resolve) resolve({ data: result, error: null });
+            return { data: result, error: null };
+          }
+
           const result = await self.request(`/insert/${table}`, {
             method: 'POST',
             body: JSON.stringify({ data }),
@@ -618,12 +703,12 @@ class DatabaseClient {
       }
       return result;
     },
-    signUp: async (credentials: { 
-      email?: string; 
-      username?: string; 
-      password: string; 
-      full_name?: string; 
-      role?: string; 
+    signUp: async (credentials: {
+      email?: string;
+      username?: string;
+      password: string;
+      full_name?: string;
+      role?: string;
       tenant_id?: string;
       phone?: string;
       options?: {
@@ -640,14 +725,82 @@ class DatabaseClient {
       const role = credentials.options?.data?.role || credentials.role;
       const tenant_id = credentials.options?.data?.tenant_id || credentials.tenant_id;
       const phone = credentials.options?.data?.phone || credentials.phone;
-      
-      // Build request body
+      const email = credentials.email || credentials.username;
+
+      // Check if backend is available
+      const useBackend = await isBackendAvailable();
+
+      if (!useBackend && supabaseClient) {
+        // Fall back to Supabase Auth + direct database insert
+        console.log('[db] Backend not available, using Supabase Auth fallback for signup');
+
+        try {
+          // First, create the auth user
+          const { data: authData, error: authError } = await supabaseClient.auth.signUp({
+            email: email || '',
+            password: credentials.password,
+          });
+
+          if (authError) throw authError;
+
+          if (authData?.user) {
+            // Now create the user profile in the users table
+            const { data: userProfile, error: profileError } = await supabaseClient
+              .from('users')
+              .insert({
+                id: authData.user.id,
+                email,
+                phone,
+                full_name,
+                role: role || 'tenant_admin',
+                tenant_id,
+                is_active: true,
+              })
+              .select()
+              .single();
+
+            if (profileError) {
+              console.error('[db] Error creating user profile:', profileError);
+              // Clean up the auth user
+              await supabaseClient.auth.admin.deleteUser(authData.user.id);
+              return {
+                data: null,
+                error: { message: 'Failed to create user profile', code: 'PROFILE_CREATE_ERROR' }
+              };
+            }
+
+            // Store session if available
+            if (authData.session) {
+              localStorage.setItem('auth_session', JSON.stringify(authData.session));
+              localStorage.setItem('auth_token', authData.session.access_token);
+            }
+
+            return {
+              data: {
+                session: authData.session,
+                user: userProfile,
+              },
+              error: null
+            };
+          }
+
+          return { data: null, error: { message: 'No user data returned', code: 'NO_USER' } };
+        } catch (error: any) {
+          console.error('[db] Supabase Auth fallback signup error:', error);
+          return {
+            data: null,
+            error: { message: error.message || 'Signup failed', code: error.code || 'SIGNUP_ERROR' }
+          };
+        }
+      }
+
+      // Use backend API
       const requestBody: any = {
         email: credentials.email,
         username: credentials.username,
         password: credentials.password,
       };
-      
+
       // Add optional fields if provided
       if (full_name) {
         requestBody.full_name = full_name;
@@ -661,7 +814,7 @@ class DatabaseClient {
       if (phone) {
         requestBody.phone = phone;
       }
-      
+
       const result = await this.request('/auth/signup', {
         method: 'POST',
         body: JSON.stringify(requestBody),
