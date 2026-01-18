@@ -26,21 +26,56 @@ function authenticateTenantAdmin(req: express.Request, res: express.Response, ne
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
+      console.error('[Auth] No authorization header provided');
       return res.status(401).json({ error: 'Authorization header required' });
     }
 
     const token = authHeader.replace('Bearer ', '');
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    if (!token || token.trim() === '') {
+      console.error('[Auth] Empty token provided');
+      return res.status(401).json({ error: 'Token is required' });
+    }
+
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (jwtError: any) {
+      console.error('[Auth] JWT verification failed:', {
+        error: jwtError.message,
+        name: jwtError.name,
+        hasJwtSecret: !!JWT_SECRET,
+        jwtSecretLength: JWT_SECRET?.length || 0
+      });
+      
+      if (jwtError.name === 'TokenExpiredError') {
+        return res.status(401).json({ 
+          error: 'Token has expired',
+          hint: 'Please log in again to get a new token'
+        });
+      } else if (jwtError.name === 'JsonWebTokenError') {
+        return res.status(401).json({ 
+          error: 'Invalid token',
+          hint: 'The token format is invalid. Please log in again.'
+        });
+      } else {
+        return res.status(401).json({ 
+          error: 'Token verification failed',
+          hint: jwtError.message || 'Please log in again'
+        });
+      }
+    }
     
     // Allow tenant_admin, receptionist, cashier, and solution_owner
     const allowedRoles = ['tenant_admin', 'receptionist', 'cashier', 'solution_owner'];
     if (!decoded.role) {
+      console.error('[Auth] Token missing role:', { decoded });
       return res.status(403).json({ 
         error: 'Access denied. No role found in token. Please log in again.',
         debug: 'Token missing role field'
       });
     }
     if (!allowedRoles.includes(decoded.role)) {
+      console.error('[Auth] Role not allowed:', { role: decoded.role, allowedRoles });
       return res.status(403).json({ 
         error: `Access denied. Your role "${decoded.role}" does not have permission to access this resource.`,
         userRole: decoded.role,
@@ -56,9 +91,19 @@ function authenticateTenantAdmin(req: express.Request, res: express.Response, ne
       tenant_id: decoded.tenant_id,
     };
     
+    console.log('[Auth] Authentication successful:', {
+      userId: decoded.id,
+      role: decoded.role,
+      tenantId: decoded.tenant_id || 'N/A'
+    });
+    
     next();
   } catch (error: any) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+    console.error('[Auth] Unexpected error in authentication middleware:', error);
+    return res.status(401).json({ 
+      error: 'Authentication failed',
+      hint: error.message || 'Please log in again'
+    });
   }
 }
 
