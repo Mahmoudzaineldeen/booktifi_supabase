@@ -56,7 +56,7 @@ export function SettingsPage() {
   });
   const [smtpLoading, setSmtpLoading] = useState(false);
   const [smtpTestLoading, setSmtpTestLoading] = useState(false);
-  const [smtpMessage, setSmtpMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [smtpMessage, setSmtpMessage] = useState<{ type: 'success' | 'error'; text: string; hint?: string } | null>(null);
   const [showSmtpPassword, setShowSmtpPassword] = useState(false);
   
   // WhatsApp settings state
@@ -347,7 +347,11 @@ export function SettingsPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'SMTP connection test failed');
+        // Include hint from API response if available
+        const error = new Error(data.error || 'SMTP connection test failed');
+        (error as any).hint = data.hint;
+        (error as any).data = data;
+        throw error;
       }
 
       setSmtpMessage({ 
@@ -358,7 +362,8 @@ export function SettingsPage() {
       console.error('SMTP test error:', err);
       setSmtpMessage({ 
         type: 'error', 
-        text: err.message || 'SMTP connection test failed. Please check your settings.' 
+        text: err.message || err.data?.error || 'SMTP connection test failed. Please check your settings.',
+        hint: err.hint || err.data?.hint
       });
     } finally {
       setSmtpTestLoading(false);
@@ -1099,17 +1104,24 @@ export function SettingsPage() {
             <CardContent>
               <div className="space-y-4">
                 {smtpMessage && (
-                  <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${
+                  <div className={`p-3 rounded-lg text-sm ${
                     smtpMessage.type === 'success'
                       ? 'bg-green-50 border border-green-200 text-green-700'
                       : 'bg-red-50 border border-red-200 text-red-700'
                   }`}>
-                    {smtpMessage.type === 'success' ? (
-                      <CheckCircle className="w-4 h-4" />
-                    ) : (
-                      <XCircle className="w-4 h-4" />
+                    <div className="flex items-center gap-2">
+                      {smtpMessage.type === 'success' ? (
+                        <CheckCircle className="w-4 h-4" />
+                      ) : (
+                        <XCircle className="w-4 h-4" />
+                      )}
+                      {smtpMessage.text}
+                    </div>
+                    {smtpMessage.hint && (
+                      <div className="mt-2 pt-2 border-t border-red-300 text-red-600 text-xs">
+                        💡 {smtpMessage.hint}
+                      </div>
                     )}
-                    {smtpMessage.text}
                   </div>
                 )}
 

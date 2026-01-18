@@ -316,11 +316,31 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
       ]);
     } catch (verifyError: any) {
       console.error('[SMTP Test] Connection verification failed:', verifyError.message);
+      console.error('[SMTP Test] Error code:', verifyError.code);
+      console.error('[SMTP Test] Error command:', verifyError.command);
+      
+      // Provide user-friendly error messages for common issues
+      let errorMessage = verifyError.message || 'Failed to connect to SMTP server';
+      let helpfulHint = '';
+      
+      if (verifyError.code === 'ETIMEDOUT' || verifyError.code === 'ECONNREFUSED' || verifyError.command === 'CONN') {
+        errorMessage = 'Cannot connect to SMTP server. The connection timed out or was refused.';
+        helpfulHint = 'This often happens in cloud/container environments (like Bolt) that restrict outbound SMTP connections. Consider using an email API service (SendGrid, Mailgun, AWS SES) instead of direct SMTP, or check if your deployment environment allows outbound SMTP connections on port 587/465.';
+      } else if (verifyError.code === 'EAUTH') {
+        errorMessage = 'SMTP authentication failed. Please check your email and password.';
+        helpfulHint = 'For Gmail, make sure you\'re using an App Password (not your regular password). Enable 2-Step Verification and generate an App Password from your Google Account settings.';
+      } else if (verifyError.code === 'ENOTFOUND') {
+        errorMessage = `SMTP host "${host}" could not be found.`;
+        helpfulHint = 'Please verify the SMTP host address is correct. Common hosts: smtp.gmail.com, smtp-mail.outlook.com, smtp.sendgrid.net';
+      }
+      
       return res.status(500).json({ 
         success: false,
-        error: verifyError.message || 'Failed to connect to SMTP server',
+        error: errorMessage,
+        hint: helpfulHint,
         code: verifyError.code,
-        command: verifyError.command
+        command: verifyError.command,
+        details: process.env.NODE_ENV === 'development' ? verifyError.stack : undefined
       });
     }
 
@@ -357,9 +377,23 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
       });
     } catch (sendError: any) {
       console.error('[SMTP Test] Email send error:', sendError.message);
+      console.error('[SMTP Test] Error code:', sendError.code);
+      
+      let errorMessage = sendError.message || 'Failed to send test email';
+      let helpfulHint = '';
+      
+      if (sendError.code === 'ETIMEDOUT' || sendError.code === 'ECONNREFUSED') {
+        errorMessage = 'Email send timed out or connection was refused.';
+        helpfulHint = 'This often happens in cloud/container environments that restrict outbound SMTP connections. Consider using an email API service instead of direct SMTP.';
+      } else if (sendError.code === 'EAUTH') {
+        errorMessage = 'SMTP authentication failed during email send.';
+        helpfulHint = 'Please verify your SMTP credentials are correct.';
+      }
+      
       return res.status(500).json({ 
         success: false,
-        error: sendError.message || 'Failed to send test email',
+        error: errorMessage,
+        hint: helpfulHint,
         code: sendError.code,
         response: sendError.response
       });
