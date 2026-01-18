@@ -12,15 +12,25 @@ const supabaseClient = supabaseUrl && supabaseKey ? createClient(supabaseUrl, su
 // In Bolt/WebContainer, use relative URLs to go through Vite proxy
 // Otherwise use the configured API URL or default to localhost
 const getApiUrl = () => {
-  // Check if we're in a WebContainer/Bolt environment
-  const isWebContainer = typeof window !== 'undefined' &&
-    (window.location.hostname.includes('webcontainer') ||
-     window.location.hostname.includes('bolt') ||
-     window.location.hostname === 'localhost' && window.location.port === '5173');
+  // Check if we're in development mode (Vite dev server)
+  const isViteDev = typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' && window.location.port === '5173') ||
+    window.location.hostname.includes('webcontainer');
 
-  if (isWebContainer || !import.meta.env.VITE_API_URL) {
-    // Use relative URL - Vite proxy will handle it
+  // Check if we're in Bolt production (no backend available)
+  const isBoltProduction = typeof window !== 'undefined' &&
+    window.location.hostname.includes('.bolt.host');
+
+  if (isViteDev) {
+    // Development: Use relative URL - Vite proxy will handle it
+    console.log('[db] Using Vite dev proxy for API');
     return '/api';
+  }
+
+  if (isBoltProduction) {
+    // Bolt production: No backend available, will use Supabase fallback
+    console.log('[db] Bolt production detected, backend not available');
+    return '/api'; // Will fail and trigger Supabase fallback
   }
 
   return import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
@@ -31,18 +41,23 @@ const API_URL = getApiUrl();
 // Track backend availability
 let backendAvailable: boolean | null = null;
 let lastBackendCheck: number = 0;
-const BACKEND_CHECK_INTERVAL = 60000; // Check every 60 seconds
+// In production (Bolt), check every time. In dev, cache for 60 seconds
+const isBoltProduction = typeof window !== 'undefined' && window.location.hostname.includes('bolt.host');
+const BACKEND_CHECK_INTERVAL = isBoltProduction ? 0 : 60000;
 
 // Check if backend server is available
 async function isBackendAvailable(): Promise<boolean> {
   const now = Date.now();
   if (backendAvailable !== null && (now - lastBackendCheck) < BACKEND_CHECK_INTERVAL) {
+    console.log('[db] Using cached backend availability:', backendAvailable);
     return backendAvailable;
   }
 
+  console.log('[db] Checking backend availability at:', `${API_URL}/health`);
+
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+    const timeout = setTimeout(() => controller.abort(), 1000); // 1 second timeout
 
     const response = await fetch(`${API_URL}/health`, {
       method: 'GET',
@@ -52,10 +67,16 @@ async function isBackendAvailable(): Promise<boolean> {
 
     backendAvailable = response.ok;
     lastBackendCheck = now;
+    console.log('[db] Backend availability check result:', {
+      available: backendAvailable,
+      status: response.status,
+      ok: response.ok
+    });
     return backendAvailable;
-  } catch (error) {
+  } catch (error: any) {
     backendAvailable = false;
     lastBackendCheck = now;
+    console.log('[db] Backend availability check failed:', error.message);
     return false;
   }
 }
@@ -761,11 +782,15 @@ class DatabaseClient {
 
             if (profileError) {
               console.error('[db] Error creating user profile:', profileError);
-              // Clean up the auth user
-              await supabaseClient.auth.admin.deleteUser(authData.user.id);
+              // Note: Can't clean up auth user with anon key (would need service_role key)
+              // The auth user will remain but won't be able to login without a profile
               return {
                 data: null,
-                error: { message: 'Failed to create user profile', code: 'PROFILE_CREATE_ERROR' }
+                error: {
+                  message: profileError.message || 'Failed to create user profile',
+                  code: profileError.code || 'PROFILE_CREATE_ERROR',
+                  details: profileError.details || profileError.hint
+                }
               };
             }
 
