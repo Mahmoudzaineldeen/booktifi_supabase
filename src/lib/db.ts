@@ -41,12 +41,23 @@ const API_URL = getApiUrl();
 // Track backend availability
 let backendAvailable: boolean | null = null;
 let lastBackendCheck: number = 0;
-// In production (Bolt), check every time. In dev, cache for 60 seconds
+// In production (Bolt), ALWAYS use Supabase (backend not available)
 const isBoltProduction = typeof window !== 'undefined' && window.location.hostname.includes('bolt.host');
-const BACKEND_CHECK_INTERVAL = isBoltProduction ? 0 : 60000;
+const BACKEND_CHECK_INTERVAL = 60000; // Cache for 60 seconds in dev
+
+// Log once that we're in production mode
+if (isBoltProduction && typeof window !== 'undefined') {
+  console.log('[db] Bolt production detected - using Supabase Auth only');
+  backendAvailable = false; // Backend is never available in production
+}
 
 // Check if backend server is available
 async function isBackendAvailable(): Promise<boolean> {
+  // In Bolt production, backend is NEVER available
+  if (isBoltProduction) {
+    return false;
+  }
+
   const now = Date.now();
   if (backendAvailable !== null && (now - lastBackendCheck) < BACKEND_CHECK_INTERVAL) {
     console.log('[db] Using cached backend availability:', backendAvailable);
