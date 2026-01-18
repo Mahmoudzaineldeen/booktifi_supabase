@@ -216,7 +216,10 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
     const { smtp_host, smtp_port, smtp_user, smtp_password } = req.body;
     
     if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID not found' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'Tenant ID not found' 
+      });
     }
 
     // If settings not provided in body, get from database
@@ -233,12 +236,19 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
         .single();
 
       if (error || !data) {
-        return res.status(404).json({ error: 'Tenant not found' });
+        console.error('Error fetching tenant SMTP settings:', error);
+        return res.status(404).json({ 
+          success: false,
+          error: 'Tenant not found' 
+        });
       }
 
       const settings = data.smtp_settings;
       if (!settings || !settings.smtp_user || !settings.smtp_password) {
-        return res.status(400).json({ error: 'SMTP settings not configured. Please save settings first.' });
+        return res.status(400).json({ 
+          success: false,
+          error: 'SMTP settings not configured. Please save settings first.' 
+        });
       }
 
       host = settings.smtp_host || 'smtp.gmail.com';
@@ -247,11 +257,33 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
       password = settings.smtp_password;
     }
 
-    // Create transporter
+    // Validate required fields
+    if (!user || !password) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'SMTP user and password are required' 
+      });
+    }
+
+    if (!host) {
+      host = 'smtp.gmail.com';
+    }
+
+    const portNumber = port ? parseInt(String(port)) : 587;
+    if (isNaN(portNumber) || portNumber < 1 || portNumber > 65535) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Invalid SMTP port number' 
+      });
+    }
+
+    console.log(`[SMTP Test] Attempting connection to ${host}:${portNumber} for user: ${user}`);
+
+    // Create transporter with timeout
     const transporter = nodemailer.createTransport({
-      host: host || 'smtp.gmail.com',
-      port: parseInt(String(port || 587)),
-      secure: false,
+      host: host,
+      port: portNumber,
+      secure: portNumber === 465, // Use secure for port 465
       auth: {
         user,
         pass: password,
@@ -259,47 +291,86 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
       tls: {
         rejectUnauthorized: process.env.NODE_ENV === 'production' ? true : false,
       },
+      connectionTimeout: 10000, // 10 seconds
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
     });
 
-    // Test connection
-    await new Promise<void>((resolve, reject) => {
-      transporter.verify((error, success) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve();
-        }
+    // Test connection with timeout
+    try {
+      await Promise.race([
+        new Promise<void>((resolve, reject) => {
+          transporter.verify((error, success) => {
+            if (error) {
+              console.error('[SMTP Test] Verification error:', error.message);
+              reject(error);
+            } else {
+              console.log('[SMTP Test] Connection verified successfully');
+              resolve();
+            }
+          });
+        }),
+        new Promise<void>((_, reject) => {
+          setTimeout(() => reject(new Error('Connection timeout: SMTP server did not respond within 10 seconds')), 10000);
+        })
+      ]);
+    } catch (verifyError: any) {
+      console.error('[SMTP Test] Connection verification failed:', verifyError.message);
+      return res.status(500).json({ 
+        success: false,
+        error: verifyError.message || 'Failed to connect to SMTP server',
+        code: verifyError.code,
+        command: verifyError.command
       });
-    });
+    }
 
-    // Try sending a test email
+    // Try sending a test email with timeout
     const testEmail = user; // Send test email to the SMTP user email
-    const testInfo = await transporter.sendMail({
-      from: `"Bookati Test" <${user}>`,
-      to: testEmail,
-      subject: 'SMTP Connection Test - Bookati',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #2563eb;">SMTP Connection Test</h2>
-          <p>This is a test email to verify your SMTP configuration.</p>
-          <p>If you received this email, your SMTP settings are working correctly! ✅</p>
-          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-          <p style="color: #999; font-size: 12px;">This is an automated test email from Bookati.</p>
-        </div>
-      `,
-    });
+    try {
+      const testInfo = await Promise.race([
+        transporter.sendMail({
+          from: `"Bookati Test" <${user}>`,
+          to: testEmail,
+          subject: 'SMTP Connection Test - Bookati',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h2 style="color: #2563eb;">SMTP Connection Test</h2>
+              <p>This is a test email to verify your SMTP configuration.</p>
+              <p>If you received this email, your SMTP settings are working correctly! ✅</p>
+              <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+              <p style="color: #999; font-size: 12px;">This is an automated test email from Bookati.</p>
+            </div>
+          `,
+        }),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Email send timeout: SMTP server did not respond within 15 seconds')), 15000);
+        })
+      ]) as any;
 
-    res.json({ 
-      success: true,
-      message: 'SMTP connection test successful! Test email sent.',
-      messageId: testInfo.messageId,
-      testEmail
-    });
+      console.log('[SMTP Test] Test email sent successfully:', testInfo.messageId);
+
+      res.json({ 
+        success: true,
+        message: 'SMTP connection test successful! Test email sent.',
+        messageId: testInfo.messageId,
+        testEmail
+      });
+    } catch (sendError: any) {
+      console.error('[SMTP Test] Email send error:', sendError.message);
+      return res.status(500).json({ 
+        success: false,
+        error: sendError.message || 'Failed to send test email',
+        code: sendError.code,
+        response: sendError.response
+      });
+    }
   } catch (error: any) {
-    console.error('SMTP test error:', error);
+    console.error('[SMTP Test] Unexpected error:', error);
+    console.error('[SMTP Test] Error stack:', error.stack);
     res.status(500).json({ 
       success: false,
       error: error.message || 'SMTP connection test failed',
+      code: error.code,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
