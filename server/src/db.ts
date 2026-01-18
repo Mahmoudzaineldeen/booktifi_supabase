@@ -30,10 +30,17 @@ if (!isUsingServiceRole) {
   console.warn('   Get it from: Supabase Dashboard → Settings → API → service_role key');
 }
 
+// Create Supabase client with explicit headers to ensure apikey is always included
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false
+  },
+  global: {
+    headers: {
+      'apikey': supabaseKey,
+      'Authorization': `Bearer ${supabaseKey}`,
+    }
   }
 });
 
