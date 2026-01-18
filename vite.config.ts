@@ -11,9 +11,12 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: process.env.VITE_API_URL || 'http://localhost:3001',
+        // Proxy only used when VITE_API_URL is not set
+        // If VITE_API_URL is set, frontend makes direct requests to Railway
+        target: process.env.VITE_API_URL?.replace('/api', '') || 'https://booktifisupabase-production.up.railway.app',
         changeOrigin: true,
-        secure: false,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api/, '/api'),
       },
     },
   },

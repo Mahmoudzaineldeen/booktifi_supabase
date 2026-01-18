@@ -5,6 +5,7 @@ import { Modal } from '../ui/Modal';
 import { Star, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import heic2any from 'heic2any';
+import { getApiUrl } from '../../lib/apiUrl';
 
 interface ReviewFormProps {
   bookingId: string;
@@ -194,7 +195,7 @@ export function ReviewForm({
     setLoading(true);
 
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
 
       if (!token) {

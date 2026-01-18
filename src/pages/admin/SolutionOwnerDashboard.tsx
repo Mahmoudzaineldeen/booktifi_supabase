@@ -10,6 +10,7 @@ import { Modal } from '../../components/ui/Modal';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { Building2, Users, Calendar, LogOut, Plus, Settings, Edit, Trash2, UserPlus, Shield } from 'lucide-react';
 import { Tenant } from '../../types';
+import { getApiUrl } from '../../lib/apiUrl';
 
 export function SolutionOwnerDashboard() {
   const { userProfile, signOut, hasRole, loading: authLoading } = useAuth();
@@ -312,7 +313,7 @@ export function SolutionOwnerDashboard() {
     setError('');
 
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
       
       if (!token) {

@@ -199,7 +199,7 @@ export function CheckoutPage() {
     setPhoneUniquenessError(null);
     
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/auth/guest/verify-phone`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -700,7 +700,7 @@ export function CheckoutPage() {
     setSubmitting(true);
 
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
 
       // Calculate actual visitor count
@@ -1071,7 +1071,7 @@ export function CheckoutPage() {
                             setPhoneUniquenessError(null);
                             
                             try {
-                              const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+                              const API_URL = getApiUrl();
                               const response = await fetch(`${API_URL}/auth/guest/verify-otp`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },

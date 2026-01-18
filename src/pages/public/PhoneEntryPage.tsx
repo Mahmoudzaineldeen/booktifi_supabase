@@ -9,6 +9,7 @@ import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { validatePhoneNumberByCountry } from '../../lib/countryCodes';
 import { ArrowLeft, Phone, User, Shield } from 'lucide-react';
 import { db } from '../../lib/db';
+import { getApiUrl } from '../../lib/apiUrl';
 
 interface BookingData {
   serviceId: string;
@@ -91,7 +92,7 @@ export function PhoneEntryPage() {
   // Check if phone number exists
   const checkPhoneExists = async (phoneNumber: string): Promise<{ exists: boolean; email?: string; name?: string }> => {
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       
       const response = await fetch(`${API_URL}/auth/check-phone`, {
         method: 'POST',
@@ -120,7 +121,7 @@ export function PhoneEntryPage() {
   // Send OTP to phone number
   const sendOTP = async (phoneNumber: string) => {
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       
       const response = await fetch(`${API_URL}/auth/guest/verify-phone`, {
         method: 'POST',
@@ -149,7 +150,7 @@ export function PhoneEntryPage() {
   // Verify OTP
   const verifyOTP = async (phoneNumber: string, otp: string) => {
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       
       const response = await fetch(`${API_URL}/auth/guest/verify-otp`, {
         method: 'POST',

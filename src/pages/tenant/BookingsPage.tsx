@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/Button';
 import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import { getApiUrl } from '../../lib/apiUrl';
 
 interface Booking {
   id: string;
@@ -202,14 +203,8 @@ export function BookingsPage() {
     try {
       setDownloadingInvoice(bookingId);
       
-      // Detect Bolt/WebContainer environment and use relative URLs
-      const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
-      let API_URL: string;
-      if (isBolt) {
-        API_URL = '/api'; // Relative URL - goes through Vite proxy to Bolt's backend
-      } else {
-        API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-      }
+      // Use centralized API URL utility
+      const API_URL = getApiUrl();
       
       const token = localStorage.getItem('auth_token');
       

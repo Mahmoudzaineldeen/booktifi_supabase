@@ -8,8 +8,7 @@ import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { Mail, ArrowLeft, CheckCircle, Lock, Eye, EyeOff, MessageCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+import { getApiUrl } from '../../lib/apiUrl';
 
 type Step = 'username' | 'confirm' | 'otp' | 'password' | 'success';
 
@@ -61,6 +60,7 @@ export function ForgotPasswordPage() {
     }
 
     try {
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/auth/forgot-password/lookup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -135,6 +135,7 @@ export function ForgotPasswordPage() {
         hasPhone,
       });
 
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,6 +178,7 @@ export function ForgotPasswordPage() {
 
     try {
       // Use identifier for verification (backend will lookup the contact info)
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -231,6 +233,7 @@ export function ForgotPasswordPage() {
     setLoading(true);
 
     try {
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/auth/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -265,6 +268,7 @@ export function ForgotPasswordPage() {
     console.log('Attempting login with OTP, resetToken present:', !!resetToken);
     
     try {
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/auth/login-with-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -624,7 +624,7 @@ export function SettingsPage() {
       // For relative URLs (Bolt), use relative path; otherwise extract base URL
       const healthCheckUrl = API_URL.startsWith('/') 
         ? '' // Relative URL - Vite proxy will handle it
-        : API_URL.replace('/api', '') || 'http://localhost:3001';
+        : API_URL.replace('/api', '') || 'https://booktifisupabase-production.up.railway.app';
       
       const healthCheck = await fetch(`${healthCheckUrl}/health`, {
         method: 'GET',
@@ -650,16 +650,13 @@ export function SettingsPage() {
       if (isBolt) {
         if (isConnectionRefused) {
           errorMessage = '❌ Backend server is not running!\n\n' +
-            'The error "ERR_CONNECTION_REFUSED" means the server at http://localhost:3001 is not accessible.\n\n' +
-            'In Bolt, you must:\n' +
-            '1. Keep the terminal open where you ran "npm run dev"\n' +
-            '2. Make sure the server is still running (look for "🚀 API Server running")\n' +
-            '3. If you closed the terminal, restart the server:\n' +
-            '   - Open a new terminal in Bolt\n' +
-            '   - Run: npm run dev\n' +
-            '   - Wait for "🚀 API Server running on http://localhost:3001"\n' +
+            'The error "ERR_CONNECTION_REFUSED" means the backend server is not accessible.\n\n' +
+            'In Bolt, verify:\n' +
+            '1. Railway backend is running: https://booktifisupabase-production.up.railway.app/health\n' +
+            '2. VITE_API_URL is set correctly in Bolt environment variables\n' +
+            '3. The Railway backend is deployed and accessible\n' +
             '4. Then try "Connect to Zoho" again\n\n' +
-            '⚠️ Note: The redirect URI http://localhost:3001/api/zoho/callback is correct, but it requires the server to be running.';
+            '⚠️ Note: The redirect URI must match what is configured in Zoho Developer Console.';
         } else {
           errorMessage = 'Backend server is not running. In Bolt, you must keep the server terminal open.\n\n' +
             'To fix:\n' +
@@ -671,14 +668,12 @@ export function SettingsPage() {
       } else {
         if (isConnectionRefused) {
           errorMessage = '❌ Backend server is not running!\n\n' +
-            'The error "ERR_CONNECTION_REFUSED" means the server at http://localhost:3001 is not accessible.\n\n' +
+            'The error "ERR_CONNECTION_REFUSED" means the backend server is not accessible.\n\n' +
             'To fix:\n' +
-            '1. Open terminal\n' +
-            '2. cd to project/server\n' +
-            '3. Run: npm run dev\n' +
-            '4. Wait for "🚀 API Server running on http://localhost:3001"\n' +
-            '5. Then try "Connect to Zoho" again\n\n' +
-            'Or double-click start-server.bat in the server folder';
+            '1. Verify Railway backend is running: https://booktifisupabase-production.up.railway.app/health\n' +
+            '2. Check that VITE_API_URL is set correctly in your environment\n' +
+            '3. Ensure the Railway backend is deployed and accessible\n' +
+            '4. Then try "Connect to Zoho" again';
         } else {
           errorMessage = 'Backend server is not running. Please start the server:\n\n' +
             '1. Open terminal\n' +
@@ -1096,12 +1091,12 @@ export function SettingsPage() {
                       : 'bg-red-50 border border-red-200 text-red-700'
                   }`}>
                     <div className="flex items-center gap-2">
-                      {smtpMessage.type === 'success' ? (
-                        <CheckCircle className="w-4 h-4" />
-                      ) : (
-                        <XCircle className="w-4 h-4" />
-                      )}
-                      {smtpMessage.text}
+                    {smtpMessage.type === 'success' ? (
+                      <CheckCircle className="w-4 h-4" />
+                    ) : (
+                      <XCircle className="w-4 h-4" />
+                    )}
+                    {smtpMessage.text}
                     </div>
                     {smtpMessage.hint && (
                       <div className="mt-2 pt-2 border-t border-red-300 text-red-600 text-xs">

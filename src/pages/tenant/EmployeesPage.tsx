@@ -9,6 +9,7 @@ import { Input } from '../../components/ui/Input';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { countryCodes } from '../../lib/countryCodes';
 import { Plus, Edit, Users, Mail, Phone, Briefcase, UserX, UserCheck, Search } from 'lucide-react';
+import { getApiUrl } from '../../lib/apiUrl';
 
 interface Employee {
   id: string;
@@ -161,7 +162,7 @@ export function EmployeesPage() {
         }
 
         // Use backend API endpoint
-        const apiUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/employees/update`;
+        const apiUrl = `${getApiUrl()}/employees/update`;
 
         const updatePayload: any = {
           employee_id: editingEmployee.id,
@@ -251,7 +252,7 @@ export function EmployeesPage() {
         }
 
         // Use backend API endpoint
-        const apiUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/employees/create`;
+        const apiUrl = `${getApiUrl()}/employees/create`;
 
         const response = await fetch(apiUrl, {
           method: 'POST',
@@ -385,7 +386,8 @@ export function EmployeesPage() {
       }
 
       // Use backend API endpoint
-      const apiUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/employees/update`;
+      const { getApiUrl } = await import('../../lib/apiUrl');
+      const apiUrl = `${getApiUrl()}/employees/update`;
 
       const response = await fetch(apiUrl, {
         method: 'POST',

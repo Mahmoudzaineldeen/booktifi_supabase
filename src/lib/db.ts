@@ -142,7 +142,7 @@ class DatabaseClient {
             '║ Method 1: Double-click start-server.bat in server folder     ║',
             '║ Method 2: Run: cd server && npm run dev                       ║',
             '║                                                               ║',
-            '║ Then verify: http://localhost:3001/health                   ║'
+            '║ Then verify: https://booktifisupabase-production.up.railway.app/health ║'
           );
         }
         

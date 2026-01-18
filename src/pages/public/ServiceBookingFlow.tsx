@@ -12,6 +12,7 @@ import { StarRating } from '../../components/ui/StarRating';
 import { AnimatedRating } from '../../components/ui/AnimatedRating';
 import { TestimonialForm } from '../../components/reviews/TestimonialForm';
 import { ReviewImageStory } from '../../components/reviews/ReviewImageStory';
+import { getApiUrl } from '../../lib/apiUrl';
 
 interface Tenant {
   id: string;
@@ -191,13 +192,12 @@ export function ServiceBookingFlow() {
   const [datesToShow, setDatesToShow] = useState(7); // Show 7 days initially
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date()); // Current month for calendar modal
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-
   async function fetchReviews() {
     if (!serviceId) return;
     
     try {
       setReviewsLoading(true);
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/reviews/service/${serviceId}?limit=50`);
       if (response.ok) {
         const data = await response.json();
@@ -553,6 +553,7 @@ export function ServiceBookingFlow() {
       if (slotIds.length > 0) {
         try {
           // Use POST to avoid 431 error (Request Header Fields Too Large) when there are many slots
+          const API_URL = getApiUrl();
           const locksResponse = await fetch(
             `${API_URL}/bookings/locks`,
             {

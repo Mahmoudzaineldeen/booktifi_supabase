@@ -5,11 +5,19 @@
 
 /**
  * Get the API base URL based on the current environment
+ * - Priority: VITE_API_URL environment variable (if set)
  * - Bolt/WebContainer: Uses Railway backend from VITE_API_URL or fallback
- * - Local development: Uses localhost:3001 or VITE_API_URL
+ * - Local development: Uses Railway backend (default) or VITE_API_URL
  * - Production: Uses VITE_API_URL
  */
 export function getApiUrl(): string {
+  // Always check VITE_API_URL first - if set, use it (highest priority)
+  if (import.meta.env.VITE_API_URL) {
+    const apiUrl = import.meta.env.VITE_API_URL;
+    console.log('[getApiUrl] Using VITE_API_URL:', apiUrl);
+    return apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`;
+  }
+
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     const origin = window.location.origin;
@@ -24,15 +32,18 @@ export function getApiUrl(): string {
       (hostname === 'localhost' && window.location.port === '5173');
     
     if (isWebContainer) {
-      // In Bolt, use Railway backend URL from environment variable or fallback
-      const railwayUrl = import.meta.env.VITE_API_URL || 'https://booktifisupabase-production.up.railway.app/api';
+      // In Bolt, use Railway backend URL
+      const railwayUrl = 'https://booktifisupabase-production.up.railway.app/api';
       console.log('[getApiUrl] Bolt/WebContainer detected, using Railway backend:', railwayUrl);
       return railwayUrl;
     }
   }
   
-  // Local development or production: use VITE_API_URL or fallback to localhost
-  return import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+  // Local development: Default to Railway backend (not localhost)
+  // This ensures we test against the deployed backend
+  const railwayUrl = 'https://booktifisupabase-production.up.railway.app/api';
+  console.log('[getApiUrl] Local development, using Railway backend:', railwayUrl);
+  return railwayUrl;
 }
 
 /**

@@ -304,14 +304,8 @@ export function CustomerBillingPage() {
     try {
       setDownloadingInvoice(invoiceId);
       
-      // Detect Bolt/WebContainer environment and use relative URLs
-      const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
-      let API_URL: string;
-      if (isBolt) {
-        API_URL = '/api'; // Relative URL - goes through Vite proxy to Bolt's backend
-      } else {
-        API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-      }
+      // Use centralized API URL utility
+      const API_URL = getApiUrl();
       
       const token = localStorage.getItem('auth_token');
       
@@ -320,6 +314,7 @@ export function CustomerBillingPage() {
       // Add token as query parameter to bypass CORS header issues
       const downloadUrl = `${baseUrl}/zoho/invoices/${zohoInvoiceId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
       
+      const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
       console.log('[CustomerBillingPage] Downloading invoice:', zohoInvoiceId);
       console.log('[CustomerBillingPage] Environment:', { isBolt, API_URL, downloadUrl: downloadUrl.replace(token || '', '***') });
       

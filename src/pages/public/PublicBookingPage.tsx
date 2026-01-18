@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
+import { getApiUrl } from '../../lib/apiUrl';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
@@ -192,7 +193,8 @@ export function PublicBookingPage() {
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+  // Use centralized API URL utility - import at top of file
+  const API_URL = getApiUrl();
 
   // Filter services based on search query
   const filteredServices = services.filter(service => {
@@ -575,7 +577,7 @@ export function PublicBookingPage() {
       if (errorMessage.includes('column') || errorMessage.includes('does not exist')) {
         alert('Database schema mismatch. Please run the migration: database/migrations/add_modern_landing_page_features.sql');
       } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-        alert('Network error. Please check if the backend server is running on port 3001.');
+        alert('Network error. Please check if the Railway backend is accessible.');
       } else {
         alert(`Failed to load page: ${errorMessage}. Please check the console for details.`);
       }
@@ -2226,7 +2228,8 @@ export function PublicBookingPage() {
                       : (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟' : 'Are you sure you want to delete this review?');
                     if (window.confirm(confirmMessage)) {
                       try {
-                        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+                        // Use centralized API URL utility - import at top of file
+  const API_URL = getApiUrl();
                         const token = localStorage.getItem('auth_token');
                         const response = await fetch(`${API_URL}/reviews/${reviewId}`, {
                           method: 'DELETE',
@@ -2925,7 +2928,8 @@ export function PublicBookingPage() {
                             : (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟' : 'Are you sure you want to delete this review?');
                           if (window.confirm(confirmMessage)) {
                             try {
-                              const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+                              // Use centralized API URL utility - import at top of file
+  const API_URL = getApiUrl();
                               const token = localStorage.getItem('auth_token');
                               const response = await fetch(`${API_URL}/reviews/${reviewId}`, {
                                 method: 'DELETE',
