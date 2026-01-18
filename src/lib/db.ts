@@ -1,96 +1,33 @@
 // PostgreSQL Database Client
-// Replaces Supabase client with direct PostgreSQL connection via API
-// Falls back to Supabase Auth in production if backend is not available
-
-import { createClient } from '@supabase/supabase-js';
-
-// Supabase client for fallback authentication
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabaseClient = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+// All database operations go through backend API - NO direct Supabase calls
+// Backend uses service role key to ensure proper authentication
 
 // In Bolt/WebContainer, use relative URLs to go through Vite proxy
 // Otherwise use the configured API URL or default to localhost
 const getApiUrl = () => {
-  // Check if we're in development mode (Vite dev server)
-  const isViteDev = typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' && window.location.port === '5173') ||
-    window.location.hostname.includes('webcontainer');
-
-  // Check if we're in Bolt production (no backend available)
-  const isBoltProduction = typeof window !== 'undefined' &&
-    window.location.hostname.includes('.bolt.host');
-
-  if (isViteDev) {
-    // Development: Use relative URL - Vite proxy will handle it
-    console.log('[db] Using Vite dev proxy for API');
-    return '/api';
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    const origin = window.location.origin;
+    
+    // Comprehensive detection for Bolt/WebContainer environments
+    const isWebContainer = 
+      hostname.includes('webcontainer') || 
+      hostname.includes('bolt') ||
+      hostname.includes('local-credentialless') ||
+      hostname.includes('webcontainer-api.io') ||
+      origin.includes('bolt.host') ||
+      (hostname === 'localhost' && window.location.port === '5173');
+    
+    if (isWebContainer) {
+      console.log('[db] Bolt/WebContainer detected, using relative API URL');
+      return '/api';
+    }
   }
-
-  if (isBoltProduction) {
-    // Bolt production: No backend available, will use Supabase fallback
-    console.log('[db] Bolt production detected, backend not available');
-    return '/api'; // Will fail and trigger Supabase fallback
-  }
-
+  
   return import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 };
 
 const API_URL = getApiUrl();
-
-// Track backend availability
-let backendAvailable: boolean | null = null;
-let lastBackendCheck: number = 0;
-// In production (Bolt), ALWAYS use Supabase (backend not available)
-const isBoltProduction = typeof window !== 'undefined' && window.location.hostname.includes('bolt.host');
-const BACKEND_CHECK_INTERVAL = 60000; // Cache for 60 seconds in dev
-
-// Log once that we're in production mode
-if (isBoltProduction && typeof window !== 'undefined') {
-  console.log('[db] Bolt production detected - using Supabase Auth only');
-  backendAvailable = false; // Backend is never available in production
-}
-
-// Check if backend server is available
-async function isBackendAvailable(): Promise<boolean> {
-  // In Bolt production, backend is NEVER available
-  if (isBoltProduction) {
-    return false;
-  }
-
-  const now = Date.now();
-  if (backendAvailable !== null && (now - lastBackendCheck) < BACKEND_CHECK_INTERVAL) {
-    console.log('[db] Using cached backend availability:', backendAvailable);
-    return backendAvailable;
-  }
-
-  console.log('[db] Checking backend availability at:', `${API_URL}/health`);
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 1000); // 1 second timeout
-
-    const response = await fetch(`${API_URL}/health`, {
-      method: 'GET',
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    backendAvailable = response.ok;
-    lastBackendCheck = now;
-    console.log('[db] Backend availability check result:', {
-      available: backendAvailable,
-      status: response.status,
-      ok: response.ok
-    });
-    return backendAvailable;
-  } catch (error: any) {
-    backendAvailable = false;
-    lastBackendCheck = now;
-    console.log('[db] Backend availability check failed:', error.message);
-    return false;
-  }
-}
 
 class DatabaseClient {
   private baseUrl: string;
@@ -264,12 +201,6 @@ class DatabaseClient {
       limit: null,
     };
 
-    // Helper to check if we should use Supabase fallback
-    const shouldUseSupabaseFallback = async () => {
-      const available = await isBackendAvailable();
-      return !available && supabaseClient !== null;
-    };
-
     const builder: any = {
       select: (columns: string = '*') => {
         queryParams.select = columns;
@@ -312,49 +243,31 @@ class DatabaseClient {
         return builder;
       },
       maybeSingle: async () => {
-        if (await shouldUseSupabaseFallback()) {
-          let query = supabaseClient!.from(table).select(queryParams.select);
-          Object.keys(queryParams.where).forEach(key => {
-            query = query.eq(key, queryParams.where[key]);
-          });
-          if (queryParams.orderBy) {
-            query = query.order(queryParams.orderBy.column, { ascending: queryParams.orderBy.ascending });
-          }
-          const { data, error } = await query.limit(1).maybeSingle();
-          return { data, error };
-        }
-
         queryParams.limit = 1;
-        const result = await self.request(`/query?${new URLSearchParams({
-          table: queryParams.table,
-          select: queryParams.select,
-          where: JSON.stringify(queryParams.where),
-          ...(queryParams.orderBy && { orderBy: JSON.stringify(queryParams.orderBy) }),
-          limit: '1',
-        }).toString()}`);
+        const result = await self.request('/query', {
+          method: 'POST',
+          body: JSON.stringify({
+            table: queryParams.table,
+            select: queryParams.select,
+            where: queryParams.where,
+            orderBy: queryParams.orderBy,
+            limit: 1,
+          }),
+        });
         return { data: result.data?.[0] || null, error: result.error };
       },
       single: async () => {
-        if (await shouldUseSupabaseFallback()) {
-          let query = supabaseClient!.from(table).select(queryParams.select);
-          Object.keys(queryParams.where).forEach(key => {
-            query = query.eq(key, queryParams.where[key]);
-          });
-          if (queryParams.orderBy) {
-            query = query.order(queryParams.orderBy.column, { ascending: queryParams.orderBy.ascending });
-          }
-          const { data, error } = await query.limit(1).single();
-          return { data, error };
-        }
-
         queryParams.limit = 1;
-        const result = await self.request(`/query?${new URLSearchParams({
-          table: queryParams.table,
-          select: queryParams.select,
-          where: JSON.stringify(queryParams.where),
-          ...(queryParams.orderBy && { orderBy: JSON.stringify(queryParams.orderBy) }),
-          limit: '1',
-        }).toString()}`);
+        const result = await self.request('/query', {
+          method: 'POST',
+          body: JSON.stringify({
+            table: queryParams.table,
+            select: queryParams.select,
+            where: queryParams.where,
+            orderBy: queryParams.orderBy,
+            limit: 1,
+          }),
+        });
         if (result.error) return { data: null, error: result.error };
         if (!result.data || result.data.length === 0) {
           return { data: null, error: { message: 'No rows returned' } };
@@ -362,35 +275,18 @@ class DatabaseClient {
         return { data: result.data[0], error: null };
       },
       then: async (resolve?: any, reject?: any) => {
-        if (await shouldUseSupabaseFallback()) {
-          let query = supabaseClient!.from(table).select(queryParams.select);
-          Object.keys(queryParams.where).forEach(key => {
-            query = query.eq(key, queryParams.where[key]);
-          });
-          if (queryParams.orderBy) {
-            query = query.order(queryParams.orderBy.column, { ascending: queryParams.orderBy.ascending });
-          }
-          if (queryParams.limit) {
-            query = query.limit(queryParams.limit);
-          }
-          const { data, error } = await query;
-          if (error) {
-            if (reject) reject(error);
-            return { data: null, error };
-          }
-          if (resolve) resolve({ data, error: null });
-          return { data, error: null };
-        }
-
-        const params = new URLSearchParams({
-          table: queryParams.table,
-          select: queryParams.select,
-          where: JSON.stringify(queryParams.where),
+        // Use POST for queries to avoid URL encoding issues with complex where clauses
+        // This ensures JSON where clauses are sent correctly in the request body
+        const result = await self.request('/query', {
+          method: 'POST',
+          body: JSON.stringify({
+            table: queryParams.table,
+            select: queryParams.select,
+            where: queryParams.where,
+            orderBy: queryParams.orderBy,
+            limit: queryParams.limit,
+          }),
         });
-        if (queryParams.orderBy) params.append('orderBy', JSON.stringify(queryParams.orderBy));
-        if (queryParams.limit) params.append('limit', queryParams.limit.toString());
-
-        const result = await self.request(`/query?${params.toString()}`);
         if (result.error) {
           if (reject) reject(result.error);
           return { data: null, error: result.error };
@@ -401,15 +297,6 @@ class DatabaseClient {
       insert: (data: any | any[]) => ({
         select: (columns: string = '*') => ({
           single: async () => {
-            if (await shouldUseSupabaseFallback()) {
-              const { data: result, error } = await supabaseClient!
-                .from(table)
-                .insert(data)
-                .select(columns)
-                .single();
-              return { data: result, error };
-            }
-
             const result = await self.request(`/insert/${table}`, {
               method: 'POST',
               body: JSON.stringify({ data, returning: columns }),
@@ -418,19 +305,6 @@ class DatabaseClient {
             return { data: Array.isArray(data) ? result.data[0] : result.data, error: null };
           },
           then: async (resolve?: any, reject?: any) => {
-            if (await shouldUseSupabaseFallback()) {
-              const { data: result, error } = await supabaseClient!
-                .from(table)
-                .insert(data)
-                .select(columns);
-              if (error) {
-                if (reject) reject(error);
-                return { data: null, error };
-              }
-              if (resolve) resolve({ data: result, error: null });
-              return { data: result, error: null };
-            }
-
             const result = await self.request(`/insert/${table}`, {
               method: 'POST',
               body: JSON.stringify({ data, returning: columns }),
@@ -444,19 +318,6 @@ class DatabaseClient {
           },
         }),
         then: async (resolve?: any, reject?: any) => {
-          if (await shouldUseSupabaseFallback()) {
-            const { data: result, error } = await supabaseClient!
-              .from(table)
-              .insert(data)
-              .select();
-            if (error) {
-              if (reject) reject(error);
-              return { data: null, error };
-            }
-            if (resolve) resolve({ data: result, error: null });
-            return { data: result, error: null };
-          }
-
           const result = await self.request(`/insert/${table}`, {
             method: 'POST',
             body: JSON.stringify({ data }),
@@ -472,26 +333,16 @@ class DatabaseClient {
       update: (data: any) => {
         // Clean data before sending - remove any string "NULL" values
         const cleanData = (data: any): any => {
-          console.log('[db.ts] cleanData - Input data:', JSON.stringify(data, null, 2));
           const cleaned: any = {};
           Object.keys(data).forEach(key => {
             const value = data[key];
-            console.log(`[db.ts] cleanData - Processing key "${key}":`, {
-              value,
-              type: typeof value,
-              isNull: value === null,
-              isUndefined: value === undefined,
-              isStringNULL: value === 'NULL' || value === 'null' || (typeof value === 'string' && value.trim().toUpperCase() === 'NULL')
-            });
             // Convert string "NULL" to actual null
             if (value === 'NULL' || value === 'null' || (typeof value === 'string' && value.trim().toUpperCase() === 'NULL')) {
-              console.log(`[db.ts] cleanData - Converting "${key}" from string "NULL" to null`);
               cleaned[key] = null;
             } else {
               cleaned[key] = value;
             }
           });
-          console.log('[db.ts] cleanData - Output cleaned data:', JSON.stringify(cleaned, null, 2));
           return cleaned;
         };
         
@@ -571,7 +422,7 @@ class DatabaseClient {
     };
   }
 
-  // Auth methods
+  // Auth methods - ALL go through backend, NO Supabase fallback
   auth = {
     getSession: async () => {
       // Try to get session from multiple possible locations
@@ -660,71 +511,7 @@ class DatabaseClient {
       return { data: { session: null }, error: null };
     },
     signInWithPassword: async (credentials: { email?: string; username?: string; password: string; forCustomer?: boolean }) => {
-      // Check if backend is available
-      const useBackend = await isBackendAvailable();
-
-      if (!useBackend && supabaseClient) {
-        // Fall back to Supabase Auth
-        console.log('[db] Backend not available, using Supabase Auth fallback');
-
-        try {
-          const { data, error } = await supabaseClient.auth.signInWithPassword({
-            email: credentials.email || credentials.username || '',
-            password: credentials.password,
-          });
-
-          if (error) throw error;
-
-          if (data?.session && data?.user) {
-            // Store session
-            localStorage.setItem('auth_session', JSON.stringify(data.session));
-            localStorage.setItem('auth_token', data.session.access_token);
-
-            // Fetch user profile from database
-            const { data: userProfile, error: profileError } = await supabaseClient
-              .from('users')
-              .select('*, tenants(*)')
-              .eq('id', data.user.id)
-              .single();
-
-            if (profileError) {
-              console.error('[db] Error fetching user profile:', profileError);
-              return {
-                data: null,
-                error: { message: 'Failed to fetch user profile', code: 'PROFILE_FETCH_ERROR' }
-              };
-            }
-
-            // Check if customer is trying to access non-customer pages
-            if (credentials.forCustomer === false && userProfile.role === 'customer') {
-              await supabaseClient.auth.signOut();
-              return {
-                data: null,
-                error: { message: 'Access denied: Customers cannot use this login page', code: 'CUSTOMER_ACCESS_DENIED' }
-              };
-            }
-
-            return {
-              data: {
-                session: data.session,
-                user: userProfile,
-                tenant: userProfile.tenants
-              },
-              error: null
-            };
-          }
-
-          return { data: null, error: { message: 'No session data returned', code: 'NO_SESSION' } };
-        } catch (error: any) {
-          console.error('[db] Supabase Auth fallback error:', error);
-          return {
-            data: null,
-            error: { message: error.message || 'Authentication failed', code: error.code || 'AUTH_ERROR' }
-          };
-        }
-      }
-
-      // Use backend API
+      // ALWAYS use backend API - NO fallback
       const result = await this.request('/auth/signin', {
         method: 'POST',
         body: JSON.stringify(credentials),
@@ -757,80 +544,8 @@ class DatabaseClient {
       const role = credentials.options?.data?.role || credentials.role;
       const tenant_id = credentials.options?.data?.tenant_id || credentials.tenant_id;
       const phone = credentials.options?.data?.phone || credentials.phone;
-      const email = credentials.email || credentials.username;
 
-      // Check if backend is available
-      const useBackend = await isBackendAvailable();
-
-      if (!useBackend && supabaseClient) {
-        // Fall back to Supabase Auth + direct database insert
-        console.log('[db] Backend not available, using Supabase Auth fallback for signup');
-
-        try {
-          // First, create the auth user
-          const { data: authData, error: authError } = await supabaseClient.auth.signUp({
-            email: email || '',
-            password: credentials.password,
-          });
-
-          if (authError) throw authError;
-
-          if (authData?.user) {
-            // Now create the user profile in the users table
-            const { data: userProfile, error: profileError } = await supabaseClient
-              .from('users')
-              .insert({
-                id: authData.user.id,
-                email,
-                phone,
-                full_name,
-                role: role || 'tenant_admin',
-                tenant_id,
-                is_active: true,
-              })
-              .select()
-              .single();
-
-            if (profileError) {
-              console.error('[db] Error creating user profile:', profileError);
-              // Note: Can't clean up auth user with anon key (would need service_role key)
-              // The auth user will remain but won't be able to login without a profile
-              return {
-                data: null,
-                error: {
-                  message: profileError.message || 'Failed to create user profile',
-                  code: profileError.code || 'PROFILE_CREATE_ERROR',
-                  details: profileError.details || profileError.hint
-                }
-              };
-            }
-
-            // Store session if available
-            if (authData.session) {
-              localStorage.setItem('auth_session', JSON.stringify(authData.session));
-              localStorage.setItem('auth_token', authData.session.access_token);
-            }
-
-            return {
-              data: {
-                session: authData.session,
-                user: userProfile,
-              },
-              error: null
-            };
-          }
-
-          return { data: null, error: { message: 'No user data returned', code: 'NO_USER' } };
-        } catch (error: any) {
-          console.error('[db] Supabase Auth fallback signup error:', error);
-          return {
-            data: null,
-            error: { message: error.message || 'Signup failed', code: error.code || 'SIGNUP_ERROR' }
-          };
-        }
-      }
-
-      // Use backend API
+      // ALWAYS use backend API - NO fallback
       const requestBody: any = {
         email: credentials.email,
         username: credentials.username,
@@ -867,15 +582,12 @@ class DatabaseClient {
       localStorage.removeItem('user_data');
       localStorage.removeItem('supabase.auth.token');
 
-      // Try backend signout
-      const useBackend = await isBackendAvailable();
-      if (useBackend) {
+      // Try backend signout (don't fail if backend is unavailable)
+      try {
         await this.request('/auth/signout', { method: 'POST' });
-      }
-
-      // Also call Supabase signout if available
-      if (supabaseClient) {
-        await supabaseClient.auth.signOut();
+      } catch (error) {
+        // Ignore errors on signout
+        console.warn('[db.auth.signOut] Backend signout failed (non-critical):', error);
       }
 
       return { error: null };

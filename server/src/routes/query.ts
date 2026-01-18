@@ -3,10 +3,10 @@ import { supabase } from '../db';
 
 const router = express.Router();
 
-// Generic query endpoint
-router.get('/query', async (req, res) => {
+// Generic query endpoint - supports both GET (for simple queries) and POST (for complex queries)
+router.post('/query', async (req, res) => {
   try {
-    const { table, select = '*', where, orderBy, limit } = req.query;
+    const { table, select = '*', where, orderBy, limit } = req.body;
 
     if (!table) {
       return res.status(400).json({ error: 'Table name is required' });
@@ -48,43 +48,74 @@ router.get('/query', async (req, res) => {
     // Apply WHERE conditions
     if (where) {
       let conditions;
-      try {
-        conditions = JSON.parse(where as string);
-      } catch (parseError: any) {
-        console.error('[Query] Failed to parse WHERE clause:', where);
-        return res.status(400).json({ 
-          error: 'Invalid WHERE clause format', 
-          details: parseError.message 
-        });
+      // where can be either a string (from GET) or object (from POST)
+      if (typeof where === 'string') {
+        try {
+          conditions = JSON.parse(where);
+        } catch (parseError: any) {
+          console.error('[Query] Failed to parse WHERE clause:', where);
+          return res.status(400).json({ 
+            error: 'Invalid WHERE clause format', 
+            details: parseError.message 
+          });
+        }
+      } else {
+        conditions = where;
       }
 
       Object.entries(conditions).forEach(([key, value]) => {
         try {
+          // CRITICAL: Convert frontend query builder syntax (__gte, __lte, etc.) to Supabase methods
+          // This prevents "column does not exist" errors where __gte is treated as a column name
           if (key.endsWith('__neq')) {
             const column = key.replace('__neq', '');
+            if (!column) {
+              throw new Error(`Invalid column name after removing __neq suffix: ${key}`);
+            }
             query = query.neq(column, value);
           } else if (key.endsWith('__in')) {
             const column = key.replace('__in', '');
-            query = query.in(column, value as any[]);
+            if (!column) {
+              throw new Error(`Invalid column name after removing __in suffix: ${key}`);
+            }
+            if (!Array.isArray(value)) {
+              throw new Error(`Value for __in operator must be an array, got: ${typeof value}`);
+            }
+            query = query.in(column, value);
           } else if (key.endsWith('__gt')) {
             const column = key.replace('__gt', '');
+            if (!column) {
+              throw new Error(`Invalid column name after removing __gt suffix: ${key}`);
+            }
             query = query.gt(column, value);
           } else if (key.endsWith('__gte')) {
             const column = key.replace('__gte', '');
+            if (!column) {
+              throw new Error(`Invalid column name after removing __gte suffix: ${key}`);
+            }
             query = query.gte(column, value);
           } else if (key.endsWith('__lt')) {
             const column = key.replace('__lt', '');
+            if (!column) {
+              throw new Error(`Invalid column name after removing __lt suffix: ${key}`);
+            }
             query = query.lt(column, value);
           } else if (key.endsWith('__lte')) {
             const column = key.replace('__lte', '');
+            if (!column) {
+              throw new Error(`Invalid column name after removing __lte suffix: ${key}`);
+            }
             query = query.lte(column, value);
           } else if (Array.isArray(value)) {
+            // If value is array but key doesn't have __in suffix, use .in() method
             query = query.in(key, value);
           } else {
+            // Default: equality check
             query = query.eq(key, value);
           }
         } catch (queryError: any) {
-          console.error(`[Query] Error applying condition ${key}:`, queryError);
+          console.error(`[Query] Error applying condition ${key}=${JSON.stringify(value)}:`, queryError);
+          console.error(`[Query] Condition details:`, { key, value, type: typeof value, isArray: Array.isArray(value) });
           throw new Error(`Failed to apply WHERE condition: ${key} - ${queryError.message}`);
         }
       });
@@ -92,13 +123,30 @@ router.get('/query', async (req, res) => {
 
     // Apply ORDER BY
     if (orderBy) {
-      const order = JSON.parse(orderBy as string);
+      let order;
+      // orderBy can be either a string (from GET) or object (from POST)
+      if (typeof orderBy === 'string') {
+        try {
+          order = JSON.parse(orderBy);
+        } catch (parseError: any) {
+          console.error('[Query] Failed to parse ORDER BY clause:', orderBy);
+          return res.status(400).json({ 
+            error: 'Invalid ORDER BY clause format', 
+            details: parseError.message 
+          });
+        }
+      } else {
+        order = orderBy;
+      }
       query = query.order(order.column, { ascending: order.ascending !== false });
     }
 
     // Apply LIMIT
     if (limit) {
-      query = query.limit(parseInt(limit as string));
+      const limitValue = typeof limit === 'string' ? parseInt(limit) : limit;
+      if (!isNaN(limitValue) && limitValue > 0) {
+        query = query.limit(limitValue);
+      }
     }
 
     console.log('[Query] Executing Supabase query for table:', table);
@@ -147,10 +195,60 @@ router.get('/query', async (req, res) => {
   } catch (error: any) {
     console.error('[Query] Unexpected error:', error);
     console.error('[Query] Error stack:', error.stack);
+    console.error('[Query] Request body:', req.body);
     res.status(500).json({ 
       error: error.message || 'Internal server error',
-      type: error.name || 'UnknownError'
+      type: error.name || 'UnknownError',
+      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
     });
+  }
+});
+
+// GET handler for backward compatibility (simple queries only)
+// Note: Complex queries with nested where clauses should use POST to avoid URL encoding issues
+router.get('/query', async (req, res) => {
+  // Redirect GET to POST by temporarily modifying request
+  const originalMethod = req.method;
+  const originalBody = req.body;
+  
+  try {
+    const { table, select = '*', where, orderBy, limit } = req.query;
+
+    if (!table) {
+      return res.status(400).json({ error: 'Table name is required' });
+    }
+
+    // Convert GET params to POST body format
+    req.method = 'POST';
+    req.body = {
+      table,
+      select,
+      where: where ? (typeof where === 'string' ? JSON.parse(where) : where) : undefined,
+      orderBy: orderBy ? (typeof orderBy === 'string' ? JSON.parse(orderBy as string) : orderBy) : undefined,
+      limit: limit ? parseInt(limit as string) : undefined,
+    };
+
+    // Find and call the POST handler
+    const postHandler = router.stack.find((layer: any) => 
+      layer.route?.path === '/query' && 
+      layer.route?.methods?.post
+    )?.route?.stack[0]?.handle;
+
+    if (postHandler) {
+      return postHandler(req, res);
+    } else {
+      throw new Error('POST handler not found');
+    }
+  } catch (error: any) {
+    console.error('[Query GET] Error:', error);
+    res.status(500).json({ 
+      error: error.message || 'Internal server error',
+      hint: 'For complex queries, use POST /api/query instead of GET'
+    });
+  } finally {
+    // Restore original request
+    req.method = originalMethod;
+    req.body = originalBody;
   }
 });
 
