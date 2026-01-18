@@ -1,24 +1,64 @@
 // PostgreSQL Database Client
 // Replaces Supabase client with direct PostgreSQL connection via API
+// Falls back to Supabase Auth in production if backend is not available
+
+import { createClient } from '@supabase/supabase-js';
+
+// Supabase client for fallback authentication
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseClient = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 // In Bolt/WebContainer, use relative URLs to go through Vite proxy
 // Otherwise use the configured API URL or default to localhost
 const getApiUrl = () => {
   // Check if we're in a WebContainer/Bolt environment
-  const isWebContainer = typeof window !== 'undefined' && 
-    (window.location.hostname.includes('webcontainer') || 
+  const isWebContainer = typeof window !== 'undefined' &&
+    (window.location.hostname.includes('webcontainer') ||
      window.location.hostname.includes('bolt') ||
      window.location.hostname === 'localhost' && window.location.port === '5173');
-  
+
   if (isWebContainer || !import.meta.env.VITE_API_URL) {
     // Use relative URL - Vite proxy will handle it
     return '/api';
   }
-  
+
   return import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 };
 
 const API_URL = getApiUrl();
+
+// Track backend availability
+let backendAvailable: boolean | null = null;
+let lastBackendCheck: number = 0;
+const BACKEND_CHECK_INTERVAL = 60000; // Check every 60 seconds
+
+// Check if backend server is available
+async function isBackendAvailable(): Promise<boolean> {
+  const now = Date.now();
+  if (backendAvailable !== null && (now - lastBackendCheck) < BACKEND_CHECK_INTERVAL) {
+    return backendAvailable;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+
+    const response = await fetch(`${API_URL}/health`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    backendAvailable = response.ok;
+    lastBackendCheck = now;
+    return backendAvailable;
+  } catch (error) {
+    backendAvailable = false;
+    lastBackendCheck = now;
+    return false;
+  }
+}
 
 class DatabaseClient {
   private baseUrl: string;
@@ -503,6 +543,71 @@ class DatabaseClient {
       return { data: { session: null }, error: null };
     },
     signInWithPassword: async (credentials: { email?: string; username?: string; password: string; forCustomer?: boolean }) => {
+      // Check if backend is available
+      const useBackend = await isBackendAvailable();
+
+      if (!useBackend && supabaseClient) {
+        // Fall back to Supabase Auth
+        console.log('[db] Backend not available, using Supabase Auth fallback');
+
+        try {
+          const { data, error } = await supabaseClient.auth.signInWithPassword({
+            email: credentials.email || credentials.username || '',
+            password: credentials.password,
+          });
+
+          if (error) throw error;
+
+          if (data?.session && data?.user) {
+            // Store session
+            localStorage.setItem('auth_session', JSON.stringify(data.session));
+            localStorage.setItem('auth_token', data.session.access_token);
+
+            // Fetch user profile from database
+            const { data: userProfile, error: profileError } = await supabaseClient
+              .from('users')
+              .select('*, tenants(*)')
+              .eq('id', data.user.id)
+              .single();
+
+            if (profileError) {
+              console.error('[db] Error fetching user profile:', profileError);
+              return {
+                data: null,
+                error: { message: 'Failed to fetch user profile', code: 'PROFILE_FETCH_ERROR' }
+              };
+            }
+
+            // Check if customer is trying to access non-customer pages
+            if (credentials.forCustomer === false && userProfile.role === 'customer') {
+              await supabaseClient.auth.signOut();
+              return {
+                data: null,
+                error: { message: 'Access denied: Customers cannot use this login page', code: 'CUSTOMER_ACCESS_DENIED' }
+              };
+            }
+
+            return {
+              data: {
+                session: data.session,
+                user: userProfile,
+                tenant: userProfile.tenants
+              },
+              error: null
+            };
+          }
+
+          return { data: null, error: { message: 'No session data returned', code: 'NO_SESSION' } };
+        } catch (error: any) {
+          console.error('[db] Supabase Auth fallback error:', error);
+          return {
+            data: null,
+            error: { message: error.message || 'Authentication failed', code: error.code || 'AUTH_ERROR' }
+          };
+        }
+      }
+
+      // Use backend API
       const result = await this.request('/auth/signin', {
         method: 'POST',
         body: JSON.stringify(credentials),
@@ -570,7 +675,20 @@ class DatabaseClient {
     signOut: async () => {
       localStorage.removeItem('auth_session');
       localStorage.removeItem('auth_token');
-      await this.request('/auth/signout', { method: 'POST' });
+      localStorage.removeItem('user_data');
+      localStorage.removeItem('supabase.auth.token');
+
+      // Try backend signout
+      const useBackend = await isBackendAvailable();
+      if (useBackend) {
+        await this.request('/auth/signout', { method: 'POST' });
+      }
+
+      // Also call Supabase signout if available
+      if (supabaseClient) {
+        await supabaseClient.auth.signOut();
+      }
+
       return { error: null };
     },
     onAuthStateChange: (callback: (event: string, session: any) => void) => {
