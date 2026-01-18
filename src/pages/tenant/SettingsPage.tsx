@@ -258,6 +258,7 @@ export function SettingsPage() {
             setZohoSettings({
               client_id: data.zoho_config.client_id || '',
               client_secret: '', // Don't load secret from server
+              redirect_uri: data.zoho_config.redirect_uri || `${window.location.origin}/api/zoho/callback`,
               region: data.zoho_config.region || 'com',
             });
           }
