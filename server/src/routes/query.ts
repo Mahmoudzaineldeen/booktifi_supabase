@@ -50,14 +50,14 @@ router.post('/query', async (req, res) => {
       let conditions;
       // where can be either a string (from GET) or object (from POST)
       if (typeof where === 'string') {
-        try {
+      try {
           conditions = JSON.parse(where);
-        } catch (parseError: any) {
-          console.error('[Query] Failed to parse WHERE clause:', where);
-          return res.status(400).json({ 
-            error: 'Invalid WHERE clause format', 
-            details: parseError.message 
-          });
+      } catch (parseError: any) {
+        console.error('[Query] Failed to parse WHERE clause:', where);
+        return res.status(400).json({ 
+          error: 'Invalid WHERE clause format', 
+          details: parseError.message 
+        });
         }
       } else {
         conditions = where;
@@ -65,53 +65,75 @@ router.post('/query', async (req, res) => {
 
       Object.entries(conditions).forEach(([key, value]) => {
         try {
+          // Validate UUID format for id fields
+          if (typeof value === 'string' && (key.toLowerCase().endsWith('id') || key.toLowerCase().endsWith('_id'))) {
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (value.length > 0 && !uuidRegex.test(value)) {
+              throw new Error(`Invalid UUID format for field "${key}": "${value}". UUIDs must be in the format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+            }
+          }
+
+          // Validate column name format (alphanumeric, underscore, no special chars)
+          const validateColumnName = (col: string): string => {
+            if (!col || !/^[a-z_][a-z0-9_]*$/i.test(col)) {
+              throw new Error(`Invalid column name format: "${col}". Column names must start with a letter or underscore and contain only alphanumeric characters and underscores.`);
+            }
+            return col;
+          };
+
           // CRITICAL: Convert frontend query builder syntax (__gte, __lte, etc.) to Supabase methods
           // This prevents "column does not exist" errors where __gte is treated as a column name
           if (key.endsWith('__neq')) {
-            const column = key.replace('__neq', '');
-            if (!column) {
-              throw new Error(`Invalid column name after removing __neq suffix: ${key}`);
-            }
+            const column = validateColumnName(key.replace('__neq', ''));
             query = query.neq(column, value);
           } else if (key.endsWith('__in')) {
-            const column = key.replace('__in', '');
-            if (!column) {
-              throw new Error(`Invalid column name after removing __in suffix: ${key}`);
-            }
+            const column = validateColumnName(key.replace('__in', ''));
             if (!Array.isArray(value)) {
               throw new Error(`Value for __in operator must be an array, got: ${typeof value}`);
             }
-            query = query.in(column, value);
+            if (value.length === 0) {
+              // Empty array means no matches - use a condition that will never match
+              query = query.eq(column, '__NO_MATCH__');
+            } else {
+              query = query.in(column, value);
+            }
           } else if (key.endsWith('__gt')) {
-            const column = key.replace('__gt', '');
-            if (!column) {
-              throw new Error(`Invalid column name after removing __gt suffix: ${key}`);
+            const column = validateColumnName(key.replace('__gt', ''));
+            // Ensure value is a number for comparison operators
+            if (typeof value !== 'number' && typeof value !== 'string') {
+              throw new Error(`Value for __gt operator must be a number or string, got: ${typeof value}`);
             }
             query = query.gt(column, value);
           } else if (key.endsWith('__gte')) {
-            const column = key.replace('__gte', '');
-            if (!column) {
-              throw new Error(`Invalid column name after removing __gte suffix: ${key}`);
+            const column = validateColumnName(key.replace('__gte', ''));
+            if (typeof value !== 'number' && typeof value !== 'string') {
+              throw new Error(`Value for __gte operator must be a number or string, got: ${typeof value}`);
             }
             query = query.gte(column, value);
           } else if (key.endsWith('__lt')) {
-            const column = key.replace('__lt', '');
-            if (!column) {
-              throw new Error(`Invalid column name after removing __lt suffix: ${key}`);
+            const column = validateColumnName(key.replace('__lt', ''));
+            if (typeof value !== 'number' && typeof value !== 'string') {
+              throw new Error(`Value for __lt operator must be a number or string, got: ${typeof value}`);
             }
             query = query.lt(column, value);
           } else if (key.endsWith('__lte')) {
-            const column = key.replace('__lte', '');
-            if (!column) {
-              throw new Error(`Invalid column name after removing __lte suffix: ${key}`);
+            const column = validateColumnName(key.replace('__lte', ''));
+            if (typeof value !== 'number' && typeof value !== 'string') {
+              throw new Error(`Value for __lte operator must be a number or string, got: ${typeof value}`);
             }
             query = query.lte(column, value);
           } else if (Array.isArray(value)) {
             // If value is array but key doesn't have __in suffix, use .in() method
-            query = query.in(key, value);
+            const column = validateColumnName(key);
+            if (value.length === 0) {
+              query = query.eq(column, '__NO_MATCH__');
+            } else {
+              query = query.in(column, value);
+            }
           } else {
             // Default: equality check
-            query = query.eq(key, value);
+            const column = validateColumnName(key);
+            query = query.eq(column, value);
           }
         } catch (queryError: any) {
           console.error(`[Query] Error applying condition ${key}=${JSON.stringify(value)}:`, queryError);
@@ -174,7 +196,16 @@ router.post('/query', async (req, res) => {
       } else if (error.code === '42P01') {
         errorMessage = `Table "${table}" does not exist.`;
       } else if (error.code === '42703') {
-        errorMessage = `Invalid column name in query. Check your SELECT and WHERE clauses.`;
+        // Invalid column name - provide more context
+        const columnHint = error.hint || error.details || '';
+        errorMessage = `Invalid column name in query. Check your SELECT and WHERE clauses. ${columnHint}`;
+        // Return 400 instead of 500 for client errors
+        return res.status(400).json({ 
+          error: errorMessage,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        });
       } else if (error.code === '42501') {
         errorMessage = `Row Level Security (RLS) policy violation. The operation is blocked by RLS. ` +
           `To fix: Add SUPABASE_SERVICE_ROLE_KEY to server/.env (get it from Supabase Dashboard → Settings → API). ` +
@@ -183,7 +214,9 @@ router.post('/query', async (req, res) => {
         errorMessage = `${errorMessage} (Hint: ${error.hint})`;
       }
       
-      return res.status(500).json({ 
+      // Use 400 for client errors (invalid queries), 500 for server errors
+      const isClientError = ['PGRST116', '42P01', '42703', '22P02'].includes(error.code || '');
+      return res.status(isClientError ? 400 : 500).json({ 
         error: errorMessage,
         code: error.code,
         details: error.details,

@@ -1,95 +1,50 @@
-import nodemailer from 'nodemailer';
+/**
+ * Email Service - Production-Ready Implementation
+ * Uses SendGrid API (HTTP-based) for cloud environments
+ * Falls back to SMTP for local development
+ * 
+ * This service automatically handles:
+ * - SendGrid API (production, no port blocking)
+ * - SMTP fallback (local development)
+ * - Tenant-specific configuration
+ * - Comprehensive error handling and logging
+ */
+
+import { sendEmail, testEmailConnection, type SendEmailOptions, type EmailAttachment } from './emailApiService';
 import { supabase } from '../db';
 
-/**
- * Get SMTP settings from database for a tenant
- * Returns null if settings not found or incomplete
- */
-async function getSmtpSettingsFromDb(tenantId: string): Promise<{
-  host: string;
-  port: number;
-  user: string;
-  password: string;
-} | null> {
-  try {
-    if (!tenantId || tenantId.trim() === '') {
-      console.error(`[EmailService] ❌ Invalid tenant ID provided: "${tenantId}"`);
-      console.error('   Tenant ID is required to fetch SMTP settings from database');
-      return null;
-    }
+// Legacy functions removed - now using emailApiService
+// These were kept for reference but are no longer used
 
-    const { data: tenants, error } = await supabase
+/**
+ * Get sender email from tenant settings
+ */
+async function getSenderEmail(tenantId: string): Promise<string> {
+  try {
+    const { data: tenant } = await supabase
       .from('tenants')
-      .select('smtp_settings')
+      .select('smtp_settings, email_settings')
       .eq('id', tenantId)
       .single();
 
-    if (error || !tenants) {
-      console.error(`[EmailService] ❌ Tenant ${tenantId} not found in database`);
-      return null;
+    if (tenant?.email_settings?.from_email) {
+      return tenant.email_settings.from_email;
     }
-
-    const smtpSettings = tenants.smtp_settings;
     
-    if (!smtpSettings) {
-      console.error(`[EmailService] ❌ SMTP settings not configured for tenant ${tenantId}`);
-      console.error('   Please configure SMTP settings in the service provider settings page');
-      return null;
+    if (tenant?.smtp_settings?.smtp_user) {
+      return tenant.smtp_settings.smtp_user;
     }
 
-    if (!smtpSettings.smtp_user || !smtpSettings.smtp_password) {
-      console.error(`[EmailService] ❌ SMTP settings incomplete for tenant ${tenantId}`);
-      console.error(`   smtp_user: ${smtpSettings.smtp_user ? 'SET ✅' : 'NOT SET ❌'}`);
-      console.error(`   smtp_password: ${smtpSettings.smtp_password ? 'SET ✅' : 'NOT SET ❌'}`);
-      console.error('   Please configure SMTP settings in the service provider settings page');
-      return null;
-    }
-
-    return {
-      host: smtpSettings.smtp_host || 'smtp.gmail.com',
-      port: smtpSettings.smtp_port || 587,
-      user: smtpSettings.smtp_user,
-      password: smtpSettings.smtp_password?.replace(/\s/g, '') || smtpSettings.smtp_password, // Remove spaces (Gmail app passwords)
-    };
-  } catch (error: any) {
-    console.error(`[EmailService] Error fetching SMTP settings for tenant ${tenantId}:`, error.message);
-    return null;
+    return 'noreply@bookati.com'; // Default fallback
+  } catch {
+    return 'noreply@bookati.com';
   }
 }
 
 /**
- * Create SMTP transporter from database settings
+ * Send OTP email
+ * Uses production-ready email API service (SendGrid API > SMTP)
  */
-async function createTransporterFromDb(tenantId: string): Promise<nodemailer.Transporter | null> {
-  const smtpSettings = await getSmtpSettingsFromDb(tenantId);
-  
-  if (!smtpSettings) {
-    return null;
-  }
-
-  try {
-    const transporter = nodemailer.createTransport({
-      host: smtpSettings.host,
-      port: smtpSettings.port,
-      secure: false, // true for 465, false for other ports
-      auth: {
-        user: smtpSettings.user,
-        pass: smtpSettings.password,
-      },
-      tls: {
-        // Do not fail on invalid certificates (for development)
-        rejectUnauthorized: process.env.NODE_ENV === 'production' ? true : false,
-      },
-    });
-    
-    console.log(`[EmailService] ✅ SMTP transporter created for tenant ${tenantId}`);
-    return transporter;
-  } catch (error: any) {
-    console.error(`[EmailService] ❌ Failed to create SMTP transporter:`, error.message);
-    return null;
-  }
-}
-
 export async function sendOTPEmail(email: string, otp: string, tenantId: string, language: 'en' | 'ar' = 'en') {
   const subject = language === 'ar' 
     ? 'رمز التحقق لإعادة تعيين كلمة المرور'
@@ -125,55 +80,37 @@ export async function sendOTPEmail(email: string, otp: string, tenantId: string,
       </div>
     `;
 
-  // Get SMTP settings from database
-  const smtpSettings = await getSmtpSettingsFromDb(tenantId);
+  const fromEmail = await getSenderEmail(tenantId);
   
-  if (!smtpSettings) {
-    console.error(`[EmailService] ❌ SMTP settings not configured for tenant ${tenantId}`);
-    console.error('   Please configure SMTP settings in the service provider settings page.');
+  const emailOptions: SendEmailOptions = {
+    from: `"Bookati" <${fromEmail}>`,
+    to: email,
+    subject,
+    html,
+  };
+
+  const result = await sendEmail(tenantId, emailOptions);
+  
+  if (!result.success) {
+    console.error(`[EmailService] ❌ Failed to send OTP email to ${email}`);
+    console.error(`   Error: ${result.error}`);
+    console.error(`   Provider: ${result.provider || 'unknown'}`);
+    
+    // In development, log OTP to console
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`   OTP for ${email}: ${otp} (check server console)`);
+      console.log(`   [DEV] OTP for ${email}: ${otp}`);
     }
-    return { success: false, error: 'Email service not configured' };
   }
 
-  // Create transporter from database settings
-  const transporter = await createTransporterFromDb(tenantId);
-  
-  if (!transporter) {
-    console.error(`[EmailService] ❌ Failed to create SMTP transporter for tenant ${tenantId}`);
-    return { success: false, error: 'Failed to create email transporter' };
-  }
-
-  try {
-    const mailOptions = {
-      from: `"Bookati" <${smtpSettings.user}>`,
-      to: email,
-      subject,
-      html,
-    };
-    
-    console.log(`[EmailService] 📧 Attempting to send email:`);
-    console.log(`   From: ${mailOptions.from}`);
-    console.log(`   To: ${mailOptions.to}`);
-    console.log(`   Subject: ${mailOptions.subject}`);
-    
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`[EmailService] ✅ OTP email sent successfully to ${email}`);
-    console.log(`   Message ID: ${info.messageId}`);
-    return { success: true };
-  } catch (error: any) {
-    console.error('[EmailService] ❌ Email sending error:', error);
-    console.error('   Error code:', error.code);
-    console.error('   Error command:', error.command);
-    console.error('   Error response:', error.response);
-    return { success: false, error: error.message };
-  }
+  return {
+    success: result.success,
+    error: result.error,
+  };
 }
 
 /**
  * Send booking ticket PDF via email
- * Uses SMTP settings from database (tenant-specific)
+ * Uses production-ready email API service (SendGrid API > SMTP)
  */
 export async function sendBookingTicketEmail(
   email: string,
@@ -232,65 +169,63 @@ export async function sendBookingTicketEmail(
       </div>
     `;
 
-  // Get SMTP settings from database
-  const smtpSettings = await getSmtpSettingsFromDb(tenantId);
+  const fromEmail = await getSenderEmail(tenantId);
   
-  if (!smtpSettings) {
-    console.error(`[EmailService] ❌ SMTP settings not configured for tenant ${tenantId}`);
-    console.error('   Please configure SMTP settings in the service provider settings page.');
-    return { success: false, error: 'Email service not configured' };
+  // Prepare attachments
+  const attachments: EmailAttachment[] = allTicketBuffers && allTicketBuffers.length > 1
+    ? allTicketBuffers.map((buffer, index) => ({
+        filename: `booking_ticket_${bookingId}_${index + 1}of${allTicketBuffers.length}.pdf`,
+        content: buffer,
+        contentType: 'application/pdf',
+      }))
+    : [{
+        filename: `booking_ticket_${bookingId}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf',
+      }];
+
+  const emailOptions: SendEmailOptions = {
+    from: `"${bookingDetails.tenant_name || 'Bookati'}" <${fromEmail}>`,
+    to: email,
+    subject,
+    html,
+    attachments,
+  };
+
+  console.log(`[EmailService] 📧 Attempting to send booking ticket email:`);
+  console.log(`   To: ${email}`);
+  console.log(`   Subject: ${subject}`);
+  console.log(`   Attachments: ${attachments.length} ticket(s)`);
+  attachments.forEach((att, idx) => {
+    const size = Buffer.isBuffer(att.content) 
+      ? (att.content.length / 1024).toFixed(2)
+      : 'unknown';
+    console.log(`     ${idx + 1}. ${att.filename} (${size} KB)`);
+  });
+
+  const result = await sendEmail(tenantId, emailOptions);
+  
+  if (!result.success) {
+    console.error(`[EmailService] ❌ Failed to send booking ticket email to ${email}`);
+    console.error(`   Error: ${result.error}`);
+    console.error(`   Provider: ${result.provider || 'unknown'}`);
+  } else {
+    console.log(`[EmailService] ✅ Booking ticket email sent successfully`);
+    console.log(`   Message ID: ${result.messageId}`);
+    console.log(`   Provider: ${result.provider || 'unknown'}`);
   }
 
-  // Create transporter from database settings
-  const transporter = await createTransporterFromDb(tenantId);
-  
-  if (!transporter) {
-    console.error(`[EmailService] ❌ Failed to create SMTP transporter for tenant ${tenantId}`);
-    return { success: false, error: 'Failed to create email transporter' };
-  }
+  return {
+    success: result.success,
+    error: result.error,
+  };
+}
 
-  try {
-    // Prepare attachments: if multiple tickets provided, attach all; otherwise attach single ticket
-    const attachments = allTicketBuffers && allTicketBuffers.length > 1
-      ? allTicketBuffers.map((buffer, index) => ({
-          filename: `booking_ticket_${bookingId}_${index + 1}of${allTicketBuffers.length}.pdf`,
-          content: buffer,
-          contentType: 'application/pdf',
-        }))
-      : [{
-          filename: `booking_ticket_${bookingId}.pdf`,
-          content: pdfBuffer,
-          contentType: 'application/pdf',
-        }];
-    
-    const mailOptions = {
-      from: `"${bookingDetails.tenant_name || 'Bookati'}" <${smtpSettings.user}>`,
-      to: email,
-      subject,
-      html,
-      attachments,
-    };
-    
-    console.log(`[EmailService] 📧 Attempting to send booking ticket email:`);
-    console.log(`   From: ${mailOptions.from}`);
-    console.log(`   To: ${mailOptions.to}`);
-    console.log(`   Subject: ${mailOptions.subject}`);
-    console.log(`   Attachments: ${attachments.length} ticket(s)`);
-    attachments.forEach((att, idx) => {
-      console.log(`     ${idx + 1}. ${att.filename} (${(att.content.length / 1024).toFixed(2)} KB)`);
-    });
-    
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`[EmailService] ✅ Booking ticket email sent successfully to ${email}`);
-    console.log(`   Message ID: ${info.messageId}`);
-    console.log(`   Response: ${info.response}`);
-    return { success: true };
-  } catch (error: any) {
-    console.error('[EmailService] ❌ Email sending error:', error);
-    console.error('   Error code:', error.code);
-    console.error('   Error command:', error.command);
-    console.error('   Error response:', error.response);
-    return { success: false, error: error.message };
-  }
+/**
+ * Test email connection for a tenant
+ * Exported for use in API endpoints
+ */
+export async function testEmailService(tenantId: string) {
+  return await testEmailConnection(tenantId);
 }
 

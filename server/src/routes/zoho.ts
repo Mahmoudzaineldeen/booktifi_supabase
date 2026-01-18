@@ -70,10 +70,10 @@ router.get('/auth', async (req, res) => {
       }
     }
     
-    // Final fallback: Default localhost
+    // Final fallback: Use APP_URL from environment or construct from Railway
     if (!origin) {
-      origin = 'http://localhost:3001';
-      originSource = 'Default';
+      origin = process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app';
+      originSource = 'Environment (APP_URL) or Railway default';
     }
     
     // Construct redirect URI from detected origin
@@ -143,7 +143,7 @@ router.get('/auth', async (req, res) => {
     console.log(`[Zoho Routes] ⚠️  CRITICAL: Redirect URI being sent to Zoho: ${redirectUri}`);
     console.log(`[Zoho Routes] ⚠️  This EXACT URI must be in Zoho Developer Console`);
     console.log(`[Zoho Routes] Full Auth URL: ${authUrl.substring(0, 200)}...`);
-    console.log(`[Zoho Routes] ⚠️  If Zoho redirects to localhost:3001, check Zoho Developer Console for this URI`);
+    console.log(`[Zoho Routes] ⚠️  If Zoho redirects incorrectly, check Zoho Developer Console for redirect URI configuration`);
     
     res.redirect(authUrl);
   } catch (error: any) {
@@ -203,7 +203,7 @@ router.get('/callback', async (req, res) => {
               </ul>
               <h3>What to do?</h3>
               <ol>
-                <li>Make sure the redirect URI in Zoho Developer Console matches: <code>http://localhost:3001/api/zoho/callback</code></li>
+                <li>Make sure the redirect URI in Zoho Developer Console matches: <code>${process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app'}/api/zoho/callback</code></li>
                 <li>Try the OAuth flow again: <a href="/api/zoho/auth?tenant_id=63107b06-938e-4ce6-b0f3-520a87db397b">Start OAuth Flow</a></li>
                 <li>If you denied access, make sure to click "Allow" or "Authorize" when prompted</li>
               </ol>
@@ -246,7 +246,7 @@ router.get('/callback', async (req, res) => {
               <h3>What to do?</h3>
               <ol>
                 <li>Make sure you're starting the OAuth flow from: <code>/api/zoho/auth?tenant_id=YOUR_TENANT_ID</code></li>
-                <li>Verify the redirect URI in Zoho Developer Console matches exactly: <code>http://localhost:3001/api/zoho/callback</code></li>
+                <li>Verify the redirect URI in Zoho Developer Console matches exactly: <code>${process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app'}/api/zoho/callback</code></li>
                 <li>Try the OAuth flow again and make sure to click "Allow" or "Authorize"</li>
                 <li>Check the browser console and server logs for more details</li>
               </ol>

@@ -26,7 +26,9 @@ const __dirname = dirname(__filename);
 dotenv.config({ path: join(__dirname, '..', '.env') });
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+// PORT: Railway uses PORT env var, local dev can use 3001 if needed
+// For Railway deployment, PORT is set by Railway (typically 8080 or dynamic)
+const PORT = process.env.PORT || (process.env.NODE_ENV === 'production' ? undefined : 3001);
 
 // CORS configuration - Allow all origins for development
 // This fixes CORS issues with localhost and ngrok

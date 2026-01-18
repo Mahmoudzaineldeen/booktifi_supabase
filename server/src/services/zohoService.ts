@@ -58,20 +58,20 @@ class ZohoService {
       if (globalCreds) {
         this.clientId = globalCreds.client_id;
         this.clientSecret = globalCreds.client_secret;
-        this.redirectUri = globalCreds.redirect_uri || 'http://localhost:3001/api/zoho/callback';
+        this.redirectUri = globalCreds.redirect_uri || (process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app') + '/api/zoho/callback';
         this.scope = (globalCreds.scope || ['ZohoInvoice.invoices.CREATE', 'ZohoInvoice.invoices.READ']).join(',');
       } else {
         // No global credentials - will use tenant-specific from database
         this.clientId = '';
         this.clientSecret = '';
-        this.redirectUri = 'http://localhost:3001/api/zoho/callback';
+        this.redirectUri = (process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app') + '/api/zoho/callback';
         this.scope = 'ZohoInvoice.invoices.CREATE,ZohoInvoice.invoices.READ,ZohoInvoice.invoices.UPDATE';
       }
     } catch (error: any) {
       // No global credentials available - will use tenant-specific from database
       this.clientId = '';
       this.clientSecret = '';
-      this.redirectUri = process.env.ZOHO_REDIRECT_URI || 'http://localhost:3001/api/zoho/callback';
+      this.redirectUri = process.env.ZOHO_REDIRECT_URI || (process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app') + '/api/zoho/callback';
       this.scope = process.env.ZOHO_SCOPE || 'ZohoInvoice.invoices.CREATE,ZohoInvoice.invoices.READ,ZohoInvoice.invoices.UPDATE';
     }
     
@@ -787,16 +787,19 @@ class ZohoService {
               console.error('   3. Organization location mismatch');
               console.error(`   Current API Base URL: ${this.apiBaseUrl}`);
               console.error(`   Please verify your Zoho organization region and set ZOHO_API_BASE_URL accordingly`);
-              throw new Error(`Failed to download invoice PDF: Token refresh succeeded but API call still returns 401. This usually means: (1) Refresh token is invalid/expired, or (2) Region mismatch. Please re-authenticate Zoho and verify ZOHO_API_BASE_URL matches your organization region. Visit: http://localhost:3001/api/zoho/auth?tenant_id=${tenantId}`);
+              const authUrl = `${process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app'}/api/zoho/auth?tenant_id=${tenantId}`;
+              throw new Error(`Failed to download invoice PDF: Token refresh succeeded but API call still returns 401. This usually means: (1) Refresh token is invalid/expired, or (2) Region mismatch. Please re-authenticate Zoho and verify ZOHO_API_BASE_URL matches your organization region. Visit: ${authUrl}`);
             }
           }
           
           // Check if it's a refresh token issue
           if (retryError.message?.includes('invalid') || retryError.message?.includes('expired')) {
-            throw new Error(`Failed to download invoice PDF: Refresh token is invalid or expired. Please re-authenticate Zoho by visiting: http://localhost:3001/api/zoho/auth?tenant_id=${tenantId}`);
+            const authUrl = `${process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app'}/api/zoho/auth?tenant_id=${tenantId}`;
+            throw new Error(`Failed to download invoice PDF: Refresh token is invalid or expired. Please re-authenticate Zoho by visiting: ${authUrl}`);
           }
           
-          throw new Error(`Failed to download invoice PDF: Token refresh failed. Please re-authenticate Zoho by visiting: http://localhost:3001/api/zoho/auth?tenant_id=${tenantId}`);
+          const authUrl = `${process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app'}/api/zoho/auth?tenant_id=${tenantId}`;
+          throw new Error(`Failed to download invoice PDF: Token refresh failed. Please re-authenticate Zoho by visiting: ${authUrl}`);
         }
       }
       

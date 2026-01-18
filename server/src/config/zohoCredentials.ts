@@ -177,7 +177,7 @@ class ZohoCredentialsManager {
    * Get default redirect URI
    */
   private getDefaultRedirectUri(): string {
-    return process.env.ZOHO_REDIRECT_URI || 'http://localhost:3001/api/zoho/callback';
+    return process.env.ZOHO_REDIRECT_URI || (process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app') + '/api/zoho/callback';
   }
 
   /**
@@ -243,7 +243,7 @@ class ZohoCredentialsManager {
         client_id: jsonData.client_id,
         client_secret: jsonData.client_secret,
         scope: jsonData.scope || ['ZohoInvoice.invoices.CREATE', 'ZohoInvoice.invoices.READ', 'ZohoInvoice.invoices.UPDATE'],
-        redirect_uri: process.env.ZOHO_REDIRECT_URI || 'http://localhost:3001/api/zoho/callback',
+        redirect_uri: process.env.ZOHO_REDIRECT_URI || (process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app') + '/api/zoho/callback',
         region: process.env.ZOHO_REGION || 'com',
       };
 
@@ -328,7 +328,7 @@ class ZohoCredentialsManager {
    */
   getRedirectUri(): string {
     const creds = this.loadCredentials(false);
-    return creds?.redirect_uri || 'http://localhost:3001/api/zoho/callback';
+    return creds?.redirect_uri || (process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app') + '/api/zoho/callback';
   }
 
   /**
