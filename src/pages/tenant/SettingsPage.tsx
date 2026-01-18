@@ -8,6 +8,23 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Input } from '../../components/ui/Input';
 import { Settings, Save, Building2, Lock, Eye, EyeOff, Mail, CheckCircle, XCircle, MessageCircle, FileText, ExternalLink } from 'lucide-react';
 
+// In Bolt/WebContainer, use relative URLs to go through Vite proxy
+// Otherwise use the configured API URL or default to localhost
+const getApiUrl = () => {
+  // Check if we're in a WebContainer/Bolt environment
+  const isWebContainer = typeof window !== 'undefined' && 
+    (window.location.hostname.includes('webcontainer') || 
+     window.location.hostname.includes('bolt') ||
+     window.location.hostname === 'localhost' && window.location.port === '5173');
+  
+  if (isWebContainer || !import.meta.env.VITE_API_URL) {
+    // Use relative URL - Vite proxy will handle it
+    return '/api';
+  }
+  
+  return import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+};
+
 export function SettingsPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -132,7 +149,7 @@ export function SettingsPage() {
       
       try {
         const token = localStorage.getItem('auth_token');
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+        const API_URL = getApiUrl();
         const response = await fetch(`${API_URL}/tenants/smtp-settings`, {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -166,7 +183,7 @@ export function SettingsPage() {
       
       try {
         const token = localStorage.getItem('auth_token');
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+        const API_URL = getApiUrl();
         const response = await fetch(`${API_URL}/tenants/whatsapp-settings`, {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -204,7 +221,7 @@ export function SettingsPage() {
       
       try {
         const token = localStorage.getItem('auth_token');
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+        const API_URL = getApiUrl();
         
         // Load config
         const configResponse = await fetch(`${API_URL}/tenants/zoho-config`, {
@@ -274,7 +291,7 @@ export function SettingsPage() {
 
     try {
       const token = localStorage.getItem('auth_token');
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/tenants/smtp-settings`, {
         method: 'PUT',
         headers: {
@@ -317,7 +334,7 @@ export function SettingsPage() {
 
     try {
       const token = localStorage.getItem('auth_token');
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/tenants/smtp-settings/test`, {
         method: 'POST',
         headers: {
@@ -391,7 +408,7 @@ export function SettingsPage() {
 
     try {
       const token = localStorage.getItem('auth_token');
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/tenants/whatsapp-settings`, {
         method: 'PUT',
         headers: {
@@ -458,7 +475,7 @@ export function SettingsPage() {
 
     try {
       const token = localStorage.getItem('auth_token');
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/tenants/whatsapp-settings/test`, {
         method: 'POST',
         headers: {
@@ -515,7 +532,7 @@ export function SettingsPage() {
 
     try {
       const token = localStorage.getItem('auth_token');
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/tenants/zoho-config`, {
         method: 'PUT',
         headers: {
@@ -561,7 +578,7 @@ export function SettingsPage() {
 
     try {
       const token = localStorage.getItem('auth_token');
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       const response = await fetch(`${API_URL}/tenants/zoho-config/test`, {
         method: 'POST',
         headers: {
@@ -612,8 +629,11 @@ export function SettingsPage() {
     setZohoMessage({ type: 'info', text: 'Checking server connection...' });
     
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-      const healthCheckUrl = API_URL.replace('/api', '') || 'http://localhost:3001';
+      const API_URL = getApiUrl();
+      // For relative URLs (Bolt), use relative path; otherwise extract base URL
+      const healthCheckUrl = API_URL.startsWith('/') 
+        ? '' // Relative URL - Vite proxy will handle it
+        : API_URL.replace('/api', '') || 'http://localhost:3001';
       
       const healthCheck = await fetch(`${healthCheckUrl}/health`, {
         method: 'GET',
@@ -690,14 +710,8 @@ export function SettingsPage() {
     const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
     
     // Construct auth URL with origin parameter
-    // In Bolt, use relative URL to go through Vite proxy
-    // This ensures the request goes to Bolt's backend, not localhost
-    let API_URL: string;
-    if (isBolt) {
-      API_URL = '/api'; // Relative URL - goes through Vite proxy to Bolt's backend
-    } else {
-      API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-    }
+    // Use getApiUrl() which automatically detects Bolt environment
+    const API_URL = getApiUrl();
     
     const authUrl = `${API_URL}/zoho/auth?tenant_id=${tenant.id}&origin=${encodeURIComponent(currentOrigin)}`;
     
@@ -750,7 +764,7 @@ export function SettingsPage() {
     
     try {
       const token = localStorage.getItem('auth_token');
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const API_URL = getApiUrl();
       const statusResponse = await fetch(`${API_URL}/tenants/zoho-status`, {
         headers: {
           'Authorization': `Bearer ${token}`,
