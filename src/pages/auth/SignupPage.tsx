@@ -147,6 +147,8 @@ export function SignupPage() {
           name_ar: (businessNameAr || businessName).trim(),
           slug,
           industry,
+          tenant_time_zone: 'Asia/Riyadh',
+          announced_time_zone: 'Asia/Riyadh',
           contact_email: email.trim(),
           contact_phone: phone.trim(),
           subscription_end: subscriptionEnd.toISOString(),
@@ -159,14 +161,21 @@ export function SignupPage() {
       if (tenantError) {
         console.error('Tenant creation error:', tenantError);
         console.error('Full error details:', JSON.stringify(tenantError, null, 2));
-        
+        console.error('Error keys:', Object.keys(tenantError));
+        console.error('Error message:', tenantError.message);
+        console.error('Error hint:', tenantError.hint);
+        console.error('Error details:', tenantError.details);
+        console.error('Error code:', tenantError.code);
+
         // Handle duplicate slug error specifically
         if (tenantError.message?.includes('slug') || tenantError.message?.includes('duplicate')) {
           setError('This business name is already taken. Please choose a different business name.');
         } else if (tenantError.code === '23505') {
           setError('This business name or URL is already taken. Please choose a different business name.');
         } else {
-          setError(`Failed to set up business: ${tenantError.message || tenantError.hint || 'Unknown error'}`);
+          // Try to get any error message we can
+          const errorMsg = tenantError.message || tenantError.hint || tenantError.details || (typeof tenantError === 'string' ? tenantError : JSON.stringify(tenantError));
+          setError(`Failed to set up business: ${errorMsg}`);
         }
         setLoading(false);
         return;
