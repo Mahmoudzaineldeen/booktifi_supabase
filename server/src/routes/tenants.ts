@@ -353,9 +353,10 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
           transporter.verify((error, success) => {
             if (timeoutId) clearTimeout(timeoutId);
             if (error) {
-              console.error('[SMTP Test] Verification error:', error.message);
-              console.error('[SMTP Test] Error code:', error.code);
-              console.error('[SMTP Test] Error command:', error.command);
+              const smtpError = error as any;
+              console.error('[SMTP Test] Verification error:', smtpError.message);
+              console.error('[SMTP Test] Error code:', smtpError.code);
+              console.error('[SMTP Test] Error command:', smtpError.command);
               reject(error);
             } else {
               console.log('[SMTP Test] Connection verified successfully');
