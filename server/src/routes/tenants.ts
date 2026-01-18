@@ -280,6 +280,7 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
     console.log(`[SMTP Test] Attempting connection to ${host}:${portNumber} for user: ${user}`);
 
     // Create transporter with timeout
+    // Increased timeouts to give more time for connection in restricted environments
     const transporter = nodemailer.createTransport({
       host: host,
       port: portNumber,
@@ -291,18 +292,25 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
       tls: {
         rejectUnauthorized: process.env.NODE_ENV === 'production' ? true : false,
       },
-      connectionTimeout: 10000, // 10 seconds
-      greetingTimeout: 10000,
-      socketTimeout: 10000,
+      connectionTimeout: 20000, // 20 seconds
+      greetingTimeout: 20000,
+      socketTimeout: 20000,
     });
 
-    // Test connection with timeout
+    // Test connection - let nodemailer handle its own timeout
+    // We'll add a safety timeout that's longer than nodemailer's timeout
+    let verifyError: any = null;
+    let timeoutId: NodeJS.Timeout | null = null;
+    
     try {
       await Promise.race([
         new Promise<void>((resolve, reject) => {
           transporter.verify((error, success) => {
+            if (timeoutId) clearTimeout(timeoutId);
             if (error) {
               console.error('[SMTP Test] Verification error:', error.message);
+              console.error('[SMTP Test] Error code:', error.code);
+              console.error('[SMTP Test] Error command:', error.command);
               reject(error);
             } else {
               console.log('[SMTP Test] Connection verified successfully');
@@ -311,10 +319,21 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
           });
         }),
         new Promise<void>((_, reject) => {
-          setTimeout(() => reject(new Error('Connection timeout: SMTP server did not respond within 10 seconds')), 10000);
+          // Safety timeout - longer than nodemailer's timeout to let it trigger first
+          timeoutId = setTimeout(() => {
+            // Create error object that matches nodemailer's error format
+            const timeoutError: any = new Error('Connection timeout: SMTP server did not respond within 25 seconds');
+            timeoutError.code = 'ETIMEDOUT';
+            timeoutError.command = 'CONN';
+            reject(timeoutError);
+          }, 25000); // 25 seconds - longer than nodemailer's 20 second timeout
         })
       ]);
-    } catch (verifyError: any) {
+    } catch (err: any) {
+      verifyError = err;
+    }
+    
+    if (verifyError) {
       console.error('[SMTP Test] Connection verification failed:', verifyError.message);
       console.error('[SMTP Test] Error code:', verifyError.code);
       console.error('[SMTP Test] Error command:', verifyError.command);
