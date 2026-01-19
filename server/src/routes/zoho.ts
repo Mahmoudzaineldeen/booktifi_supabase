@@ -140,6 +140,8 @@ router.get('/auth', async (req, res) => {
     console.log(`[Zoho Routes] Access Type: offline (for refresh_token)`);
     console.log(`[Zoho Routes] Prompt: consent (force consent screen)`);
     console.log(`[Zoho Routes] ⚠️  These parameters ensure refresh_token is returned`);
+    console.log(`[Zoho Routes] Requested Scopes: ${scope}`);
+    console.log(`[Zoho Routes] ⚠️  CRITICAL: Make sure these scopes include ZohoInvoice.invoices.UPDATE for payment status sync`);
     console.log(`[Zoho Routes] ⚠️  CRITICAL: Redirect URI being sent to Zoho: ${redirectUri}`);
     console.log(`[Zoho Routes] ⚠️  This EXACT URI must be in Zoho Developer Console`);
     console.log(`[Zoho Routes] Full Auth URL: ${authUrl.substring(0, 200)}...`);
@@ -374,6 +376,22 @@ router.get('/callback', async (req, res) => {
           responseData: tokenResponse.data,
         });
         throw new Error('Failed to obtain tokens from Zoho');
+      }
+
+      // Log the scopes granted in the token response
+      const grantedScopes = tokenResponse.data.scope || 'Not provided in response';
+      console.log(`[Zoho Routes] ✅ Token exchange successful`);
+      console.log(`[Zoho Routes] Granted Scopes: ${grantedScopes}`);
+      
+      // Check if UPDATE scope is included
+      const hasUpdateScope = grantedScopes.includes('ZohoInvoice.invoices.UPDATE') || 
+                            grantedScopes.includes('invoices.UPDATE');
+      if (!hasUpdateScope) {
+        console.warn(`[Zoho Routes] ⚠️  WARNING: UPDATE scope not found in granted scopes!`);
+        console.warn(`[Zoho Routes] ⚠️  Payment status sync will fail. Please reconnect with UPDATE scope.`);
+        console.warn(`[Zoho Routes] ⚠️  Granted scopes: ${grantedScopes}`);
+      } else {
+        console.log(`[Zoho Routes] ✅ UPDATE scope confirmed - payment status sync will work`);
       }
 
       // Store tokens

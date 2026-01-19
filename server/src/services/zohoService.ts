@@ -1475,7 +1475,14 @@ class ZohoService {
         
         if (isAuthorizationError) {
           helpfulError += '. The Zoho access token may not have UPDATE permissions.';
-          hint = 'Please reconnect to Zoho in Settings to grant UPDATE permissions. The booking payment status was updated successfully, but Zoho invoice sync requires re-authorization.';
+          hint = `The Zoho access token was obtained without UPDATE scope. To fix this:
+1. Go to Settings → Zoho Invoice Integration
+2. Click "Disconnect" to clear the old token
+3. Click "Connect to Zoho" again
+4. Authorize with all permissions (including UPDATE)
+5. The new token will have UPDATE permissions and payment status sync will work
+
+Note: The booking payment status was updated successfully in the database. Only the Zoho invoice sync failed due to missing permissions.`;
         }
         
         // Return success=false but don't throw - booking update should still succeed
