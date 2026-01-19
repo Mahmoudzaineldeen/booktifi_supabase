@@ -1203,8 +1203,8 @@ export function ReceptionPage() {
       
       // Create booking via API to ensure tickets are sent
       try {
-        const API_URL = getApiUrl().replace('/api', '');
-        const response = await fetch(`${API_URL}/api/bookings/create`, {
+        const API_URL = getApiUrl();
+        const response = await fetch(`${API_URL}/bookings/create`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
