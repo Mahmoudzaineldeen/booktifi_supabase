@@ -205,7 +205,7 @@ class ZohoService {
   /**
    * Store OAuth tokens after authorization
    */
-  async storeTokens(tenantId: string, accessToken: string, refreshToken: string, expiresIn: number): Promise<void> {
+  async storeTokens(tenantId: string, accessToken: string, refreshToken: string, expiresIn: number, grantedScopes?: string): Promise<void> {
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
     await supabase
@@ -215,12 +215,21 @@ class ZohoService {
         access_token: accessToken,
         refresh_token: refreshToken,
         expires_at: expiresAt.toISOString(),
+        granted_scopes: grantedScopes || null, // Store granted scopes for verification
         updated_at: new Date().toISOString()
       }, {
         onConflict: 'tenant_id'
       });
 
     console.log(`[ZohoService] Tokens stored for tenant ${tenantId}`);
+    if (grantedScopes) {
+      const hasUpdate = grantedScopes.includes('ZohoInvoice.invoices.UPDATE') || grantedScopes.includes('invoices.UPDATE');
+      if (hasUpdate) {
+        console.log(`[ZohoService] ✅ Token has UPDATE scope - payment status sync will work`);
+      } else {
+        console.warn(`[ZohoService] ⚠️  Token does NOT have UPDATE scope - payment status sync will fail`);
+      }
+    }
   }
 
   /**
@@ -1368,7 +1377,43 @@ class ZohoService {
    * Update invoice status in Zoho based on booking payment status
    * Maps internal payment statuses to Zoho invoice statuses
    */
+  /**
+   * Check if stored token has UPDATE scope
+   */
+  private async checkStoredTokenHasUpdateScope(tenantId: string): Promise<{ hasUpdate: boolean; scopes?: string }> {
+    try {
+      const { data: tokens } = await supabase
+        .from('zoho_tokens')
+        .select('granted_scopes')
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (!tokens?.granted_scopes) {
+        // Old token without scopes stored - assume it might not have UPDATE
+        return { hasUpdate: false };
+      }
+
+      const scopes = tokens.granted_scopes;
+      const hasUpdate = scopes.includes('ZohoInvoice.invoices.UPDATE') || scopes.includes('invoices.UPDATE');
+      return { hasUpdate, scopes };
+    } catch (error) {
+      // If check fails, assume we need to verify via API
+      return { hasUpdate: true }; // Optimistic - let API error tell us
+    }
+  }
+
   async updateInvoiceStatus(tenantId: string, invoiceId: string, paymentStatus: string): Promise<{ success: boolean; error?: string; hint?: string }> {
+    // Check if stored token has UPDATE scope before attempting
+    const scopeCheck = await this.checkStoredTokenHasUpdateScope(tenantId);
+    if (!scopeCheck.hasUpdate && scopeCheck.scopes) {
+      console.warn(`[ZohoService] ⚠️  Stored token does not have UPDATE scope. Scopes: ${scopeCheck.scopes}`);
+      return {
+        success: false,
+        error: 'Token does not have UPDATE permissions',
+        hint: `The stored Zoho token was obtained without UPDATE scope. Please disconnect and reconnect to Zoho in Settings to get a new token with UPDATE permissions. Current scopes: ${scopeCheck.scopes}`
+      };
+    }
+
     const accessToken = await this.getAccessToken(tenantId);
     const apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
 
@@ -1474,8 +1519,23 @@ class ZohoService {
         let hint: string | undefined;
         
         if (isAuthorizationError) {
-          helpfulError += '. The Zoho access token may not have UPDATE permissions.';
-          hint = `The Zoho access token was obtained without UPDATE scope. To fix this:
+          helpfulError += '. The Zoho access token does not have UPDATE permissions.';
+          
+          // Check stored scopes to provide specific guidance
+          const scopeCheck = await this.checkStoredTokenHasUpdateScope(tenantId);
+          if (!scopeCheck.hasUpdate && scopeCheck.scopes) {
+            hint = `The stored Zoho token was obtained without UPDATE scope. Current scopes: ${scopeCheck.scopes}
+
+To fix this:
+1. Go to Settings → Zoho Invoice Integration
+2. Click "Disconnect" to clear the old token (this removes the token without UPDATE)
+3. Click "Connect to Zoho" again
+4. Authorize with all permissions (you should see 5 scopes including "Scope to update invoice details")
+5. The new token will have UPDATE permissions and payment status sync will work
+
+Note: The booking payment status was updated successfully in the database. Only the Zoho invoice sync failed due to missing permissions.`;
+          } else {
+            hint = `The Zoho access token was obtained without UPDATE scope. To fix this:
 1. Go to Settings → Zoho Invoice Integration
 2. Click "Disconnect" to clear the old token
 3. Click "Connect to Zoho" again
@@ -1483,6 +1543,7 @@ class ZohoService {
 5. The new token will have UPDATE permissions and payment status sync will work
 
 Note: The booking payment status was updated successfully in the database. Only the Zoho invoice sync failed due to missing permissions.`;
+          }
         }
         
         // Return success=false but don't throw - booking update should still succeed

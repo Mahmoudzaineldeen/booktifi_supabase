@@ -1606,6 +1606,16 @@ export function SettingsPage() {
                 </div>
 
                 <div className="flex gap-3 pt-2">
+                  {zohoStatus?.connection_status === 'connected' && (
+                    <Button
+                      type="button"
+                      onClick={handleZohoDisconnect}
+                      variant="outline"
+                      icon={<XCircle className="w-4 h-4" />}
+                    >
+                      Disconnect
+                    </Button>
+                  )}
                   <Button
                     type="button"
                     onClick={handleZohoConnect}

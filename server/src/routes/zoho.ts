@@ -394,8 +394,8 @@ router.get('/callback', async (req, res) => {
         console.log(`[Zoho Routes] ✅ UPDATE scope confirmed - payment status sync will work`);
       }
 
-      // Store tokens
-      await zohoService.storeTokens(tenantId, access_token, refresh_token, expires_in);
+      // Store tokens with granted scopes
+      await zohoService.storeTokens(tenantId, access_token, refresh_token, expires_in, grantedScopes);
 
       // Redirect to success page with postMessage to parent window
       res.send(`
