@@ -1455,16 +1455,34 @@ class ZohoService {
 
         // If all methods fail, log but don't throw
         const errorData = putError.response?.data as any;
+        const errorMessage = errorData?.message || putError.message;
+        const isAuthorizationError = 
+          putError.response?.status === 401 || 
+          putError.response?.status === 403 ||
+          errorMessage?.toLowerCase().includes('not authorized') ||
+          errorMessage?.toLowerCase().includes('unauthorized');
+        
         console.error(`[ZohoService] ⚠️  Failed to update invoice status:`, {
           status: putError.response?.status,
           code: errorData?.code,
-          message: errorData?.message || putError.message,
+          message: errorMessage,
+          isAuthorizationError,
         });
+        
+        // Provide helpful error message for authorization issues
+        let helpfulError = `Zoho API error: ${errorMessage}`;
+        let hint: string | undefined;
+        
+        if (isAuthorizationError) {
+          helpfulError += '. The Zoho access token may not have UPDATE permissions.';
+          hint = 'Please reconnect to Zoho in Settings to grant UPDATE permissions. The booking payment status was updated successfully, but Zoho invoice sync requires re-authorization.';
+        }
         
         // Return success=false but don't throw - booking update should still succeed
         return { 
           success: false, 
-          error: `Zoho API error: ${errorData?.message || putError.message}` 
+          error: helpfulError,
+          hint
         };
       }
 

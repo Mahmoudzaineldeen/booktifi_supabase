@@ -1369,6 +1369,7 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
           console.log(`[Booking Payment Status] ✅ Zoho invoice status synced successfully`);
         } else {
           console.error(`[Booking Payment Status] ⚠️  Zoho invoice sync failed: ${zohoSyncResult.error}`);
+          // Hint is already provided by zohoService for authorization errors
           // Don't fail the booking update - log the error but continue
         }
       } catch (zohoError: any) {
