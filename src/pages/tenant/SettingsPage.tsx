@@ -9,6 +9,7 @@ import { Input } from '../../components/ui/Input';
 import { Settings, Save, Building2, Lock, Eye, EyeOff, Mail, CheckCircle, XCircle, MessageCircle, FileText, ExternalLink } from 'lucide-react';
 
 import { getApiUrl } from '../../lib/apiUrl';
+import { createTimeoutSignal } from '../../lib/requestTimeout';
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -626,9 +627,10 @@ export function SettingsPage() {
         ? '' // Relative URL - Vite proxy will handle it
         : API_URL.replace('/api', '') || 'https://booktifisupabase-production.up.railway.app';
       
+      // Health check can use shorter timeout, but allow for cold starts
       const healthCheck = await fetch(`${healthCheckUrl}/health`, {
         method: 'GET',
-        signal: AbortSignal.timeout(3000), // 3 second timeout
+        signal: AbortSignal.timeout(15000), // 15 seconds for health check (allows for cold starts)
       });
 
       if (!healthCheck.ok) {

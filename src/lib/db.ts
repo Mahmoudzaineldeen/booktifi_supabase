@@ -3,6 +3,7 @@
 // Backend uses service role key to ensure proper authentication
 
 import { getApiUrl } from './apiUrl';
+import { getRequestTimeout } from './requestTimeout';
 
 const API_URL = getApiUrl();
 
@@ -31,20 +32,9 @@ class DatabaseClient {
         }
       }
       
-      // Use longer timeout in WebContainer/Bolt environments
-      // Increase timeout for tenant queries and authentication which may be slower
-      const isTenantQuery = endpoint.includes('tenants') || endpoint.includes('query') && endpoint.includes('table=tenants');
-      const isAuthEndpoint = endpoint.includes('/auth/') || endpoint.includes('/signin') || endpoint.includes('/signup');
-      const baseTimeout = url.startsWith('/') ? 30000 : 10000; // 30s for relative URLs, 10s for absolute
-      
-      // Authentication endpoints need longer timeout (Railway cold starts can take 30-60s)
-      // Tenant queries also need longer timeout
-      let timeout = baseTimeout;
-      if (isAuthEndpoint) {
-        timeout = 60000; // 60 seconds for auth endpoints (Railway cold starts)
-      } else if (isTenantQuery) {
-        timeout = baseTimeout * 2; // 60s for tenant queries, 30s/10s for others
-      }
+      // Use centralized timeout configuration (handles Railway cold starts)
+      const isRelativeUrl = url.startsWith('/');
+      const timeout = getRequestTimeout(endpoint, isRelativeUrl);
       
       // Build headers - always include Content-Type, conditionally include Authorization
       const headers: HeadersInit = {

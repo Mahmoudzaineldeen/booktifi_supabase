@@ -10,6 +10,7 @@ import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { Mail, ArrowLeft, CheckCircle, Lock, Eye, EyeOff, Package, MessageCircle } from 'lucide-react';
 
 import { getApiUrl } from '../../lib/apiUrl';
+import { createTimeoutSignal } from '../../lib/requestTimeout';
 
 type Step = 'username' | 'confirm' | 'otp' | 'password' | 'success';
 
@@ -122,6 +123,7 @@ export function CustomerForgotPasswordPage() {
           identifier: identifier.trim(),
           tenant_id: tenant?.id 
         }),
+        signal: createTimeoutSignal('/auth/forgot-password/lookup', false),
       });
 
       const data = await response.json();
@@ -205,6 +207,7 @@ export function CustomerForgotPasswordPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
+        signal: createTimeoutSignal('/auth/forgot-password', false),
       });
 
       const data = await response.json();
@@ -243,6 +246,7 @@ export function CustomerForgotPasswordPage() {
           otp,
           tenant_id: tenant?.id
         }),
+        signal: createTimeoutSignal('/auth/verify-otp', false),
       });
 
       const data = await response.json();
@@ -284,6 +288,7 @@ export function CustomerForgotPasswordPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resetToken, newPassword }),
+        signal: createTimeoutSignal('/auth/reset-password', false),
       });
 
       const data = await response.json();
@@ -319,6 +324,7 @@ export function CustomerForgotPasswordPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resetToken }),
+        signal: createTimeoutSignal('/auth/login-with-otp', false),
       });
 
       const data = await response.json();

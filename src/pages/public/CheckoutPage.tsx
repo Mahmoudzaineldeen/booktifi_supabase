@@ -13,6 +13,7 @@ import { format, parseISO } from 'date-fns';
 import { AnimatedRating } from '../../components/ui/AnimatedRating';
 import { countryCodes, validatePhoneNumberByCountry } from '../../lib/countryCodes';
 import { getApiUrl } from '../../lib/apiUrl';
+import { createTimeoutSignal } from '../../lib/requestTimeout';
 
 interface BookingData {
   serviceId: string;
@@ -208,6 +209,7 @@ export function CheckoutPage() {
           phone: customerPhoneFull,
           tenant_id: tenant?.id,
         }),
+        signal: createTimeoutSignal('/auth/guest/verify-phone', false),
       });
       
       const data = await response.json();

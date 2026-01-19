@@ -7,7 +7,7 @@ import { getApiBaseUrl } from './apiUrl';
 
 const API_BASE_URL = getApiBaseUrl();
 const HEALTH_CHECK_INTERVAL = 30000; // Check every 30 seconds
-const HEALTH_CHECK_TIMEOUT = 3000; // 3 second timeout
+const HEALTH_CHECK_TIMEOUT = 15000; // 15 second timeout (allows for Railway cold starts)
 
 let healthCheckInterval: number | null = null;
 let isServerHealthy = false;

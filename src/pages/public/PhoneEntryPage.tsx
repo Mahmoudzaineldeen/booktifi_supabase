@@ -10,6 +10,7 @@ import { validatePhoneNumberByCountry } from '../../lib/countryCodes';
 import { ArrowLeft, Phone, User, Shield } from 'lucide-react';
 import { db } from '../../lib/db';
 import { getApiUrl } from '../../lib/apiUrl';
+import { createTimeoutSignal } from '../../lib/requestTimeout';
 
 interface BookingData {
   serviceId: string;
@@ -100,6 +101,7 @@ export function PhoneEntryPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ phone: phoneNumber }),
+        signal: createTimeoutSignal('/auth/check-phone', false),
       });
 
       if (!response.ok) {
@@ -132,6 +134,7 @@ export function PhoneEntryPage() {
           phone: phoneNumber,
           tenant_id: tenant?.id,
         }),
+        signal: createTimeoutSignal('/auth/guest/verify-phone', false),
       });
 
       if (!response.ok) {
@@ -158,6 +161,7 @@ export function PhoneEntryPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ phone: phoneNumber, otp }),
+        signal: createTimeoutSignal('/auth/guest/verify-otp', false),
       });
 
       if (!response.ok) {

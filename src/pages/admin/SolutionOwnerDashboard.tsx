@@ -11,6 +11,7 @@ import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { Building2, Users, Calendar, LogOut, Plus, Settings, Edit, Trash2, UserPlus, Shield } from 'lucide-react';
 import { Tenant } from '../../types';
 import { getApiUrl } from '../../lib/apiUrl';
+import { createTimeoutSignal } from '../../lib/requestTimeout';
 
 export function SolutionOwnerDashboard() {
   const { userProfile, signOut, hasRole, loading: authLoading } = useAuth();
@@ -332,6 +333,7 @@ export function SolutionOwnerDashboard() {
           password: newSolutionOwner.password,
           full_name: newSolutionOwner.full_name,
         }),
+        signal: createTimeoutSignal('/auth/create-solution-owner', false),
       });
 
       const data = await response.json();

@@ -8,6 +8,7 @@ import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Downl
 import { format, startOfWeek, addDays, isSameDay } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
+import { createTimeoutSignal } from '../../lib/requestTimeout';
 
 interface Booking {
   id: string;
@@ -224,11 +225,13 @@ export function BookingsPage() {
       // Use fetch to download the PDF and create a blob URL
       // This approach is more reliable than direct link, especially in Bolt
       try {
+        // Invoice download may take time, use longer timeout
         const response = await fetch(downloadUrl, {
           method: 'GET',
           headers: token ? {
             'Authorization': `Bearer ${token}`,
           } : {},
+          signal: createTimeoutSignal('/zoho/invoices', false), // 10s default, but can be extended
         });
 
         if (!response.ok) {

@@ -9,6 +9,7 @@ import { Mail, ArrowLeft, CheckCircle, Lock, Eye, EyeOff, MessageCircle } from '
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
 import { getApiUrl } from '../../lib/apiUrl';
+import { createTimeoutSignal } from '../../lib/requestTimeout';
 
 type Step = 'username' | 'confirm' | 'otp' | 'password' | 'success';
 
@@ -65,6 +66,7 @@ export function ForgotPasswordPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier: identifier.trim() }),
+        signal: createTimeoutSignal('/auth/forgot-password/lookup', false),
       });
 
       const data = await response.json();
@@ -140,6 +142,7 @@ export function ForgotPasswordPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
+        signal: createTimeoutSignal('/auth/forgot-password', false),
       });
 
       const data = await response.json();
@@ -188,6 +191,7 @@ export function ForgotPasswordPage() {
           otp,
           tenant_id: _TenantId
         }),
+        signal: createTimeoutSignal('/auth/verify-otp', false),
       });
 
       const data = await response.json();
@@ -238,6 +242,7 @@ export function ForgotPasswordPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resetToken, newPassword }),
+        signal: createTimeoutSignal('/auth/reset-password', false),
       });
 
       const data = await response.json();
@@ -273,6 +278,7 @@ export function ForgotPasswordPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resetToken }),
+        signal: createTimeoutSignal('/auth/login-with-otp', false),
       });
 
       const data = await response.json();
