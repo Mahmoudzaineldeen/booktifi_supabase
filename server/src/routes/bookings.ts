@@ -226,11 +226,12 @@ async function logBookingChange(
  */
 function validatePaymentStatusTransition(oldStatus: string, newStatus: string): { valid: boolean; error?: string } {
   // Define valid transitions (must match database enum values)
+  // Note: Allowing corrections (paid/paid_manual → unpaid) for manual adjustments
   const validTransitions: Record<string, string[]> = {
     'unpaid': ['paid', 'paid_manual', 'awaiting_payment', 'refunded'],
     'awaiting_payment': ['paid', 'paid_manual', 'unpaid', 'refunded'],
-    'paid': ['refunded'], // Once paid, can only be refunded
-    'paid_manual': ['refunded'],
+    'paid': ['refunded', 'unpaid', 'awaiting_payment'], // Allow corrections if payment was recorded incorrectly
+    'paid_manual': ['refunded', 'unpaid', 'awaiting_payment'], // Allow corrections for manual entries
     'refunded': [], // Refunded is terminal - cannot transition from refunded
   };
 
