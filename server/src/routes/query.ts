@@ -187,7 +187,7 @@ router.post('/query', async (req, res) => {
     }
 
     console.log('[Query] Executing Supabase query for table:', table);
-    console.log('[Query] Raw select parameter:', select);
+    console.log('[Query] Raw select parameter:', select, `(type: ${typeof select}, isArray: ${Array.isArray(select)})`);
     console.log('[Query] Cleaned select:', cleanSelect);
     console.log('[Query] Where:', where);
     console.log('[Query] OrderBy:', orderBy);
