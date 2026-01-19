@@ -694,19 +694,21 @@ export function SettingsPage() {
     // Get current origin (works for both local and Bolt)
     let currentOrigin = window.location.origin;
     
-    // For Netlify: Prefer production domain over preview URLs
-    // Preview URLs change with each deploy, so use production domain if available
-    if (currentOrigin.includes('netlify.app') && !currentOrigin.includes('--')) {
-      // This is already a production domain (bookati.netlify.app)
-      // Keep it as is
-    } else if (currentOrigin.includes('netlify.app') && currentOrigin.includes('--')) {
-      // This is a preview URL (e.g., 696e065adf1d5e0bb50daf80--delightful-florentine-7b58a9.netlify.app)
-      // Try to use production domain instead
-      // Check if we have a custom domain configured
+    // For Netlify: ALWAYS use production domain for Zoho redirect URI
+    // Preview URLs change with each deploy, causing Zoho redirect URI mismatches
+    // Production domain remains constant, so use it for Zoho OAuth
+    if (currentOrigin.includes('netlify.app')) {
+      // Always use production domain for Zoho redirect, regardless of preview URL
       const productionDomain = 'bookati.netlify.app'; // Your production domain
-      if (productionDomain) {
-        console.log('[Zoho Connect] ⚠️  Using preview URL, switching to production domain for Zoho redirect');
+      if (productionDomain && currentOrigin.includes('--')) {
+        // This is a preview URL, switch to production domain
+        console.log('[Zoho Connect] ⚠️  Preview URL detected, using production domain for Zoho redirect');
+        console.log('[Zoho Connect]    Preview URL:', currentOrigin);
+        console.log('[Zoho Connect]    Production URL:', `https://${productionDomain}`);
         currentOrigin = `https://${productionDomain}`;
+      } else if (!currentOrigin.includes('--')) {
+        // Already using production domain, keep it
+        console.log('[Zoho Connect] ✅ Using production domain for Zoho redirect:', currentOrigin);
       }
     }
     

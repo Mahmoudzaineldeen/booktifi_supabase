@@ -674,8 +674,12 @@ router.post('/create', authenticate, async (req, res) => {
     // Invoice is created for ALL bookings with email OR phone
     // Delivery: Email (if email provided), WhatsApp (if phone provided), or both
     // Note: Payment status is not used - invoices are created for all bookings
+    // IMPORTANT: Use process.nextTick instead of setImmediate for better reliability
+    // This ensures the async operation completes even if the container restarts
     if (normalizedPhone || customer_phone || customer_email) {
-      setImmediate(async () => {
+      // Use process.nextTick to ensure invoice creation happens after response is sent
+      // This prevents container restarts from interrupting the process
+      process.nextTick(async () => {
         try {
           console.log(`[Booking Creation] 🧾 Invoice Flow Started for booking ${bookingId}`);
           console.log(`[Booking Creation] 📋 Flow: Booking Confirmed → Create Invoice → Send via Email/WhatsApp`);
