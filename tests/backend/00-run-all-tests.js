@@ -11,6 +11,7 @@ import { runAllTests as runTicketTests } from './05-ticket-generation.test.js';
 import { runAllTests as runInvoiceTests } from './06-invoice-generation.test.js';
 import { runAllTests as runErrorHandlingTests } from './07-error-handling.test.js';
 import { runAllTests as runBookingManagementTests } from './08-booking-management.test.js';
+import { runAllTests as runZohoDisconnectTests } from './09-zoho-disconnect.test.js';
 import { CONFIG } from './config.js';
 
 const overallResults = {
@@ -118,6 +119,17 @@ async function runAllTestSuites() {
   const bookingManagementSuccess = await runBookingManagementTests();
   overallResults.moduleResults.push({ name: 'Booking Management', success: bookingManagementSuccess });
   if (bookingManagementSuccess) overallResults.totalPassed++;
+  else overallResults.totalFailed++;
+  
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // Test Suite 9: Zoho Disconnect
+  console.log('\n' + '═'.repeat(62));
+  console.log('TEST SUITE 9: Zoho Disconnect Endpoint');
+  console.log('═'.repeat(62));
+  const zohoDisconnectSuccess = await runZohoDisconnectTests();
+  overallResults.moduleResults.push({ name: 'Zoho Disconnect', success: zohoDisconnectSuccess });
+  if (zohoDisconnectSuccess) overallResults.totalPassed++;
   else overallResults.totalFailed++;
   
   const endTime = Date.now();
