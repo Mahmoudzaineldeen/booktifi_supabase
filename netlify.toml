@@ -1,0 +1,21 @@
+[build]
+  # Build command
+  command = "npm run build"
+  # Directory to publish (Vite's default output directory)
+  publish = "dist"
+  
+  # Environment variables (set these in Netlify dashboard)
+  # VITE_API_URL will be set in Netlify dashboard
+  # VITE_SUPABASE_URL will be set in Netlify dashboard
+  # VITE_SUPABASE_ANON_KEY will be set in Netlify dashboard
+
+[build.environment]
+  # Node version
+  NODE_VERSION = "18"
+
+# Redirect rules for SPA (Single Page Application)
+# This ensures all routes work correctly
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

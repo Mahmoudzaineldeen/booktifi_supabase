@@ -6,9 +6,9 @@
 /**
  * Get the API base URL based on the current environment
  * - Priority: VITE_API_URL environment variable (if set)
+ * - Netlify/Production: Uses VITE_API_URL (must be set)
  * - Bolt/WebContainer: Uses Railway backend from VITE_API_URL or fallback
  * - Local development: Uses Railway backend (default) or VITE_API_URL
- * - Production: Uses VITE_API_URL
  */
 export function getApiUrl(): string {
   // Always check VITE_API_URL first - if set, use it (highest priority)
@@ -21,6 +21,16 @@ export function getApiUrl(): string {
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     const origin = window.location.origin;
+    
+    // Detect Netlify deployment
+    const isNetlify = hostname.includes('netlify.app') || hostname.includes('netlify.com');
+    if (isNetlify) {
+      // In Netlify, VITE_API_URL should be set, but fallback to Railway
+      const railwayUrl = 'https://booktifisupabase-production.up.railway.app/api';
+      console.warn('[getApiUrl] ⚠️ Netlify detected but VITE_API_URL not set. Using Railway fallback:', railwayUrl);
+      console.warn('[getApiUrl] ⚠️ Please set VITE_API_URL in Netlify environment variables!');
+      return railwayUrl;
+    }
     
     // Comprehensive detection for Bolt/WebContainer environments
     const isWebContainer = 
