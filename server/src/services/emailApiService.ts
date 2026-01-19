@@ -339,6 +339,7 @@ export async function testEmailConnection(tenantId: string): Promise<{
   provider?: EmailProvider;
   error?: string;
   message?: string;
+  hint?: string;
 }> {
   const config = await getEmailConfig(tenantId);
   
@@ -346,6 +347,7 @@ export async function testEmailConnection(tenantId: string): Promise<{
     return {
       success: false,
       error: 'Email service not configured',
+      hint: 'Please configure SendGrid API Key (recommended for production) or SMTP settings in the tenant settings page.',
     };
   }
 

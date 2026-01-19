@@ -201,18 +201,32 @@ router.put('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
     } = req.body;
     
     if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID not found' });
+      console.error('[Tenant Settings] ❌ Tenant ID missing from JWT token:', {
+        userId: req.user!.id,
+        role: req.user!.role,
+        hasTenantId: !!req.user!.tenant_id
+      });
+      return res.status(400).json({ 
+        error: 'Tenant ID not found in authentication token',
+        hint: 'Please log out and log in again. Your account may not be associated with a tenant.'
+      });
     }
 
+    console.log(`[Tenant Settings] 📝 Updating email settings for tenant ${tenantId}`);
+
     // Get current tenant settings
-    const { data: currentTenant } = await supabase
+    const { data: currentTenant, error: tenantError } = await supabase
       .from('tenants')
       .select('smtp_settings, email_settings')
       .eq('id', tenantId)
       .single();
 
-    if (!currentTenant) {
-      return res.status(404).json({ error: 'Tenant not found' });
+    if (tenantError || !currentTenant) {
+      console.error(`[Tenant Settings] ❌ Tenant ${tenantId} not found in database:`, tenantError);
+      return res.status(404).json({ 
+        error: 'Tenant not found',
+        hint: `The tenant with ID ${tenantId} does not exist in the database. Please contact support.`
+      });
     }
 
     // Prepare update object
@@ -259,8 +273,20 @@ router.put('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
         .select('id, smtp_settings, email_settings')
         .single();
 
-      if (error || !data) {
-        return res.status(404).json({ error: 'Tenant not found' });
+      if (error) {
+        console.error(`[Tenant Settings] ❌ Database error updating tenant ${tenantId}:`, error);
+        return res.status(500).json({ 
+          error: 'Failed to update tenant settings',
+          details: error.message 
+        });
+      }
+      
+      if (!data) {
+        console.error(`[Tenant Settings] ❌ Tenant ${tenantId} not found after update attempt`);
+        return res.status(404).json({ 
+          error: 'Tenant not found',
+          hint: `The tenant with ID ${tenantId} does not exist in the database.`
+        });
       }
 
       // Prepare response (mask sensitive data)
@@ -372,13 +398,19 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
     const testResult = await testEmailConnection(tenantId);
 
     if (!testResult.success) {
-      return res.status(500).json({
+      // Return 400 for configuration errors, 500 for actual connection failures
+      const statusCode = testResult.error?.includes('not configured') || 
+                        testResult.error?.includes('No email service') 
+                        ? 400 
+                        : 500;
+      
+      return res.status(statusCode).json({
         success: false,
         error: testResult.error || 'Email connection test failed',
         provider: testResult.provider,
-        hint: testResult.provider === 'sendgrid' 
+        hint: testResult.hint || (testResult.provider === 'sendgrid' 
           ? 'Please verify your SendGrid API key is correct and has permission to send emails.'
-          : 'SMTP connection failed. For production deployments, consider using SendGrid API to avoid port blocking issues.',
+          : 'SMTP connection failed. For production deployments, consider using SendGrid API to avoid port blocking issues.'),
       });
     }
 
