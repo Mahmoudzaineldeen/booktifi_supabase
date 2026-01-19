@@ -100,9 +100,12 @@ This audit was conducted to identify and resolve 400, 401, and 404 errors occurr
 - **Root Cause:** **CACHED BUILD IN BOLT** - Old frontend code still running
 - **Fix Applied:** ✅ Code already fixed, but Bolt needs cache clear
 
-**⚠️ Potential Issue: ReceptionPage.tsx**
-- **Status:** ✅ Fixed - Changed from `supabase` to `db` client
-- **Action Required:** Clear Bolt cache to see fix
+**⚠️ Remaining Issue: ReceptionPage.tsx**
+- **Status:** ⚠️ Partially Fixed - `supabase.auth` changed to `db.auth`
+- **Remaining:** 24 direct `supabase.from()` calls still present (lines 407, 423, 454, etc.)
+- **Impact:** These queries may bypass backend in some cases
+- **Recommendation:** Migrate all `supabase.from()` calls to `db.from()` for consistency
+- **Priority:** Medium (current code works, but not ideal architecture)
 
 ### Route Prefix Consistency
 
