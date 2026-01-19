@@ -1087,12 +1087,9 @@ export function ReceptionPage() {
   // Helper function to create bookings via API (ensures tickets are sent)
   async function createBookingViaAPI(bookingData: any) {
     // Get API URL (already includes /api suffix)
-    const API_URL = getApiUrl(); // Remove /api suffix for base URL
+    const API_URL = getApiUrl();
     
-    // Remove trailing /api if present to avoid double /api/api/
-    API_URL = API_URL.replace(/\/api\/?$/, '');
-    
-    const session = await supabase.auth.getSession();
+    const session = await db.auth.getSession();
     
     if (!session.data.session?.access_token) {
       throw new Error('Not authenticated. Please log in again.');
