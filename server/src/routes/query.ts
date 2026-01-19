@@ -20,9 +20,24 @@ router.post('/query', async (req, res) => {
     // Start building the query
     let query = supabase.from(table as string);
 
-    // Parse select to handle comma-separated columns and Supabase-style nested selects
+    // Parse select to handle both string and array formats
+    // Support: string (comma-separated) or array of column names
+    let cleanSelect: string;
+    
+    if (Array.isArray(select)) {
+      // If select is an array, join with commas
+      cleanSelect = select.join(',');
+    } else if (typeof select === 'string') {
+      // If select is a string, use it directly
+      cleanSelect = select;
+    } else {
+      // Default to '*' if select is not provided or invalid
+      cleanSelect = '*';
+    }
+    
+    // Normalize the string (handle comma-separated columns and Supabase-style nested selects)
     // Express automatically decodes URL parameters, but we need to handle spaces
-    let cleanSelect = (select as string).trim();
+    cleanSelect = cleanSelect.trim();
     
     // Remove leading/trailing commas
     cleanSelect = cleanSelect.replace(/^,+|,+$/g, '').trim();
