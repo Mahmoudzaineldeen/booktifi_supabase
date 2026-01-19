@@ -10,6 +10,7 @@ import { Calendar, Clock, LogOut, Star, MessageSquare, Package, CalendarOff, Use
 import { format } from 'date-fns';
 import { ReviewForm } from '../../components/reviews/ReviewForm';
 import { Modal } from '../../components/ui/Modal';
+import { getApiUrl } from '../../lib/apiUrl';
 
 interface Booking {
   id: string;

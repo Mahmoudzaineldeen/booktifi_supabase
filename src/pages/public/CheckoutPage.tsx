@@ -12,6 +12,7 @@ import { Package, User, Calendar, Clock, Users, CreditCard, CheckCircle, X, Arro
 import { format, parseISO } from 'date-fns';
 import { AnimatedRating } from '../../components/ui/AnimatedRating';
 import { countryCodes, validatePhoneNumberByCountry } from '../../lib/countryCodes';
+import { getApiUrl } from '../../lib/apiUrl';
 
 interface BookingData {
   serviceId: string;
