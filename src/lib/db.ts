@@ -21,19 +21,36 @@ class DatabaseClient {
       const token = localStorage.getItem('auth_token');
       const url = `${this.baseUrl}${endpoint}`;
       
+      // Validate token format if present (basic JWT format check)
+      if (token) {
+        const tokenParts = token.split('.');
+        if (tokenParts.length !== 3) {
+          console.error('[db.request] ❌ Invalid token format detected. Token should have 3 parts (JWT format). Clearing invalid token.');
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('auth_session');
+        }
+      }
+      
       // Use longer timeout in WebContainer/Bolt environments
       // Increase timeout for tenant queries which may be slower
       const isTenantQuery = endpoint.includes('tenants') || endpoint.includes('query') && endpoint.includes('table=tenants');
       const baseTimeout = url.startsWith('/') ? 30000 : 10000; // 30s for relative URLs, 10s for absolute
       const timeout = isTenantQuery ? baseTimeout * 2 : baseTimeout; // 60s for tenant queries, 30s/10s for others
       
+      // Build headers - always include Content-Type, conditionally include Authorization
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      };
+      
+      // Add Authorization header if token exists and is valid
+      if (token && token.trim() !== '') {
+        headers['Authorization'] = `Bearer ${token.trim()}`;
+      }
+      
       const response = await fetch(url, {
         ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` }),
-          ...options.headers,
-        },
+        headers,
         signal: AbortSignal.timeout(timeout),
       });
 
@@ -548,8 +565,28 @@ class DatabaseClient {
         body: JSON.stringify(requestBody),
       });
       if (result.data?.session) {
-        localStorage.setItem('auth_session', JSON.stringify(result.data.session));
-        localStorage.setItem('auth_token', result.data.session.access_token);
+        const session = result.data.session;
+        const accessToken = session.access_token;
+        
+        // Validate token exists before storing
+        if (!accessToken) {
+          console.error('[db.auth.signUp] ❌ No access_token in session response:', result.data);
+          return { 
+            data: result.data, 
+            error: { message: 'Registration failed: No token received from server' } 
+          };
+        }
+
+        // Store session and token
+        localStorage.setItem('auth_session', JSON.stringify(session));
+        localStorage.setItem('auth_token', accessToken);
+        
+        console.log('[db.auth.signUp] ✅ Token stored successfully:', {
+          hasToken: !!accessToken,
+          tokenLength: accessToken.length,
+        });
+      } else {
+        console.warn('[db.auth.signUp] ⚠️ No session in response:', result.data);
       }
       return result;
     },

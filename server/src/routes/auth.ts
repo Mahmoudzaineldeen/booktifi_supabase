@@ -342,17 +342,36 @@ router.post('/signup', async (req, res) => {
       return res.status(500).json({ error: insertError?.message || 'Failed to create user' });
     }
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        id: user.id, 
-        email: user.email, 
-        role: user.role,
-        tenant_id: user.tenant_id 
-      },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    // Generate JWT token with all required fields
+    const tokenPayload: {
+      id: string;
+      email: string | null;
+      role: string;
+      tenant_id: string | null;
+    } = {
+      id: user.id,
+      email: user.email || null,
+      role: user.role || 'employee',
+      tenant_id: user.tenant_id || null,
+    };
+
+    // Validate required fields
+    if (!tokenPayload.id) {
+      console.error('[Auth] ❌ Cannot create token: user.id is missing', { user });
+      return res.status(500).json({ error: 'User ID is missing. Cannot create authentication token.' });
+    }
+    if (!tokenPayload.role) {
+      console.error('[Auth] ❌ Cannot create token: user.role is missing', { user });
+      return res.status(500).json({ error: 'User role is missing. Cannot create authentication token.' });
+    }
+
+    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
+
+    console.log('[Auth] ✅ Signup token created successfully:', {
+      userId: tokenPayload.id,
+      role: tokenPayload.role,
+      hasTenantId: !!tokenPayload.tenant_id,
+    });
 
     res.json({
       user: {
@@ -447,17 +466,31 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'User not found or inactive' });
     }
 
-    // Generate new token
-    const newToken = jwt.sign(
-      { 
-        id: user.id, 
-        email: user.email, 
-        role: user.role,
-        tenant_id: user.tenant_id 
-      },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    // Generate new token with validated fields
+    const tokenPayload: {
+      id: string;
+      email: string | null;
+      role: string;
+      tenant_id: string | null;
+    } = {
+      id: user.id,
+      email: user.email || null,
+      role: user.role || 'employee',
+      tenant_id: user.tenant_id || null,
+    };
+
+    if (!tokenPayload.id || !tokenPayload.role) {
+      console.error('[Auth] ❌ Cannot refresh token: missing required fields', { user });
+      return res.status(500).json({ error: 'User data incomplete. Cannot refresh token.' });
+    }
+
+    const newToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
+
+    console.log('[Auth] ✅ Token refreshed successfully:', {
+      userId: tokenPayload.id,
+      role: tokenPayload.role,
+      hasTenantId: !!tokenPayload.tenant_id,
+    });
 
     res.json({
       access_token: newToken,
@@ -1617,16 +1650,28 @@ router.post('/verify-otp', async (req, res) => {
       }
 
       // Generate JWT session token for automatic login
-      sessionToken = jwt.sign(
-        { 
-          id: user.id, 
-          email: user.email, 
-          role: user.role,
-          tenant_id: user.tenant_id 
-        },
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
+      const tokenPayload: {
+        id: string;
+        email: string | null;
+        role: string;
+        tenant_id: string | null;
+      } = {
+        id: user.id,
+        email: user.email || null,
+        role: user.role || 'employee',
+        tenant_id: user.tenant_id || null,
+      };
+
+      if (!tokenPayload.id || !tokenPayload.role) {
+        console.error('[Auth] ❌ Cannot create OTP session token: missing required fields', { user });
+      } else {
+        sessionToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
+        console.log('[Auth] ✅ OTP session token created:', {
+          userId: tokenPayload.id,
+          role: tokenPayload.role,
+          hasTenantId: !!tokenPayload.tenant_id,
+        });
+      }
 
       // Remove password from user object
       const { password_hash, password, ...userWithoutPassword } = user;
@@ -1841,17 +1886,31 @@ router.post('/login-with-otp', async (req, res) => {
       tenant = tenantData || null;
     }
 
-    // Generate JWT token for login
-    const token = jwt.sign(
-      { 
-        id: user.id, 
-        email: user.email, 
-        role: user.role,
-        tenant_id: user.tenant_id 
-      },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    // Generate JWT token for login with validated fields
+    const tokenPayload: {
+      id: string;
+      email: string | null;
+      role: string;
+      tenant_id: string | null;
+    } = {
+      id: user.id,
+      email: user.email || null,
+      role: user.role || 'employee',
+      tenant_id: user.tenant_id || null,
+    };
+
+    if (!tokenPayload.id || !tokenPayload.role) {
+      console.error('[Auth] ❌ Cannot create login token: missing required fields', { user });
+      return res.status(500).json({ error: 'User data incomplete. Cannot create authentication token.' });
+    }
+
+    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
+
+    console.log('[Auth] ✅ Login with OTP token created:', {
+      userId: tokenPayload.id,
+      role: tokenPayload.role,
+      hasTenantId: !!tokenPayload.tenant_id,
+    });
 
     // Remove sensitive fields from user object
     const { password_hash, password, ...userWithoutPassword } = user;

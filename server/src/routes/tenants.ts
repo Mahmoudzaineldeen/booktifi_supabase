@@ -190,7 +190,21 @@ router.get('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
 // Update email settings for tenant (supports both SendGrid API and SMTP)
 router.put('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
   try {
-    const tenantId = req.user!.tenant_id;
+    const tenantId = req.user?.tenant_id;
+    
+    // For solution_owner, tenant_id can be null - they can manage any tenant
+    // For other roles, tenant_id is required
+    if (!tenantId && req.user?.role !== 'solution_owner') {
+      console.error('[Tenant Settings] ❌ Tenant ID missing from token:', {
+        userId: req.user?.id,
+        role: req.user?.role,
+        hasTenantId: !!req.user?.tenant_id,
+      });
+      return res.status(400).json({ 
+        error: 'Tenant ID not found in authentication token',
+        hint: 'Your account may not be associated with a tenant. Please contact support or log in with a different account.'
+      });
+    }
     const { 
       smtp_host, 
       smtp_port, 
