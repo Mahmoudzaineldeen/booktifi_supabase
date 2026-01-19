@@ -1082,6 +1082,7 @@ export function CheckoutPage() {
                                   phone: customerPhoneFull,
                                   otp: otpCode,
                                 }),
+                                signal: createTimeoutSignal('/auth/guest/verify-otp', false),
                               });
                               
                               const data = await response.json();
