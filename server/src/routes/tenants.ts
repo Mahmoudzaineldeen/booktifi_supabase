@@ -848,6 +848,7 @@ router.put('/zoho-config', authenticateTenantAdmin, async (req, res) => {
     const defaultScopes = scopes || [
       'ZohoInvoice.invoices.CREATE',
       'ZohoInvoice.invoices.READ',
+      'ZohoInvoice.invoices.UPDATE', // Required for payment status sync
       'ZohoInvoice.contacts.CREATE',
       'ZohoInvoice.contacts.READ'
     ];
