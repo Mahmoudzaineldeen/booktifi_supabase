@@ -121,6 +121,132 @@ function authenticate(req: express.Request, res: express.Response, next: express
   }
 }
 
+// Middleware to authenticate tenant admin ONLY (for booking management)
+function authenticateTenantAdminOnly(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        error: 'Authorization header required',
+        hint: 'Please provide a valid Bearer token in the Authorization header'
+      });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    if (!token || token.trim() === '') {
+      return res.status(401).json({ error: 'Token is required' });
+    }
+
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (jwtError: any) {
+      if (jwtError.name === 'TokenExpiredError') {
+        return res.status(401).json({ 
+          error: 'Token has expired',
+          hint: 'Please log in again to get a new token'
+        });
+      } else if (jwtError.name === 'JsonWebTokenError') {
+        return res.status(401).json({ 
+          error: 'Invalid token',
+          hint: 'The token format is invalid. Please log in again.'
+        });
+      }
+      return res.status(401).json({ 
+        error: 'Token verification failed',
+        hint: jwtError.message || 'Please log in again'
+      });
+    }
+    
+    // STRICT: Only tenant_admin (Service Provider) can manage bookings
+    if (decoded.role !== 'tenant_admin') {
+      return res.status(403).json({ 
+        error: 'Access denied. Only Service Providers (tenant admins) can manage bookings.',
+        userRole: decoded.role,
+        hint: 'You must be logged in as a Service Provider to perform this action.'
+      });
+    }
+
+    if (!decoded.tenant_id) {
+      return res.status(403).json({ 
+        error: 'Access denied. No tenant associated with your account.',
+        hint: 'Please contact support to associate your account with a tenant.'
+      });
+    }
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      tenant_id: decoded.tenant_id,
+    };
+    
+    next();
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Authentication error', hint: error.message });
+  }
+}
+
+/**
+ * Log booking changes to audit_logs table
+ */
+async function logBookingChange(
+  actionType: string,
+  bookingId: string,
+  tenantId: string,
+  userId: string,
+  oldValues: any,
+  newValues: any,
+  ipAddress?: string,
+  userAgent?: string
+) {
+  try {
+    await supabase
+      .from('audit_logs')
+      .insert({
+        tenant_id: tenantId,
+        user_id: userId,
+        action_type: actionType,
+        resource_type: 'booking',
+        resource_id: bookingId,
+        old_values: oldValues,
+        new_values: newValues,
+        ip_address: ipAddress,
+        user_agent: userAgent,
+      });
+    console.log(`[Audit] Logged ${actionType} for booking ${bookingId}`);
+  } catch (error: any) {
+    console.error(`[Audit] Failed to log booking change:`, error.message);
+    // Don't throw - audit logging failure shouldn't break the operation
+  }
+}
+
+/**
+ * Validate payment status transition
+ */
+function validatePaymentStatusTransition(oldStatus: string, newStatus: string): { valid: boolean; error?: string } {
+  // Define valid transitions
+  const validTransitions: Record<string, string[]> = {
+    'unpaid': ['paid', 'paid_manual', 'partially_paid', 'awaiting_payment', 'refunded', 'canceled'],
+    'awaiting_payment': ['paid', 'paid_manual', 'partially_paid', 'unpaid', 'refunded', 'canceled'],
+    'partially_paid': ['paid', 'paid_manual', 'refunded', 'canceled'], // Can be completed to paid or refunded
+    'paid': ['refunded', 'canceled'], // Once paid, can only be refunded or canceled
+    'paid_manual': ['refunded', 'canceled'],
+    'refunded': [], // Refunded is terminal - cannot transition from refunded
+    'canceled': [], // Canceled is terminal
+  };
+
+  const allowed = validTransitions[oldStatus] || [];
+  if (!allowed.includes(newStatus)) {
+    return {
+      valid: false,
+      error: `Invalid payment status transition: ${oldStatus} → ${newStatus}. Allowed transitions from ${oldStatus}: ${allowed.join(', ') || 'none (terminal state)'}`
+    };
+  }
+
+  return { valid: true };
+}
+
 // ============================================================================
 // Acquire booking lock (called when user proceeds to checkout)
 // ============================================================================
@@ -960,81 +1086,309 @@ router.post('/locks', async (req, res) => {
 });
 
 // ============================================================================
-// Update payment status (triggers Zoho receipt generation if status = 'paid')
+// Update booking details (Service Provider only)
 // ============================================================================
-router.patch('/:id/payment-status', authenticate, async (req, res) => {
+router.patch('/:id', authenticateTenantAdminOnly, async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const userId = req.user!.id;
+    const tenantId = req.user!.tenant_id!;
+    const updateData = req.body;
+
+    // Get current booking to verify ownership and get old values
+    const { data: currentBooking, error: fetchError } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('id', bookingId)
+      .single();
+
+    if (fetchError || !currentBooking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    // Verify tenant ownership
+    if (currentBooking.tenant_id !== tenantId) {
+      return res.status(403).json({ 
+        error: 'Access denied. This booking belongs to a different tenant.' 
+      });
+    }
+
+    // Prepare update payload (only allow specific fields)
+    const allowedFields = [
+      'customer_name',
+      'customer_phone',
+      'customer_email',
+      'visitor_count',
+      'adult_count',
+      'child_count',
+      'total_price',
+      'status',
+      'notes',
+      'employee_id',
+    ];
+
+    const updatePayload: any = {
+      updated_at: new Date().toISOString(),
+    };
+
+    // Only include allowed fields that are provided
+    for (const field of allowedFields) {
+      if (field in updateData) {
+        updatePayload[field] = updateData[field];
+      }
+    }
+
+    // Validate status if provided
+    if (updatePayload.status) {
+      const validStatuses = ['pending', 'confirmed', 'checked_in', 'completed', 'canceled'];
+      if (!validStatuses.includes(updatePayload.status)) {
+        return res.status(400).json({
+          error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+        });
+      }
+    }
+
+    // Validate visitor counts if provided
+    if (updatePayload.visitor_count !== undefined) {
+      if (updatePayload.visitor_count < 1) {
+        return res.status(400).json({ error: 'visitor_count must be at least 1' });
+      }
+    }
+
+    if (updatePayload.adult_count !== undefined && updatePayload.adult_count < 0) {
+      return res.status(400).json({ error: 'adult_count cannot be negative' });
+    }
+
+    if (updatePayload.child_count !== undefined && updatePayload.child_count < 0) {
+      return res.status(400).json({ error: 'child_count cannot be negative' });
+    }
+
+    // Update booking
+    const { data: updatedBooking, error: updateError } = await supabase
+      .from('bookings')
+      .update(updatePayload)
+      .eq('id', bookingId)
+      .select()
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // Log audit trail
+    await logBookingChange(
+      'update',
+      bookingId,
+      tenantId,
+      userId,
+      currentBooking,
+      updatedBooking,
+      req.ip,
+      req.get('user-agent')
+    );
+
+    res.json({
+      success: true,
+      booking: updatedBooking,
+      message: 'Booking updated successfully',
+    });
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Update booking error', error, context, {
+      booking_id: req.params.id,
+    });
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ============================================================================
+// Delete booking (Service Provider only)
+// ============================================================================
+router.delete('/:id', authenticateTenantAdminOnly, async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const userId = req.user!.id;
+    const tenantId = req.user!.tenant_id!;
+
+    // Get current booking to verify ownership
+    const { data: currentBooking, error: fetchError } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('id', bookingId)
+      .single();
+
+    if (fetchError || !currentBooking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    // Verify tenant ownership
+    if (currentBooking.tenant_id !== tenantId) {
+      return res.status(403).json({ 
+        error: 'Access denied. This booking belongs to a different tenant.' 
+      });
+    }
+
+    // Prevent deletion of paid or finalized bookings (unless explicitly allowed)
+    const { allowDeletePaid } = req.query;
+    if (!allowDeletePaid && (currentBooking.payment_status === 'paid' || currentBooking.payment_status === 'paid_manual')) {
+      return res.status(403).json({ 
+        error: 'Cannot delete paid bookings. Set allowDeletePaid=true to override.',
+        hint: 'Consider canceling the booking instead of deleting it.'
+      });
+    }
+
+    // Soft delete: Mark as canceled and add deletion flag
+    // Note: If your database supports soft deletes, use that instead
+    const { error: deleteError } = await supabase
+      .from('bookings')
+      .update({
+        status: 'canceled',
+        updated_at: new Date().toISOString(),
+        notes: currentBooking.notes 
+          ? `${currentBooking.notes}\n[DELETED by Service Provider on ${new Date().toISOString()}]`
+          : `[DELETED by Service Provider on ${new Date().toISOString()}]`,
+      })
+      .eq('id', bookingId);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    // Log audit trail
+    await logBookingChange(
+      'delete',
+      bookingId,
+      tenantId,
+      userId,
+      currentBooking,
+      { status: 'canceled', deleted_at: new Date().toISOString() },
+      req.ip,
+      req.get('user-agent')
+    );
+
+    res.json({
+      success: true,
+      message: 'Booking deleted successfully',
+    });
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Delete booking error', error, context, {
+      booking_id: req.params.id,
+    });
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ============================================================================
+// Update payment status (Service Provider only) with Zoho synchronization
+// ============================================================================
+router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res) => {
   try {
     const bookingId = req.params.id;
     const { payment_status } = req.body;
-    const userId = req.user?.id;
+    const userId = req.user!.id;
+    const tenantId = req.user!.tenant_id!;
 
     if (!payment_status) {
       return res.status(400).json({ error: 'payment_status is required' });
     }
 
     // Validate payment status
-    const validStatuses = ['unpaid', 'paid', 'paid_manual', 'awaiting_payment', 'refunded'];
+    const validStatuses = ['unpaid', 'paid', 'paid_manual', 'partially_paid', 'awaiting_payment', 'refunded', 'canceled'];
     if (!validStatuses.includes(payment_status)) {
       return res.status(400).json({
         error: `Invalid payment_status. Must be one of: ${validStatuses.join(', ')}`
       });
     }
 
-    // Check if booking exists and user has permission
-    const { data: bookingCheck, error: checkError } = await supabase
-      .from('bookings')
-      .select(`
-        *,
-        users!left (
-          tenant_id,
-          role
-        )
-      `)
-      .eq('id', bookingId)
-      .eq('users.id', userId)
-      .single();
-
-    if (checkError || !bookingCheck) {
-      return res.status(404).json({ error: 'Booking not found' });
-    }
-
-    const userTenantId = (bookingCheck.users as any)?.tenant_id;
-    const userRole = (bookingCheck.users as any)?.role;
-
-    // Check permissions (tenant admin, receptionist, or cashier can update)
-    if (userTenantId !== bookingCheck.tenant_id && userRole !== 'solution_owner') {
-      return res.status(403).json({ error: 'You do not have permission to update this booking' });
-    }
-
-    // Update payment status
-    // The database trigger will automatically queue Zoho receipt generation if status = 'paid'
-    const { error: updateError } = await supabase
-      .from('bookings')
-      .update({
-        payment_status: payment_status,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', bookingId);
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    const { data: updatedBooking, error: fetchError } = await supabase
+    // Get current booking to verify ownership and validate transition
+    const { data: currentBooking, error: fetchError } = await supabase
       .from('bookings')
       .select('*')
       .eq('id', bookingId)
       .single();
 
-    if (fetchError) {
-      throw fetchError;
+    if (fetchError || !currentBooking) {
+      return res.status(404).json({ error: 'Booking not found' });
     }
 
+    // Verify tenant ownership
+    if (currentBooking.tenant_id !== tenantId) {
+      return res.status(403).json({ 
+        error: 'Access denied. This booking belongs to a different tenant.' 
+      });
+    }
+
+    // Validate state transition
+    const oldStatus = currentBooking.payment_status;
+    const transitionValidation = validatePaymentStatusTransition(oldStatus, payment_status);
+    if (!transitionValidation.valid) {
+      return res.status(400).json({ 
+        error: transitionValidation.error 
+      });
+    }
+
+    // Update payment status in database
+    const { data: updatedBooking, error: updateError } = await supabase
+      .from('bookings')
+      .update({
+        payment_status: payment_status,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', bookingId)
+      .select()
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // Log audit trail
+    await logBookingChange(
+      'payment_status_update',
+      bookingId,
+      tenantId,
+      userId,
+      { payment_status: oldStatus },
+      { payment_status: payment_status },
+      req.ip,
+      req.get('user-agent')
+    );
+
+    // CRITICAL: Sync with Zoho Invoice if invoice exists
+    let zohoSyncResult: { success: boolean; error?: string } | null = null;
+    if (currentBooking.zoho_invoice_id) {
+      try {
+        console.log(`[Booking Payment Status] Syncing with Zoho invoice ${currentBooking.zoho_invoice_id}...`);
+        const { zohoService } = await import('../services/zohoService.js');
+        zohoSyncResult = await zohoService.updateInvoiceStatus(
+          tenantId,
+          currentBooking.zoho_invoice_id,
+          payment_status
+        );
+
+        if (zohoSyncResult.success) {
+          console.log(`[Booking Payment Status] ✅ Zoho invoice status synced successfully`);
+        } else {
+          console.error(`[Booking Payment Status] ⚠️  Zoho invoice sync failed: ${zohoSyncResult.error}`);
+          // Don't fail the booking update - log the error but continue
+        }
+      } catch (zohoError: any) {
+        console.error(`[Booking Payment Status] ⚠️  Zoho sync error:`, zohoError.message);
+        zohoSyncResult = { success: false, error: zohoError.message };
+        // Don't fail the booking update - Zoho sync failure shouldn't block payment status update
+      }
+    } else {
+      console.log(`[Booking Payment Status] No Zoho invoice ID found - skipping sync`);
+    }
+
+    // Return response with sync status
     res.json({
       success: true,
       booking: updatedBooking,
+      zoho_sync: zohoSyncResult || { success: false, error: 'No invoice to sync' },
       message: payment_status === 'paid'
-        ? 'Payment status updated. Receipt generation queued.'
+        ? 'Payment status updated. Zoho invoice synced.'
         : 'Payment status updated',
     });
   } catch (error: any) {

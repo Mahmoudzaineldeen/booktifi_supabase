@@ -1363,6 +1363,171 @@ class ZohoService {
       return { invoiceId: '', success: false, error: error.message };
     }
   }
+
+  /**
+   * Update invoice status in Zoho based on booking payment status
+   * Maps internal payment statuses to Zoho invoice statuses
+   */
+  async updateInvoiceStatus(tenantId: string, invoiceId: string, paymentStatus: string): Promise<{ success: boolean; error?: string }> {
+    const accessToken = await this.getAccessToken(tenantId);
+    const apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
+
+    // Map internal payment status to Zoho invoice status
+    const statusMap: Record<string, string> = {
+      'paid': 'paid',
+      'paid_manual': 'paid',
+      'partially_paid': 'sent', // Keep as 'sent' - partial payments are tracked in Zoho separately
+      'unpaid': 'sent', // Keep as 'sent' (not draft) so it can be paid
+      'awaiting_payment': 'sent',
+      'refunded': 'void', // Zoho uses 'void' for refunded/cancelled invoices
+      'canceled': 'void',
+    };
+
+    const zohoStatus = statusMap[paymentStatus] || 'sent';
+    
+    console.log(`[ZohoService] Updating invoice ${invoiceId} status: ${paymentStatus} → ${zohoStatus}`);
+
+    try {
+      // Method 1: Try PUT update
+      try {
+        const updateResponse = await axios.put(
+          `${apiBaseUrl}/invoices/${invoiceId}`,
+          {
+            status: zohoStatus,
+            invoice_status: zohoStatus,
+          },
+          {
+            headers: {
+              'Authorization': `Zoho-oauthtoken ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        const updateData = updateResponse.data as any;
+        if (updateData.code === 0 || updateData.invoice) {
+          console.log(`[ZohoService] ✅ Invoice ${invoiceId} status updated to '${zohoStatus}'`);
+          return { success: true };
+        }
+      } catch (putError: any) {
+        // If PUT doesn't work, try specific endpoints
+        if (zohoStatus === 'paid') {
+          // Try mark-as-paid endpoint
+          try {
+            const markPaidResponse = await axios.post(
+              `${apiBaseUrl}/invoices/${invoiceId}/mark-as-paid`,
+              {},
+              {
+                headers: {
+                  'Authorization': `Zoho-oauthtoken ${accessToken}`,
+                  'Content-Type': 'application/json',
+                },
+              }
+            );
+            const markData = markPaidResponse.data as any;
+            if (markData.code === 0 || markData.invoice) {
+              console.log(`[ZohoService] ✅ Invoice ${invoiceId} marked as paid`);
+              return { success: true };
+            }
+          } catch (markError: any) {
+            console.warn(`[ZohoService] ⚠️  Mark-as-paid failed: ${markError.message}`);
+          }
+        } else if (zohoStatus === 'void') {
+          // Try void endpoint
+          try {
+            const voidResponse = await axios.post(
+              `${apiBaseUrl}/invoices/${invoiceId}/void`,
+              {},
+              {
+                headers: {
+                  'Authorization': `Zoho-oauthtoken ${accessToken}`,
+                  'Content-Type': 'application/json',
+                },
+              }
+            );
+            const voidData = voidResponse.data as any;
+            if (voidData.code === 0 || voidData.invoice) {
+              console.log(`[ZohoService] ✅ Invoice ${invoiceId} voided`);
+              return { success: true };
+            }
+          } catch (voidError: any) {
+            console.warn(`[ZohoService] ⚠️  Void failed: ${voidError.message}`);
+          }
+        }
+
+        // If all methods fail, log but don't throw
+        const errorData = putError.response?.data as any;
+        console.error(`[ZohoService] ⚠️  Failed to update invoice status:`, {
+          status: putError.response?.status,
+          code: errorData?.code,
+          message: errorData?.message || putError.message,
+        });
+        
+        // Return success=false but don't throw - booking update should still succeed
+        return { 
+          success: false, 
+          error: `Zoho API error: ${errorData?.message || putError.message}` 
+        };
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      const axiosError = error as AxiosError;
+      if (axiosError.response) {
+        const errorData = axiosError.response.data as any;
+        console.error(`[ZohoService] Failed to update invoice status:`, {
+          status: axiosError.response.status,
+          code: errorData?.code,
+          message: errorData?.message || errorData?.error,
+        });
+        return { 
+          success: false, 
+          error: `Zoho API error: ${errorData?.message || JSON.stringify(errorData)}` 
+        };
+      }
+      return { 
+        success: false, 
+        error: error.message || 'Unknown error updating invoice status' 
+      };
+    }
+  }
+
+  /**
+   * Get invoice details from Zoho
+   */
+  async getInvoice(tenantId: string, invoiceId: string): Promise<{ invoice?: any; error?: string }> {
+    const accessToken = await this.getAccessToken(tenantId);
+    const apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
+
+    try {
+      const response = await axios.get(
+        `${apiBaseUrl}/invoices/${invoiceId}`,
+        {
+          headers: {
+            'Authorization': `Zoho-oauthtoken ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const responseData = response.data as any;
+      if (responseData.invoice) {
+        return { invoice: responseData.invoice };
+      }
+      
+      return { error: 'Invoice not found in Zoho response' };
+    } catch (error: any) {
+      const axiosError = error as AxiosError;
+      if (axiosError.response) {
+        const errorData = axiosError.response.data as any;
+        if (axiosError.response.status === 404) {
+          return { error: 'Invoice not found in Zoho' };
+        }
+        return { error: `Zoho API error: ${errorData?.message || JSON.stringify(errorData)}` };
+      }
+      return { error: error.message || 'Unknown error fetching invoice' };
+    }
+  }
 }
 
 export const zohoService = new ZohoService();

@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle } from 'lucide-react';
+import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
@@ -41,6 +41,10 @@ export function BookingsPage() {
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
+  const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  const [deletingBooking, setDeletingBooking] = useState<string | null>(null);
+  const [updatingPaymentStatus, setUpdatingPaymentStatus] = useState<string | null>(null);
+  const [zohoSyncStatus, setZohoSyncStatus] = useState<Record<string, { success: boolean; error?: string }>>({});
 
   useEffect(() => {
     fetchBookings();
@@ -280,6 +284,131 @@ export function BookingsPage() {
     }
   }
 
+  async function updateBooking(bookingId: string, updateData: Partial<Booking>) {
+    try {
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+
+      const response = await fetch(`${API_URL}/bookings/${bookingId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(updateData),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update booking');
+      }
+
+      const result = await response.json();
+      await fetchBookings(); // Refresh list
+      setEditingBooking(null);
+      
+      alert(i18n.language === 'ar' 
+        ? 'تم تحديث الحجز بنجاح' 
+        : 'Booking updated successfully');
+    } catch (error: any) {
+      console.error('Error updating booking:', error);
+      alert(i18n.language === 'ar' 
+        ? `فشل تحديث الحجز: ${error.message}` 
+        : `Failed to update booking: ${error.message}`);
+    }
+  }
+
+  async function deleteBooking(bookingId: string) {
+    if (!confirm(i18n.language === 'ar' 
+      ? 'هل أنت متأكد من حذف هذا الحجز؟ لا يمكن التراجع عن هذا الإجراء.' 
+      : 'Are you sure you want to delete this booking? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setDeletingBooking(bookingId);
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+
+      const response = await fetch(`${API_URL}/bookings/${bookingId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete booking');
+      }
+
+      await fetchBookings(); // Refresh list
+      setDeletingBooking(null);
+      
+      alert(i18n.language === 'ar' 
+        ? 'تم حذف الحجز بنجاح' 
+        : 'Booking deleted successfully');
+    } catch (error: any) {
+      console.error('Error deleting booking:', error);
+      alert(i18n.language === 'ar' 
+        ? `فشل حذف الحجز: ${error.message}` 
+        : `Failed to delete booking: ${error.message}`);
+      setDeletingBooking(null);
+    }
+  }
+
+  async function updatePaymentStatus(bookingId: string, paymentStatus: string) {
+    try {
+      setUpdatingPaymentStatus(bookingId);
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+
+      const response = await fetch(`${API_URL}/bookings/${bookingId}/payment-status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ payment_status: paymentStatus }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update payment status');
+      }
+
+      const result = await response.json();
+      
+      // Store Zoho sync status
+      if (result.zoho_sync) {
+        setZohoSyncStatus(prev => ({
+          ...prev,
+          [bookingId]: result.zoho_sync,
+        }));
+      }
+
+      await fetchBookings(); // Refresh list
+      setUpdatingPaymentStatus(null);
+      
+      // Show sync status if available
+      if (result.zoho_sync && !result.zoho_sync.success) {
+        alert(i18n.language === 'ar' 
+          ? `تم تحديث حالة الدفع، لكن فشل مزامنة Zoho: ${result.zoho_sync.error}` 
+          : `Payment status updated, but Zoho sync failed: ${result.zoho_sync.error}`);
+      } else {
+        alert(i18n.language === 'ar' 
+          ? 'تم تحديث حالة الدفع بنجاح' 
+          : 'Payment status updated successfully');
+      }
+    } catch (error: any) {
+      console.error('Error updating payment status:', error);
+      alert(i18n.language === 'ar' 
+        ? `فشل تحديث حالة الدفع: ${error.message}` 
+        : `Failed to update payment status: ${error.message}`);
+      setUpdatingPaymentStatus(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-4 md:p-8">
@@ -424,6 +553,73 @@ export function BookingsPage() {
                           </p>
                         </div>
                       )}
+
+                      {/* Booking Management Actions (Service Provider Only) */}
+                      <div className="mt-4 flex flex-wrap gap-2 pt-4 border-t border-gray-200">
+                        {/* Payment Status Dropdown */}
+                        <div className="flex items-center gap-2">
+                          <DollarSign className="w-4 h-4 text-gray-500" />
+                          <select
+                            value={booking.payment_status || 'unpaid'}
+                            onChange={(e) => updatePaymentStatus(booking.id, e.target.value)}
+                            disabled={updatingPaymentStatus === booking.id}
+                            className="px-3 py-1 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <option value="unpaid">{i18n.language === 'ar' ? 'غير مدفوع' : 'Unpaid'}</option>
+                            <option value="awaiting_payment">{i18n.language === 'ar' ? 'في انتظار الدفع' : 'Awaiting Payment'}</option>
+                            <option value="partially_paid">{i18n.language === 'ar' ? 'مدفوع جزئياً' : 'Partially Paid'}</option>
+                            <option value="paid">{i18n.language === 'ar' ? 'مدفوع' : 'Paid'}</option>
+                            <option value="paid_manual">{i18n.language === 'ar' ? 'مدفوع يدوياً' : 'Paid (Manual)'}</option>
+                            <option value="refunded">{i18n.language === 'ar' ? 'مسترد' : 'Refunded'}</option>
+                            <option value="canceled">{i18n.language === 'ar' ? 'ملغي' : 'Canceled'}</option>
+                          </select>
+                          {updatingPaymentStatus === booking.id && (
+                            <span className="text-xs text-gray-500">{i18n.language === 'ar' ? 'جاري التحديث...' : 'Updating...'}</span>
+                          )}
+                        </div>
+
+                        {/* Zoho Sync Status */}
+                        {zohoSyncStatus[booking.id] && (
+                          <div className="flex items-center gap-1 text-xs">
+                            {zohoSyncStatus[booking.id].success ? (
+                              <span className="text-green-600 flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" />
+                                {i18n.language === 'ar' ? 'Zoho متزامن' : 'Zoho Synced'}
+                              </span>
+                            ) : (
+                              <span className="text-red-600 flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" />
+                                {i18n.language === 'ar' ? 'فشل Zoho' : 'Zoho Failed'}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Edit Button */}
+                        <Button
+                          onClick={() => setEditingBooking(booking)}
+                          variant="ghost"
+                          size="sm"
+                          className="flex items-center gap-1 text-sm"
+                        >
+                          <Edit className="w-4 h-4" />
+                          {i18n.language === 'ar' ? 'تعديل' : 'Edit'}
+                        </Button>
+
+                        {/* Delete Button */}
+                        <Button
+                          onClick={() => deleteBooking(booking.id)}
+                          disabled={deletingBooking === booking.id}
+                          variant="ghost"
+                          size="sm"
+                          className="flex items-center gap-1 text-sm text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          {deletingBooking === booking.id 
+                            ? (i18n.language === 'ar' ? 'جاري الحذف...' : 'Deleting...')
+                            : (i18n.language === 'ar' ? 'حذف' : 'Delete')}
+                        </Button>
+                      </div>
                     </div>
                     <span className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
                       booking.status === 'confirmed' ? 'bg-green-100 text-green-800' :
@@ -570,6 +766,99 @@ export function BookingsPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Edit Booking Modal */}
+      {editingBooking && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md">
+            <CardContent className="p-6">
+              <h2 className="text-xl font-bold mb-4">{i18n.language === 'ar' ? 'تعديل الحجز' : 'Edit Booking'}</h2>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">{i18n.language === 'ar' ? 'اسم العميل' : 'Customer Name'}</label>
+                  <input
+                    type="text"
+                    value={editingBooking.customer_name}
+                    onChange={(e) => setEditingBooking({ ...editingBooking, customer_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">{i18n.language === 'ar' ? 'البريد الإلكتروني' : 'Email'}</label>
+                  <input
+                    type="email"
+                    value={editingBooking.customer_email || ''}
+                    onChange={(e) => setEditingBooking({ ...editingBooking, customer_email: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">{i18n.language === 'ar' ? 'عدد الزوار' : 'Visitor Count'}</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editingBooking.visitor_count}
+                    onChange={(e) => setEditingBooking({ ...editingBooking, visitor_count: parseInt(e.target.value) || 1 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">{i18n.language === 'ar' ? 'السعر الإجمالي' : 'Total Price'}</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editingBooking.total_price}
+                    onChange={(e) => setEditingBooking({ ...editingBooking, total_price: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">{i18n.language === 'ar' ? 'الحالة' : 'Status'}</label>
+                  <select
+                    value={editingBooking.status}
+                    onChange={(e) => setEditingBooking({ ...editingBooking, status: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  >
+                    <option value="pending">{i18n.language === 'ar' ? 'قيد الانتظار' : 'Pending'}</option>
+                    <option value="confirmed">{i18n.language === 'ar' ? 'مؤكد' : 'Confirmed'}</option>
+                    <option value="checked_in">{i18n.language === 'ar' ? 'تم تسجيل الدخول' : 'Checked In'}</option>
+                    <option value="completed">{i18n.language === 'ar' ? 'مكتمل' : 'Completed'}</option>
+                    <option value="canceled">{i18n.language === 'ar' ? 'ملغي' : 'Canceled'}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex gap-2 mt-6">
+                <Button
+                  onClick={() => updateBooking(editingBooking.id, {
+                    customer_name: editingBooking.customer_name,
+                    customer_email: editingBooking.customer_email,
+                    visitor_count: editingBooking.visitor_count,
+                    total_price: editingBooking.total_price,
+                    status: editingBooking.status,
+                  })}
+                  className="flex-1"
+                >
+                  {i18n.language === 'ar' ? 'حفظ' : 'Save'}
+                </Button>
+                <Button
+                  onClick={() => setEditingBooking(null)}
+                  variant="ghost"
+                  className="flex-1"
+                >
+                  {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
