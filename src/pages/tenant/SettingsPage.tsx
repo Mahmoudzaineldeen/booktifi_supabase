@@ -692,7 +692,24 @@ export function SettingsPage() {
 
     // HYBRID APPROACH: Pass origin to backend for dynamic redirect URI
     // Get current origin (works for both local and Bolt)
-    const currentOrigin = window.location.origin;
+    let currentOrigin = window.location.origin;
+    
+    // For Netlify: Prefer production domain over preview URLs
+    // Preview URLs change with each deploy, so use production domain if available
+    if (currentOrigin.includes('netlify.app') && !currentOrigin.includes('--')) {
+      // This is already a production domain (bookati.netlify.app)
+      // Keep it as is
+    } else if (currentOrigin.includes('netlify.app') && currentOrigin.includes('--')) {
+      // This is a preview URL (e.g., 696e065adf1d5e0bb50daf80--delightful-florentine-7b58a9.netlify.app)
+      // Try to use production domain instead
+      // Check if we have a custom domain configured
+      const productionDomain = 'bookati.netlify.app'; // Your production domain
+      if (productionDomain) {
+        console.log('[Zoho Connect] ⚠️  Using preview URL, switching to production domain for Zoho redirect');
+        currentOrigin = `https://${productionDomain}`;
+      }
+    }
+    
     const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
     
     // Construct auth URL with origin parameter
