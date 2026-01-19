@@ -1086,8 +1086,8 @@ export function ReceptionPage() {
 
   // Helper function to create bookings via API (ensures tickets are sent)
   async function createBookingViaAPI(bookingData: any) {
-    // Get base API URL (without /api suffix)
-    let API_URL = getApiUrl().replace('/api', ''); // Remove /api suffix for base URL
+    // Get API URL (already includes /api suffix)
+    const API_URL = getApiUrl(); // Remove /api suffix for base URL
     
     // Remove trailing /api if present to avoid double /api/api/
     API_URL = API_URL.replace(/\/api\/?$/, '');
@@ -1098,8 +1098,8 @@ export function ReceptionPage() {
       throw new Error('Not authenticated. Please log in again.');
     }
 
-    // Construct URL: base URL + /api/bookings/create
-    const url = `${API_URL}/api/bookings/create`;
+    // Construct URL: API URL already includes /api, so just append the route
+    const url = `${API_URL}/bookings/create`;
     console.log('Creating booking via API:', { url, hasToken: !!session.data.session?.access_token });
 
     try {
