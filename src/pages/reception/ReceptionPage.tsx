@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabase';
+import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
@@ -619,7 +619,7 @@ export function ReceptionPage() {
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
 
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('bookings')
         .select(`
           id,
