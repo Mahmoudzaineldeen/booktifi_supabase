@@ -786,6 +786,10 @@ export function SettingsPage() {
     }
   }
 
+  async function fetchZohoStatus() {
+    await loadZohoStatus();
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
