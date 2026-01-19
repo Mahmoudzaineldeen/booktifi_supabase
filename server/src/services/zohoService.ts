@@ -1368,7 +1368,7 @@ class ZohoService {
    * Update invoice status in Zoho based on booking payment status
    * Maps internal payment statuses to Zoho invoice statuses
    */
-  async updateInvoiceStatus(tenantId: string, invoiceId: string, paymentStatus: string): Promise<{ success: boolean; error?: string }> {
+  async updateInvoiceStatus(tenantId: string, invoiceId: string, paymentStatus: string): Promise<{ success: boolean; error?: string; hint?: string }> {
     const accessToken = await this.getAccessToken(tenantId);
     const apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
 
