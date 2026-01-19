@@ -1208,7 +1208,7 @@ export function ReceptionPage() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${await supabase.auth.getSession().then(s => s.data.session?.access_token)}`
+            'Authorization': `Bearer ${await db.auth.getSession().then(s => s.data.session?.access_token)}`
           },
           body: JSON.stringify({
             tenant_id: userProfile!.tenant_id,
