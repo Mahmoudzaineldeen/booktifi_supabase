@@ -34,7 +34,7 @@ This document describes the comprehensive booking lifecycle management system th
 - `adult_count`
 - `child_count`
 - `total_price`
-- `status` (pending, confirmed, checked_in, completed, canceled)
+- `status` (pending, confirmed, checked_in, completed, cancelled)
 - `notes`
 - `employee_id`
 
@@ -60,11 +60,11 @@ This document describes the comprehensive booking lifecycle management system th
 **Payment Statuses Supported:**
 - `unpaid`
 - `awaiting_payment`
-- `partially_paid`
 - `paid`
 - `paid_manual`
 - `refunded`
-- `canceled`
+
+**Note:** `partially_paid` and `canceled` are not supported by the database enum. Use `awaiting_payment` for partial payments and `cancelled` (with double 'l') for booking status.
 
 **State Transition Validation:**
 - Prevents invalid transitions (e.g., `refunded` → `paid`)

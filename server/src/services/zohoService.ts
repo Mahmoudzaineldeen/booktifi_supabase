@@ -1372,15 +1372,13 @@ class ZohoService {
     const accessToken = await this.getAccessToken(tenantId);
     const apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
 
-    // Map internal payment status to Zoho invoice status
+    // Map internal payment status to Zoho invoice status (must match database enum)
     const statusMap: Record<string, string> = {
       'paid': 'paid',
       'paid_manual': 'paid',
-      'partially_paid': 'sent', // Keep as 'sent' - partial payments are tracked in Zoho separately
       'unpaid': 'sent', // Keep as 'sent' (not draft) so it can be paid
       'awaiting_payment': 'sent',
-      'refunded': 'void', // Zoho uses 'void' for refunded/cancelled invoices
-      'canceled': 'void',
+      'refunded': 'void', // Zoho uses 'void' for refunded invoices
     };
 
     const zohoStatus = statusMap[paymentStatus] || 'sent';

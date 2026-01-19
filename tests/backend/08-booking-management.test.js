@@ -239,20 +239,7 @@ async function testValidPaymentTransitions() {
     throw new Error('Failed transition: unpaid → awaiting_payment');
   }
 
-  // Test: awaiting_payment → partially_paid
-  response = await apiRequest(`/bookings/${bookingId}/payment-status`, {
-    method: 'PATCH',
-    body: JSON.stringify({ payment_status: 'partially_paid' }),
-    headers: {
-      'Authorization': `Bearer ${CONFIG.TEST_DATA.serviceProviderToken}`,
-    },
-  });
-
-  if (!response.ok || response.data.booking.payment_status !== 'partially_paid') {
-    throw new Error('Failed transition: awaiting_payment → partially_paid');
-  }
-
-  // Test: partially_paid → paid
+  // Test: awaiting_payment → paid
   response = await apiRequest(`/bookings/${bookingId}/payment-status`, {
     method: 'PATCH',
     body: JSON.stringify({ payment_status: 'paid' }),
@@ -262,7 +249,7 @@ async function testValidPaymentTransitions() {
   });
 
   if (!response.ok || response.data.booking.payment_status !== 'paid') {
-    throw new Error('Failed transition: partially_paid → paid');
+    throw new Error('Failed transition: awaiting_payment → paid');
   }
 
   return { message: 'All valid transitions succeeded' };

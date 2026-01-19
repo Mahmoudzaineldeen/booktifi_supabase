@@ -225,15 +225,13 @@ async function logBookingChange(
  * Validate payment status transition
  */
 function validatePaymentStatusTransition(oldStatus: string, newStatus: string): { valid: boolean; error?: string } {
-  // Define valid transitions
+  // Define valid transitions (must match database enum values)
   const validTransitions: Record<string, string[]> = {
-    'unpaid': ['paid', 'paid_manual', 'partially_paid', 'awaiting_payment', 'refunded', 'canceled'],
-    'awaiting_payment': ['paid', 'paid_manual', 'partially_paid', 'unpaid', 'refunded', 'canceled'],
-    'partially_paid': ['paid', 'paid_manual', 'refunded', 'canceled'], // Can be completed to paid or refunded
-    'paid': ['refunded', 'canceled'], // Once paid, can only be refunded or canceled
-    'paid_manual': ['refunded', 'canceled'],
+    'unpaid': ['paid', 'paid_manual', 'awaiting_payment', 'refunded'],
+    'awaiting_payment': ['paid', 'paid_manual', 'unpaid', 'refunded'],
+    'paid': ['refunded'], // Once paid, can only be refunded
+    'paid_manual': ['refunded'],
     'refunded': [], // Refunded is terminal - cannot transition from refunded
-    'canceled': [], // Canceled is terminal
   };
 
   const allowed = validTransitions[oldStatus] || [];
@@ -1138,9 +1136,9 @@ router.patch('/:id', authenticateTenantAdminOnly, async (req, res) => {
       }
     }
 
-    // Validate status if provided
+    // Validate status if provided (must match database enum: cancelled not canceled)
     if (updatePayload.status) {
-      const validStatuses = ['pending', 'confirmed', 'checked_in', 'completed', 'canceled'];
+      const validStatuses = ['pending', 'confirmed', 'checked_in', 'completed', 'cancelled'];
       if (!validStatuses.includes(updatePayload.status)) {
         return res.status(400).json({
           error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
@@ -1237,12 +1235,12 @@ router.delete('/:id', authenticateTenantAdminOnly, async (req, res) => {
       });
     }
 
-    // Soft delete: Mark as canceled and add deletion flag
+    // Soft delete: Mark as cancelled (database enum uses 'cancelled' not 'canceled')
     // Note: If your database supports soft deletes, use that instead
     const { error: deleteError } = await supabase
       .from('bookings')
       .update({
-        status: 'canceled',
+        status: 'cancelled',
         updated_at: new Date().toISOString(),
         notes: currentBooking.notes 
           ? `${currentBooking.notes}\n[DELETED by Service Provider on ${new Date().toISOString()}]`
@@ -1261,7 +1259,7 @@ router.delete('/:id', authenticateTenantAdminOnly, async (req, res) => {
       tenantId,
       userId,
       currentBooking,
-      { status: 'canceled', deleted_at: new Date().toISOString() },
+      { status: 'cancelled', deleted_at: new Date().toISOString() },
       req.ip,
       req.get('user-agent')
     );
@@ -1293,8 +1291,8 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
       return res.status(400).json({ error: 'payment_status is required' });
     }
 
-    // Validate payment status
-    const validStatuses = ['unpaid', 'paid', 'paid_manual', 'partially_paid', 'awaiting_payment', 'refunded', 'canceled'];
+    // Validate payment status (must match database enum)
+    const validStatuses = ['unpaid', 'paid', 'paid_manual', 'awaiting_payment', 'refunded'];
     if (!validStatuses.includes(payment_status)) {
       return res.status(400).json({
         error: `Invalid payment_status. Must be one of: ${validStatuses.join(', ')}`

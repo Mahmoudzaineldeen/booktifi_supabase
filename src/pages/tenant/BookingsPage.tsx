@@ -567,11 +567,9 @@ export function BookingsPage() {
                           >
                             <option value="unpaid">{i18n.language === 'ar' ? 'غير مدفوع' : 'Unpaid'}</option>
                             <option value="awaiting_payment">{i18n.language === 'ar' ? 'في انتظار الدفع' : 'Awaiting Payment'}</option>
-                            <option value="partially_paid">{i18n.language === 'ar' ? 'مدفوع جزئياً' : 'Partially Paid'}</option>
                             <option value="paid">{i18n.language === 'ar' ? 'مدفوع' : 'Paid'}</option>
                             <option value="paid_manual">{i18n.language === 'ar' ? 'مدفوع يدوياً' : 'Paid (Manual)'}</option>
                             <option value="refunded">{i18n.language === 'ar' ? 'مسترد' : 'Refunded'}</option>
-                            <option value="canceled">{i18n.language === 'ar' ? 'ملغي' : 'Canceled'}</option>
                           </select>
                           {updatingPaymentStatus === booking.id && (
                             <span className="text-xs text-gray-500">{i18n.language === 'ar' ? 'جاري التحديث...' : 'Updating...'}</span>
@@ -831,7 +829,7 @@ export function BookingsPage() {
                     <option value="confirmed">{i18n.language === 'ar' ? 'مؤكد' : 'Confirmed'}</option>
                     <option value="checked_in">{i18n.language === 'ar' ? 'تم تسجيل الدخول' : 'Checked In'}</option>
                     <option value="completed">{i18n.language === 'ar' ? 'مكتمل' : 'Completed'}</option>
-                    <option value="canceled">{i18n.language === 'ar' ? 'ملغي' : 'Canceled'}</option>
+                    <option value="cancelled">{i18n.language === 'ar' ? 'ملغي' : 'Cancelled'}</option>
                   </select>
                 </div>
               </div>
