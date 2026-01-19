@@ -213,6 +213,7 @@ export function BookingsPage() {
       // Add token as query parameter to bypass CORS header issues
       const downloadUrl = `${baseUrl}/zoho/invoices/${zohoInvoiceId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
       
+      const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
       console.log('[BookingsPage] Downloading invoice:', zohoInvoiceId);
       console.log('[BookingsPage] Environment:', { isBolt, API_URL, downloadUrl: downloadUrl.replace(token || '', '***') });
       
