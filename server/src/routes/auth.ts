@@ -219,17 +219,38 @@ router.post('/signin', async (req, res) => {
       }
     }
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        id: user.id, 
-        email: user.email, 
-        role: user.role,
-        tenant_id: user.tenant_id 
-      },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    // Generate JWT token with all required fields
+    // Ensure all fields are present (null is acceptable for tenant_id for solution_owner)
+    const tokenPayload: {
+      id: string;
+      email: string | null;
+      role: string;
+      tenant_id: string | null;
+    } = {
+      id: user.id,
+      email: user.email || null,
+      role: user.role || 'employee',
+      tenant_id: user.tenant_id || null, // null is valid for solution_owner
+    };
+
+    // Validate required fields
+    if (!tokenPayload.id) {
+      console.error('[Auth] ❌ Cannot create token: user.id is missing', { user });
+      return res.status(500).json({ error: 'User ID is missing. Cannot create authentication token.' });
+    }
+    if (!tokenPayload.role) {
+      console.error('[Auth] ❌ Cannot create token: user.role is missing', { user });
+      return res.status(500).json({ error: 'User role is missing. Cannot create authentication token.' });
+    }
+
+    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
+
+    console.log('[Auth] ✅ Signin token created successfully:', {
+      userId: tokenPayload.id,
+      role: tokenPayload.role,
+      hasTenantId: !!tokenPayload.tenant_id,
+      tenantId: tokenPayload.tenant_id || 'N/A (solution_owner)',
+    });
 
     // Return full user object (excluding password_hash)
     const { password_hash, ...userWithoutPassword } = user;
