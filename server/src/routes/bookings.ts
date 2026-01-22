@@ -1014,6 +1014,7 @@ router.post('/validate-qr', authenticate, async (req, res) => {
 // ============================================================================
 // Get booking details (public - for external QR scanners)
 // Read-only access - no authentication required
+// Supports both JSON (API) and HTML (browser) responses
 // ============================================================================
 router.get('/:id/details', async (req, res) => {
   try {
@@ -1054,30 +1055,233 @@ router.get('/:id/details', async (req, res) => {
       .single();
 
     if (bookingError || !booking) {
+      // Check if request wants HTML (browser) or JSON (API)
+      const acceptsHtml = req.headers.accept?.includes('text/html');
+      if (acceptsHtml) {
+        return res.status(404).send(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Booking Not Found</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+              .container { background: white; padding: 30px; border-radius: 10px; max-width: 500px; margin: 0 auto; }
+              h1 { color: #e74c3c; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h1>Booking Not Found</h1>
+              <p>The booking with ID ${bookingId} could not be found.</p>
+              <p>Please verify the QR code is valid and not expired.</p>
+            </div>
+          </body>
+          </html>
+        `);
+      }
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    // Return booking details (read-only)
+    const bookingData = {
+      id: booking.id,
+      customer_name: booking.customer_name,
+      customer_phone: booking.customer_phone,
+      visitor_count: booking.visitor_count,
+      adult_count: booking.adult_count,
+      child_count: booking.child_count,
+      total_price: booking.total_price,
+      status: booking.status,
+      payment_status: booking.payment_status,
+      slot_date: (booking.slots as any).slot_date,
+      start_time: (booking.slots as any).start_time,
+      end_time: (booking.slots as any).end_time,
+      service_name: (booking.services as any).name,
+      service_name_ar: (booking.services as any).name_ar,
+      qr_scanned: booking.qr_scanned,
+      qr_scanned_at: booking.qr_scanned_at,
+    };
+
+    // Check if request wants HTML (browser) or JSON (API)
+    const acceptsHtml = req.headers.accept?.includes('text/html');
+    if (acceptsHtml) {
+      // Format date and time for display
+      const slotDate = bookingData.slot_date ? new Date(bookingData.slot_date).toLocaleDateString() : 'N/A';
+      const statusColors: Record<string, string> = {
+        'pending': '#f39c12',
+        'confirmed': '#3498db',
+        'checked_in': '#2ecc71',
+        'completed': '#27ae60',
+        'cancelled': '#e74c3c',
+      };
+      const statusColor = statusColors[bookingData.status] || '#7f8c8d';
+      const paymentColors: Record<string, string> = {
+        'unpaid': '#e74c3c',
+        'paid': '#27ae60',
+        'paid_manual': '#27ae60',
+        'awaiting_payment': '#f39c12',
+        'refunded': '#95a5a6',
+      };
+      const paymentColor = paymentColors[bookingData.payment_status] || '#7f8c8d';
+
+      return res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Booking Details - ${bookingData.customer_name}</title>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              min-height: 100vh;
+              padding: 20px;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              background: white;
+              border-radius: 15px;
+              box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+              overflow: hidden;
+            }
+            .header {
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: white;
+              padding: 30px;
+              text-align: center;
+            }
+            .header h1 { font-size: 24px; margin-bottom: 10px; }
+            .header p { opacity: 0.9; font-size: 14px; }
+            .content { padding: 30px; }
+            .section { margin-bottom: 25px; }
+            .section-title {
+              font-size: 14px;
+              font-weight: 600;
+              color: #7f8c8d;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+              margin-bottom: 10px;
+            }
+            .info-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 12px 0;
+              border-bottom: 1px solid #ecf0f1;
+            }
+            .info-row:last-child { border-bottom: none; }
+            .info-label { color: #7f8c8d; font-weight: 500; }
+            .info-value { color: #2c3e50; font-weight: 600; text-align: right; }
+            .status-badge {
+              display: inline-block;
+              padding: 6px 12px;
+              border-radius: 20px;
+              font-size: 12px;
+              font-weight: 600;
+              text-transform: uppercase;
+            }
+            .qr-scanned {
+              background: #e8f5e9;
+              color: #2e7d32;
+              padding: 15px;
+              border-radius: 8px;
+              margin-top: 20px;
+              text-align: center;
+            }
+            .footer {
+              background: #f8f9fa;
+              padding: 20px;
+              text-align: center;
+              color: #7f8c8d;
+              font-size: 12px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>📋 Booking Details</h1>
+              <p>Booking ID: ${bookingData.id.substring(0, 8)}...</p>
+            </div>
+            <div class="content">
+              <div class="section">
+                <div class="section-title">Customer Information</div>
+                <div class="info-row">
+                  <span class="info-label">Name:</span>
+                  <span class="info-value">${bookingData.customer_name}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Phone:</span>
+                  <span class="info-value">${bookingData.customer_phone || 'N/A'}</span>
+                </div>
+              </div>
+              
+              <div class="section">
+                <div class="section-title">Service Details</div>
+                <div class="info-row">
+                  <span class="info-label">Service:</span>
+                  <span class="info-value">${bookingData.service_name}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Date:</span>
+                  <span class="info-value">${slotDate}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Time:</span>
+                  <span class="info-value">${bookingData.start_time} - ${bookingData.end_time}</span>
+                </div>
+              </div>
+              
+              <div class="section">
+                <div class="section-title">Booking Information</div>
+                <div class="info-row">
+                  <span class="info-label">Visitors:</span>
+                  <span class="info-value">${bookingData.visitor_count} (${bookingData.adult_count} adult${bookingData.adult_count !== 1 ? 's' : ''}, ${bookingData.child_count} child${bookingData.child_count !== 1 ? 'ren' : ''})</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Total Price:</span>
+                  <span class="info-value">${bookingData.total_price} SAR</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Status:</span>
+                  <span class="info-value">
+                    <span class="status-badge" style="background: ${statusColor}; color: white;">
+                      ${bookingData.status}
+                    </span>
+                  </span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Payment:</span>
+                  <span class="info-value">
+                    <span class="status-badge" style="background: ${paymentColor}; color: white;">
+                      ${bookingData.payment_status}
+                    </span>
+                  </span>
+                </div>
+              </div>
+              
+              ${bookingData.qr_scanned ? `
+                <div class="qr-scanned">
+                  ✅ QR Code Scanned on ${bookingData.qr_scanned_at ? new Date(bookingData.qr_scanned_at).toLocaleString() : 'N/A'}
+                </div>
+              ` : ''}
+            </div>
+            <div class="footer">
+              This is a read-only view of your booking details
+            </div>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+
+    // Return JSON for API requests
     res.json({
       success: true,
-      booking: {
-        id: booking.id,
-        customer_name: booking.customer_name,
-        customer_phone: booking.customer_phone,
-        visitor_count: booking.visitor_count,
-        adult_count: booking.adult_count,
-        child_count: booking.child_count,
-        total_price: booking.total_price,
-        status: booking.status,
-        payment_status: booking.payment_status,
-        slot_date: (booking.slots as any).slot_date,
-        start_time: (booking.slots as any).start_time,
-        end_time: (booking.slots as any).end_time,
-        service_name: (booking.services as any).name,
-        service_name_ar: (booking.services as any).name_ar,
-        qr_scanned: booking.qr_scanned,
-        qr_scanned_at: booking.qr_scanned_at,
-      },
+      booking: bookingData,
     });
   } catch (error: any) {
     console.error('Get booking details error:', error);

@@ -61,9 +61,32 @@ interface BookingData {
 /**
  * Generate QR code as data URL
  */
-async function generateQRCodeDataURL(bookingId: string): Promise<string> {
+/**
+ * Generate QR code data URL with booking details URL
+ * Encodes a URL that points to the public booking details API endpoint
+ * External scanners will open this URL to display booking information
+ */
+async function generateQRCodeDataURL(bookingId: string, apiBaseUrl?: string): Promise<string> {
   try {
-    const qrDataURL = await QRCode.toDataURL(bookingId, {
+    // Construct URL to public booking details endpoint
+    // If apiBaseUrl is provided, use it; otherwise construct from APP_URL
+    let bookingDetailsUrl: string;
+    
+    if (apiBaseUrl) {
+      bookingDetailsUrl = `${apiBaseUrl}/api/bookings/${bookingId}/details`;
+    } else if (process.env.APP_URL) {
+      bookingDetailsUrl = `${process.env.APP_URL}/api/bookings/${bookingId}/details`;
+    } else if (process.env.FRONTEND_URL) {
+      // Fallback: if frontend URL is set, use it (frontend can proxy to API)
+      bookingDetailsUrl = `${process.env.FRONTEND_URL}/api/bookings/${bookingId}/details`;
+    } else {
+      // Last resort: use booking ID only (backward compatibility)
+      // External scanners will show the UUID, which can be manually entered
+      console.warn('[QR Code] No APP_URL or FRONTEND_URL set. QR code will contain booking ID only.');
+      bookingDetailsUrl = bookingId;
+    }
+    
+    const qrDataURL = await QRCode.toDataURL(bookingDetailsUrl, {
       errorCorrectionLevel: 'M',
       type: 'image/png',
       width: 200,
