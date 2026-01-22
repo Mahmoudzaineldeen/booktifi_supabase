@@ -22,6 +22,7 @@ import { FAQ, FAQItem } from '../../components/ui/FAQ';
 import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
 import { TestimonialForm } from '../../components/reviews/TestimonialForm';
 import { ReviewsCarousel } from '../../components/reviews/ReviewsCarousel';
+import { fetchAvailableSlots as fetchAvailableSlotsUtil } from '../../lib/bookingAvailability';
 
 interface Tenant {
   id: string;
@@ -638,140 +639,17 @@ export function PublicBookingPage() {
   async function fetchAvailableSlots() {
     if (!tenant?.id || !selectedService?.id) return;
 
-    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+    // Use shared availability logic (same as receptionist page)
+    const result = await fetchAvailableSlotsUtil({
+      tenantId: tenant.id,
+      serviceId: selectedService.id,
+      date: selectedDate,
+      includePastSlots: false, // Customer page: filter out past slots
+      includeLockedSlots: false, // Customer page: filter out locked slots
+      includeZeroCapacity: false, // Customer page: filter out fully booked slots
+    });
 
-    const { data: shifts } = await db
-      .from('shifts')
-      .select('id, days_of_week')
-      .eq('service_id', selectedService.id)
-      .eq('is_active', true);
-
-    const shiftIds = shifts?.map(s => s.id) || [];
-
-    if (shiftIds.length === 0) {
-      setSlots([]);
-      return;
-    }
-
-    const { data } = await db
-      .from('slots')
-      .select(`
-        id,
-        slot_date,
-        start_time,
-        end_time,
-        available_capacity,
-        booked_count,
-        employee_id,
-        shift_id,
-        users:employee_id (full_name, full_name_ar)
-      `)
-      .eq('tenant_id', tenant.id)
-      .in('shift_id', shiftIds)
-      .eq('slot_date', dateStr)
-      .eq('is_available', true)
-      .gt('available_capacity', 0)
-      .order('start_time');
-
-    // Fetch active locks for these slots to exclude locked ones
-    const slotIds = (data || []).map(s => s.id);
-    let lockedSlotIds: string[] = [];
-    
-    if (slotIds.length > 0) {
-      try {
-        // Use POST to avoid 431 error (Request Header Fields Too Large) when there are many slots
-        const locksResponse = await fetch(
-          `${API_URL}/bookings/locks`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ slot_ids: slotIds }),
-          }
-        );
-        if (locksResponse.ok) {
-          const locks = await locksResponse.json();
-          lockedSlotIds = locks.map((l: any) => l.slot_id);
-        } else {
-          console.warn('Failed to fetch locks:', locksResponse.status, locksResponse.statusText);
-        }
-      } catch (err) {
-        console.warn('Failed to fetch locks:', err);
-      }
-    }
-
-    // Filter out locked slots
-    let availableSlots = (data || []).filter(slot =>
-      slot.available_capacity > 0 && !lockedSlotIds.includes(slot.id)
-    );
-
-    // CRITICAL FIX: Filter slots to only include those that match shift days_of_week
-    // This prevents showing slots for days that don't match the shift schedule
-    if (shifts && shifts.length > 0) {
-      // Create a map of shift_id -> days_of_week for quick lookup
-      const shiftDaysMap = new Map<string, number[]>();
-      shifts.forEach((shift: any) => {
-        shiftDaysMap.set(shift.id, shift.days_of_week);
-      });
-
-      // Get day of week for selected date (0 = Sunday, 1 = Monday, etc.)
-      const dayOfWeek = selectedDate.getDay();
-
-      // Filter slots: only keep slots where the day matches the shift's days_of_week
-      availableSlots = availableSlots.filter((slot: any) => {
-        const slotShiftId = slot.shift_id;
-        if (!slotShiftId) return false;
-
-        const shiftDays = shiftDaysMap.get(slotShiftId);
-        if (!shiftDays || shiftDays.length === 0) {
-          return false;
-        }
-
-        // Check if this day matches the shift's days_of_week
-        if (shiftDays.includes(dayOfWeek)) {
-          return true;
-        }
-
-        // Day doesn't match the shift's days_of_week, filter it out
-        console.warn(`Filtering out slot ${slot.id} on ${dateStr} (DOW=${dayOfWeek}) - doesn't match shift ${slotShiftId} days [${shiftDays.join(', ')}]`);
-        return false;
-      });
-    }
-
-    // Filter out past time slots for today only
-    const now = new Date();
-    const todayStr = format(now, 'yyyy-MM-dd');
-    const isToday = dateStr === todayStr;
-    
-    if (isToday) {
-      const currentTime = now.getHours() * 60 + now.getMinutes(); // Current time in minutes since midnight
-      console.log(`[PublicBookingPage] Filtering slots for today. Current time: ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')} (${currentTime} minutes), Date: ${dateStr}`);
-      const beforeCount = availableSlots.length;
-      availableSlots = availableSlots.filter((slot: any) => {
-        if (!slot.start_time) {
-          console.log(`[PublicBookingPage] Slot ${slot.id} has no start_time, keeping it`);
-          return true; // Keep slots without start_time
-        }
-        // Handle time format: "HH:MM" or "HH:MM:SS"
-        const timeParts = slot.start_time.split(':');
-        const hours = parseInt(timeParts[0] || '0', 10);
-        const minutes = parseInt(timeParts[1] || '0', 10);
-        if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-          console.log(`[PublicBookingPage] Slot ${slot.id} has invalid time format: ${slot.start_time}, keeping it`);
-          return true; // Keep slots with invalid time
-        }
-        const slotTime = hours * 60 + minutes; // Slot time in minutes since midnight
-        const shouldKeep = slotTime > currentTime;
-        console.log(`[PublicBookingPage] Slot ${slot.id}: ${slot.start_time} (${hours}:${String(minutes).padStart(2, '0')} = ${slotTime} min) vs current (${currentTime} min) - ${shouldKeep ? 'KEEP' : 'FILTER OUT'}`);
-        // Keep slot if its start time is in the future
-        return shouldKeep;
-      });
-      console.log(`[PublicBookingPage] Filtered slots: ${beforeCount} -> ${availableSlots.length}`);
-    }
-    // For future dates, keep all slots (no filtering needed)
-
-    setSlots(availableSlots);
+    setSlots(result.slots);
   }
 
   async function handleSubmit(e: React.FormEvent) {

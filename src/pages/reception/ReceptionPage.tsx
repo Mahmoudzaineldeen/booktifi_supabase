@@ -18,6 +18,7 @@ import { getApiUrl } from '../../lib/apiUrl';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { extractBookingIdFromQR } from '../../lib/qrUtils';
+import { fetchAvailableSlots as fetchAvailableSlotsUtil, Slot as AvailabilitySlot } from '../../lib/bookingAvailability';
 
 interface Booking {
   id: string;
@@ -787,193 +788,28 @@ export function ReceptionPage() {
     try {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
 
-      // First get shifts for this service
-      console.log(`[ReceptionPage] ========================================`);
-      console.log(`[ReceptionPage] Fetching shifts for service: ${selectedService}, date: ${dateStr}`);
-      const { data: shifts, error: shiftsError } = await db
-        .from('shifts')
-        .select('id, days_of_week')
-        .eq('service_id', selectedService)
-        .eq('is_active', true);
+      // Use shared availability logic (SAME as customer page)
+      // This ensures receptionist sees exactly the same available slots as customers
+      const result = await fetchAvailableSlotsUtil({
+        tenantId: userProfile.tenant_id,
+        serviceId: selectedService,
+        date: selectedDate,
+        includePastSlots: false, // Receptionist: same as customer - filter out past slots
+        includeLockedSlots: false, // Receptionist: same as customer - filter out locked slots
+        includeZeroCapacity: false, // Receptionist: same as customer - filter out fully booked slots
+      });
 
-      if (shiftsError) {
-        console.error('[ReceptionPage] Error fetching shifts:', shiftsError);
-        setSlots([]);
-        return;
-      }
+      // Get shift IDs for employee booking counts
+      const shiftIds = result.shifts.map(s => s.id);
 
-      console.log(`[ReceptionPage] Found ${shifts?.length || 0} active shift(s) for service ${selectedService}`);
-      
-      if (!shifts || shifts.length === 0) {
-        console.warn(`[ReceptionPage] ⚠️ No active shifts found for service ${selectedService}. Slots cannot be generated without shifts.`);
-        setSlots([]);
-        return;
-      }
-
-      const shiftIds = shifts.map(s => s.id);
-
-      // Then get slots for these shifts on the selected date
-      console.log(`[ReceptionPage] Fetching slots for shift IDs: ${shiftIds.join(', ')}, date: ${dateStr}`);
-      const { data: slotsData, error } = await db
-        .from('slots')
-        .select('id, slot_date, start_time, end_time, available_capacity, booked_count, employee_id, shift_id, users:employee_id(full_name, full_name_ar)')
-        .eq('tenant_id', userProfile.tenant_id)
-        .eq('slot_date', dateStr)
-        .in('shift_id', shiftIds)
-        .eq('is_available', true)
-        .order('start_time');
-
-      if (error) {
-        console.error('[ReceptionPage] Error fetching slots:', error);
-        setSlots([]);
-        return;
-      }
-
-      console.log(`[ReceptionPage] Found ${slotsData?.length || 0} slot(s) from database for date ${dateStr}`);
-      if (slotsData && slotsData.length > 0) {
-        console.log('[ReceptionPage] All slots from DB:');
-        slotsData.forEach((s, idx) => {
-          console.log(`  Slot ${idx + 1}: id=${s.id.substring(0, 8)}..., shift_id=${s.shift_id?.substring(0, 8) || 'NONE'}..., slot_date=${s.slot_date}, start_time=${s.start_time}, capacity=${s.available_capacity}, booked=${s.booked_count}`);
-        });
-      }
-
-      // IMPORTANT: Don't filter by available_capacity here - show all slots
-      // The capacity check will happen when they try to book
-      // Only filter out slots with capacity = 0 if they're in the past
-      let availableSlots = slotsData || [];
-      
-      console.log(`[ReceptionPage] Before capacity filtering: ${availableSlots.length} slots`);
-
-      // CRITICAL FIX: Filter slots to only include those that match shift days_of_week
-      // This prevents showing slots for days that don't match the shift schedule
-      if (shifts && shifts.length > 0) {
-        // Create a map of shift_id -> days_of_week for quick lookup
-        const shiftDaysMap = new Map<string, number[]>();
-        shifts.forEach((shift: any) => {
-          shiftDaysMap.set(shift.id, shift.days_of_week);
-          console.log(`[ReceptionPage] Shift ${shift.id.substring(0, 8)}... has days_of_week: [${shift.days_of_week.join(', ')}]`);
-        });
-
-        // Get day of week for selected date (0 = Sunday, 1 = Monday, etc.)
-        const dayOfWeek = selectedDate.getDay();
-        console.log(`[ReceptionPage] Selected date: ${dateStr}, day of week: ${dayOfWeek} (0=Sunday, 1=Monday, etc.)`);
-
-        const beforeDaysFilter = availableSlots.length;
-        // Filter slots: only keep slots where the day matches the shift's days_of_week
-        // IMPORTANT: Calculate dayOfWeek from slot_date, not from selectedDate
-        availableSlots = availableSlots.filter((slot: any) => {
-          const slotShiftId = slot.shift_id;
-          if (!slotShiftId) {
-            console.warn(`[ReceptionPage] Slot ${slot.id} has no shift_id, filtering out`);
-            return false;
-          }
-
-          const shiftDays = shiftDaysMap.get(slotShiftId);
-          if (!shiftDays || shiftDays.length === 0) {
-            console.warn(`[ReceptionPage] Slot ${slot.id} has invalid shift ${slotShiftId} with no days_of_week, filtering out`);
-            return false;
-          }
-
-          // Calculate day of week from slot_date (not from selectedDate)
-          let slotDayOfWeek: number;
-          if (slot.slot_date) {
-            let slotDate: Date;
-            if (typeof slot.slot_date === 'string') {
-              // Handle both "2025-12-09" and "2025-12-09T22:00:00.000Z" formats
-              if (slot.slot_date.includes('T') || slot.slot_date.includes('Z')) {
-                slotDate = parseISO(slot.slot_date);
-              } else {
-                slotDate = parseISO(slot.slot_date + 'T00:00:00');
-              }
-            } else {
-              slotDate = new Date(slot.slot_date);
-            }
-            slotDayOfWeek = slotDate.getDay();
-          } else {
-            // Fallback to selectedDate if slot_date is missing
-            slotDayOfWeek = dayOfWeek;
-          }
-
-          // Check if this day matches the shift's days_of_week
-          if (shiftDays.includes(slotDayOfWeek)) {
-            console.log(`[ReceptionPage] Slot ${slot.id} (slot_date=${slot.slot_date}, DOW=${slotDayOfWeek}) matches shift ${slotShiftId} days [${shiftDays.join(', ')}] - KEEP`);
-            return true;
-          }
-
-          // Day doesn't match the shift's days_of_week, filter it out
-          console.warn(`[ReceptionPage] Filtering out slot ${slot.id} on ${slot.slot_date} (slot DOW=${slotDayOfWeek}, selected DOW=${dayOfWeek}) - doesn't match shift ${slotShiftId} days [${shiftDays.join(', ')}]`);
-          return false;
-        });
-        console.log(`[ReceptionPage] After days_of_week filtering: ${beforeDaysFilter} -> ${availableSlots.length} slots`);
-      }
-
-      // IMPORTANT: In reception page, we should show ALL slots (including past ones)
-      // This allows receptionists to review past bookings and manage schedules
-      // Receptionists need to see all slots for booking management, even if they're in the past
-      const now = new Date();
-      const todayStr = format(now, 'yyyy-MM-dd');
-      const isToday = dateStr === todayStr;
-      
-      if (isToday) {
-        // For today, mark slots as past/future for display purposes
-        // But show ALL slots (don't filter by time range)
-        const currentTime = now.getHours() * 60 + now.getMinutes(); // Current time in minutes since midnight
-        
-        console.log(`[ReceptionPage] Reception mode: Showing ALL slots for today`);
-        console.log(`[ReceptionPage] Current time: ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')} (${currentTime} minutes), Date: ${dateStr}`);
-        const beforeCount = availableSlots.length;
-        
-        // Mark slots as past/future for display, but don't filter them out
-        availableSlots = availableSlots.map((slot: any) => {
-          if (!slot.start_time) {
-            return { ...slot, isPast: false }; // Keep slots without start_time, mark as future
-          }
-          // Handle time format: "HH:MM" or "HH:MM:SS"
-          const timeParts = slot.start_time.split(':');
-          const hours = parseInt(timeParts[0] || '0', 10);
-          const minutes = parseInt(timeParts[1] || '0', 10);
-          if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-            return { ...slot, isPast: false }; // Keep invalid times, mark as future
-          }
-          const slotTime = hours * 60 + minutes; // Slot time in minutes since midnight
-          const isPast = slotTime <= currentTime;
-          
-          console.log(`[ReceptionPage] Slot ${slot.id}: ${slot.start_time}-${slot.end_time} (${slotTime} min) vs current (${currentTime} min) - ${isPast ? 'PAST' : 'FUTURE'}`);
-          
-          return { ...slot, isPast };
-        });
-        
-        console.log(`[ReceptionPage] After marking past/future: ${beforeCount} slots (all kept, ${availableSlots.filter((s: any) => s.isPast).length} past, ${availableSlots.filter((s: any) => !s.isPast).length} future)`);
-        if (availableSlots.length > 0) {
-          console.log(`[ReceptionPage] All slots:`, availableSlots.map((s: any) => `${s.start_time}-${s.end_time} (${s.isPast ? 'PAST' : 'FUTURE'}, capacity=${s.available_capacity})`));
-        } else {
-          console.warn(`[ReceptionPage] ⚠️ No slots found for today!`);
-        }
-      } else {
-        // For future dates, mark all slots as future
-        availableSlots = availableSlots.map((slot: any) => ({ ...slot, isPast: false }));
-      }
-
-      // Filter out slots that conflict with already selected services
-      console.log(`[ReceptionPage] Before filterConflictingSlots: ${availableSlots.length} slots`);
-      const beforeConflictFilter = availableSlots.length;
-      const nonConflictingSlots = filterConflictingSlots(availableSlots);
-      console.log(`[ReceptionPage] After filterConflictingSlots: ${beforeConflictFilter} -> ${nonConflictingSlots.length} slots`);
-
-      console.log(`[ReceptionPage] Final slots after all filtering: ${nonConflictingSlots.length}`);
-      if (nonConflictingSlots.length === 0 && slotsData && slotsData.length > 0) {
-        console.warn(`[ReceptionPage] ⚠️ All ${slotsData.length} slot(s) were filtered out. Check the filtering logic above.`);
-        console.warn(`[ReceptionPage] Breakdown:`);
-        console.warn(`  - Raw slots from DB: ${slotsData.length}`);
-        console.warn(`  - After capacity filter: ${(slotsData || []).filter(s => s.available_capacity > 0).length}`);
-        console.warn(`  - After days_of_week filter: ${availableSlots.length} (before conflict filter)`);
-        console.warn(`  - After conflict filter: ${nonConflictingSlots.length}`);
-        console.warn(`  - Selected services count: ${selectedServices.length}`);
-      }
+      // Filter out slots that conflict with already selected services (receptionist-specific for multi-service bookings)
+      // This only applies when booking multiple services - for single service, shows same slots as customer
+      // When selectedServices.length === 0, filterConflictingSlots returns all slots unchanged
+      const nonConflictingSlots = filterConflictingSlots(result.slots);
 
       setSlots(nonConflictingSlots);
 
-      // Fetch employee booking counts for this date
+      // Fetch employee booking counts for this date (receptionist-specific feature)
       await fetchEmployeeBookingCounts(dateStr, shiftIds);
     } catch (err) {
       console.error('Error in fetchAvailableSlots:', err);
