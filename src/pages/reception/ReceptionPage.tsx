@@ -3199,19 +3199,36 @@ export function ReceptionPage() {
                 setSelectedSlot('');
               }}
               required
+              disabled={loading}
             >
-              <option value="">{t('reception.chooseService')}</option>
-              {services.map((service) => {
-                const packageCheck = checkServiceInPackage(service.id);
-                return (
-                  <option key={service.id} value={service.id}>
-                    {i18n.language === 'ar' ? service.name_ar : service.name} - {service.base_price} SAR
-                    {packageCheck.available && ` 🎁 (${packageCheck.remaining} ${t('packages.remaining')})`}
-                    {service.offers && service.offers.length > 0 && ` (${service.offers.length} ${i18n.language === 'ar' ? 'عروض' : 'offers'})`}
-                  </option>
-                );
-              })}
+              <option value="">{loading ? t('common.loading') + '...' : t('reception.chooseService')}</option>
+              {services.length === 0 && !loading ? (
+                <option value="" disabled>
+                  No services available
+                </option>
+              ) : (
+                services.map((service) => {
+                  const packageCheck = checkServiceInPackage(service.id);
+                  return (
+                    <option key={service.id} value={service.id}>
+                      {i18n.language === 'ar' ? service.name_ar : service.name} - {service.base_price} SAR
+                      {packageCheck.available && ` 🎁 (${packageCheck.remaining} ${t('packages.remaining')})`}
+                      {service.offers && service.offers.length > 0 && ` (${service.offers.length} ${i18n.language === 'ar' ? 'عروض' : 'offers'})`}
+                    </option>
+                  );
+                })
+              )}
             </select>
+            {services.length === 0 && !loading && (
+              <p className="mt-1 text-sm text-amber-600">
+                ⚠️ No services found. Please check that services are active for this tenant.
+              </p>
+            )}
+            {loading && (
+              <p className="mt-1 text-sm text-blue-600">
+                Loading services...
+              </p>
+            )}
           </div>
 
           {/* 4b. Select Offer (if service has offers) */}
