@@ -102,18 +102,32 @@ async function generateQRCodeDataURL(bookingId: string, apiBaseUrl?: string): Pr
           console.log(`✅ [QR Code] Using Railway URL from environment: ${backendUrl}`);
           urlSource = 'RAILWAY_PUBLIC_DOMAIN (APP_URL was Bolt URL)';
         } else {
-          // Last resort: Try to construct Railway URL from known pattern
-          // This is a fallback - the user should still update APP_URL
+          // Try to detect Railway URL from request headers or environment
+          // Railway sets PORT and we can infer the URL
+          const port = process.env.PORT;
+          const railwayServiceUrl = process.env.RAILWAY_SERVICE_URL;
+          const railwayPublicDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
+          
+          // Try known Railway URL pattern
           const knownRailwayUrl = 'https://booktifisupabase-production.up.railway.app';
-          if (knownRailwayUrl && !knownRailwayUrl.includes('bolt.host')) {
-            backendUrl = knownRailwayUrl;
-            console.warn(`⚠️  [QR Code] Using hardcoded Railway URL fallback: ${backendUrl}`);
+          
+          // Priority: RAILWAY_SERVICE_URL > RAILWAY_PUBLIC_DOMAIN > known pattern
+          let detectedUrl = railwayServiceUrl 
+            ? railwayServiceUrl.replace(/\/$/, '')
+            : railwayPublicDomain
+            ? `https://${railwayPublicDomain.replace(/\/$/, '')}`
+            : knownRailwayUrl;
+          
+          if (detectedUrl && !detectedUrl.includes('bolt.host')) {
+            backendUrl = detectedUrl;
+            console.warn(`⚠️  [QR Code] Using detected Railway URL: ${backendUrl}`);
             console.warn('   PLEASE UPDATE APP_URL in Railway to: ' + backendUrl);
-            urlSource = 'Hardcoded Railway URL (APP_URL was Bolt URL)';
+            console.warn('   This is a temporary fallback - update APP_URL for production stability');
+            urlSource = 'Detected Railway URL (APP_URL was Bolt URL)';
           } else {
             console.error('   ❌ Could not find valid Railway URL. QR codes will use Bolt URL.');
             console.error('   Please update APP_URL in Railway to your Railway backend URL');
-            console.error('   Example: https://booktifisupabase-production.up.railway.app');
+            console.error('   Expected: https://booktifisupabase-production.up.railway.app');
           }
         }
       }
