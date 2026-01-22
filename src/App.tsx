@@ -22,6 +22,7 @@ import { PackageSchedulePage } from './pages/public/PackageSchedulePage';
 import { CheckoutPage } from './pages/public/CheckoutPage';
 import { PhoneEntryPage } from './pages/public/PhoneEntryPage';
 import { BookingSuccessPage } from './pages/public/BookingSuccessPage';
+import { QRScannerPage } from './pages/public/QRScannerPage';
 import { LandingPageBuilderWrapper } from './pages/tenant/LandingPageBuilderWrapper';
 import { PackagesPageWrapper } from './pages/tenant/PackagesPageWrapper';
 import { OffersPageWrapper } from './pages/tenant/OffersPageWrapper';
@@ -72,6 +73,7 @@ function AppContent() {
       <Route path="/:tenantSlug/book/phone-entry" element={<PhoneEntryPage />} />
       <Route path="/:tenantSlug/book/checkout" element={<CheckoutPage />} />
       <Route path="/:tenantSlug/book/success" element={<BookingSuccessPage />} />
+      <Route path="/:tenantSlug/qr" element={<QRScannerPage />} />
 
       {/* Customer Routes */}
       <Route path="/:tenantSlug/customer" element={<CustomerLandingPage />} />

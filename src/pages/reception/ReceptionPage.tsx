@@ -9,6 +9,7 @@ import { Input } from '../../components/ui/Input';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan } from 'lucide-react';
+import { QRScanner } from '../../components/qr/QRScanner';
 import { format, addDays, startOfWeek, isSameDay, parseISO, startOfDay, endOfDay, addMinutes, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { countryCodes } from '../../lib/countryCodes';
@@ -2120,11 +2121,11 @@ export function ReceptionPage() {
       if (customerError) throw customerError;
 
       if (customerData) {
-        // Customer found in customers table
+        // Customer found in customers table - only auto-fill if fields are empty
         setBookingForm(prev => ({
           ...prev,
-          customer_name: customerData.name,
-          customer_email: customerData.email || ''
+          customer_name: prev.customer_name || customerData.name || '',
+          customer_email: prev.customer_email || customerData.email || ''
         }));
 
         // Fetch active package subscription
@@ -2177,20 +2178,14 @@ export function ReceptionPage() {
         if (bookingError) {
           console.error('Error looking up booking:', bookingError);
         } else if (bookingData) {
-          // Guest booking found, auto-fill name and email
+          // Guest booking found, auto-fill name and email only if fields are empty
           setBookingForm(prev => ({
             ...prev,
-            customer_name: bookingData.customer_name || '',
-            customer_email: bookingData.customer_email || ''
-          }));
-        } else {
-          // No customer or booking found, clear the form
-          setBookingForm(prev => ({
-            ...prev,
-            customer_name: '',
-            customer_email: ''
+            customer_name: prev.customer_name || bookingData.customer_name || '',
+            customer_email: prev.customer_email || bookingData.customer_email || ''
           }));
         }
+        // If no customer or booking found, do nothing - don't overwrite user-entered fields
       }
     } catch (err) {
       console.error('Error looking up customer:', err);
@@ -4487,38 +4482,68 @@ export function ReceptionPage() {
         </form>
       </Modal>
 
-      {/* QR Code Scanner Modal */}
-      <Modal
-        isOpen={isQRScannerOpen}
-        onClose={() => {
-          setIsQRScannerOpen(false);
-          setQrInputValue('');
-          setQrValidationResult(null);
-        }}
-        title={i18n.language === 'ar' ? 'مسح رمز QR' : 'Scan QR Code'}
-      >
-        <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <p className="text-sm text-blue-800">
-              {i18n.language === 'ar' 
-                ? 'يمكنك إدخال رقم الحجز يدوياً أو مسح رمز QR من التذكرة'
-                : 'You can enter the booking ID manually or scan the QR code from the ticket'}
-            </p>
-          </div>
+      {/* QR Code Scanner Modal with Camera */}
+      {isQRScannerOpen && (
+        <QRScanner
+          title={i18n.language === 'ar' ? 'مسح رمز QR' : 'Scan QR Code'}
+          onScanSuccess={(decodedText) => {
+            // QR code contains booking ID
+            setQrInputValue(decodedText);
+            validateQRCode(decodedText);
+          }}
+          onScanError={(error) => {
+            console.error('QR scan error:', error);
+            setQrValidationResult({
+              success: false,
+              message: error || 'Failed to scan QR code',
+            });
+          }}
+          onClose={() => {
+            setIsQRScannerOpen(false);
+            setQrInputValue('');
+            setQrValidationResult(null);
+          }}
+          showManualInput={true}
+          onManualInput={(value) => {
+            setQrInputValue(value);
+            validateQRCode(value);
+          }}
+        />
+      )}
 
-          <form onSubmit={handleQRSubmit} className="space-y-4">
-            <Input
-              label={i18n.language === 'ar' ? 'رقم الحجز أو رمز QR' : 'Booking ID or QR Code'}
-              value={qrInputValue}
-              onChange={(e) => {
-                setQrInputValue(e.target.value);
-                setQrValidationResult(null);
-              }}
-              placeholder={i18n.language === 'ar' ? 'أدخل رقم الحجز أو امسح QR' : 'Enter booking ID or scan QR'}
-              required
-              disabled={qrValidating}
-              autoFocus
-            />
+      {/* Legacy QR Scanner Modal (fallback - can be removed after testing) */}
+      {false && isQRScannerOpen && (
+        <Modal
+          isOpen={isQRScannerOpen}
+          onClose={() => {
+            setIsQRScannerOpen(false);
+            setQrInputValue('');
+            setQrValidationResult(null);
+          }}
+          title={i18n.language === 'ar' ? 'مسح رمز QR' : 'Scan QR Code'}
+        >
+          <div className="space-y-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800">
+                {i18n.language === 'ar' 
+                  ? 'يمكنك إدخال رقم الحجز يدوياً أو مسح رمز QR من التذكرة'
+                  : 'You can enter the booking ID manually or scan the QR code from the ticket'}
+              </p>
+            </div>
+
+            <form onSubmit={handleQRSubmit} className="space-y-4">
+              <Input
+                label={i18n.language === 'ar' ? 'رقم الحجز أو رمز QR' : 'Booking ID or QR Code'}
+                value={qrInputValue}
+                onChange={(e) => {
+                  setQrInputValue(e.target.value);
+                  setQrValidationResult(null);
+                }}
+                placeholder={i18n.language === 'ar' ? 'أدخل رقم الحجز أو امسح QR' : 'Enter booking ID or scan QR'}
+                required
+                disabled={qrValidating}
+                autoFocus
+              />
 
             {qrValidationResult && (
               <div className={`p-4 rounded-lg border ${

@@ -868,6 +868,12 @@ router.post('/validate-qr', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Booking ID is required' });
     }
 
+    // Validate booking_id format (UUID)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(booking_id)) {
+      return res.status(400).json({ error: 'Invalid booking ID format. QR code must contain a valid booking ID.' });
+    }
+
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -980,6 +986,80 @@ router.post('/validate-qr', authenticate, async (req, res) => {
     });
   } catch (error: any) {
     console.error('QR validation error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ============================================================================
+// Get booking details (public - for external QR scanners)
+// Read-only access - no authentication required
+// ============================================================================
+router.get('/:id/details', async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+
+    // Validate booking_id format (UUID)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(bookingId)) {
+      return res.status(400).json({ error: 'Invalid booking ID format' });
+    }
+
+    // Get booking details (read-only, no state modification)
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        customer_name,
+        customer_phone,
+        visitor_count,
+        adult_count,
+        child_count,
+        total_price,
+        status,
+        payment_status,
+        qr_scanned,
+        qr_scanned_at,
+        services!inner (
+          name,
+          name_ar
+        ),
+        slots!inner (
+          slot_date,
+          start_time,
+          end_time
+        )
+      `)
+      .eq('id', bookingId)
+      .single();
+
+    if (bookingError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    // Return booking details (read-only)
+    res.json({
+      success: true,
+      booking: {
+        id: booking.id,
+        customer_name: booking.customer_name,
+        customer_phone: booking.customer_phone,
+        visitor_count: booking.visitor_count,
+        adult_count: booking.adult_count,
+        child_count: booking.child_count,
+        total_price: booking.total_price,
+        status: booking.status,
+        payment_status: booking.payment_status,
+        slot_date: (booking.slots as any).slot_date,
+        start_time: (booking.slots as any).start_time,
+        end_time: (booking.slots as any).end_time,
+        service_name: (booking.services as any).name,
+        service_name_ar: (booking.services as any).name_ar,
+        qr_scanned: booking.qr_scanned,
+        qr_scanned_at: booking.qr_scanned_at,
+      },
+    });
+  } catch (error: any) {
+    console.error('Get booking details error:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
