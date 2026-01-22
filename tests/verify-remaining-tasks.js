@@ -5,11 +5,11 @@
 
 const API_URL = process.env.API_URL || 'https://booktifisupabase-production.up.railway.app/api';
 
-// Test accounts (update these with your actual test accounts)
+// Test accounts
 const TEST_ACCOUNTS = {
   cashier: {
-    email: 'cashier@test.com',
-    password: 'test123'
+    email: 'cash@gmail.com',
+    password: '111111'
   },
   receptionist: {
     email: 'receptionist@test.com',

@@ -41,24 +41,26 @@ let testTenantId = null;
 let testInvoiceId = null;
 
 async function setupCashier() {
-  // Try to sign in as cashier (you may need to create this account)
+  // Sign in as cashier
   try {
+    const { email, password } = CONFIG.ACCOUNTS.CASHIER || { email: 'cash@gmail.com', password: '111111' };
     const response = await apiRequest('/auth/signin', {
       method: 'POST',
       body: JSON.stringify({ 
-        email: CONFIG.ACCOUNTS.CASHIER?.email || 'cashier@test.com',
-        password: CONFIG.ACCOUNTS.CASHIER?.password || 'test123',
+        email,
+        password,
         forCustomer: false 
       })
     });
     
     if (response.ok && response.data.session?.access_token) {
       cashierToken = response.data.session.access_token;
+      console.log('✅ Cashier signed in successfully');
       return cashierToken;
     }
-    throw new Error('Cashier sign in failed');
+    throw new Error(`Cashier sign in failed: ${JSON.stringify(response.data)}`);
   } catch (error) {
-    console.warn('⚠️  Cashier account not available, some tests will be skipped');
+    console.error('❌ Cashier sign in error:', error.message);
     return null;
   }
 }
@@ -109,7 +111,39 @@ async function getTestData() {
     throw new Error('Must setup tenant admin first');
   }
 
-  // Get a service
+  console.log('📋 Fetching test data...');
+
+  // Try to get an existing booking first (for testing with existing data)
+  const bookingsResponse = await apiRequest('/query', {
+    method: 'POST',
+    body: JSON.stringify({
+      table: 'bookings',
+      select: ['id', 'service_id', 'slot_id', 'zoho_invoice_id'],
+      where: { tenant_id: testTenantId },
+      orderBy: { column: 'created_at', ascending: false },
+      limit: 1,
+    }),
+    headers: {
+      'Authorization': `Bearer ${tenantAdminToken}`,
+    },
+  });
+
+  if (bookingsResponse.ok && bookingsResponse.data?.data && bookingsResponse.data.data.length > 0) {
+    const existingBooking = bookingsResponse.data.data[0];
+    testBookingId = existingBooking.id;
+    testServiceId = existingBooking.service_id;
+    testSlotId = existingBooking.slot_id;
+    testInvoiceId = existingBooking.zoho_invoice_id;
+    console.log(`✅ Using existing booking: ${testBookingId}`);
+    console.log(`   Service ID: ${testServiceId}`);
+    console.log(`   Slot ID: ${testSlotId}`);
+    console.log(`   Invoice ID: ${testInvoiceId || 'none'}`);
+    return;
+  }
+
+  console.log('⚠️  No existing bookings found, trying to get services and slots...');
+
+  // If no existing booking, try to get a service and slot
   const servicesResponse = await apiRequest('/query', {
     method: 'POST',
     body: JSON.stringify({
@@ -123,11 +157,14 @@ async function getTestData() {
     },
   });
 
-  if (!servicesResponse.data?.data || servicesResponse.data.data.length === 0) {
-    throw new Error('No services found - please create services first');
+  if (!servicesResponse.ok || !servicesResponse.data?.data || servicesResponse.data.data.length === 0) {
+    console.warn('⚠️  No services found. Some tests will be skipped.');
+    console.warn('   To run all tests, please create at least one active service.');
+    return; // Don't throw, allow tests that don't need services to run
   }
 
   testServiceId = servicesResponse.data.data[0].id;
+  console.log(`✅ Found service: ${testServiceId}`);
 
   // Get a future slot
   const tomorrow = new Date();
@@ -150,11 +187,14 @@ async function getTestData() {
     },
   });
 
-  if (!slotsResponse.data?.data || slotsResponse.data.data.length === 0) {
-    throw new Error('No available slots found - please create slots first');
+  if (!slotsResponse.ok || !slotsResponse.data?.data || slotsResponse.data.data.length === 0) {
+    console.warn('⚠️  No available slots found. Some tests will be skipped.');
+    console.warn('   To run all tests, please create at least one future slot.');
+    return; // Don't throw, allow tests that don't need slots to run
   }
 
   testSlotId = slotsResponse.data.data[0].id;
+  console.log(`✅ Found slot: ${testSlotId}`);
 }
 
 // ============================================================================
@@ -165,8 +205,11 @@ async function testTask5() {
 
   // Test 5.1: Cashier can scan QR
   await test('5.1: Cashier can scan QR code', async () => {
-    if (!cashierToken || !testBookingId) {
-      return { message: 'Skipped - cashier token or test booking not available' };
+    if (!cashierToken) {
+      return { message: 'Skipped - cashier token not available' };
+    }
+    if (!testBookingId) {
+      return { message: 'Skipped - test booking not available (create a booking first)' };
     }
 
     const response = await apiRequest('/bookings/validate-qr', {
@@ -534,8 +577,8 @@ async function runTests() {
     await setupCashier();
     await setupReceptionist();
 
-    // Create a test booking if we don't have one
-    if (!testBookingId && receptionistToken) {
+    // Create a test booking if we don't have one and have required data
+    if (!testBookingId && receptionistToken && testSlotId && testServiceId && testTenantId) {
       console.log('Creating test booking...');
       const createResponse = await apiRequest('/bookings/create', {
         method: 'POST',
@@ -558,7 +601,16 @@ async function runTests() {
         testBookingId = createResponse.data.booking.id;
         testInvoiceId = createResponse.data.booking.zoho_invoice_id;
         console.log(`✅ Test booking created: ${testBookingId}\n`);
+      } else {
+        console.log(`⚠️  Could not create test booking: ${JSON.stringify(createResponse.data)}\n`);
       }
+    } else if (!testBookingId) {
+      console.log('⚠️  Cannot create test booking - missing required data:\n');
+      if (!receptionistToken) console.log('   - Receptionist token not available');
+      if (!testSlotId) console.log('   - Test slot not available');
+      if (!testServiceId) console.log('   - Test service not available');
+      if (!testTenantId) console.log('   - Test tenant ID not available');
+      console.log('');
     }
 
     // Run tests

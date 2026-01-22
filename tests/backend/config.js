@@ -20,6 +20,18 @@ export const CONFIG = {
       password: '111111',
       role: 'customer',
       expectedRole: 'customer'
+    },
+    CASHIER: {
+      email: 'cash@gmail.com',
+      password: '111111',
+      role: 'cashier',
+      expectedRole: 'cashier'
+    },
+    RECEPTIONIST: {
+      email: 'receptionist@test.com',
+      password: 'test123',
+      role: 'receptionist',
+      expectedRole: 'receptionist'
     }
   },
   
