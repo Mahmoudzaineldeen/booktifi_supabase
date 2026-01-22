@@ -384,9 +384,10 @@ export async function generateBookingTicketPDF(
     }
 
     // Generate QR code and barcode
-    // Get API base URL for QR code (use APP_URL if available)
-    const apiBaseUrl = process.env.APP_URL || undefined;
-    const qrDataURL = await generateQRCodeDataURL(bookingId, apiBaseUrl);
+    // Prefer FRONTEND_URL (Netlify) for QR codes, fallback to APP_URL (backend)
+    // The endpoint returns HTML for browser requests, so either URL works
+    const qrCodeBaseUrl = process.env.FRONTEND_URL || process.env.APP_URL || undefined;
+    const qrDataURL = await generateQRCodeDataURL(bookingId, qrCodeBaseUrl);
     const qrBuffer = Buffer.from(qrDataURL.split(',')[1], 'base64');
     const barcodeBuffer = await generateBarcodeBuffer(bookingId);
 
