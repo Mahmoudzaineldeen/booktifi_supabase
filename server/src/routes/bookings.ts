@@ -1161,8 +1161,20 @@ router.get('/:id/details', async (req, res) => {
     };
 
     // Check if request wants HTML (browser) or JSON (API)
+    // Default to HTML if no Accept header or if it's a browser request
+    // Browser requests typically have Accept: text/html or no Accept header
+    // API requests typically have Accept: application/json
+    const userAgent = req.headers['user-agent'] || '';
+    const isBrowser = userAgent.includes('Mozilla') || userAgent.includes('Chrome') || userAgent.includes('Safari') || userAgent.includes('Firefox') || userAgent.includes('Edge');
+    const acceptsJson = req.headers.accept?.includes('application/json');
     const acceptsHtml = req.headers.accept?.includes('text/html');
-    if (acceptsHtml) {
+    
+    // Return HTML if:
+    // 1. Explicitly accepts HTML, OR
+    // 2. It's a browser (has user-agent) and doesn't explicitly request JSON
+    const shouldReturnHtml = acceptsHtml || (isBrowser && !acceptsJson);
+    
+    if (shouldReturnHtml) {
       return res.send(`
         <!DOCTYPE html>
         <html>
