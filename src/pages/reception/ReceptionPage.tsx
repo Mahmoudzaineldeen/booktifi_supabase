@@ -986,12 +986,9 @@ export function ReceptionPage() {
 
     try {
       // Get employees assigned to this service through employee_services
-      const { data: employeeServices, error: empServError } = await supabase
+      const { data: employeeServices, error: empServError } = await db
         .from('employee_services')
-        .select(`
-          employee_id,
-          users:employee_id(id, full_name, full_name_ar, is_active)
-        `)
+        .select('employee_id, users:employee_id(id, full_name, full_name_ar, is_active)')
         .eq('tenant_id', userProfile.tenant_id)
         .eq('service_id', selectedService);
 
@@ -1884,7 +1881,7 @@ export function ReceptionPage() {
       const fullPhoneNumber = `${countryCode}${bookingForm.customer_phone}`;
 
       // Save or update customer record
-      const { data: existingCustomer } = await supabase
+      const { data: existingCustomer } = await db
         .from('customers')
         .select('id, total_bookings')
         .eq('tenant_id', userProfile.tenant_id)
@@ -1893,7 +1890,7 @@ export function ReceptionPage() {
 
       if (existingCustomer) {
         // Update existing customer
-        await supabase
+        await db
           .from('customers')
           .update({
             name: bookingForm.customer_name,
@@ -1904,7 +1901,7 @@ export function ReceptionPage() {
           .eq('id', existingCustomer.id);
       } else {
         // Create new customer
-        await supabase
+        await db
           .from('customers')
           .insert({
             tenant_id: userProfile.tenant_id,
