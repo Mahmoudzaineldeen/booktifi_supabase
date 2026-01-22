@@ -2413,6 +2413,7 @@ router.patch('/:id/time', authenticateTenantAdminOnly, async (req, res) => {
     }
 
     // Get updated booking details (CRITICAL: Must be available for ticket generation)
+    console.log(`[Booking Time Edit] 🔍 Fetching updated booking data for ticket generation...`);
     const { data: updatedBooking, error: fetchError } = await supabase
       .from('bookings')
       .select(`
@@ -2425,13 +2426,22 @@ router.patch('/:id/time', authenticateTenantAdminOnly, async (req, res) => {
       .single();
 
     if (fetchError || !updatedBooking) {
-      console.error(`[Booking Time Edit] ⚠️ Could not fetch updated booking:`, fetchError);
+      console.error(`[Booking Time Edit] ❌ Could not fetch updated booking:`, fetchError);
       console.error(`[Booking Time Edit] ⚠️ Ticket generation will be skipped due to missing booking data`);
     } else {
       console.log(`[Booking Time Edit] ✅ Fetched updated booking for ticket generation`);
-      console.log(`[Booking Time Edit]    Customer: ${updatedBooking.customer_name}`);
+      console.log(`[Booking Time Edit]    Booking ID: ${updatedBooking.id}`);
+      console.log(`[Booking Time Edit]    Customer: ${updatedBooking.customer_name || 'N/A'}`);
       console.log(`[Booking Time Edit]    Email: ${updatedBooking.customer_email || 'N/A'}`);
       console.log(`[Booking Time Edit]    Phone: ${updatedBooking.customer_phone || 'N/A'}`);
+      console.log(`[Booking Time Edit]    Has Services: ${!!updatedBooking.services}`);
+      console.log(`[Booking Time Edit]    Has Slots: ${!!updatedBooking.slots}`);
+      console.log(`[Booking Time Edit]    Has Tenants: ${!!updatedBooking.tenants}`);
+      
+      // CRITICAL: Verify we have contact info
+      if (!updatedBooking.customer_email && !updatedBooking.customer_phone) {
+        console.error(`[Booking Time Edit] ⚠️ WARNING: No customer email or phone - tickets cannot be sent!`);
+      }
     }
 
     // Generate new ticket and send to customer
@@ -2464,10 +2474,19 @@ router.patch('/:id/time', authenticateTenantAdminOnly, async (req, res) => {
           const { generateBookingTicketPDFBase64 } = await import('../services/pdfService.js');
           const { sendWhatsAppDocument } = await import('../services/whatsappService.js');
           const { sendBookingTicketEmail } = await import('../services/emailService.js');
-          const { normalizePhoneNumber } = await import('../utils/phoneUtils.js');
+          // normalizePhoneNumber is defined locally in this file (line 15)
 
           // Use the stored booking data
           const booking = bookingForTicket;
+          
+          // CRITICAL: Log booking data to diagnose sending issues
+          console.log(`[Booking Time Edit] 📋 Booking Data Check:`);
+          console.log(`[Booking Time Edit]    Customer Name: ${booking?.customer_name || 'N/A'}`);
+          console.log(`[Booking Time Edit]    Customer Phone: ${booking?.customer_phone || 'N/A'}`);
+          console.log(`[Booking Time Edit]    Customer Email: ${booking?.customer_email || 'N/A'}`);
+          console.log(`[Booking Time Edit]    Has Services: ${!!booking?.services}`);
+          console.log(`[Booking Time Edit]    Has Slots: ${!!booking?.slots}`);
+          console.log(`[Booking Time Edit]    Has Tenants: ${!!booking?.tenants}`);
           
           const ticketLanguage = (booking?.language === 'ar' || booking?.language === 'en')
             ? booking.language as 'en' | 'ar'
@@ -2491,6 +2510,10 @@ router.patch('/:id/time', authenticateTenantAdminOnly, async (req, res) => {
           }
           
           console.log(`[Booking Time Edit] ✅ Step 1 Complete: PDF generated successfully (${pdfBuffer.length} bytes)`);
+          console.log(`[Booking Time Edit] 📋 Ready to send:`);
+          console.log(`[Booking Time Edit]    PDF Buffer: ${pdfBuffer ? `✅ ${pdfBuffer.length} bytes` : '❌ NULL'}`);
+          console.log(`[Booking Time Edit]    Customer Phone: ${booking?.customer_phone || '❌ MISSING'}`);
+          console.log(`[Booking Time Edit]    Customer Email: ${booking?.customer_email || '❌ MISSING'}`);
 
           // Get tenant WhatsApp settings
           console.log(`[Booking Time Edit] 📱 Step 2a: Fetching WhatsApp configuration...`);
@@ -2519,8 +2542,11 @@ router.patch('/:id/time', authenticateTenantAdminOnly, async (req, res) => {
           }
 
           // Step 2: Send new ticket via WhatsApp (async - don't block)
+          console.log(`[Booking Time Edit] 🔍 Step 2 Check: customer_phone=${!!booking?.customer_phone}, pdfBuffer=${!!pdfBuffer}`);
           if (booking?.customer_phone && pdfBuffer) {
+            console.log(`[Booking Time Edit] 📱 Normalizing phone: ${booking.customer_phone}`);
             const normalizedPhone = normalizePhoneNumber(booking.customer_phone);
+            console.log(`[Booking Time Edit] 📱 Normalized phone: ${normalizedPhone || 'NULL'}`);
             if (normalizedPhone) {
               const whatsappMessage = ticketLanguage === 'ar'
                 ? 'تم تغيير موعد حجزك! يرجى الاطلاع على التذكرة المحدثة المرفقة. التذاكر القديمة لم تعد صالحة.'
@@ -2555,6 +2581,7 @@ router.patch('/:id/time', authenticateTenantAdminOnly, async (req, res) => {
           }
 
           // Step 3: Send new ticket via Email (async - don't block)
+          console.log(`[Booking Time Edit] 🔍 Step 3 Check: customer_email=${!!booking?.customer_email}, pdfBuffer=${!!pdfBuffer}`);
           if (booking?.customer_email && pdfBuffer) {
             console.log(`[Booking Time Edit] 📧 Step 3: Sending ticket via Email to ${booking.customer_email}...`);
             try {
