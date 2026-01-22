@@ -82,15 +82,45 @@ async function generateQRCodeDataURL(bookingId: string, apiBaseUrl?: string): Pr
     } else if (process.env.APP_URL) {
       // Use backend URL (Railway) - this is the correct endpoint
       // Remove trailing slash if present
-      const backendUrl = process.env.APP_URL.replace(/\/$/, '');
-      bookingDetailsUrl = `${backendUrl}/api/bookings/${bookingId}/details`;
-      urlSource = 'APP_URL environment variable';
+      let backendUrl = process.env.APP_URL.replace(/\/$/, '');
       
-      // Warn if old Bolt URL is detected
+      // CRITICAL: If APP_URL contains old Bolt URL, try to detect Railway URL from RAILWAY_PUBLIC_DOMAIN
+      // or use a known Railway URL pattern
       if (backendUrl.includes('bolt.host')) {
-        console.error('⚠️  [QR Code] WARNING: APP_URL is set to old Bolt URL:', backendUrl);
-        console.error('   Please update APP_URL in Railway to your Railway backend URL');
-        console.error('   Example: https://your-app-name.up.railway.app');
+        console.error('⚠️  [QR Code] CRITICAL: APP_URL is set to old Bolt URL:', backendUrl);
+        console.error('   Attempting to use Railway URL instead...');
+        
+        // Try to get Railway URL from environment
+        const railwayUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
+          ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+          : process.env.RAILWAY_STATIC_URL
+          ? process.env.RAILWAY_STATIC_URL
+          : null;
+        
+        if (railwayUrl && !railwayUrl.includes('bolt.host')) {
+          backendUrl = railwayUrl;
+          console.log(`✅ [QR Code] Using Railway URL from environment: ${backendUrl}`);
+          urlSource = 'RAILWAY_PUBLIC_DOMAIN (APP_URL was Bolt URL)';
+        } else {
+          // Last resort: Try to construct Railway URL from known pattern
+          // This is a fallback - the user should still update APP_URL
+          const knownRailwayUrl = 'https://booktifisupabase-production.up.railway.app';
+          if (knownRailwayUrl && !knownRailwayUrl.includes('bolt.host')) {
+            backendUrl = knownRailwayUrl;
+            console.warn(`⚠️  [QR Code] Using hardcoded Railway URL fallback: ${backendUrl}`);
+            console.warn('   PLEASE UPDATE APP_URL in Railway to: ' + backendUrl);
+            urlSource = 'Hardcoded Railway URL (APP_URL was Bolt URL)';
+          } else {
+            console.error('   ❌ Could not find valid Railway URL. QR codes will use Bolt URL.');
+            console.error('   Please update APP_URL in Railway to your Railway backend URL');
+            console.error('   Example: https://booktifisupabase-production.up.railway.app');
+          }
+        }
+      }
+      
+      bookingDetailsUrl = `${backendUrl}/api/bookings/${bookingId}/details`;
+      if (urlSource === 'unknown') {
+        urlSource = 'APP_URL environment variable';
       }
     } else if (process.env.FRONTEND_URL) {
       // Fallback: if frontend proxies to backend, use frontend URL
