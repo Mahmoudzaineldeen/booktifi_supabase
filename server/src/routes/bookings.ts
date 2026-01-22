@@ -1063,8 +1063,13 @@ router.get('/:id/details', async (req, res) => {
 
     if (bookingError || !booking) {
       // Check if request wants HTML (browser) or JSON (API)
+      const userAgent = req.headers['user-agent'] || '';
+      const isBrowser = userAgent.includes('Mozilla') || userAgent.includes('Chrome') || userAgent.includes('Safari') || userAgent.includes('Firefox') || userAgent.includes('Edge');
+      const acceptsJson = req.headers.accept?.includes('application/json');
       const acceptsHtml = req.headers.accept?.includes('text/html');
-      if (acceptsHtml) {
+      const shouldReturnHtml = acceptsHtml || (isBrowser && !acceptsJson);
+      
+      if (shouldReturnHtml) {
         return res.status(404).send(`
           <!DOCTYPE html>
           <html>
