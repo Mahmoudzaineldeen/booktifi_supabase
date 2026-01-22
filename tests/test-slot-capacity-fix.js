@@ -450,11 +450,12 @@ async function runTests() {
 }
 
 // Run tests
-if (require.main === module) {
+// Check if this is the main module (ES module way)
+if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('test-slot-capacity-fix.js')) {
   runTests().catch(error => {
     console.error('Fatal error:', error);
     process.exit(1);
   });
 }
 
-module.exports = { runTests };
+export { runTests };
