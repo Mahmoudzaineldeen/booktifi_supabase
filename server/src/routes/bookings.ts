@@ -1163,25 +1163,6 @@ router.get('/:id/details', async (req, res) => {
     // Check if request wants HTML (browser) or JSON (API)
     const acceptsHtml = req.headers.accept?.includes('text/html');
     if (acceptsHtml) {
-      // Format date and time for display
-      const slotDate = bookingData.slot_date ? new Date(bookingData.slot_date).toLocaleDateString() : 'N/A';
-      const statusColors: Record<string, string> = {
-        'pending': '#f39c12',
-        'confirmed': '#3498db',
-        'checked_in': '#2ecc71',
-        'completed': '#27ae60',
-        'cancelled': '#e74c3c',
-      };
-      const statusColor = statusColors[bookingData.status] || '#7f8c8d';
-      const paymentColors: Record<string, string> = {
-        'unpaid': '#e74c3c',
-        'paid': '#27ae60',
-        'paid_manual': '#27ae60',
-        'awaiting_payment': '#f39c12',
-        'refunded': '#95a5a6',
-      };
-      const paymentColor = paymentColors[bookingData.payment_status] || '#7f8c8d';
-
       return res.send(`
         <!DOCTYPE html>
         <html>
@@ -1193,141 +1174,157 @@ router.get('/:id/details', async (req, res) => {
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { 
               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              background: #f5f7fa;
               min-height: 100vh;
               padding: 20px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
             }
             .container {
-              max-width: 600px;
-              margin: 0 auto;
+              max-width: 500px;
+              width: 100%;
               background: white;
-              border-radius: 15px;
-              box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+              border-radius: 12px;
+              box-shadow: 0 4px 20px rgba(0,0,0,0.1);
               overflow: hidden;
             }
             .header {
               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
               color: white;
-              padding: 30px;
+              padding: 25px;
               text-align: center;
             }
-            .header h1 { font-size: 24px; margin-bottom: 10px; }
-            .header p { opacity: 0.9; font-size: 14px; }
-            .content { padding: 30px; }
-            .section { margin-bottom: 25px; }
-            .section-title {
-              font-size: 14px;
+            .header h1 { 
+              font-size: 22px; 
+              margin-bottom: 8px; 
               font-weight: 600;
-              color: #7f8c8d;
-              text-transform: uppercase;
-              letter-spacing: 1px;
-              margin-bottom: 10px;
             }
-            .info-row {
-              display: flex;
-              justify-content: space-between;
-              padding: 12px 0;
-              border-bottom: 1px solid #ecf0f1;
+            .content { 
+              padding: 30px 25px; 
             }
-            .info-row:last-child { border-bottom: none; }
-            .info-label { color: #7f8c8d; font-weight: 500; }
-            .info-value { color: #2c3e50; font-weight: 600; text-align: right; }
-            .status-badge {
-              display: inline-block;
-              padding: 6px 12px;
-              border-radius: 20px;
-              font-size: 12px;
+            .detail-section {
+              margin-bottom: 25px;
+              padding-bottom: 20px;
+              border-bottom: 1px solid #e8ecef;
+            }
+            .detail-section:last-child {
+              border-bottom: none;
+              margin-bottom: 0;
+              padding-bottom: 0;
+            }
+            .detail-label {
+              font-size: 11px;
               font-weight: 600;
+              color: #6c757d;
               text-transform: uppercase;
+              letter-spacing: 0.5px;
+              margin-bottom: 8px;
             }
-            .qr-scanned {
-              background: #e8f5e9;
-              color: #2e7d32;
-              padding: 15px;
-              border-radius: 8px;
-              margin-top: 20px;
-              text-align: center;
+            .detail-value {
+              font-size: 16px;
+              font-weight: 600;
+              color: #212529;
+              line-height: 1.5;
+            }
+            .event-name {
+              font-size: 18px;
+              font-weight: 700;
+              color: #212529;
+              margin-bottom: 2px;
+            }
+            .date-time {
+              font-size: 15px;
+              color: #495057;
+            }
+            .ticket-type {
+              font-size: 15px;
+              color: #495057;
+            }
+            .customer-name {
+              font-size: 16px;
+              color: #212529;
+            }
+            .price {
+              font-size: 20px;
+              font-weight: 700;
+              color: #28a745;
             }
             .footer {
               background: #f8f9fa;
-              padding: 20px;
+              padding: 15px;
               text-align: center;
-              color: #7f8c8d;
-              font-size: 12px;
+              color: #6c757d;
+              font-size: 11px;
+            }
+            .status-indicator {
+              display: inline-block;
+              padding: 4px 10px;
+              border-radius: 12px;
+              font-size: 11px;
+              font-weight: 600;
+              text-transform: uppercase;
+              margin-top: 5px;
+            }
+            .status-confirmed {
+              background: #d4edda;
+              color: #155724;
+            }
+            .status-pending {
+              background: #fff3cd;
+              color: #856404;
+            }
+            .status-cancelled {
+              background: #f8d7da;
+              color: #721c24;
             }
           </style>
         </head>
         <body>
           <div class="container">
             <div class="header">
-              <h1>📋 Booking Details</h1>
-              <p>Booking ID: ${bookingData.id.substring(0, 8)}...</p>
+              <h1>📋 Booking Ticket</h1>
             </div>
             <div class="content">
-              <div class="section">
-                <div class="section-title">Customer Information</div>
-                <div class="info-row">
-                  <span class="info-label">Name:</span>
-                  <span class="info-value">${bookingData.customer_name}</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Phone:</span>
-                  <span class="info-value">${bookingData.customer_phone || 'N/A'}</span>
-                </div>
+              <div class="detail-section">
+                <div class="detail-label">EVENT DETAILS</div>
+                <div class="event-name">${bookingData.service_name || 'Service'}</div>
               </div>
               
-              <div class="section">
-                <div class="section-title">Service Details</div>
-                <div class="info-row">
-                  <span class="info-label">Service:</span>
-                  <span class="info-value">${bookingData.service_name}</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Date:</span>
-                  <span class="info-value">${slotDate}</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Time:</span>
-                  <span class="info-value">${bookingData.start_time} - ${bookingData.end_time}</span>
-                </div>
+              <div class="detail-section">
+                <div class="detail-label">DATE & TIME</div>
+                <div class="date-time">${bookingData.formatted_date}</div>
+                <div class="date-time">${bookingData.formatted_start_time} - ${bookingData.formatted_end_time}</div>
               </div>
               
-              <div class="section">
-                <div class="section-title">Booking Information</div>
-                <div class="info-row">
-                  <span class="info-label">Visitors:</span>
-                  <span class="info-value">${bookingData.visitor_count} (${bookingData.adult_count} adult${bookingData.adult_count !== 1 ? 's' : ''}, ${bookingData.child_count} child${bookingData.child_count !== 1 ? 'ren' : ''})</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Total Price:</span>
-                  <span class="info-value">${bookingData.total_price} SAR</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Status:</span>
-                  <span class="info-value">
-                    <span class="status-badge" style="background: ${statusColor}; color: white;">
+              <div class="detail-section">
+                <div class="detail-label">TICKET TYPE</div>
+                <div class="ticket-type">${bookingData.ticket_type}</div>
+              </div>
+              
+              <div class="detail-section">
+                <div class="detail-label">CUSTOMER NAME</div>
+                <div class="customer-name">${bookingData.customer_name}</div>
+              </div>
+              
+              <div class="detail-section">
+                <div class="detail-label">PRICE</div>
+                <div class="price">${bookingData.total_price.toFixed(2)} SAR</div>
+              </div>
+              
+              ${bookingData.status ? `
+                <div class="detail-section">
+                  <div class="detail-label">STATUS</div>
+                  <div>
+                    <span class="status-indicator status-${bookingData.status}">
                       ${bookingData.status}
                     </span>
-                  </span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Payment:</span>
-                  <span class="info-value">
-                    <span class="status-badge" style="background: ${paymentColor}; color: white;">
-                      ${bookingData.payment_status}
-                    </span>
-                  </span>
-                </div>
-              </div>
-              
-              ${bookingData.qr_scanned ? `
-                <div class="qr-scanned">
-                  ✅ QR Code Scanned on ${bookingData.qr_scanned_at ? new Date(bookingData.qr_scanned_at).toLocaleString() : 'N/A'}
+                  </div>
                 </div>
               ` : ''}
             </div>
             <div class="footer">
-              This is a read-only view of your booking details
+              Booking ID: ${bookingData.id.substring(0, 8).toUpperCase()}...
             </div>
           </div>
         </body>
