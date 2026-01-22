@@ -132,14 +132,15 @@ export function CashierPage() {
       }
 
       if (data.success && data.booking) {
+        const extractedId = data.extracted_booking_id || data.booking.id;
         setQrValidationResult({
           success: true,
           message: i18n.language === 'ar' ? 'تم التحقق بنجاح' : 'QR validated successfully',
           booking: data.booking,
         });
         
-        // Fetch full booking details
-        await fetchBookingDetails(bookingId);
+        // Fetch full booking details using extracted ID
+        await fetchBookingDetails(extractedId);
       } else {
         setQrValidationResult({
           success: false,

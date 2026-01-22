@@ -70,7 +70,13 @@ export function QRScannerPage() {
   };
 
   const handleScanSuccess = (decodedText: string) => {
-    fetchBookingDetails(decodedText.trim());
+    // Extract booking ID from QR content (supports URL or raw UUID)
+    const bookingId = extractBookingIdFromQR(decodedText.trim());
+    if (bookingId) {
+      fetchBookingDetails(bookingId);
+    } else {
+      setError('Invalid QR code format. QR code must contain a valid booking ID or URL.');
+    }
   };
 
   const handleScanError = (errorMessage: string) => {

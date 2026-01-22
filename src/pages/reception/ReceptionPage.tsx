@@ -2070,12 +2070,56 @@ export function ReceptionPage() {
     }
   }
 
+  // Extract booking ID from QR content (supports URL or raw UUID)
+  function extractBookingIdFromQR(qrContent: string): string | null {
+    if (!qrContent || typeof qrContent !== 'string') {
+      return null;
+    }
+
+    const trimmed = qrContent.trim();
+    
+    // If it's already a raw UUID, return it
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(trimmed)) {
+      return trimmed;
+    }
+
+    // Try to extract UUID from URL
+    // Pattern: /api/bookings/{uuid}/details or /bookings/{uuid}/details
+    const urlMatch = trimmed.match(/\/bookings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+    if (urlMatch && urlMatch[1]) {
+      return urlMatch[1];
+    }
+
+    // Try to find UUID anywhere in the string
+    const uuidMatch = trimmed.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    if (uuidMatch && uuidMatch[0]) {
+      return uuidMatch[0];
+    }
+
+    return null;
+  }
+
   // Validate QR Code
-  async function validateQRCode(bookingId: string) {
+  async function validateQRCode(qrContent: string) {
     setQrValidating(true);
     setQrValidationResult(null);
 
     try {
+      // Extract booking ID from QR content (supports URL or raw UUID)
+      const bookingId = extractBookingIdFromQR(qrContent);
+      
+      if (!bookingId) {
+        setQrValidationResult({
+          success: false,
+          message: i18n.language === 'ar' 
+            ? 'تنسيق QR غير صالح. يجب أن يحتوي رمز QR على معرف حجز صالح أو رابط.'
+            : 'Invalid QR code format. QR code must contain a valid booking ID or URL.',
+        });
+        setQrValidating(false);
+        return;
+      }
+
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
 
@@ -2085,7 +2129,7 @@ export function ReceptionPage() {
           'Content-Type': 'application/json',
           ...(token && { Authorization: `Bearer ${token}` }),
         },
-        body: JSON.stringify({ booking_id: bookingId }),
+        body: JSON.stringify({ booking_id: qrContent }), // Send original content, backend will extract
       });
 
       // Check if response is JSON before parsing

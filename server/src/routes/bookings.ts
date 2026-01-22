@@ -1013,6 +1013,43 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
 // ============================================================================
 // Validate QR code (for cashiers/receptionists)
 // ============================================================================
+/**
+ * Extract booking ID from QR code content
+ * Supports multiple formats:
+ * 1. Raw UUID: "123e4567-e89b-12d3-a456-426614174000"
+ * 2. URL format: "https://backend.com/api/bookings/123e4567-e89b-12d3-a456-426614174000/details"
+ * 3. URL format (no protocol): "backend.com/api/bookings/123e4567-e89b-12d3-a456-426614174000/details"
+ */
+function extractBookingIdFromQR(qrContent: string): string | null {
+  if (!qrContent || typeof qrContent !== 'string') {
+    return null;
+  }
+
+  // UUID regex pattern
+  const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+  
+  // If it's already a raw UUID, return it
+  const trimmed = qrContent.trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Try to extract UUID from URL
+  // Pattern: /api/bookings/{uuid}/details or /bookings/{uuid}/details
+  const urlMatch = qrContent.match(/\/bookings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+  if (urlMatch && urlMatch[1]) {
+    return urlMatch[1];
+  }
+
+  // Try to find UUID anywhere in the string
+  const uuidMatch = qrContent.match(uuidRegex);
+  if (uuidMatch && uuidMatch[0]) {
+    return uuidMatch[0];
+  }
+
+  return null;
+}
+
 router.post('/validate-qr', authenticate, async (req, res) => {
   try {
     const { booking_id } = req.body;
@@ -1022,10 +1059,23 @@ router.post('/validate-qr', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Booking ID is required' });
     }
 
-    // Validate booking_id format (UUID)
+    // Extract booking ID from QR content (supports URL or raw UUID)
+    const extractedBookingId = extractBookingIdFromQR(booking_id);
+    
+    if (!extractedBookingId) {
+      return res.status(400).json({ 
+        error: 'Invalid QR code format. QR code must contain a valid booking ID or booking URL.',
+        hint: 'The QR code should contain either a booking ID (UUID) or a URL pointing to booking details.'
+      });
+    }
+
+    // Validate extracted booking ID is a valid UUID
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(booking_id)) {
-      return res.status(400).json({ error: 'Invalid booking ID format. QR code must contain a valid booking ID.' });
+    if (!uuidRegex.test(extractedBookingId)) {
+      return res.status(400).json({ 
+        error: 'Invalid booking ID format. Extracted ID is not a valid UUID.',
+        extractedId: extractedBookingId
+      });
     }
 
     if (!userId) {
@@ -1051,6 +1101,9 @@ router.post('/validate-qr', authenticate, async (req, res) => {
         hint: 'Receptionists and tenant owners cannot scan QR codes. Please use a cashier account.'
       });
     }
+
+    // Use extracted booking ID for database query
+    const bookingIdToUse = extractedBookingId;
 
     // Get booking details with nested select for joins
     const { data: booking, error: bookingError } = await supabase
@@ -1079,7 +1132,7 @@ router.post('/validate-qr', authenticate, async (req, res) => {
           end_time
         )
       `)
-      .eq('id', booking_id)
+      .eq('id', bookingIdToUse)
       .single();
 
     if (bookingError || !booking) {
@@ -1115,7 +1168,7 @@ router.post('/validate-qr', authenticate, async (req, res) => {
         checked_in_at: new Date().toISOString(),
         checked_in_by_user_id: userId
       })
-      .eq('id', booking_id);
+      .eq('id', bookingIdToUse);
 
     if (updateError) {
       throw updateError;
@@ -1142,6 +1195,7 @@ router.post('/validate-qr', authenticate, async (req, res) => {
         qr_scanned: true,
         qr_scanned_at: new Date().toISOString(),
       },
+      extracted_booking_id: bookingIdToUse, // Include for debugging
     });
   } catch (error: any) {
     console.error('QR validation error:', error);
