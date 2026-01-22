@@ -898,82 +898,44 @@ export function ReceptionPage() {
       const isToday = dateStr === todayStr;
       
       if (isToday) {
-        // For today, show slots from 8pm (20:00) to 10pm (22:00) in reception page
-        // This is the working hours for cashier/reception
-        // Include slots that start at 20:00, 21:00, and 22:00 (to show 3 slots: 8-9pm, 9-10pm, 10-11pm)
+        // For today, mark slots as past/future for display purposes
+        // But show ALL slots (don't filter by time range)
         const currentTime = now.getHours() * 60 + now.getMinutes(); // Current time in minutes since midnight
-        const startTimeFilter = 20 * 60; // 8pm = 20:00 = 1200 minutes
-        const endTimeFilter = 23 * 60; // 11pm = 23:00 = 1380 minutes (to include 22:00-23:00 slot)
         
-        console.log(`[ReceptionPage] Reception mode: Filtering slots for today between 8pm-11pm (to show 8-9pm, 9-10pm, 10-11pm)`);
+        console.log(`[ReceptionPage] Reception mode: Showing ALL slots for today`);
         console.log(`[ReceptionPage] Current time: ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')} (${currentTime} minutes), Date: ${dateStr}`);
-        console.log(`[ReceptionPage] Time filter: ${startTimeFilter} (8pm) to ${endTimeFilter} (11pm) minutes`);
         const beforeCount = availableSlots.length;
         
-        // Filter slots to only show those between 8pm and 10pm
-        // Also mark slots as past/future for display purposes
-        availableSlots = availableSlots
-          .filter((slot: any) => {
-            if (!slot.start_time) {
-              return false; // Filter out slots without start_time
-            }
-            // Handle time format: "HH:MM" or "HH:MM:SS"
-            const timeParts = slot.start_time.split(':');
-            const hours = parseInt(timeParts[0] || '0', 10);
-            const minutes = parseInt(timeParts[1] || '0', 10);
-            if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-              return false; // Filter out invalid times
-            }
-            const slotTime = hours * 60 + minutes; // Slot time in minutes since midnight
-            
-            // Only keep slots between 8pm (20:00) and 11pm (23:00)
-            // Include slots that start at 20:00, 21:00, 22:00 (to show 3 slots: 8-9pm, 9-10pm, 10-11pm)
-            const inTimeRange = slotTime >= startTimeFilter && slotTime < endTimeFilter;
-            
-            // Also check if slot end_time is within range (for slots that might start before 8pm but end after)
-            let slotEndTime = slotTime;
-            if (slot.end_time) {
-              const endTimeParts = slot.end_time.split(':');
-              const endHours = parseInt(endTimeParts[0] || '0', 10);
-              const endMinutes = parseInt(endTimeParts[1] || '0', 10);
-              if (!isNaN(endHours) && !isNaN(endMinutes)) {
-                slotEndTime = endHours * 60 + endMinutes;
-              }
-            }
-            // Keep slot if start_time OR end_time is in range
-            const slotEndsInRange = slotEndTime > startTimeFilter && slotEndTime <= endTimeFilter;
-            const finalInRange = inTimeRange || slotEndsInRange;
-            
-            if (finalInRange) {
-              console.log(`[ReceptionPage] Slot ${slot.id}: ${slot.start_time}-${slot.end_time} (start=${slotTime} min, end=${slotEndTime} min) is in 8pm-11pm range - KEEP`);
-            } else {
-              console.log(`[ReceptionPage] Slot ${slot.id}: ${slot.start_time}-${slot.end_time} (start=${slotTime} min, end=${slotEndTime} min) is OUTSIDE 8pm-11pm range - FILTER OUT`);
-            }
-            
-            return finalInRange;
-          })
-          .map((slot: any) => {
-            // Mark slots as past/future for display
-            const timeParts = slot.start_time.split(':');
-            const hours = parseInt(timeParts[0] || '0', 10);
-            const minutes = parseInt(timeParts[1] || '0', 10);
-            const slotTime = hours * 60 + minutes;
-            const isPast = slotTime <= currentTime;
-            
-            return { ...slot, isPast };
-          });
-        
-        console.log(`[ReceptionPage] After 8pm-11pm filter: ${beforeCount} -> ${availableSlots.length} slots`);
-        if (availableSlots.length > 0) {
-          console.log(`[ReceptionPage] Filtered slots (8pm-11pm only):`, availableSlots.map(s => `${s.start_time}-${s.end_time} (${s.isPast ? 'PAST' : 'FUTURE'}, capacity=${s.available_capacity})`));
-          if (availableSlots.length !== 3) {
-            console.warn(`[ReceptionPage] ⚠️ Expected 3 slots (8-9pm, 9-10pm, 10-11pm), but found ${availableSlots.length}`);
+        // Mark slots as past/future for display, but don't filter them out
+        availableSlots = availableSlots.map((slot: any) => {
+          if (!slot.start_time) {
+            return { ...slot, isPast: false }; // Keep slots without start_time, mark as future
           }
+          // Handle time format: "HH:MM" or "HH:MM:SS"
+          const timeParts = slot.start_time.split(':');
+          const hours = parseInt(timeParts[0] || '0', 10);
+          const minutes = parseInt(timeParts[1] || '0', 10);
+          if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+            return { ...slot, isPast: false }; // Keep invalid times, mark as future
+          }
+          const slotTime = hours * 60 + minutes; // Slot time in minutes since midnight
+          const isPast = slotTime <= currentTime;
+          
+          console.log(`[ReceptionPage] Slot ${slot.id}: ${slot.start_time}-${slot.end_time} (${slotTime} min) vs current (${currentTime} min) - ${isPast ? 'PAST' : 'FUTURE'}`);
+          
+          return { ...slot, isPast };
+        });
+        
+        console.log(`[ReceptionPage] After marking past/future: ${beforeCount} slots (all kept, ${availableSlots.filter((s: any) => s.isPast).length} past, ${availableSlots.filter((s: any) => !s.isPast).length} future)`);
+        if (availableSlots.length > 0) {
+          console.log(`[ReceptionPage] All slots:`, availableSlots.map((s: any) => `${s.start_time}-${s.end_time} (${s.isPast ? 'PAST' : 'FUTURE'}, capacity=${s.available_capacity})`));
         } else {
-          console.warn(`[ReceptionPage] ⚠️ No slots found in 8pm-11pm range!`);
+          console.warn(`[ReceptionPage] ⚠️ No slots found for today!`);
         }
+      } else {
+        // For future dates, mark all slots as future
+        availableSlots = availableSlots.map((slot: any) => ({ ...slot, isPast: false }));
       }
-      // For future dates, keep all slots (no filtering needed)
 
       // Filter out slots that conflict with already selected services
       console.log(`[ReceptionPage] Before filterConflictingSlots: ${availableSlots.length} slots`);
