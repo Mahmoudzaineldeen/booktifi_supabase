@@ -379,7 +379,9 @@ export async function generateBookingTicketPDF(
     }
 
     // Generate QR code and barcode
-    const qrDataURL = await generateQRCodeDataURL(bookingId);
+    // Get API base URL for QR code (use APP_URL if available)
+    const apiBaseUrl = process.env.APP_URL || undefined;
+    const qrDataURL = await generateQRCodeDataURL(bookingId, apiBaseUrl);
     const qrBuffer = Buffer.from(qrDataURL.split(',')[1], 'base64');
     const barcodeBuffer = await generateBarcodeBuffer(bookingId);
 
