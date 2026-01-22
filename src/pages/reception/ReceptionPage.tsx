@@ -14,6 +14,7 @@ import { format, addDays, startOfWeek, isSameDay, parseISO, startOfDay, endOfDay
 import { useNavigate } from 'react-router-dom';
 import { countryCodes } from '../../lib/countryCodes';
 import { getApiUrl } from '../../lib/apiUrl';
+import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
 
 interface Booking {
   id: string;
@@ -106,6 +107,7 @@ export function ReceptionPage() {
   const { t, i18n } = useTranslation();
   const { userProfile, signOut, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const tenantDefaultCountry = useTenantDefaultCountry();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [todayBookings, setTodayBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -127,13 +129,13 @@ export function ReceptionPage() {
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<{start_time: string, end_time: string, slot_date: string} | null>(null);
   const [availableEmployees, setAvailableEmployees] = useState<Array<{id: string, name: string, name_ar: string, bookingCount: number}>>([]);
   const [isLookingUpCustomer, setIsLookingUpCustomer] = useState(false);
-  const [countryCode, setCountryCode] = useState('+966'); // Default to Saudi Arabia (kept for backward compatibility)
+  const [countryCode, setCountryCode] = useState(tenantDefaultCountry); // Use tenant's default country code
   const [customerPhoneFull, setCustomerPhoneFull] = useState(''); // Full phone number with country code
   const [customerPackage, setCustomerPackage] = useState<CustomerPackage | null>(null);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [packages, setPackages] = useState<any[]>([]);
   const [subscriptionCustomerLookup, setSubscriptionCustomerLookup] = useState<any>(null);
-  const [subscriptionCountryCode, setSubscriptionCountryCode] = useState('+966');
+  const [subscriptionCountryCode, setSubscriptionCountryCode] = useState(tenantDefaultCountry);
   const [subscriptionForm, setSubscriptionForm] = useState({
     customer_phone: '',
     customer_name: '',
@@ -629,7 +631,7 @@ export function ReceptionPage() {
       expires_at: ''
     });
     setSubscriptionCustomerLookup(null);
-    setSubscriptionCountryCode('+966');
+    setSubscriptionCountryCode(tenantDefaultCountry);
   }
 
   async function fetchBookings() {
@@ -2066,7 +2068,7 @@ export function ReceptionPage() {
     
     // Extract country code and phone number
     let phoneNumber = fullPhoneNumber;
-    let code = '+966'; // default
+    let code = tenantDefaultCountry; // Use tenant's default country code
     
     for (const country of countryCodes) {
       if (fullPhoneNumber.startsWith(country.code)) {
@@ -2239,7 +2241,7 @@ export function ReceptionPage() {
     setShowPreview(false);
     setPreviewData(null);
     setSelectedSlots([]);
-    setCountryCode('+966');
+    setCountryCode(tenantDefaultCountry);
     setSelectedService('');
     setSelectedSlot('');
     setSelectedEmployee('');
@@ -3084,7 +3086,7 @@ export function ReceptionPage() {
                   lookupCustomerByPhone(value);
                 }
               }}
-              defaultCountry="+966"
+              defaultCountry={tenantDefaultCountry}
               required
             />
             {isLookingUpCustomer && (

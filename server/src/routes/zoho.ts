@@ -72,8 +72,11 @@ router.get('/auth', async (req, res) => {
     
     // Final fallback: Use APP_URL from environment or construct from Railway
     if (!origin) {
-      origin = process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app';
-      originSource = 'Environment (APP_URL) or Railway default';
+      if (!process.env.APP_URL) {
+        throw new Error('APP_URL environment variable is required for Zoho OAuth');
+      }
+      origin = process.env.APP_URL;
+      originSource = 'Environment (APP_URL)';
     }
     
     // Construct redirect URI from detected origin
@@ -205,7 +208,7 @@ router.get('/callback', async (req, res) => {
               </ul>
               <h3>What to do?</h3>
               <ol>
-                <li>Make sure the redirect URI in Zoho Developer Console matches: <code>${process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app'}/api/zoho/callback</code></li>
+                <li>Make sure the redirect URI in Zoho Developer Console matches: <code>${process.env.APP_URL || 'APP_URL_NOT_SET'}/api/zoho/callback</code></li>
                 <li>Try the OAuth flow again: <a href="/api/zoho/auth?tenant_id=63107b06-938e-4ce6-b0f3-520a87db397b">Start OAuth Flow</a></li>
                 <li>If you denied access, make sure to click "Allow" or "Authorize" when prompted</li>
               </ol>

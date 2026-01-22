@@ -844,7 +844,10 @@ router.put('/zoho-config', authenticateTenantAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Client ID and Client Secret are required' });
     }
 
-    const defaultRedirectUri = redirect_uri || `${process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app'}/api/zoho/callback`;
+    if (!process.env.APP_URL && !redirect_uri) {
+      throw new Error('Either APP_URL environment variable or redirect_uri parameter is required for Zoho OAuth');
+    }
+    const defaultRedirectUri = redirect_uri || `${process.env.APP_URL}/api/zoho/callback`;
     const defaultScopes = scopes || [
       'ZohoInvoice.invoices.CREATE',
       'ZohoInvoice.invoices.READ',

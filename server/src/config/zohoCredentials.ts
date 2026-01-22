@@ -177,7 +177,10 @@ class ZohoCredentialsManager {
    * Get default redirect URI
    */
   private getDefaultRedirectUri(): string {
-    return process.env.ZOHO_REDIRECT_URI || (process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app') + '/api/zoho/callback';
+    if (!process.env.APP_URL && !process.env.ZOHO_REDIRECT_URI) {
+      throw new Error('Either APP_URL or ZOHO_REDIRECT_URI environment variable is required for Zoho OAuth redirect URI');
+    }
+    return process.env.ZOHO_REDIRECT_URI || process.env.APP_URL + '/api/zoho/callback';
   }
 
   /**
@@ -245,7 +248,7 @@ class ZohoCredentialsManager {
         client_id: jsonData.client_id,
         client_secret: jsonData.client_secret,
         scope: jsonData.scope || ['ZohoInvoice.invoices.CREATE', 'ZohoInvoice.invoices.READ', 'ZohoInvoice.invoices.UPDATE'],
-        redirect_uri: process.env.ZOHO_REDIRECT_URI || (process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app') + '/api/zoho/callback',
+        redirect_uri: process.env.ZOHO_REDIRECT_URI || (process.env.APP_URL ? process.env.APP_URL + '/api/zoho/callback' : undefined),
         region: process.env.ZOHO_REGION || 'com',
       };
 
@@ -330,7 +333,10 @@ class ZohoCredentialsManager {
    */
   getRedirectUri(): string {
     const creds = this.loadCredentials(false);
-    return creds?.redirect_uri || (process.env.APP_URL || 'https://booktifisupabase-production.up.railway.app') + '/api/zoho/callback';
+    if (!creds?.redirect_uri && !process.env.APP_URL && !process.env.ZOHO_REDIRECT_URI) {
+      throw new Error('Either tenant Zoho config redirect_uri, APP_URL, or ZOHO_REDIRECT_URI environment variable is required');
+    }
+    return creds?.redirect_uri || process.env.ZOHO_REDIRECT_URI || process.env.APP_URL + '/api/zoho/callback';
   }
 
   /**

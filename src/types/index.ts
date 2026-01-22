@@ -9,6 +9,7 @@ export type PaymentStatus = 'unpaid' | 'paid_manual' | 'awaiting_payment' | 'pai
 export type CapacityMode = 'employee_based' | 'service_based';
 
 export interface Tenant {
+  default_country_code?: string;
   id: string;
   name: string;
   name_ar: string;

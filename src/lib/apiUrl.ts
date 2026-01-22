@@ -11,49 +11,20 @@
  * - Local development: Uses Railway backend (default) or VITE_API_URL
  */
 export function getApiUrl(): string {
-  // Always check VITE_API_URL first - if set, use it (highest priority)
-  if (import.meta.env.VITE_API_URL) {
-    const apiUrl = import.meta.env.VITE_API_URL;
-    console.log('[getApiUrl] Using VITE_API_URL:', apiUrl);
-    return apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`;
-  }
-
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    const origin = window.location.origin;
-    
-    // Detect Netlify deployment
-    const isNetlify = hostname.includes('netlify.app') || hostname.includes('netlify.com');
-    if (isNetlify) {
-      // In Netlify, VITE_API_URL should be set, but fallback to Railway
-      const railwayUrl = 'https://booktifisupabase-production.up.railway.app/api';
-      console.warn('[getApiUrl] ⚠️ Netlify detected but VITE_API_URL not set. Using Railway fallback:', railwayUrl);
-      console.warn('[getApiUrl] ⚠️ Please set VITE_API_URL in Netlify environment variables!');
-      return railwayUrl;
-    }
-    
-    // Comprehensive detection for Bolt/WebContainer environments
-    const isWebContainer = 
-      hostname.includes('webcontainer') || 
-      hostname.includes('bolt') ||
-      hostname.includes('local-credentialless') ||
-      hostname.includes('webcontainer-api.io') ||
-      origin.includes('bolt.host') ||
-      (hostname === 'localhost' && window.location.port === '5173');
-    
-    if (isWebContainer) {
-      // In Bolt, use Railway backend URL
-      const railwayUrl = 'https://booktifisupabase-production.up.railway.app/api';
-      console.log('[getApiUrl] Bolt/WebContainer detected, using Railway backend:', railwayUrl);
-      return railwayUrl;
-    }
+  // VITE_API_URL is REQUIRED - no fallbacks to hardcoded URLs
+  const apiUrl = import.meta.env.VITE_API_URL;
+  
+  if (!apiUrl) {
+    const error = '[getApiUrl] ❌ CRITICAL: VITE_API_URL environment variable is not set!';
+    console.error(error);
+    console.error('[getApiUrl] Please set VITE_API_URL in your environment variables.');
+    console.error('[getApiUrl] For local development: VITE_API_URL=http://localhost:3001/api');
+    console.error('[getApiUrl] For production: VITE_API_URL=https://your-backend-url.com/api');
+    throw new Error('VITE_API_URL environment variable is required. Please configure it in your environment.');
   }
   
-  // Local development: Default to Railway backend (not localhost)
-  // This ensures we test against the deployed backend
-  const railwayUrl = 'https://booktifisupabase-production.up.railway.app/api';
-  console.log('[getApiUrl] Local development, using Railway backend:', railwayUrl);
-  return railwayUrl;
+  console.log('[getApiUrl] Using VITE_API_URL:', apiUrl);
+  return apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`;
 }
 
 /**
