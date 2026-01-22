@@ -1025,28 +1025,46 @@ function extractBookingIdFromQR(qrContent: string): string | null {
     return null;
   }
 
-  // UUID regex pattern
-  const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
-  
-  // If it's already a raw UUID, return it
   const trimmed = qrContent.trim();
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) {
+  
+  // NEW: Try to parse as JSON (structured booking data format)
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object' && parsed.booking_id) {
+      // Validate it's a UUID
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(parsed.booking_id)) {
+        console.log('[QR Extract] Found booking_id in JSON format');
+        return parsed.booking_id;
+      }
+    }
+  } catch (e) {
+    // Not JSON, continue to other formats
+  }
+  
+  // LEGACY: If it's already a raw UUID, return it
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(trimmed)) {
+    console.log('[QR Extract] Found raw UUID format');
     return trimmed;
   }
 
-  // Try to extract UUID from URL
+  // LEGACY: Try to extract UUID from URL
   // Pattern: /api/bookings/{uuid}/details or /bookings/{uuid}/details
-  const urlMatch = qrContent.match(/\/bookings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+  const urlMatch = trimmed.match(/\/bookings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
   if (urlMatch && urlMatch[1]) {
+    console.log('[QR Extract] Found UUID in URL format');
     return urlMatch[1];
   }
 
-  // Try to find UUID anywhere in the string
-  const uuidMatch = qrContent.match(uuidRegex);
+  // LEGACY: Try to find UUID anywhere in the string
+  const uuidMatch = trimmed.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
   if (uuidMatch && uuidMatch[0]) {
+    console.log('[QR Extract] Found UUID in string');
     return uuidMatch[0];
   }
 
+  console.log('[QR Extract] No valid booking ID found in QR content');
   return null;
 }
 
@@ -1219,6 +1237,8 @@ router.get('/:id/details', async (req, res) => {
     }
 
     // Get booking details (read-only, no state modification)
+    // SECURITY: Public endpoint does NOT return status or payment information
+    // Only ticket details are returned for external scanners
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
       .select(`
@@ -1230,10 +1250,6 @@ router.get('/:id/details', async (req, res) => {
         adult_count,
         child_count,
         total_price,
-        status,
-        payment_status,
-        qr_scanned,
-        qr_scanned_at,
         services!inner (
           name,
           name_ar,
@@ -1329,33 +1345,63 @@ router.get('/:id/details', async (req, res) => {
       return 'General';
     };
 
-    const bookingData = {
+    // SECURITY: Public endpoint returns ticket details only, NO status or payment info
+    // Explicitly construct object to ensure no status fields leak through
+    const bookingData: {
+      id: string;
+      customer_name: string;
+      customer_phone: string;
+      customer_email?: string | null;
+      visitor_count: number;
+      adult_count: number | null;
+      child_count: number | null;
+      total_price: number;
+      slot_date: string;
+      start_time: string;
+      end_time: string;
+      service_name: string;
+      service_name_ar?: string | null;
+      service_description?: string | null;
+      service_description_ar?: string | null;
+      tenant_name?: string | null;
+      tenant_name_ar?: string | null;
+      formatted_date: string;
+      formatted_start_time: string;
+      formatted_end_time: string;
+      ticket_type: string;
+    } = {
       id: booking.id,
       customer_name: booking.customer_name,
       customer_phone: booking.customer_phone,
-      customer_email: (booking as any).customer_email,
+      customer_email: (booking as any).customer_email || null,
       visitor_count: booking.visitor_count,
-      adult_count: booking.adult_count,
-      child_count: booking.child_count,
+      adult_count: booking.adult_count || null,
+      child_count: booking.child_count || null,
       total_price: booking.total_price,
-      status: booking.status,
-      payment_status: booking.payment_status,
       slot_date: (booking.slots as any).slot_date,
       start_time: (booking.slots as any).start_time,
       end_time: (booking.slots as any).end_time,
       service_name: (booking.services as any).name,
-      service_name_ar: (booking.services as any).name_ar,
-      service_description: (booking.services as any).description,
-      service_description_ar: (booking.services as any).description_ar,
-      tenant_name: (booking.tenants as any)?.name,
-      tenant_name_ar: (booking.tenants as any)?.name_ar,
-      qr_scanned: booking.qr_scanned,
-      qr_scanned_at: booking.qr_scanned_at,
+      service_name_ar: (booking.services as any).name_ar || null,
+      service_description: (booking.services as any).description || null,
+      service_description_ar: (booking.services as any).description_ar || null,
+      tenant_name: (booking.tenants as any)?.name || null,
+      tenant_name_ar: (booking.tenants as any)?.name_ar || null,
       formatted_date: formatDate((booking.slots as any).slot_date),
       formatted_start_time: formatTime12Hour((booking.slots as any).start_time),
       formatted_end_time: formatTime12Hour((booking.slots as any).end_time),
       ticket_type: getTicketType(),
     };
+    
+    // Explicitly verify no status fields are present (defensive programming)
+    if ('status' in bookingData || 'payment_status' in bookingData || 'qr_scanned' in bookingData) {
+      console.error('[SECURITY] CRITICAL: Status fields detected in public booking data!');
+      console.error('   This should never happen. Removing status fields...');
+      delete (bookingData as any).status;
+      delete (bookingData as any).payment_status;
+      delete (bookingData as any).qr_scanned;
+      delete (bookingData as any).qr_scanned_at;
+    }
 
     // Check if request wants HTML (browser) or JSON (API)
     // Default to HTML if no Accept header or if it's a browser request
@@ -1520,17 +1566,6 @@ router.get('/:id/details', async (req, res) => {
                 <div class="detail-label">PRICE</div>
                 <div class="price">${bookingData.total_price.toFixed(2)} SAR</div>
               </div>
-              
-              ${bookingData.status ? `
-                <div class="detail-section">
-                  <div class="detail-label">STATUS</div>
-                  <div>
-                    <span class="status-indicator status-${bookingData.status}">
-                      ${bookingData.status}
-                    </span>
-                  </div>
-                </div>
-              ` : ''}
             </div>
             <div class="footer">
               Booking ID: ${bookingData.id.substring(0, 8).toUpperCase()}...
@@ -1542,9 +1577,18 @@ router.get('/:id/details', async (req, res) => {
     }
 
     // Return JSON for API requests
+    // SECURITY: Explicitly filter out any status fields that might have leaked through
+    const safeBookingData = { ...bookingData };
+    delete (safeBookingData as any).status;
+    delete (safeBookingData as any).payment_status;
+    delete (safeBookingData as any).qr_scanned;
+    delete (safeBookingData as any).qr_scanned_at;
+    delete (safeBookingData as any).checked_in_at;
+    delete (safeBookingData as any).checked_in_by_user_id;
+    
     res.json({
       success: true,
-      booking: bookingData,
+      booking: safeBookingData,
     });
   } catch (error: any) {
     console.error('Get booking details error:', error);

@@ -5,6 +5,7 @@ import { Card, CardContent } from '../../components/ui/Card';
 import { format, parseISO } from 'date-fns';
 import { User, Calendar, Clock, Package, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { getApiUrl } from '../../lib/apiUrl';
+import { extractBookingIdFromQR, parseQRContentForDisplay } from '../../lib/qrUtils';
 
 interface BookingDetails {
   id: string;
@@ -158,21 +159,9 @@ export function QRScannerPage() {
             <>
               <Card className="mb-6">
                 <CardContent className="p-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <h1 className="text-2xl font-bold">Booking Details</h1>
-                    <div className={`px-3 py-1 rounded-full text-sm font-medium ${
-                      bookingDetails.status === 'confirmed'
-                        ? 'bg-green-100 text-green-800'
-                        : bookingDetails.status === 'checked_in'
-                        ? 'bg-blue-100 text-blue-800'
-                        : bookingDetails.status === 'completed'
-                        ? 'bg-gray-100 text-gray-800'
-                        : bookingDetails.status === 'cancelled'
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {bookingDetails.status.replace('_', ' ').toUpperCase()}
-                    </div>
+                  <div className="mb-6">
+                    <h1 className="text-2xl font-bold">Ticket Details</h1>
+                    <p className="text-sm text-gray-500 mt-1">Booking Reference: {bookingDetails.id.substring(0, 8)}...</p>
                   </div>
 
                   <div className="space-y-4">
@@ -216,13 +205,13 @@ export function QRScannerPage() {
                       </div>
                     </div>
 
-                    {/* Visitor Count */}
+                    {/* Visitor Count / Quantity */}
                     <div className="flex items-start gap-3">
                       <User className="w-5 h-5 text-gray-400 mt-0.5" />
                       <div>
-                        <p className="text-sm text-gray-500">Visitors</p>
+                        <p className="text-sm text-gray-500">Quantity</p>
                         <p className="font-medium">
-                          {bookingDetails.visitor_count} {bookingDetails.visitor_count === 1 ? 'person' : 'people'}
+                          {bookingDetails.visitor_count} {bookingDetails.visitor_count === 1 ? 'ticket' : 'tickets'}
                           {bookingDetails.adult_count > 0 && bookingDetails.child_count > 0 && (
                             <span className="text-sm text-gray-600 ml-2">
                               ({bookingDetails.adult_count} adult{bookingDetails.adult_count !== 1 ? 's' : ''}, {bookingDetails.child_count} child{bookingDetails.child_count !== 1 ? 'ren' : ''})
@@ -232,37 +221,23 @@ export function QRScannerPage() {
                       </div>
                     </div>
 
-                    {/* Payment Status */}
+                    {/* Price */}
                     <div className="flex items-start gap-3">
-                      <div className={`w-5 h-5 rounded-full mt-0.5 ${
-                        bookingDetails.payment_status === 'paid' || bookingDetails.payment_status === 'paid_manual'
-                          ? 'bg-green-500'
-                          : bookingDetails.payment_status === 'awaiting_payment'
-                          ? 'bg-yellow-500'
-                          : 'bg-red-500'
-                      }`} />
+                      <div className="w-5 h-5 text-gray-400 mt-0.5 flex items-center justify-center">$</div>
                       <div>
-                        <p className="text-sm text-gray-500">Payment Status</p>
-                        <p className="font-medium capitalize">
-                          {bookingDetails.payment_status.replace('_', ' ')}
+                        <p className="text-sm text-gray-500">Price</p>
+                        <p className="font-medium">
+                          {bookingDetails.total_price.toFixed(2)} SAR
                         </p>
                       </div>
                     </div>
-
-                    {/* QR Scan Status */}
-                    {bookingDetails.qr_scanned && (
-                      <div className="flex items-start gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                        <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-green-800">QR Code Scanned</p>
-                          {bookingDetails.qr_scanned_at && (
-                            <p className="text-xs text-green-600">
-                              Scanned on {format(parseISO(bookingDetails.qr_scanned_at), 'MMM dd, yyyy HH:mm')}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                  </div>
+                  
+                  {/* Note: Status and payment information are NOT displayed in external scanner view */}
+                  <div className="mt-6 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-xs text-blue-700">
+                      This is a read-only ticket view. For payment status and booking updates, please contact the service provider.
+                    </p>
                   </div>
                 </CardContent>
               </Card>

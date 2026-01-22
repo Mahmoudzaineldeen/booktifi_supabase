@@ -11,6 +11,7 @@ import { QRScanner } from '../../components/qr/QRScanner';
 import { format, parseISO } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../../lib/apiUrl';
+import { extractBookingIdFromQR } from '../../lib/qrUtils';
 
 interface Booking {
   id: string;
@@ -91,11 +92,25 @@ export function CashierPage() {
   }, [userProfile, authLoading, navigate, initialAuthDone]);
 
   // Validate QR Code
-  async function validateQRCode(bookingId: string) {
+  async function validateQRCode(qrContent: string) {
     setQrValidating(true);
     setQrValidationResult(null);
 
     try {
+      // Extract booking ID from QR content (supports JSON, URL, or UUID)
+      const bookingId = extractBookingIdFromQR(qrContent);
+      
+      if (!bookingId) {
+        setQrValidationResult({
+          success: false,
+          message: i18n.language === 'ar' 
+            ? 'تنسيق QR غير صالح. يجب أن يحتوي رمز QR على معرف حجز صالح.'
+            : 'Invalid QR code format. QR code must contain a valid booking ID.',
+        });
+        setQrValidating(false);
+        return;
+      }
+
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
 
@@ -190,20 +205,20 @@ export function CashierPage() {
     }
   }
 
-  // Handle QR input (can be scanned or manually entered)
+  // Handle QR input (can be scanned or manually entered - supports JSON, URL, or UUID)
   function handleQRSubmit(e?: React.FormEvent) {
     if (e) e.preventDefault();
     
-    const bookingId = qrInputValue.trim();
-    if (!bookingId) {
+    const qrContent = qrInputValue.trim();
+    if (!qrContent) {
       setQrValidationResult({
         success: false,
-        message: i18n.language === 'ar' ? 'يرجى إدخال رقم الحجز' : 'Please enter booking ID',
+        message: i18n.language === 'ar' ? 'يرجى إدخال رمز QR أو معرف الحجز' : 'Please enter QR code or booking ID',
       });
       return;
     }
 
-    validateQRCode(bookingId);
+    validateQRCode(qrContent);
   }
 
   // Update payment status (Cashier can only mark as paid if unpaid)

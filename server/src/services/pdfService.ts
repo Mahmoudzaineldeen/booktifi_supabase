@@ -60,102 +60,64 @@ interface BookingData {
 
 /**
  * Generate QR code as data URL
+ * NEW BEHAVIOR: QR codes contain structured booking data (JSON) instead of URLs
+ * - External scanners: Display booking data directly (read-only, no redirect)
+ * - Internal scanners: Parse JSON to extract booking ID and validate
  */
-/**
- * Generate QR code data URL with booking details URL
- * Encodes a URL that points to the public booking details API endpoint
- * External scanners will open this URL to display booking information
- */
-async function generateQRCodeDataURL(bookingId: string, apiBaseUrl?: string): Promise<string> {
+async function generateQRCodeDataURL(
+  bookingId: string, 
+  bookingData?: {
+    service_name?: string;
+    service_name_ar?: string;
+    slot_date?: string;
+    start_time?: string;
+    end_time?: string;
+    tenant_name?: string;
+    tenant_name_ar?: string;
+    customer_name?: string;
+    total_price?: number;
+    visitor_count?: number;
+  }
+): Promise<string> {
   try {
-    // Construct URL to public booking details endpoint
-    // The endpoint is on the backend (Railway), so we should use APP_URL (backend URL)
-    // However, if FRONTEND_URL is set and points to a domain that proxies to the backend, we can use that
-    // Priority: apiBaseUrl parameter > APP_URL (backend) > FRONTEND_URL (if it proxies to backend)
-    let bookingDetailsUrl: string;
-    let urlSource = 'unknown';
+    // Generate structured JSON payload with booking information
+    // SECURITY: QR payload contains NO status or payment information
+    // External scanners display ticket details only (read-only, informational)
+    // Internal scanners parse this to extract booking ID for validation
+    // Status and payment info are fetched server-side only by cashier scanner
     
-    if (apiBaseUrl) {
-      // If explicitly provided, use it
-      bookingDetailsUrl = `${apiBaseUrl}/api/bookings/${bookingId}/details`;
-      urlSource = 'apiBaseUrl parameter';
-    } else if (process.env.APP_URL) {
-      // Use backend URL (Railway) - this is the correct endpoint
-      // Remove trailing slash if present
-      let backendUrl = process.env.APP_URL.replace(/\/$/, '');
+    const qrPayload = {
+      // Core identifier for internal scanners
+      booking_id: bookingId,
       
-      // CRITICAL: If APP_URL contains old Bolt URL, try to detect Railway URL from RAILWAY_PUBLIC_DOMAIN
-      // or use a known Railway URL pattern
-      if (backendUrl.includes('bolt.host')) {
-        console.error('⚠️  [QR Code] CRITICAL: APP_URL is set to old Bolt URL:', backendUrl);
-        console.error('   Attempting to use Railway URL instead...');
-        
-        // Try to get Railway URL from environment
-        const railwayUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
-          ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-          : process.env.RAILWAY_STATIC_URL
-          ? process.env.RAILWAY_STATIC_URL
-          : null;
-        
-        if (railwayUrl && !railwayUrl.includes('bolt.host')) {
-          backendUrl = railwayUrl;
-          console.log(`✅ [QR Code] Using Railway URL from environment: ${backendUrl}`);
-          urlSource = 'RAILWAY_PUBLIC_DOMAIN (APP_URL was Bolt URL)';
-        } else {
-          // Try to detect Railway URL from request headers or environment
-          // Railway sets PORT and we can infer the URL
-          const port = process.env.PORT;
-          const railwayServiceUrl = process.env.RAILWAY_SERVICE_URL;
-          const railwayPublicDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
-          
-          // Try known Railway URL pattern
-          const knownRailwayUrl = 'https://booktifisupabase-production.up.railway.app';
-          
-          // Priority: RAILWAY_SERVICE_URL > RAILWAY_PUBLIC_DOMAIN > known pattern
-          let detectedUrl = railwayServiceUrl 
-            ? railwayServiceUrl.replace(/\/$/, '')
-            : railwayPublicDomain
-            ? `https://${railwayPublicDomain.replace(/\/$/, '')}`
-            : knownRailwayUrl;
-          
-          if (detectedUrl && !detectedUrl.includes('bolt.host')) {
-            backendUrl = detectedUrl;
-            console.warn(`⚠️  [QR Code] Using detected Railway URL: ${backendUrl}`);
-            console.warn('   PLEASE UPDATE APP_URL in Railway to: ' + backendUrl);
-            console.warn('   This is a temporary fallback - update APP_URL for production stability');
-            urlSource = 'Detected Railway URL (APP_URL was Bolt URL)';
-          } else {
-            console.error('   ❌ Could not find valid Railway URL. QR codes will use Bolt URL.');
-            console.error('   Please update APP_URL in Railway to your Railway backend URL');
-            console.error('   Expected: https://booktifisupabase-production.up.railway.app');
-          }
-        }
-      }
+      // Display data for external scanners (read-only, no status/payment)
+      service: bookingData?.service_name || 'Service',
+      service_ar: bookingData?.service_name_ar || null,
+      date: bookingData?.slot_date || null,
+      time: bookingData?.start_time && bookingData?.end_time 
+        ? `${bookingData.start_time} - ${bookingData.end_time}`
+        : null,
+      tenant: bookingData?.tenant_name || null,
+      tenant_ar: bookingData?.tenant_name_ar || null,
+      customer: bookingData?.customer_name || null,
+      price: bookingData?.total_price || null,
+      quantity: bookingData?.visitor_count || null,
       
-      bookingDetailsUrl = `${backendUrl}/api/bookings/${bookingId}/details`;
-      if (urlSource === 'unknown') {
-        urlSource = 'APP_URL environment variable';
-      }
-    } else if (process.env.FRONTEND_URL) {
-      // Fallback: if frontend proxies to backend, use frontend URL
-      // Note: This assumes the frontend has a proxy route for /api/*
-      const frontendUrl = process.env.FRONTEND_URL.replace(/\/$/, '');
-      bookingDetailsUrl = `${frontendUrl}/api/bookings/${bookingId}/details`;
-      urlSource = 'FRONTEND_URL environment variable';
-      console.warn('[QR Code] Using FRONTEND_URL as fallback. Ensure frontend proxies /api/* to backend.');
-    } else {
-      // Last resort: use booking ID only (backward compatibility)
-      // External scanners will show the UUID, which can be manually entered
-      console.warn('[QR Code] No APP_URL or FRONTEND_URL set. QR code will contain booking ID only.');
-      bookingDetailsUrl = bookingId;
-      urlSource = 'booking ID only (no URL configured)';
-    }
+      // Metadata
+      type: 'booking_ticket',
+      version: '1.0'
+    };
     
-    console.log(`[QR Code] Generated URL for booking ${bookingId}:`);
-    console.log(`   URL: ${bookingDetailsUrl}`);
-    console.log(`   Source: ${urlSource}`);
+    // Convert to compact JSON string (no spaces for smaller QR code)
+    const qrContent = JSON.stringify(qrPayload);
     
-    const qrDataURL = await QRCode.toDataURL(bookingDetailsUrl, {
+    console.log(`[QR Code] Generated structured data for booking ${bookingId}:`);
+    console.log(`   Content: ${qrContent.substring(0, 100)}...`);
+    console.log(`   Format: JSON (structured booking data)`);
+    console.log(`   External scanners: Will display booking details directly`);
+    console.log(`   Internal scanners: Will extract booking_id for validation`);
+    
+    const qrDataURL = await QRCode.toDataURL(qrContent, {
       errorCorrectionLevel: 'M',
       type: 'image/png',
       width: 200,
@@ -302,6 +264,7 @@ export async function generateBookingTicketPDF(
         id, customer_name, customer_phone, customer_email,
         created_at, package_id, offer_id,
         visitor_count, adult_count, child_count, total_price,
+        payment_status, status,
         services (
           name,
           name_ar,
@@ -448,10 +411,22 @@ export async function generateBookingTicketPDF(
     }
 
     // Generate QR code and barcode
-    // Use APP_URL (Railway backend) for QR codes - the endpoint is on the backend
-    // The endpoint returns HTML for browser requests, so external scanners will display booking details
-    const qrCodeBaseUrl = process.env.APP_URL || process.env.FRONTEND_URL || undefined;
-    const qrDataURL = await generateQRCodeDataURL(bookingId, qrCodeBaseUrl);
+    // NEW: QR codes now contain structured booking data (JSON) instead of URLs
+    // SECURITY: QR payload contains NO status or payment information
+    // External scanners will display ticket details only (read-only)
+    // Internal scanners will parse it to extract booking ID for validation
+    const qrDataURL = await generateQRCodeDataURL(bookingId, {
+      service_name: booking.service_name,
+      service_name_ar: booking.service_name_ar,
+      slot_date: booking.slot_date,
+      start_time: booking.start_time,
+      end_time: booking.end_time,
+      tenant_name: booking.tenant_name,
+      tenant_name_ar: booking.tenant_name_ar,
+      customer_name: booking.customer_name,
+      total_price: booking.total_price,
+      visitor_count: booking.visitor_count
+    });
     const qrBuffer = Buffer.from(qrDataURL.split(',')[1], 'base64');
     const barcodeBuffer = await generateBarcodeBuffer(bookingId);
 

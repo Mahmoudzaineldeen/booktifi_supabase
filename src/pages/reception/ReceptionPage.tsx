@@ -17,6 +17,7 @@ import { countryCodes } from '../../lib/countryCodes';
 import { getApiUrl } from '../../lib/apiUrl';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
+import { extractBookingIdFromQR } from '../../lib/qrUtils';
 
 interface Booking {
   id: string;
@@ -2070,35 +2071,8 @@ export function ReceptionPage() {
     }
   }
 
-  // Extract booking ID from QR content (supports URL or raw UUID)
-  function extractBookingIdFromQR(qrContent: string): string | null {
-    if (!qrContent || typeof qrContent !== 'string') {
-      return null;
-    }
-
-    const trimmed = qrContent.trim();
-    
-    // If it's already a raw UUID, return it
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (uuidRegex.test(trimmed)) {
-      return trimmed;
-    }
-
-    // Try to extract UUID from URL
-    // Pattern: /api/bookings/{uuid}/details or /bookings/{uuid}/details
-    const urlMatch = trimmed.match(/\/bookings\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
-    if (urlMatch && urlMatch[1]) {
-      return urlMatch[1];
-    }
-
-    // Try to find UUID anywhere in the string
-    const uuidMatch = trimmed.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-    if (uuidMatch && uuidMatch[0]) {
-      return uuidMatch[0];
-    }
-
-    return null;
-  }
+  // Import shared QR utility function
+  // Note: extractBookingIdFromQR is now imported from '../../lib/qrUtils'
 
   // Validate QR Code
   async function validateQRCode(qrContent: string) {
