@@ -1809,6 +1809,122 @@ Note: The booking payment status was updated successfully in the database. Only 
       return { error: error.message || 'Unknown error fetching invoice' };
     }
   }
+
+  /**
+   * Update invoice amount (for price changes after booking time edit)
+   */
+  async updateInvoiceAmount(
+    invoiceId: string,
+    newAmount: number
+  ): Promise<{ success: boolean; error?: string; invoiceId?: string }> {
+    try {
+      const tenantId = await this.getTenantIdFromInvoice(invoiceId);
+      if (!tenantId) {
+        throw new Error(`Could not find tenant for invoice ${invoiceId}`);
+      }
+
+      const accessToken = await this.getAccessToken(tenantId);
+      if (!accessToken) {
+        throw new Error(`No Zoho access token found for tenant ${tenantId}`);
+      }
+
+      const apiBaseUrl = await this.getApiBaseUrl(tenantId);
+      console.log(`[ZohoService] Updating invoice ${invoiceId} amount to ${newAmount}`);
+
+      // Get current invoice to preserve line items structure
+      const getResponse = await axios.get(
+        `${apiBaseUrl}/invoices/${invoiceId}`,
+        {
+          headers: {
+            'Authorization': `Zoho-oauthtoken ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const invoiceData = getResponse.data as any;
+      if (!invoiceData.invoice) {
+        throw new Error(`Invoice ${invoiceId} not found in Zoho`);
+      }
+
+      const currentInvoice = invoiceData.invoice;
+      const currentTotal = parseFloat(currentInvoice.total) || 0;
+      const difference = newAmount - currentTotal;
+
+      // If amount hasn't changed, no-op
+      if (Math.abs(difference) < 0.01) {
+        console.log(`[ZohoService] Invoice amount unchanged: ${currentTotal}`);
+        return { success: true, invoiceId };
+      }
+
+      // Update line items to match new total
+      // Calculate adjustment factor
+      const adjustmentFactor = currentTotal > 0 ? newAmount / currentTotal : 1;
+      
+      const updatedLineItems = currentInvoice.line_items.map((item: any) => ({
+        line_item_id: item.line_item_id,
+        name: item.name,
+        description: item.description || '',
+        rate: parseFloat(item.rate) * adjustmentFactor,
+        quantity: parseFloat(item.quantity) || 1,
+        unit: item.unit || 'ticket',
+      }));
+
+      // Update invoice with new line items
+      const updateResponse = await axios.put(
+        `${apiBaseUrl}/invoices/${invoiceId}`,
+        {
+          line_items: updatedLineItems,
+          notes: currentInvoice.notes 
+            ? `${currentInvoice.notes}\n[Updated: Amount adjusted to ${newAmount} due to booking time change]`
+            : `[Updated: Amount adjusted to ${newAmount} due to booking time change]`,
+        },
+        {
+          headers: {
+            'Authorization': `Zoho-oauthtoken ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const updateData = updateResponse.data as any;
+      if (updateData.code === 0 || updateData.invoice) {
+        console.log(`[ZohoService] ✅ Invoice ${invoiceId} amount updated to ${newAmount}`);
+        return { success: true, invoiceId };
+      } else {
+        throw new Error(`Failed to update invoice: ${updateData.message || 'Unknown error'}`);
+      }
+    } catch (error: any) {
+      console.error(`[ZohoService] ❌ Error updating invoice amount:`, error.message);
+      return { 
+        success: false, 
+        error: error.message || 'Failed to update invoice amount',
+        invoiceId 
+      };
+    }
+  }
+
+  /**
+   * Get tenant ID from invoice ID (helper for updateInvoiceAmount)
+   */
+  private async getTenantIdFromInvoice(invoiceId: string): Promise<string | null> {
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('tenant_id')
+        .eq('zoho_invoice_id', invoiceId)
+        .limit(1)
+        .single();
+
+      if (error || !data) {
+        return null;
+      }
+
+      return data.tenant_id;
+    } catch (error) {
+      return null;
+    }
+  }
 }
 
 export const zohoService = new ZohoService();

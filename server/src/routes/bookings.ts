@@ -2330,6 +2330,248 @@ router.patch('/:id', authenticateReceptionistOrTenantAdmin, async (req, res) => 
 });
 
 // ============================================================================
+// Edit Booking Time (Tenant Provider Only - Atomic Transaction)
+// ============================================================================
+// CRITICAL: Only tenant_admin can edit booking time
+// This endpoint uses the atomic edit_booking_time function which:
+// 1. Validates new slot availability
+// 2. Releases old slot capacity
+// 3. Reserves new slot capacity
+// 4. Invalidates old tickets (marks qr_scanned=true, clears qr_token)
+// 5. Updates booking with new slot
+// 6. All in one atomic transaction
+// ============================================================================
+router.patch('/:id/time', authenticateTenantAdminOnly, async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const userId = req.user!.id;
+    const tenantId = req.user!.tenant_id!;
+    const { slot_id: newSlotId } = req.body;
+
+    if (!newSlotId) {
+      return res.status(400).json({ error: 'slot_id is required' });
+    }
+
+    console.log(`\n🔄 ========================================`);
+    console.log(`🔄 Booking Time Edit Request`);
+    console.log(`   Booking ID: ${bookingId}`);
+    console.log(`   New Slot ID: ${newSlotId}`);
+    console.log(`   User ID: ${userId}`);
+    console.log(`   Tenant ID: ${tenantId}`);
+    console.log(`🔄 ========================================\n`);
+
+    // Use atomic RPC function for booking time edit
+    const { data: editResult, error: editError } = await supabase
+      .rpc('edit_booking_time', {
+        p_booking_id: bookingId,
+        p_new_slot_id: newSlotId,
+        p_tenant_id: tenantId,
+        p_user_id: userId,
+        p_old_slot_id: null // Will be determined by function
+      });
+
+    if (editError) {
+      console.error(`[Booking Time Edit] ❌ RPC Error:`, editError);
+      
+      // Map specific error messages to appropriate status codes
+      if (editError.message.includes('not found') || 
+          editError.message.includes('does not belong')) {
+        return res.status(404).json({ error: editError.message });
+      }
+      if (editError.message.includes('different tenant') ||
+          editError.message.includes('different service')) {
+        return res.status(403).json({ error: editError.message });
+      }
+      if (editError.message.includes('not available') ||
+          editError.message.includes('Not enough capacity')) {
+        return res.status(409).json({ error: editError.message });
+      }
+      if (editError.message.includes('Cannot edit booking time')) {
+        return res.status(400).json({ error: editError.message });
+      }
+      
+      throw editError;
+    }
+
+    if (!editResult || !editResult.success) {
+      return res.status(500).json({ 
+        error: 'Failed to edit booking time',
+        details: editResult?.message || 'Unknown error'
+      });
+    }
+
+    console.log(`[Booking Time Edit] ✅ Success:`, editResult);
+
+    // Parse JSONB response
+    let editData: any = editResult;
+    if (typeof editResult === 'string') {
+      try {
+        editData = JSON.parse(editResult);
+      } catch (e) {
+        editData = editResult;
+      }
+    }
+
+    // Get updated booking details
+    const { data: updatedBooking, error: fetchError } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        services:service_id (name, name_ar),
+        slots:slot_id (slot_date, start_time, end_time),
+        tenants:tenant_id (name, name_ar)
+      `)
+      .eq('id', bookingId)
+      .single();
+
+    if (fetchError || !updatedBooking) {
+      console.error(`[Booking Time Edit] ⚠️ Could not fetch updated booking:`, fetchError);
+    }
+
+    // Generate new ticket and send to customer (asynchronously)
+    Promise.resolve().then(async () => {
+      try {
+        console.log(`[Booking Time Edit] 🎫 Generating new ticket...`);
+        
+        const { generateBookingTicketPDFBase64 } = await import('../services/pdfService.js');
+        const { sendWhatsAppDocument } = await import('../services/whatsappService.js');
+        const { sendBookingTicketEmail } = await import('../services/emailService.js');
+        const { normalizePhoneNumber } = await import('../utils/phoneUtils.js');
+
+        const ticketLanguage = (updatedBooking?.language === 'ar' || updatedBooking?.language === 'en')
+          ? updatedBooking.language as 'en' | 'ar'
+          : 'en';
+
+        // Generate new PDF
+        const pdfBase64 = await generateBookingTicketPDFBase64(bookingId, ticketLanguage);
+        const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+
+        // Get tenant WhatsApp settings
+        const { data: tenantData } = await supabase
+          .from('tenants')
+          .select('whatsapp_settings')
+          .eq('id', tenantId)
+          .single();
+
+        let whatsappConfig: any = null;
+        if (tenantData?.whatsapp_settings) {
+          const settings = tenantData.whatsapp_settings;
+          whatsappConfig = {
+            provider: settings.provider,
+            apiUrl: settings.api_url,
+            apiKey: settings.api_key,
+            phoneNumberId: settings.phone_number_id,
+            accessToken: settings.access_token,
+            accountSid: settings.account_sid,
+            authToken: settings.auth_token,
+            from: settings.from,
+          };
+        }
+
+        // Send new ticket via WhatsApp
+        if (updatedBooking?.customer_phone) {
+          const normalizedPhone = normalizePhoneNumber(updatedBooking.customer_phone);
+          if (normalizedPhone) {
+            const whatsappMessage = ticketLanguage === 'ar'
+              ? 'تم تغيير موعد حجزك! يرجى الاطلاع على التذكرة المحدثة المرفقة. التذاكر القديمة لم تعد صالحة.'
+              : 'Your booking time has been changed! Please find your updated ticket attached. Old tickets are no longer valid.';
+            
+            try {
+              await sendWhatsAppDocument(
+                normalizedPhone,
+                pdfBuffer,
+                `booking_ticket_${bookingId}_updated.pdf`,
+                whatsappMessage,
+                whatsappConfig || undefined
+              );
+              console.log(`[Booking Time Edit] ✅ New ticket sent via WhatsApp`);
+            } catch (whatsappError: any) {
+              console.error(`[Booking Time Edit] ⚠️ WhatsApp delivery failed:`, whatsappError.message);
+            }
+          }
+        }
+
+        // Send new ticket via Email
+        if (updatedBooking?.customer_email) {
+          try {
+            await sendBookingTicketEmail(
+              updatedBooking.customer_email,
+              pdfBuffer,
+              bookingId,
+              tenantId,
+              {
+                service_name: updatedBooking.services?.name || 'Service',
+                service_name_ar: updatedBooking.services?.name_ar || '',
+                slot_date: updatedBooking.slots?.slot_date || '',
+                start_time: updatedBooking.slots?.start_time || '',
+                end_time: updatedBooking.slots?.end_time || '',
+                tenant_name: updatedBooking.tenants?.name || '',
+                tenant_name_ar: updatedBooking.tenants?.name_ar || '',
+              },
+              ticketLanguage
+            );
+            console.log(`[Booking Time Edit] ✅ New ticket sent via Email`);
+          } catch (emailError: any) {
+            console.error(`[Booking Time Edit] ⚠️ Email delivery failed:`, emailError.message);
+          }
+        }
+
+        console.log(`[Booking Time Edit] ✅ Ticket generation and delivery completed`);
+      } catch (ticketError: any) {
+        console.error(`[Booking Time Edit] ⚠️ Error generating ticket (non-blocking):`, ticketError.message);
+        // Don't fail the booking update if ticket generation fails
+      }
+    }).catch((error) => {
+      console.error(`[Booking Time Edit] ❌ CRITICAL: Unhandled error in ticket generation promise`);
+      console.error(`[Booking Time Edit]    Error:`, error);
+    });
+
+    // Update invoice if price changed (asynchronously)
+    if (editData.price_changed && updatedBooking?.zoho_invoice_id) {
+      Promise.resolve().then(async () => {
+        try {
+          console.log(`[Booking Time Edit] 🧾 Updating invoice due to price change...`);
+          const { zohoService } = await import('../services/zohoService.js');
+          
+          // Update invoice amount
+          const updateResult = await zohoService.updateInvoiceAmount(
+            updatedBooking.zoho_invoice_id,
+            editData.new_price
+          );
+          
+          if (updateResult.success) {
+            console.log(`[Booking Time Edit] ✅ Invoice updated: ${updatedBooking.zoho_invoice_id}`);
+          } else {
+            console.error(`[Booking Time Edit] ⚠️ Invoice update failed: ${updateResult.error}`);
+          }
+        } catch (invoiceError: any) {
+          console.error(`[Booking Time Edit] ⚠️ Error updating invoice (non-blocking):`, invoiceError.message);
+        }
+      }).catch((error) => {
+        console.error(`[Booking Time Edit] ❌ CRITICAL: Unhandled error in invoice update promise`);
+        console.error(`[Booking Time Edit]    Error:`, error);
+      });
+    }
+
+    // Return success response
+    res.json({
+      success: true,
+      booking: updatedBooking,
+      edit_result: editData,
+      message: 'Booking time updated successfully. Old tickets invalidated. New ticket has been sent to customer.',
+      tickets_invalidated: true,
+      new_ticket_generated: true
+    });
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Edit booking time error', error, context, {
+      booking_id: req.params.id,
+    });
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ============================================================================
 // Delete booking (Service Provider only)
 // ============================================================================
 router.delete('/:id', authenticateTenantAdminOnly, async (req, res) => {
