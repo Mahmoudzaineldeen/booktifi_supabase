@@ -205,7 +205,7 @@ export function ReceptionPage() {
         const tenantSlug = window.location.pathname.split('/')[1];
         navigate(`/${tenantSlug}/cashier`);
       } else {
-        navigate('/');
+      navigate('/');
       }
       return;
     }
@@ -426,15 +426,15 @@ export function ReceptionPage() {
     console.log('[ReceptionPage] fetchServices: Starting...', { tenant_id: userProfile.tenant_id });
     
     try {
-      // Fetch services with their offers
+    // Fetch services with their offers
       console.log('[ReceptionPage] fetchServices: Querying services table...');
       const servicesResult = await db
-        .from('services')
-        .select('id, name, name_ar, base_price, original_price, discount_percentage, child_price, capacity_per_slot, capacity_mode')
-        .eq('tenant_id', userProfile.tenant_id)
-        .eq('is_active', true)
-        .order('name');
-      
+      .from('services')
+      .select('id, name, name_ar, base_price, original_price, discount_percentage, child_price, capacity_per_slot, capacity_mode')
+      .eq('tenant_id', userProfile.tenant_id)
+      .eq('is_active', true)
+      .order('name');
+    
       console.log('[ReceptionPage] fetchServices: Services query result:', { 
         hasData: !!servicesResult.data, 
         dataLength: servicesResult.data?.length, 
@@ -443,41 +443,41 @@ export function ReceptionPage() {
       
       const { data: servicesData, error: servicesError } = servicesResult;
       
-      if (servicesError) {
+    if (servicesError) {
         console.error('[ReceptionPage] Error fetching services:', servicesError);
-        setServices([]);
-        return;
-      }
-      
-      // Fetch all active offers for these services
-      if (servicesData && servicesData.length > 0) {
+      setServices([]);
+      return;
+    }
+    
+    // Fetch all active offers for these services
+    if (servicesData && servicesData.length > 0) {
         console.log(`[ReceptionPage] fetchServices: Found ${servicesData.length} services, fetching offers...`);
-        const serviceIds = servicesData.map(s => s.id);
+      const serviceIds = servicesData.map(s => s.id);
         const offersResult = await db
-          .from('service_offers')
-          .select('id, service_id, name, name_ar, price, original_price, discount_percentage, is_active')
-          .in('service_id', serviceIds)
-          .eq('is_active', true)
-          .order('name');
-        
+        .from('service_offers')
+        .select('id, service_id, name, name_ar, price, original_price, discount_percentage, is_active')
+        .in('service_id', serviceIds)
+        .eq('is_active', true)
+        .order('name');
+      
         const { data: offersData, error: offersError } = offersResult;
         
-        if (offersError) {
+      if (offersError) {
           console.error('[ReceptionPage] Error fetching offers:', offersError);
         } else {
           console.log(`[ReceptionPage] fetchServices: Found ${offersData?.length || 0} offers`);
-        }
-        
-        // Attach offers to their respective services
-        const servicesWithOffers = servicesData.map(service => ({
-          ...service,
-          offers: offersData?.filter(offer => offer.service_id === service.id) || []
-        }));
-        
+      }
+      
+      // Attach offers to their respective services
+      const servicesWithOffers = servicesData.map(service => ({
+        ...service,
+        offers: offersData?.filter(offer => offer.service_id === service.id) || []
+      }));
+      
         console.log(`[ReceptionPage] fetchServices: Setting ${servicesWithOffers.length} services in state`);
-        setServices(servicesWithOffers);
+      setServices(servicesWithOffers);
         console.log(`[ReceptionPage] Loaded ${servicesWithOffers.length} services`);
-      } else {
+    } else {
         console.warn('[ReceptionPage] No active services found for tenant', { tenant_id: userProfile.tenant_id });
         setServices([]);
       }
@@ -570,10 +570,10 @@ export function ReceptionPage() {
 
       const { data } = await db
         .from('customers')
-        .select('*')
-        .eq('tenant_id', userProfile.tenant_id)
-        .eq('phone', fullPhone)
-        .maybeSingle();
+      .select('*')
+      .eq('tenant_id', userProfile.tenant_id)
+      .eq('phone', fullPhone)
+      .maybeSingle();
 
     setSubscriptionCustomerLookup(data);
     if (data) {
@@ -1227,14 +1227,14 @@ export function ReceptionPage() {
     const bookingGroupId = crypto.randomUUID();
 
     // Calculate prices
-    let adultPrice = service.base_price || 0;
-    if (selectedOffer) {
-      const offer = service.offers?.find(o => o.id === selectedOffer);
-      if (offer) {
-        adultPrice = offer.price;
+      let adultPrice = service.base_price || 0;
+      if (selectedOffer) {
+        const offer = service.offers?.find(o => o.id === selectedOffer);
+        if (offer) {
+          adultPrice = offer.price;
+        }
       }
-    }
-    const childPrice = service.child_price || adultPrice;
+      const childPrice = service.child_price || adultPrice;
     const totalPrice = (adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count);
 
     // Determine which slots to use
@@ -1256,21 +1256,21 @@ export function ReceptionPage() {
     try {
       await createBulkBookingViaAPI({
         slot_ids: slotsToUse.map(s => s.id),
-        service_id: selectedService!,
+          service_id: selectedService!,
         tenant_id: userProfile!.tenant_id,
-        customer_name: bookingForm.customer_name,
-        customer_phone: fullPhoneNumber,
-        customer_email: bookingForm.customer_email || null,
+          customer_name: bookingForm.customer_name,
+          customer_phone: fullPhoneNumber,
+          customer_email: bookingForm.customer_email || null,
         visitor_count: quantity,
         adult_count: bookingForm.adult_count,
         child_count: bookingForm.child_count,
         total_price: totalPrice,
-        notes: bookingForm.notes || null,
+          notes: bookingForm.notes || null,
         employee_id: slotsToUse[0]?.employee_id || null, // Use first slot's employee
         offer_id: selectedOffer || null,
         language: i18n.language,
-        booking_group_id: bookingGroupId
-      });
+          booking_group_id: bookingGroupId
+        });
     } catch (error: any) {
       console.error('Error creating bulk booking:', error);
       throw error;
@@ -3214,14 +3214,14 @@ export function ReceptionPage() {
                 </option>
               ) : (
                 services.map((service) => {
-                  const packageCheck = checkServiceInPackage(service.id);
-                  return (
-                    <option key={service.id} value={service.id}>
-                      {i18n.language === 'ar' ? service.name_ar : service.name} - {service.base_price} SAR
-                      {packageCheck.available && ` 🎁 (${packageCheck.remaining} ${t('packages.remaining')})`}
-                      {service.offers && service.offers.length > 0 && ` (${service.offers.length} ${i18n.language === 'ar' ? 'عروض' : 'offers'})`}
-                    </option>
-                  );
+                const packageCheck = checkServiceInPackage(service.id);
+                return (
+                  <option key={service.id} value={service.id}>
+                    {i18n.language === 'ar' ? service.name_ar : service.name} - {service.base_price} SAR
+                    {packageCheck.available && ` 🎁 (${packageCheck.remaining} ${t('packages.remaining')})`}
+                    {service.offers && service.offers.length > 0 && ` (${service.offers.length} ${i18n.language === 'ar' ? 'عروض' : 'offers'})`}
+                  </option>
+                );
                 })
               )}
             </select>
@@ -4529,39 +4529,39 @@ export function ReceptionPage() {
 
       {/* Legacy QR Scanner Modal (fallback - can be removed after testing) */}
       {false && (
-        <Modal
-          isOpen={isQRScannerOpen}
-          onClose={() => {
-            setIsQRScannerOpen(false);
-            setQrInputValue('');
-            setQrValidationResult(null);
-          }}
-          title={i18n.language === 'ar' ? 'مسح رمز QR' : 'Scan QR Code'}
-        >
-          <div className="space-y-4">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-blue-800">
-                {i18n.language === 'ar' 
-                  ? 'يمكنك إدخال رقم الحجز يدوياً أو مسح رمز QR من التذكرة'
-                  : 'You can enter the booking ID manually or scan the QR code from the ticket'}
-              </p>
-            </div>
+      <Modal
+        isOpen={isQRScannerOpen}
+        onClose={() => {
+          setIsQRScannerOpen(false);
+          setQrInputValue('');
+          setQrValidationResult(null);
+        }}
+        title={i18n.language === 'ar' ? 'مسح رمز QR' : 'Scan QR Code'}
+      >
+        <div className="space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm text-blue-800">
+              {i18n.language === 'ar' 
+                ? 'يمكنك إدخال رقم الحجز يدوياً أو مسح رمز QR من التذكرة'
+                : 'You can enter the booking ID manually or scan the QR code from the ticket'}
+            </p>
+          </div>
 
-            <form onSubmit={handleQRSubmit} className="space-y-4">
-              <Input
-                label={i18n.language === 'ar' ? 'رقم الحجز أو رمز QR' : 'Booking ID or QR Code'}
-                value={qrInputValue}
-                onChange={(e) => {
-                  setQrInputValue(e.target.value);
-                  setQrValidationResult(null);
-                }}
-                placeholder={i18n.language === 'ar' ? 'أدخل رقم الحجز أو امسح QR' : 'Enter booking ID or scan QR'}
-                required
-                disabled={qrValidating}
-                autoFocus
-              />
+          <form onSubmit={handleQRSubmit} className="space-y-4">
+            <Input
+              label={i18n.language === 'ar' ? 'رقم الحجز أو رمز QR' : 'Booking ID or QR Code'}
+              value={qrInputValue}
+              onChange={(e) => {
+                setQrInputValue(e.target.value);
+                setQrValidationResult(null);
+              }}
+              placeholder={i18n.language === 'ar' ? 'أدخل رقم الحجز أو امسح QR' : 'Enter booking ID or scan QR'}
+              required
+              disabled={qrValidating}
+              autoFocus
+            />
 
-              {qrValidationResult && (
+            {qrValidationResult && (
               <div className={`p-4 rounded-lg border ${
                 qrValidationResult.success
                   ? 'bg-green-50 border-green-200'

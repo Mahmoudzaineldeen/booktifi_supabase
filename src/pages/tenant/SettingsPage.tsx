@@ -264,8 +264,28 @@ export function SettingsPage() {
     setSmtpMessage(null);
     setSmtpLoading(true);
 
-    if (!tenant?.id) {
-      setSmtpMessage({ type: 'error', text: 'Tenant not found' });
+    // Wait for auth to load
+    if (authLoading) {
+      setSmtpMessage({ 
+        type: 'error', 
+        text: 'Please wait while authentication loads...' 
+      });
+      setSmtpLoading(false);
+      return;
+    }
+
+    // Use userProfile.tenant_id instead of tenant?.id for more reliable tenant ID
+    if (!userProfile?.tenant_id) {
+      console.error('[SMTP Save] Missing tenant_id:', { 
+        hasUserProfile: !!userProfile, 
+        userProfile,
+        tenantId: userProfile?.tenant_id 
+      });
+      setSmtpMessage({ 
+        type: 'error', 
+        text: 'Tenant information not available. Please log out and log in again.',
+        hint: 'Your session may have expired. Please refresh the page or log in again.'
+      });
       setSmtpLoading(false);
       return;
     }
@@ -278,7 +298,14 @@ export function SettingsPage() {
 
     try {
       const token = localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+
       const API_URL = getApiUrl();
+      console.log('[SMTP Save] Making request to:', `${API_URL}/tenants/smtp-settings`);
+      console.log('[SMTP Save] Tenant ID:', userProfile.tenant_id);
+      
       const response = await fetch(`${API_URL}/tenants/smtp-settings`, {
         method: 'PUT',
         headers: {
@@ -286,18 +313,41 @@ export function SettingsPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(smtpSettings),
+        signal: createTimeoutSignal(`${API_URL}/tenants/smtp-settings`, !API_URL.startsWith('http')),
       });
 
-      const data = await response.json();
+      console.log('[SMTP Save] Response status:', response.status);
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to save SMTP settings');
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
+        }
+        
+        // Handle 404 specifically
+        if (response.status === 404) {
+          throw new Error(
+            errorData.error || 
+            'SMTP settings endpoint not found (404). The server may need to be restarted or redeployed with the latest code.'
+          );
+        }
+        
+        throw new Error(errorData.error || errorData.hint || `Failed to save SMTP settings (${response.status})`);
       }
 
-      setSmtpMessage({ type: 'success', text: 'SMTP settings saved successfully!' });
+      const data = await response.json();
+      setSmtpMessage({ type: 'success', text: data.message || 'SMTP settings saved successfully!' });
     } catch (err: any) {
-      console.error('Error saving SMTP settings:', err);
-      setSmtpMessage({ type: 'error', text: err.message || 'Failed to save SMTP settings' });
+      console.error('[SMTP Save] Error:', err);
+      setSmtpMessage({ 
+        type: 'error', 
+        text: err.message || 'Failed to save SMTP settings',
+        hint: err.hint || (err.message?.includes('404') 
+          ? 'The endpoint is not available on the server. Please ensure the backend is deployed with the latest code.'
+          : 'Please check your connection and try again.')
+      });
     } finally {
       setSmtpLoading(false);
     }
@@ -307,8 +357,12 @@ export function SettingsPage() {
     setSmtpMessage(null);
     setSmtpTestLoading(true);
 
-    if (!tenant?.id) {
-      setSmtpMessage({ type: 'error', text: 'Tenant not found' });
+    // Use userProfile.tenant_id instead of tenant?.id for more reliable tenant ID
+    if (!userProfile?.tenant_id) {
+      setSmtpMessage({ 
+        type: 'error', 
+        text: 'Tenant not found. Please log out and log in again.' 
+      });
       setSmtpTestLoading(false);
       return;
     }
@@ -606,6 +660,59 @@ export function SettingsPage() {
     }
   }
 
+  async function handleZohoDisconnect() {
+    if (!tenant?.id) {
+      setZohoMessage({ type: 'error', text: 'Tenant not found' });
+      return;
+    }
+
+    if (!confirm(t('settings.zoho.disconnectConfirm') || 'Are you sure you want to disconnect Zoho integration? This will remove all stored tokens.')) {
+      return;
+    }
+
+    setZohoLoading(true);
+    setZohoMessage(null);
+
+    try {
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/zoho/disconnect`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ tenant_id: tenant.id }),
+        signal: createTimeoutSignal(`${API_URL}/zoho/disconnect`, !API_URL.startsWith('http')),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to disconnect Zoho');
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setZohoMessage({ type: 'success', text: 'Zoho integration disconnected successfully' });
+        // Refresh status to reflect disconnection
+        setTimeout(() => {
+          loadZohoStatus();
+        }, 1000);
+      } else {
+        throw new Error(result.error || 'Failed to disconnect');
+      }
+    } catch (error: any) {
+      console.error('Error disconnecting Zoho:', error);
+      setZohoMessage({ 
+        type: 'error', 
+        text: error.message || 'Failed to disconnect Zoho integration' 
+      });
+    } finally {
+      setZohoLoading(false);
+    }
+  }
+
   async function handleZohoConnect() {
     if (!tenant?.id) {
       setZohoMessage({ type: 'error', text: 'Tenant not found' });
@@ -786,10 +893,6 @@ export function SettingsPage() {
     } catch (err) {
       console.error('Error loading Zoho status:', err);
     }
-  }
-
-  async function fetchZohoStatus() {
-    await loadZohoStatus();
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -1616,7 +1719,7 @@ export function SettingsPage() {
                     <Button
                       type="button"
                       onClick={handleZohoDisconnect}
-                      variant="outline"
+                      variant="secondary"
                       icon={<XCircle className="w-4 h-4" />}
                     >
                       Disconnect

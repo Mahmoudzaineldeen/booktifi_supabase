@@ -189,22 +189,77 @@ router.get('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
 
 // Update email settings for tenant (supports both SendGrid API and SMTP)
 router.put('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
+  console.log('[Tenants Route] PUT /smtp-settings called');
+  console.log('[Tenants Route] Request user:', {
+    userId: req.user?.id,
+    role: req.user?.role,
+    tenantId: req.user?.tenant_id
+  });
+  
   try {
-    const tenantId = req.user?.tenant_id;
+    // Centralized tenant resolution - use helper function for consistency
+    const tenantId = getTenantIdForQuery(req);
     
     // For solution_owner, tenant_id can be null - they can manage any tenant
-    // For other roles, tenant_id is required
+    // For other roles, tenant_id is required from JWT
     if (!tenantId && req.user?.role !== 'solution_owner') {
       console.error('[Tenant Settings] ❌ Tenant ID missing from token:', {
         userId: req.user?.id,
         role: req.user?.role,
         hasTenantId: !!req.user?.tenant_id,
+        decodedToken: req.user
       });
-      return res.status(400).json({ 
+      // Return 401 (Unauthorized) not 400 - this is an authentication/authorization issue
+      return res.status(401).json({ 
         error: 'Tenant ID not found in authentication token',
-        hint: 'Your account may not be associated with a tenant. Please contact support or log in with a different account.'
+        hint: 'Your account may not be associated with a tenant. Please log out and log in again, or contact support.',
+        code: 'MISSING_TENANT_ID'
       });
     }
+    
+    // Solution owner must provide tenant_id in request body for tenant-specific operations
+    if (req.user?.role === 'solution_owner' && !tenantId) {
+      const bodyTenantId = req.body.tenant_id;
+      if (!bodyTenantId) {
+        return res.status(400).json({
+          error: 'Tenant ID is required',
+          hint: 'Solution Owner must provide tenant_id in the request body for tenant-specific operations.'
+        });
+      }
+      // Use body tenant_id for solution owner
+      const { 
+        smtp_host, 
+        smtp_port, 
+        smtp_user, 
+        smtp_password,
+        sendgrid_api_key,
+        from_email 
+      } = req.body;
+      
+      return await updateSmtpSettings(bodyTenantId, {
+        smtp_host,
+        smtp_port,
+        smtp_user,
+        smtp_password,
+        sendgrid_api_key,
+        from_email
+      }, res);
+    }
+    
+    // For non-solution-owner roles, tenant_id must come from JWT
+    if (!tenantId) {
+      console.error('[Tenant Settings] ❌ Tenant ID missing from JWT token:', {
+        userId: req.user!.id,
+        role: req.user!.role,
+        hasTenantId: !!req.user!.tenant_id
+      });
+      return res.status(401).json({ 
+        error: 'Tenant ID not found in authentication token',
+        hint: 'Please log out and log in again. Your account may not be associated with a tenant.',
+        code: 'MISSING_TENANT_ID'
+      });
+    }
+    
     const { 
       smtp_host, 
       smtp_port, 
@@ -214,32 +269,84 @@ router.put('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
       from_email 
     } = req.body;
     
-    if (!tenantId) {
-      console.error('[Tenant Settings] ❌ Tenant ID missing from JWT token:', {
-        userId: req.user!.id,
-        role: req.user!.role,
-        hasTenantId: !!req.user!.tenant_id
-      });
-      return res.status(400).json({ 
-        error: 'Tenant ID not found in authentication token',
-        hint: 'Please log out and log in again. Your account may not be associated with a tenant.'
-      });
-    }
+    return await updateSmtpSettings(tenantId, {
+      smtp_host,
+      smtp_port,
+      smtp_user,
+      smtp_password,
+      sendgrid_api_key,
+      from_email
+    }, res);
+  } catch (error: any) {
+    console.error('[Tenant Settings] Unexpected error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    });
+    res.status(500).json({ 
+      error: error.message || 'Internal server error',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+// Helper function to update SMTP settings (extracted for reusability)
+async function updateSmtpSettings(
+  tenantId: string,
+  settings: {
+    smtp_host?: string;
+    smtp_port?: number;
+    smtp_user?: string;
+    smtp_password?: string;
+    sendgrid_api_key?: string;
+    from_email?: string;
+  },
+  res: express.Response
+) {
+  try {
+    const {
+      smtp_host,
+      smtp_port,
+      smtp_user,
+      smtp_password,
+      sendgrid_api_key,
+      from_email
+    } = settings;
 
     console.log(`[Tenant Settings] 📝 Updating email settings for tenant ${tenantId}`);
 
-    // Get current tenant settings
+    // Get current tenant settings - verify tenant exists first
     const { data: currentTenant, error: tenantError } = await supabase
       .from('tenants')
-      .select('smtp_settings, email_settings')
+      .select('id, smtp_settings, email_settings')
       .eq('id', tenantId)
       .single();
 
-    if (tenantError || !currentTenant) {
-      console.error(`[Tenant Settings] ❌ Tenant ${tenantId} not found in database:`, tenantError);
+    if (tenantError) {
+      console.error(`[Tenant Settings] ❌ Database error fetching tenant ${tenantId}:`, tenantError);
+      // Check if it's a "not found" error
+      if (tenantError.code === 'PGRST116' || tenantError.message?.includes('No rows')) {
+        return res.status(404).json({ 
+          error: 'Tenant not found',
+          hint: `The tenant with ID ${tenantId} does not exist in the database. Please contact support.`,
+          code: 'TENANT_NOT_FOUND'
+        });
+      }
+      // Other database errors
+      return res.status(500).json({
+        error: 'Database error',
+        hint: tenantError.message || 'Failed to fetch tenant information',
+        code: 'DATABASE_ERROR'
+      });
+    }
+
+    if (!currentTenant) {
+      console.error(`[Tenant Settings] ❌ Tenant ${tenantId} not found in database`);
       return res.status(404).json({ 
         error: 'Tenant not found',
-        hint: `The tenant with ID ${tenantId} does not exist in the database. Please contact support.`
+        hint: `The tenant with ID ${tenantId} does not exist in the database. Please contact support.`,
+        code: 'TENANT_NOT_FOUND'
       });
     }
 
@@ -275,82 +382,86 @@ router.put('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
     if (!sendgrid_api_key && (!smtp_user || !smtp_password)) {
       return res.status(400).json({ 
         error: 'Either SendGrid API key or SMTP credentials are required',
-        hint: 'For production deployments, SendGrid API is recommended to avoid SMTP port blocking issues.'
+        hint: 'For production deployments, SendGrid API is recommended to avoid SMTP port blocking issues.',
+        code: 'MISSING_EMAIL_CONFIG'
       });
     }
 
-    try {
-      const { data, error } = await supabase
-        .from('tenants')
-        .update(updateData)
-        .eq('id', tenantId)
-        .select('id, smtp_settings, email_settings')
-        .single();
+    // Update tenant settings in database
+    const { data: updatedTenant, error: updateError } = await supabase
+      .from('tenants')
+      .update(updateData)
+      .eq('id', tenantId)
+      .select('id, smtp_settings, email_settings')
+      .single();
 
-      if (error) {
-        console.error(`[Tenant Settings] ❌ Database error updating tenant ${tenantId}:`, error);
+    if (updateError) {
+      console.error(`[Tenant Settings] ❌ Database error updating tenant ${tenantId}:`, updateError);
+      
+      // Check if column doesn't exist
+      if (updateError.message && updateError.message.includes('column')) {
         return res.status(500).json({ 
-          error: 'Failed to update tenant settings',
-          details: error.message 
+          error: 'Database migration required',
+          hint: 'The email_settings or smtp_settings column may not exist in the tenants table. Please run the migration.',
+          code: 'MIGRATION_REQUIRED'
         });
       }
       
-      if (!data) {
-        console.error(`[Tenant Settings] ❌ Tenant ${tenantId} not found after update attempt`);
-        return res.status(404).json({ 
-          error: 'Tenant not found',
-          hint: `The tenant with ID ${tenantId} does not exist in the database.`
-        });
-      }
-
-      // Prepare response (mask sensitive data)
-      const response: any = {
-        success: true,
-        message: 'Email settings updated successfully',
-      };
-
-      if (data.smtp_settings) {
-        const smtpResponse = { ...data.smtp_settings };
-        smtpResponse.smtp_password = '***';
-        response.smtp_settings = smtpResponse;
-      }
-
-      if (data.email_settings) {
-        const emailResponse = { ...data.email_settings };
-        if (emailResponse.sendgrid_api_key) {
-          emailResponse.sendgrid_api_key = '***';
-        }
-        response.email_settings = emailResponse;
-        response.provider = 'sendgrid';
-      } else if (data.smtp_settings) {
-        response.provider = 'smtp';
-      }
-
-      res.json(response);
-    } catch (dbError: any) {
-      // Check if column doesn't exist
-      if (dbError.message && dbError.message.includes('column')) {
-        console.error('❌ Database column does not exist. Please run migration.');
-        return res.status(500).json({ 
-          error: 'Database migration required',
-          details: 'The email_settings or smtp_settings column may not exist in the tenants table.'
-        });
-      }
-      throw dbError;
+      return res.status(500).json({ 
+        error: 'Failed to update tenant settings',
+        hint: updateError.message || 'Database update failed',
+        code: 'UPDATE_FAILED'
+      });
     }
+    
+    if (!updatedTenant) {
+      console.error(`[Tenant Settings] ❌ Tenant ${tenantId} not found after update attempt`);
+      return res.status(404).json({ 
+        error: 'Tenant not found',
+        hint: `The tenant with ID ${tenantId} does not exist in the database.`,
+        code: 'TENANT_NOT_FOUND'
+      });
+    }
+
+    // Prepare response (mask sensitive data)
+    const response: any = {
+      success: true,
+      message: 'Email settings updated successfully',
+    };
+
+    if (updatedTenant.smtp_settings) {
+      const smtpResponse = { ...updatedTenant.smtp_settings };
+      smtpResponse.smtp_password = '***';
+      response.smtp_settings = smtpResponse;
+    }
+
+    if (updatedTenant.email_settings) {
+      const emailResponse = { ...updatedTenant.email_settings };
+      if (emailResponse.sendgrid_api_key) {
+        emailResponse.sendgrid_api_key = '***';
+      }
+      response.email_settings = emailResponse;
+      response.provider = 'sendgrid';
+    } else if (updatedTenant.smtp_settings) {
+      response.provider = 'smtp';
+    }
+
+    return res.json(response);
   } catch (error: any) {
-    console.error('Error updating email settings:', error);
+    console.error('[Tenant Settings] Unexpected error in updateSmtpSettings:', error);
     console.error('Error details:', {
       message: error.message,
       stack: error.stack,
       code: error.code
     });
-    res.status(500).json({ 
+    return res.status(500).json({ 
       error: error.message || 'Internal server error',
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      hint: 'An unexpected error occurred while updating SMTP settings',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      code: 'INTERNAL_ERROR'
     });
   }
-});
+}
 
 // Test email connection (SendGrid API or SMTP)
 // This endpoint now uses the production-ready email API service
