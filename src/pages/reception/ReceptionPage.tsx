@@ -11,6 +11,7 @@ import { PhoneInput } from '../../components/ui/PhoneInput';
 import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText } from 'lucide-react';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { format, addDays, startOfWeek, isSameDay, parseISO, startOfDay, endOfDay, addMinutes, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
+import { ar } from 'date-fns/locale';
 import { useNavigate } from 'react-router-dom';
 import { countryCodes } from '../../lib/countryCodes';
 import { getApiUrl } from '../../lib/apiUrl';
@@ -30,6 +31,7 @@ interface Booking {
   created_at: string;
   booking_group_id: string | null;
   zoho_invoice_id?: string | null;
+  zoho_invoice_created_at?: string | null;
   services: {
     name: string;
     name_ar: string;
@@ -661,6 +663,7 @@ export function ReceptionPage() {
           qr_scanned_at,
           qr_scanned_by_user_id,
           zoho_invoice_id,
+          zoho_invoice_created_at,
           services (name, name_ar),
           slots (slot_date, start_time, end_time),
           users:employee_id (id, full_name, full_name_ar)
@@ -2525,6 +2528,63 @@ export function ReceptionPage() {
                   <strong>Notes:</strong> {booking.notes}
                 </div>
               )}
+              
+              {/* Invoice Section (TASK 7: Receptionist can download invoices) */}
+              {booking.zoho_invoice_id ? (
+                <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-start justify-between gap-4 mb-3">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-5 h-5 text-blue-600" />
+                      <div>
+                        <h4 className="font-semibold text-blue-900 text-sm">
+                          {i18n.language === 'ar' ? 'الفاتورة' : 'Invoice'}
+                        </h4>
+                        <p className="text-xs text-blue-700 font-mono mt-1">
+                          {booking.zoho_invoice_id}
+                        </p>
+                      </div>
+                    </div>
+                    {booking.payment_status === 'paid' || booking.payment_status === 'paid_manual' ? (
+                      <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                        <CheckCircle className="w-3 h-3" />
+                        {i18n.language === 'ar' ? 'مدفوع' : 'Paid'}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
+                        <XCircle className="w-3 h-3" />
+                        {i18n.language === 'ar' ? 'غير مدفوع' : 'Unpaid'}
+                      </span>
+                    )}
+                  </div>
+                  {booking.zoho_invoice_created_at && (
+                    <p className="text-xs text-blue-600 mb-3">
+                      {i18n.language === 'ar' ? 'تاريخ الإنشاء:' : 'Created:'}{' '}
+                      {format(parseISO(booking.zoho_invoice_created_at), 'MMM dd, yyyy HH:mm', { locale: i18n.language === 'ar' ? ar : undefined })}
+                    </p>
+                  )}
+                  <Button
+                    onClick={() => downloadInvoice(booking.id, booking.zoho_invoice_id!)}
+                    disabled={downloadingInvoice === booking.id}
+                    className="flex items-center gap-2 text-sm w-full"
+                    variant="ghost"
+                    size="sm"
+                  >
+                    <Download className="w-4 h-4" />
+                    {downloadingInvoice === booking.id 
+                      ? (i18n.language === 'ar' ? 'جاري التنزيل...' : 'Downloading...')
+                      : (i18n.language === 'ar' ? 'تنزيل PDF' : 'Download PDF')}
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-xs text-gray-600 flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    {i18n.language === 'ar' 
+                      ? 'لا توجد فاتورة لهذا الحجز' 
+                      : 'No invoice for this booking'}
+                  </p>
+                </div>
+              )}
             </div>
             <div className="flex flex-col sm:flex-row md:flex-col md:items-end gap-2">
               <div className="flex gap-2">
@@ -2601,22 +2661,6 @@ export function ReceptionPage() {
                       className="w-full"
                     >
                       {t('reception.markAsUnpaid')}
-                    </Button>
-                  )}
-                  
-                  {/* Invoice Download Button (TASK 7: Receptionist can download invoices) */}
-                  {booking.zoho_invoice_id && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => downloadInvoice(booking.id, booking.zoho_invoice_id!)}
-                      disabled={downloadingInvoice === booking.id}
-                      icon={downloadingInvoice === booking.id ? undefined : <Download className="w-3 h-3" />}
-                      className="w-full"
-                    >
-                      {downloadingInvoice === booking.id 
-                        ? (i18n.language === 'ar' ? 'جاري التنزيل...' : 'Downloading...')
-                        : (i18n.language === 'ar' ? 'تنزيل الفاتورة' : 'Download Invoice')}
                     </Button>
                   )}
                   
