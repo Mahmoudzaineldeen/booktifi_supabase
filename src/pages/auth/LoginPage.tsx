@@ -87,8 +87,10 @@ export function LoginPage() {
     if (tenant && tenant.slug) {
       if (userProfile.role === 'tenant_admin') {
         navigate(`/${tenant.slug}/admin`);
-      } else if (userProfile.role === 'receptionist' || userProfile.role === 'cashier') {
+      } else if (userProfile.role === 'receptionist') {
         navigate(`/${tenant.slug}/reception`);
+      } else if (userProfile.role === 'cashier') {
+        navigate(`/${tenant.slug}/cashier`);
       } else {
         navigate(`/${tenant.slug}/admin`);
       }
@@ -109,8 +111,10 @@ export function LoginPage() {
         } else if (tenantData && tenantData.slug) {
           if (userProfile.role === 'tenant_admin') {
             navigate(`/${tenantData.slug}/admin`);
-          } else if (userProfile.role === 'receptionist' || userProfile.role === 'cashier') {
+          } else if (userProfile.role === 'receptionist') {
             navigate(`/${tenantData.slug}/reception`);
+          } else if (userProfile.role === 'cashier') {
+            navigate(`/${tenantData.slug}/cashier`);
           } else {
             navigate(`/${tenantData.slug}/admin`);
           }

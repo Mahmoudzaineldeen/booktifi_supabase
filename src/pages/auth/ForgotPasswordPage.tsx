@@ -375,8 +375,10 @@ export function ForgotPasswordPage() {
         } else if (tenant && tenant.slug) {
           if (user.role === 'tenant_admin') {
             window.location.href = `/${tenant.slug}/admin`;
-          } else if (user.role === 'receptionist' || user.role === 'cashier') {
+          } else if (user.role === 'receptionist') {
             window.location.href = `/${tenant.slug}/reception`;
+          } else if (user.role === 'cashier') {
+            window.location.href = `/${tenant.slug}/cashier`;
           } else {
             window.location.href = `/${tenant.slug}/admin`;
           }
@@ -392,8 +394,10 @@ export function ForgotPasswordPage() {
             if (tenantData?.slug) {
               if (user.role === 'tenant_admin') {
                 window.location.href = `/${tenantData.slug}/admin`;
-              } else if (user.role === 'receptionist' || user.role === 'cashier') {
+              } else if (user.role === 'receptionist') {
                 window.location.href = `/${tenantData.slug}/reception`;
+              } else if (user.role === 'cashier') {
+                window.location.href = `/${tenantData.slug}/cashier`;
               } else {
                 window.location.href = `/${tenantData.slug}/admin`;
               }

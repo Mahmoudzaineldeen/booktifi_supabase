@@ -2711,6 +2711,16 @@ export function ReceptionPage() {
     );
   }
 
+  // Early return if user is not a receptionist (prevent rendering)
+  if (!authLoading && userProfile && userProfile.role !== 'receptionist') {
+    // Redirect will happen in useEffect, but don't render anything
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
