@@ -1011,6 +1011,255 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
 });
 
 // ============================================================================
+// Create bulk booking (multiple slots in one transaction)
+// ============================================================================
+// TASK: Receptionist and tenant_admin can create bulk bookings
+// This endpoint validates ALL slots before creating any bookings (prevents overbooking)
+// Creates all bookings atomically, generates ONE invoice, and ONE ticket PDF
+router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, res) => {
+  try {
+    const {
+      slot_ids, // Array of slot IDs to book
+      service_id,
+      tenant_id,
+      customer_name,
+      customer_phone,
+      customer_email,
+      visitor_count, // Total visitors across all slots
+      adult_count,
+      child_count,
+      total_price, // Total price for all bookings
+      notes,
+      employee_id,
+      session_id,
+      offer_id,
+      language = 'en',
+      booking_group_id // Optional: group ID to link bookings
+    } = req.body;
+
+    // Validate language
+    const validLanguage = (language === 'ar' || language === 'en') ? language : 'en';
+
+    // Validate required fields
+    if (!slot_ids || !Array.isArray(slot_ids) || slot_ids.length === 0) {
+      return res.status(400).json({ error: 'slot_ids array is required and must contain at least one slot' });
+    }
+
+    if (!service_id || !tenant_id || !customer_name || !customer_phone) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Normalize phone number
+    const normalizedPhone = normalizePhoneNumber(customer_phone);
+    if (!normalizedPhone) {
+      return res.status(400).json({ error: 'Invalid phone number format' });
+    }
+
+    // Calculate adult_count and child_count if not provided
+    const finalAdultCount = adult_count !== undefined ? adult_count : visitor_count;
+    const finalChildCount = child_count !== undefined ? child_count : 0;
+
+    // Ensure visitor_count matches adult_count + child_count
+    const calculatedVisitorCount = finalAdultCount + finalChildCount;
+    if (calculatedVisitorCount !== visitor_count) {
+      return res.status(400).json({
+        error: `visitor_count (${visitor_count}) must equal adult_count (${finalAdultCount}) + child_count (${finalChildCount})`
+      });
+    }
+
+    // Validate that number of slots matches visitor_count
+    // In bulk booking, each slot gets 1 visitor
+    if (slot_ids.length !== visitor_count) {
+      return res.status(400).json({
+        error: `Number of slots (${slot_ids.length}) must match visitor_count (${visitor_count}). Each slot requires 1 visitor.`
+      });
+    }
+
+    // Use RPC for atomic transaction - validates ALL slots before creating any bookings
+    console.log(`[Bulk Booking Creation] Calling create_bulk_booking RPC function...`);
+    console.log(`[Bulk Booking Creation]    Slots: ${slot_ids.length}, Visitors: ${visitor_count}, Total Price: ${total_price}`);
+    
+    const { data: bulkBookingResult, error: createError } = await supabase
+      .rpc('create_bulk_booking', {
+        p_slot_ids: slot_ids,
+        p_service_id: service_id,
+        p_tenant_id: tenant_id,
+        p_customer_name: customer_name,
+        p_customer_phone: normalizedPhone,
+        p_customer_email: customer_email || null,
+        p_visitor_count: visitor_count,
+        p_adult_count: finalAdultCount,
+        p_child_count: finalChildCount,
+        p_total_price: total_price,
+        p_notes: notes || null,
+        p_employee_id: employee_id || null,
+        p_session_id: req.user?.id || session_id || null,
+        p_customer_id: req.user?.id || null,
+        p_offer_id: offer_id || null,
+        p_language: validLanguage,
+        p_booking_group_id: booking_group_id || null
+      });
+
+    if (createError) {
+      console.error(`[Bulk Booking Creation] ❌ RPC Error:`, createError);
+      
+      // Map specific error messages to appropriate status codes
+      if (createError.message.includes('Missing required fields') ||
+          createError.message.includes('does not match') ||
+          createError.message.includes('must be provided')) {
+        return res.status(400).json({ error: createError.message });
+      }
+      if (createError.message.includes('not found')) {
+        return res.status(404).json({ error: createError.message });
+      }
+      if (createError.message.includes('deactivated') ||
+          createError.message.includes('does not belong to')) {
+        return res.status(403).json({ error: createError.message });
+      }
+      if (createError.message.includes('not available') ||
+          createError.message.includes('Not enough tickets')) {
+        return res.status(409).json({ error: createError.message });
+      }
+      throw createError;
+    }
+
+    if (!bulkBookingResult) {
+      console.error(`[Bulk Booking Creation] ❌ CRITICAL: RPC returned null/undefined result`);
+      return res.status(500).json({ error: 'Failed to create bulk booking - no data returned' });
+    }
+
+    // Parse JSONB response
+    let bulkBookingData: any = bulkBookingResult;
+    if (typeof bulkBookingResult === 'string') {
+      try {
+        bulkBookingData = JSON.parse(bulkBookingResult);
+      } catch (e) {
+        console.error(`[Bulk Booking Creation] ❌ Failed to parse bulk booking JSONB:`, e);
+        bulkBookingData = bulkBookingResult;
+      }
+    }
+
+    const bookingGroupId = bulkBookingData.booking_group_id;
+    const bookings = bulkBookingData.bookings || [];
+    const bookingIds = bookings.map((b: any) => b.id);
+
+    if (!bookingGroupId || bookings.length === 0) {
+      console.error(`[Bulk Booking Creation] ❌ CRITICAL: No booking group ID or bookings returned`);
+      return res.status(500).json({ 
+        error: 'Bulk booking created but no group ID or bookings returned'
+      });
+    }
+
+    console.log(`[Bulk Booking Creation] ✅ Bulk booking created successfully`);
+    console.log(`[Bulk Booking Creation]    Group ID: ${bookingGroupId}`);
+    console.log(`[Bulk Booking Creation]    Bookings: ${bookings.length}`);
+    console.log(`[Bulk Booking Creation]    Customer: ${customer_name}`);
+
+    // Generate ONE invoice for all bookings (asynchronously)
+    if (normalizedPhone || customer_phone || customer_email) {
+      Promise.resolve().then(async () => {
+        try {
+          console.log(`[Bulk Booking Creation] 🧾 Generating ONE invoice for booking group ${bookingGroupId}...`);
+          const { zohoService } = await import('../services/zohoService.js');
+          
+          // Generate invoice for the booking group (uses first booking ID as reference)
+          const invoiceResult = await zohoService.generateReceiptForBookingGroup(bookingGroupId);
+          if (invoiceResult.success) {
+            console.log(`[Bulk Booking Creation] ✅ Invoice created: ${invoiceResult.invoiceId}`);
+          } else {
+            console.error(`[Bulk Booking Creation] ⚠️ Invoice creation failed: ${invoiceResult.error}`);
+          }
+        } catch (invoiceError: any) {
+          console.error(`[Bulk Booking Creation] ⚠️ Error creating invoice (non-blocking):`, invoiceError.message);
+        }
+      }).catch((error) => {
+        console.error(`[Bulk Booking Creation] ❌ CRITICAL: Unhandled error in invoice generation promise`);
+        console.error(`[Bulk Booking Creation]    Error:`, error);
+      });
+    }
+
+    // Generate ONE ticket PDF with multiple QR codes (one per slot) - asynchronously
+    Promise.resolve().then(async () => {
+      try {
+        console.log(`[Bulk Booking Creation] 🎫 Generating ONE ticket PDF for booking group ${bookingGroupId}...`);
+        const { generateBulkBookingTicketPDFBase64 } = await import('../services/pdfService.js');
+        const { sendWhatsAppDocument } = await import('../services/whatsappService.js');
+        const { sendBookingTicketEmail } = await import('../services/emailService.js');
+
+        // Generate ticket PDF with multiple QR codes (one per booking/slot)
+        const pdfBase64 = await generateBulkBookingTicketPDFBase64(bookingGroupId, validLanguage);
+        const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+
+        // Get tenant WhatsApp settings
+        const { data: tenantData } = await supabase
+          .from('tenants')
+          .select('whatsapp_settings')
+          .eq('id', tenant_id)
+          .single();
+
+        let whatsappConfig: any = null;
+        if (tenantData?.whatsapp_settings) {
+          try {
+            whatsappConfig = typeof tenantData.whatsapp_settings === 'string'
+              ? JSON.parse(tenantData.whatsapp_settings)
+              : tenantData.whatsapp_settings;
+          } catch (e) {
+            console.warn('Failed to parse WhatsApp settings');
+          }
+        }
+
+        // Send via WhatsApp if phone provided
+        if (normalizedPhone || customer_phone) {
+          try {
+            await sendWhatsAppDocument(
+              normalizedPhone || customer_phone,
+              pdfBuffer,
+              `booking_tickets_${bookingGroupId}.pdf`,
+              whatsappConfig
+            );
+            console.log(`[Bulk Booking Creation] ✅ Ticket sent via WhatsApp`);
+          } catch (whatsappError: any) {
+            console.error(`[Bulk Booking Creation] ⚠️ WhatsApp delivery failed:`, whatsappError.message);
+          }
+        }
+
+        // Send via Email if email provided
+        if (customer_email) {
+          try {
+            await sendBookingTicketEmail(customer_email, pdfBuffer, bookingGroupId, validLanguage);
+            console.log(`[Bulk Booking Creation] ✅ Ticket sent via Email`);
+          } catch (emailError: any) {
+            console.error(`[Bulk Booking Creation] ⚠️ Email delivery failed:`, emailError.message);
+          }
+        }
+      } catch (ticketError: any) {
+        console.error(`[Bulk Booking Creation] ⚠️ Error generating ticket (non-blocking):`, ticketError.message);
+      }
+    }).catch((error) => {
+      console.error(`[Bulk Booking Creation] ❌ CRITICAL: Unhandled error in ticket generation promise`);
+      console.error(`[Bulk Booking Creation]    Error:`, error);
+    });
+
+    // Return the bulk booking result
+    res.status(201).json({
+      booking_group_id: bookingGroupId,
+      bookings: bookings,
+      total_bookings: bookings.length,
+      total_visitors: bulkBookingData.total_visitors || visitor_count,
+      total_price: bulkBookingData.total_price || total_price
+    });
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Create bulk booking error', error, context, {
+      slot_ids: req.body.slot_ids,
+      service_id: req.body.service_id,
+      tenant_id: req.body.tenant_id,
+    });
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ============================================================================
 // Validate QR code (for cashiers/receptionists)
 // ============================================================================
 /**

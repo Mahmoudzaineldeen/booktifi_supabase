@@ -1079,6 +1079,186 @@ class ZohoService {
   }
 
   /**
+   * Generate and send receipt for a booking group (bulk booking)
+   * Creates ONE invoice for all bookings in the group
+   */
+  async generateReceiptForBookingGroup(bookingGroupId: string): Promise<{ invoiceId: string; success: boolean; error?: string }> {
+    try {
+      // Fetch all bookings in the group
+      const { data: bookings, error: bookingError } = await supabase
+        .from('bookings')
+        .select(`
+          id,
+          tenant_id,
+          customer_name,
+          customer_phone,
+          customer_email,
+          total_price,
+          zoho_invoice_id,
+          services (
+            name,
+            name_ar,
+            description,
+            description_ar,
+            base_price,
+            child_price
+          ),
+          slots (
+            start_time,
+            end_time,
+            slot_date
+          ),
+          tenants (
+            name,
+            name_ar
+          ),
+          service_offers (
+            price,
+            name,
+            name_ar
+          )
+        `)
+        .eq('booking_group_id', bookingGroupId)
+        .order('created_at', { ascending: true });
+
+      if (bookingError || !bookings || bookings.length === 0) {
+        throw new Error(`No bookings found for group ${bookingGroupId}`);
+      }
+
+      const firstBooking = bookings[0];
+      const tenantId = firstBooking.tenant_id;
+
+      if (!tenantId) {
+        throw new Error(`Booking group ${bookingGroupId} has no tenant_id`);
+      }
+
+      // Check if invoice already exists (check first booking)
+      if (firstBooking.zoho_invoice_id) {
+        console.log(`[ZohoService] Invoice already exists for booking group ${bookingGroupId}: ${firstBooking.zoho_invoice_id}`);
+        return {
+          invoiceId: firstBooking.zoho_invoice_id,
+          success: true
+        };
+      }
+
+      // Aggregate all bookings into invoice line items
+      const lineItems: Array<{
+        name: string;
+        description?: string;
+        rate: number;
+        quantity: number;
+        unit?: string;
+      }> = [];
+
+      let totalAmount = 0;
+      const language = 'en'; // Default to English for invoice
+
+      for (const booking of bookings) {
+        const serviceName = language === 'ar' && booking.services.name_ar
+          ? booking.services.name_ar
+          : booking.services.name;
+
+        const serviceDescription = language === 'ar' && booking.services.description_ar
+          ? booking.services.description_ar
+          : booking.services.description;
+
+        const slotDate = booking.slots.slot_date;
+        const startTime = booking.slots.start_time;
+        const endTime = booking.slots.end_time;
+        const timeSlot = `${slotDate} ${startTime} - ${endTime}`;
+
+        // Create line item for this booking
+        const itemDescription = serviceDescription 
+          ? `${serviceDescription}\n${timeSlot}`
+          : timeSlot;
+
+        lineItems.push({
+          name: serviceName,
+          description: itemDescription,
+          rate: parseFloat(String(booking.total_price)),
+          quantity: 1,
+          unit: 'ticket'
+        });
+
+        totalAmount += parseFloat(String(booking.total_price));
+      }
+
+      // Prepare invoice data
+      const invoiceData: ZohoInvoiceData = {
+        customer_name: firstBooking.customer_name,
+        customer_email: firstBooking.customer_email || undefined,
+        customer_phone: firstBooking.customer_phone || undefined,
+        line_items: lineItems,
+        date: new Date().toISOString().split('T')[0],
+        due_date: new Date().toISOString().split('T')[0],
+        currency_code: 'SAR',
+        notes: `Booking Group: ${bookingGroupId}\nTotal Bookings: ${bookings.length}`
+      };
+
+      // Create invoice in Zoho
+      console.log(`[ZohoService] 📋 Creating invoice for booking group ${bookingGroupId} (${bookings.length} bookings)...`);
+      const invoiceResponse = await this.createInvoice(tenantId, invoiceData);
+
+      if (!invoiceResponse.invoice || !invoiceResponse.invoice.invoice_id) {
+        throw new Error(`Failed to create invoice: ${invoiceResponse.message || 'Unknown error'}`);
+      }
+
+      const invoiceId = invoiceResponse.invoice.invoice_id;
+      console.log(`[ZohoService] ✅ Invoice created: ${invoiceId}`);
+
+      // Update ALL bookings in the group with invoice ID
+      const { error: updateError } = await supabase
+        .from('bookings')
+        .update({
+          zoho_invoice_id: invoiceId,
+          zoho_invoice_created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('booking_group_id', bookingGroupId);
+
+      if (updateError) {
+        throw new Error(`Failed to update bookings with invoice ID: ${updateError.message}`);
+      }
+
+      console.log(`[ZohoService] ✅ Updated ${bookings.length} bookings with invoice ID ${invoiceId}`);
+
+      // Send invoice via email/WhatsApp
+      const customerEmail = firstBooking.customer_email;
+      const customerPhone = firstBooking.customer_phone;
+
+      if (customerEmail) {
+        try {
+          await this.sendInvoiceViaEmail(tenantId, invoiceId, customerEmail);
+          console.log(`[ZohoService] ✅ Invoice sent via email`);
+        } catch (emailError: any) {
+          console.error(`[ZohoService] ⚠️ Email delivery failed:`, emailError.message);
+        }
+      }
+
+      if (customerPhone) {
+        try {
+          await this.sendInvoiceViaWhatsApp(tenantId, invoiceId, customerPhone);
+          console.log(`[ZohoService] ✅ Invoice sent via WhatsApp`);
+        } catch (whatsappError: any) {
+          console.error(`[ZohoService] ⚠️ WhatsApp delivery failed:`, whatsappError.message);
+        }
+      }
+
+      return {
+        invoiceId,
+        success: true
+      };
+    } catch (error: any) {
+      console.error(`[ZohoService] ❌ Error generating receipt for booking group:`, error);
+      return {
+        invoiceId: '',
+        success: false,
+        error: error.message || 'Unknown error'
+      };
+    }
+  }
+
+  /**
    * Generate and send receipt for a booking
    */
   async generateReceipt(bookingId: string): Promise<{ invoiceId: string; success: boolean; error?: string }> {

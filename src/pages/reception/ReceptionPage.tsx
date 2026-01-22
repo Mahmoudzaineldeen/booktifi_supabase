@@ -906,6 +906,86 @@ export function ReceptionPage() {
   }
 
   // Helper function to create bookings via API (ensures tickets are sent)
+  async function createBulkBookingViaAPI(bookingData: {
+    slot_ids: string[];
+    service_id: string;
+    tenant_id: string;
+    customer_name: string;
+    customer_phone: string;
+    customer_email?: string | null;
+    visitor_count: number;
+    adult_count: number;
+    child_count: number;
+    total_price: number;
+    notes?: string | null;
+    employee_id?: string | null;
+    offer_id?: string | null;
+    language?: string;
+    booking_group_id?: string | null;
+  }) {
+    // Get API URL (already includes /api suffix)
+    const API_URL = getApiUrl();
+    
+    const session = await db.auth.getSession();
+    
+    if (!session.data.session?.access_token) {
+      throw new Error('Not authenticated. Please log in again.');
+    }
+
+    // Construct URL: API URL already includes /api, so just append the route
+    const url = `${API_URL}/bookings/create-bulk`;
+    console.log('Creating bulk booking via API:', { url, slotCount: bookingData.slot_ids.length, hasToken: !!session.data.session?.access_token });
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.data.session.access_token}`
+        },
+        body: JSON.stringify({
+          ...bookingData,
+          language: bookingData.language || i18n.language
+        })
+      });
+
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type') || '';
+      const isJson = contentType.includes('application/json');
+
+      // If response is not OK or not JSON, handle error
+      if (!response.ok || !isJson) {
+        const text = await response.text();
+        
+        // If it's HTML (error page), provide helpful message
+        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+          console.error('Server returned HTML instead of JSON. This usually means:');
+          console.error('1. Backend server is not running');
+          console.error('2. API URL is incorrect:', url);
+          console.error('3. Request was redirected to an error page');
+          throw new Error(`Backend server error: The API server at ${API_URL} is not responding correctly. Please ensure the backend server is running.`);
+        }
+
+        // Try to parse as JSON even if content-type is wrong
+        let errorData;
+        try {
+          errorData = JSON.parse(text);
+        } catch {
+          errorData = { error: text || `HTTP ${response.status}: ${response.statusText}` };
+        }
+
+        throw new Error(errorData.error || `Failed to create bulk booking: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Bulk booking created successfully:', result);
+      return result;
+    } catch (error: any) {
+      console.error('Error creating bulk booking:', error);
+      throw error;
+    }
+  }
+
   async function createBookingViaAPI(bookingData: any) {
     // Get API URL (already includes /api suffix)
     const API_URL = getApiUrl();
@@ -1146,106 +1226,54 @@ export function ReceptionPage() {
     // Generate a group ID for all bookings in this transaction
     const bookingGroupId = crypto.randomUUID();
 
+    // Calculate prices
+    let adultPrice = service.base_price || 0;
+    if (selectedOffer) {
+      const offer = service.offers?.find(o => o.id === selectedOffer);
+      if (offer) {
+        adultPrice = offer.price;
+      }
+    }
+    const childPrice = service.child_price || adultPrice;
+    const totalPrice = (adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count);
+
+    // Determine which slots to use
+    let slotsToUse: Slot[];
     if (required === 1) {
       // Simple case: All bookings at same time with different employees
-      const slotsToUse = slotsAtTime.slice(0, quantity);
-
-      // Distribute adult_count and child_count across bookings
-      const totalTickets = bookingForm.adult_count + bookingForm.child_count;
-      let adultRemaining = bookingForm.adult_count;
-      let childRemaining = bookingForm.child_count;
-      // If an offer is selected, use offer price; otherwise use base_price
-      let adultPrice = service.base_price || 0;
-      if (selectedOffer) {
-        const offer = service.offers?.find(o => o.id === selectedOffer);
-        if (offer) {
-          adultPrice = offer.price;
-        }
-      }
-      // Child price is mandatory and set by service provider (offers don't affect child price)
-      const childPrice = service.child_price || adultPrice;
-
-      for (const slot of slotsToUse) {
-        // Assign tickets: prioritize adults, then children
-        let bookingAdultCount = 0;
-        let bookingChildCount = 0;
-        
-        if (adultRemaining > 0) {
-          bookingAdultCount = 1;
-          adultRemaining--;
-        } else if (childRemaining > 0) {
-          bookingChildCount = 1;
-          childRemaining--;
-        }
-        
-        const bookingPrice = (adultPrice * bookingAdultCount) + (childPrice * bookingChildCount);
-
-        await createBookingViaAPI({
-          tenant_id: userProfile!.tenant_id,
-          service_id: selectedService!,
-          slot_id: slot.id,
-          employee_id: slot.employee_id,
-          offer_id: selectedOffer || null,
-          customer_name: bookingForm.customer_name,
-          customer_phone: fullPhoneNumber,
-          customer_email: bookingForm.customer_email || null,
-          visitor_count: bookingAdultCount + bookingChildCount,
-          adult_count: bookingAdultCount,
-          child_count: bookingChildCount,
-          total_price: bookingPrice,
-          notes: bookingForm.notes || null,
-          status: 'confirmed',
-          payment_status: 'unpaid',
-          created_by_user_id: userProfile!.id,
-          booking_group_id: bookingGroupId
-        });
-      }
+      slotsToUse = slotsAtTime.slice(0, quantity);
     } else {
       // Parallel + Extension: Use manually selected slots
-      // First slot is primary (parallel), rest are extensions
-      // Distribute adult_count and child_count across bookings
-      let adultRemaining = bookingForm.adult_count;
-      let childRemaining = bookingForm.child_count;
-      // Adult price is always base_price (discounted if discount exists)
-      const adultPrice = service.base_price || 0;
-      // Child price is mandatory and set by service provider
-      const childPrice = service.child_price || adultPrice;
+      slotsToUse = selectedSlots.map(s => slots.find(slot => slot.id === s.slot_id)).filter(Boolean) as Slot[];
+    }
 
-      for (const selectedSlot of selectedSlots) {
-        // Assign tickets: prioritize adults, then children
-        let bookingAdultCount = 0;
-        let bookingChildCount = 0;
-        
-        if (adultRemaining > 0) {
-          bookingAdultCount = 1;
-          adultRemaining--;
-        } else if (childRemaining > 0) {
-          bookingChildCount = 1;
-          childRemaining--;
-        }
-        
-        const bookingPrice = (adultPrice * bookingAdultCount) + (childPrice * bookingChildCount);
+    // Validate slot count matches visitor count
+    if (slotsToUse.length !== quantity) {
+      throw new Error(`Number of selected slots (${slotsToUse.length}) must match visitor count (${quantity})`);
+    }
 
-        await createBookingViaAPI({
-          tenant_id: userProfile!.tenant_id,
-          service_id: selectedService!,
-          slot_id: selectedSlot.slot_id,
-          employee_id: selectedSlot.employee_id,
-          offer_id: selectedOffer || null,
-          customer_name: bookingForm.customer_name,
-          customer_phone: fullPhoneNumber,
-          customer_email: bookingForm.customer_email || null,
-          visitor_count: bookingAdultCount + bookingChildCount,
-          adult_count: bookingAdultCount,
-          child_count: bookingChildCount,
-          total_price: bookingPrice,
-          notes: bookingForm.notes || null,
-          status: 'confirmed',
-          payment_status: 'unpaid',
-          created_by_user_id: userProfile!.id,
-          booking_group_id: bookingGroupId
-        });
-      }
+    // Use bulk booking endpoint for atomic transaction and proper validation
+    try {
+      await createBulkBookingViaAPI({
+        slot_ids: slotsToUse.map(s => s.id),
+        service_id: selectedService!,
+        tenant_id: userProfile!.tenant_id,
+        customer_name: bookingForm.customer_name,
+        customer_phone: fullPhoneNumber,
+        customer_email: bookingForm.customer_email || null,
+        visitor_count: quantity,
+        adult_count: bookingForm.adult_count,
+        child_count: bookingForm.child_count,
+        total_price: totalPrice,
+        notes: bookingForm.notes || null,
+        employee_id: slotsToUse[0]?.employee_id || null, // Use first slot's employee
+        offer_id: selectedOffer || null,
+        language: i18n.language,
+        booking_group_id: bookingGroupId
+      });
+    } catch (error: any) {
+      console.error('Error creating bulk booking:', error);
+      throw error;
     }
   }
 
@@ -1266,47 +1294,47 @@ export function ReceptionPage() {
     // Generate a group ID for all bookings in this transaction
     const bookingGroupId = crypto.randomUUID();
 
-    // Create bookings for each manually selected slot
-    // Distribute adult_count and child_count across bookings
-    let adultRemaining = bookingForm.adult_count;
-    let childRemaining = bookingForm.child_count;
-    const adultPrice = service.adult_price || service.base_price || 0;
-    const childPrice = service.child_price || adultPrice;
-
-    for (const selectedSlot of selectedSlots) {
-      // Assign tickets: prioritize adults, then children
-      let bookingAdultCount = 0;
-      let bookingChildCount = 0;
-      
-      if (adultRemaining > 0) {
-        bookingAdultCount = 1;
-        adultRemaining--;
-      } else if (childRemaining > 0) {
-        bookingChildCount = 1;
-        childRemaining--;
+    // Calculate prices
+    let adultPrice = service.base_price || 0;
+    if (selectedOffer) {
+      const offer = service.offers?.find(o => o.id === selectedOffer);
+      if (offer) {
+        adultPrice = offer.price;
       }
-      
-      const bookingPrice = (adultPrice * bookingAdultCount) + (childPrice * bookingChildCount);
+    }
+    const childPrice = service.child_price || adultPrice;
+    const totalPrice = (adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count);
 
-      await createBookingViaAPI({
-        tenant_id: userProfile!.tenant_id,
+    // Get slots from selected slots
+    const slotsToUse = selectedSlots.map(s => slots.find(slot => slot.id === s.slot_id)).filter(Boolean) as Slot[];
+
+    // Validate slot count matches visitor count
+    if (slotsToUse.length !== quantity) {
+      throw new Error(`Number of selected slots (${slotsToUse.length}) must match visitor count (${quantity})`);
+    }
+
+    // Use bulk booking endpoint for atomic transaction and proper validation
+    try {
+      await createBulkBookingViaAPI({
+        slot_ids: slotsToUse.map(s => s.id),
         service_id: selectedService!,
-        slot_id: selectedSlot.slot_id,
-        employee_id: employeeId,
-        offer_id: selectedOffer || null,
+        tenant_id: userProfile!.tenant_id,
         customer_name: bookingForm.customer_name,
         customer_phone: fullPhoneNumber,
         customer_email: bookingForm.customer_email || null,
-        visitor_count: bookingAdultCount + bookingChildCount,
-        adult_count: bookingAdultCount,
-        child_count: bookingChildCount,
-        total_price: bookingPrice,
+        visitor_count: quantity,
+        adult_count: bookingForm.adult_count,
+        child_count: bookingForm.child_count,
+        total_price: totalPrice,
         notes: bookingForm.notes || null,
-        status: 'confirmed',
-        payment_status: 'unpaid',
-        created_by_user_id: userProfile!.id,
+        employee_id: employeeId,
+        offer_id: selectedOffer || null,
+        language: i18n.language,
         booking_group_id: bookingGroupId
       });
+    } catch (error: any) {
+      console.error('Error creating bulk booking:', error);
+      throw error;
     }
   }
 

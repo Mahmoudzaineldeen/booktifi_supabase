@@ -1260,6 +1260,104 @@ export async function generateAllTicketsInOnePDF(
 }
 
 /**
+ * Generate ONE ticket PDF for a bulk booking group
+ * Contains multiple QR codes (one per booking/slot)
+ */
+export async function generateBulkBookingTicketPDFBase64(
+  bookingGroupId: string,
+  language: 'en' | 'ar' = 'en'
+): Promise<string> {
+  try {
+    console.log(`📄 generateBulkBookingTicketPDFBase64: Starting for booking group ${bookingGroupId}`);
+    
+    // Fetch all bookings in the group
+    const { data: bookings, error: bookingError } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        customer_name,
+        customer_phone,
+        customer_email,
+        visitor_count,
+        adult_count,
+        child_count,
+        total_price,
+        services (
+          name,
+          name_ar,
+          base_price,
+          child_price
+        ),
+        slots (
+          slot_date,
+          start_time,
+          end_time
+        ),
+        tenants (
+          name,
+          name_ar,
+          landing_page_settings
+        )
+      `)
+      .eq('booking_group_id', bookingGroupId)
+      .order('created_at', { ascending: true });
+
+    if (bookingError || !bookings || bookings.length === 0) {
+      throw new Error(`No bookings found for group ${bookingGroupId}`);
+    }
+
+    console.log(`📄 Found ${bookings.length} bookings in group ${bookingGroupId}`);
+
+    // Generate ONE PDF with multiple tickets (one per booking/slot)
+    const { PDFDocument } = await import('pdf-lib');
+    const combinedPdf = await PDFDocument.create();
+
+    // Generate a ticket for each booking (each slot gets its own QR code)
+    for (let i = 0; i < bookings.length; i++) {
+      const booking = bookings[i];
+      const ticketNumber = i + 1;
+      const totalTickets = bookings.length;
+
+      // Determine ticket type (adult or child)
+      const ticketType = booking.adult_count > 0 ? 'adult' : 'child';
+      
+      // Calculate ticket price
+      let ticketPrice: number | undefined;
+      if (ticketType === 'child' && booking.services.child_price) {
+        ticketPrice = parseFloat(String(booking.services.child_price));
+      } else {
+        ticketPrice = parseFloat(String(booking.services.base_price));
+      }
+
+      // Generate ticket PDF for this booking
+      const ticketBuffer = await generateBookingTicketPDF(
+        booking.id,
+        language,
+        ticketNumber,
+        totalTickets,
+        ticketType,
+        ticketPrice
+      );
+
+      // Embed the ticket page into the combined PDF
+      const ticketPdf = await PDFDocument.load(ticketBuffer);
+      const [ticketPage] = await combinedPdf.copyPages(ticketPdf, [0]);
+      combinedPdf.addPage(ticketPage);
+    }
+
+    const pdfBytes = await combinedPdf.save();
+    const base64 = Buffer.from(pdfBytes).toString('base64');
+    
+    console.log(`✅ generateBulkBookingTicketPDFBase64: Completed for booking group ${bookingGroupId} (${bookings.length} tickets, ${pdfBytes.length} bytes)`);
+    return base64;
+  } catch (error: any) {
+    console.error(`❌ Error generating bulk booking ticket PDF for group ${bookingGroupId}:`, error);
+    console.error('Error stack:', error.stack);
+    throw new Error(`Failed to generate bulk booking ticket PDF: ${error.message}`);
+  }
+}
+
+/**
  * Generate multiple tickets in a single PDF file (one page per ticket)
  * This function creates a single PDF with multiple pages, each page being one ticket
  * Generates separate tickets for adults and children with their individual prices
