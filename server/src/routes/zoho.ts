@@ -614,7 +614,7 @@ router.post('/test-invoice', async (req, res) => {
 
 /**
  * GET /api/zoho/invoices/:invoiceId/download
- * Download invoice PDF (for customers)
+ * Download invoice PDF (TASK 7: for customers, receptionists, and tenant owners)
  * Supports both Authorization header and token query parameter for flexibility
  */
 router.get('/invoices/:invoiceId/download', async (req, res) => {
@@ -629,8 +629,33 @@ router.get('/invoices/:invoiceId/download', async (req, res) => {
       return res.status(400).json({ error: 'Invoice ID is required' });
     }
 
-    // Optional: Validate token if provided (for security)
-    // For now, we'll allow downloads without strict auth since invoices are already public to customers
+    // TASK 7: Validate token and check role (receptionist, tenant_admin, or customer)
+    // If no token provided, allow download (for customer email links)
+    let userRole: string | null = null;
+    let userTenantId: string | null = null;
+    
+    if (token) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+        const decoded = jwt.verify(token, JWT_SECRET) as any;
+        userRole = decoded.role;
+        userTenantId = decoded.tenant_id;
+        
+        // TASK 5 & 7: Allow receptionist, tenant_admin, or customer
+        // Cashier cannot download invoices
+        if (userRole === 'cashier') {
+          return res.status(403).json({ 
+            error: 'Access denied. Cashiers cannot download invoices.',
+            userRole: userRole,
+            hint: 'Please use a receptionist, tenant owner, or customer account.'
+          });
+        }
+      } catch (tokenError: any) {
+        // If token is invalid, still allow download (for customer email links)
+        console.warn('[Zoho Routes] Token validation failed, allowing download (may be customer email link):', tokenError.message);
+      }
+    }
 
     // Get tenant_id from booking (need to find booking by zoho_invoice_id)
     const { data: booking, error } = await supabase
@@ -645,12 +670,23 @@ router.get('/invoices/:invoiceId/download', async (req, res) => {
       return res.status(404).json({ error: 'Invoice not found' });
     }
 
-    const tenantId = booking.tenant_id;
-    console.log(`[Zoho Routes] Found tenant_id: ${tenantId} for invoice: ${invoiceId}`);
+    const bookingTenantId = booking.tenant_id;
+    
+    // TASK 7: If user is authenticated, verify they belong to the same tenant (for receptionist/tenant_admin)
+    if (userTenantId && userRole && (userRole === 'receptionist' || userRole === 'tenant_admin')) {
+      if (userTenantId !== bookingTenantId) {
+        return res.status(403).json({ 
+          error: 'Access denied. This invoice belongs to a different tenant.',
+          hint: 'You can only download invoices for your own tenant.'
+        });
+      }
+    }
+    
+    console.log(`[Zoho Routes] Found tenant_id: ${bookingTenantId} for invoice: ${invoiceId}`);
 
     // Download PDF from Zoho
     console.log(`[Zoho Routes] Downloading PDF from Zoho for invoice: ${invoiceId}`);
-    const pdfBuffer = await zohoService.downloadInvoicePdf(tenantId, invoiceId);
+    const pdfBuffer = await zohoService.downloadInvoicePdf(bookingTenantId, invoiceId);
     console.log(`[Zoho Routes] PDF downloaded successfully, size: ${pdfBuffer.length} bytes`);
 
     // Set CORS headers (must be set before sending response)

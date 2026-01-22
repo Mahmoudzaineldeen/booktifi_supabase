@@ -121,7 +121,7 @@ function authenticate(req: express.Request, res: express.Response, next: express
   }
 }
 
-// Middleware to authenticate tenant admin ONLY (for booking management)
+// Middleware to authenticate tenant admin ONLY (for payment status and booking deletion)
 function authenticateTenantAdminOnly(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
     const authHeader = req.headers.authorization;
@@ -158,12 +158,78 @@ function authenticateTenantAdminOnly(req: express.Request, res: express.Response
       });
     }
     
-    // STRICT: Only tenant_admin (Service Provider) can manage bookings
+    // STRICT: Only tenant_admin (Service Provider) can manage payment status and delete bookings
     if (decoded.role !== 'tenant_admin') {
       return res.status(403).json({ 
-        error: 'Access denied. Only Service Providers (tenant admins) can manage bookings.',
+        error: 'Access denied. Only Service Providers (tenant admins) can perform this action.',
         userRole: decoded.role,
         hint: 'You must be logged in as a Service Provider to perform this action.'
+      });
+    }
+
+    if (!decoded.tenant_id) {
+      return res.status(403).json({ 
+        error: 'Access denied. No tenant associated with your account.',
+        hint: 'Please contact support to associate your account with a tenant.'
+      });
+    }
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      tenant_id: decoded.tenant_id,
+    };
+    
+    next();
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Authentication error', hint: error.message });
+  }
+}
+
+// TASK 5: Middleware to authenticate receptionist OR tenant admin (for booking creation/editing)
+function authenticateReceptionistOrTenantAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        error: 'Authorization header required',
+        hint: 'Please provide a valid Bearer token in the Authorization header'
+      });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    if (!token || token.trim() === '') {
+      return res.status(401).json({ error: 'Token is required' });
+    }
+
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (jwtError: any) {
+      if (jwtError.name === 'TokenExpiredError') {
+        return res.status(401).json({ 
+          error: 'Token has expired',
+          hint: 'Please log in again to get a new token'
+        });
+      } else if (jwtError.name === 'JsonWebTokenError') {
+        return res.status(401).json({ 
+          error: 'Invalid token',
+          hint: 'The token format is invalid. Please log in again.'
+        });
+      }
+      return res.status(401).json({ 
+        error: 'Token verification failed',
+        hint: jwtError.message || 'Please log in again'
+      });
+    }
+    
+    // TASK 5: Allow receptionist OR tenant_admin (but not cashier)
+    if (decoded.role !== 'receptionist' && decoded.role !== 'tenant_admin') {
+      return res.status(403).json({ 
+        error: 'Access denied. Only receptionists and tenant owners can create/edit bookings.',
+        userRole: decoded.role,
+        hint: 'Cashiers cannot create or edit bookings. Please use a receptionist or tenant owner account.'
       });
     }
 
@@ -420,7 +486,8 @@ router.post('/lock/:lock_id/release', authenticate, async (req, res) => {
 // ============================================================================
 // Create booking with lock validation
 // ============================================================================
-router.post('/create', authenticate, async (req, res) => {
+// TASK 5: Receptionist and tenant_admin can create bookings (not cashier)
+router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) => {
   try {
     const {
       slot_id,
@@ -899,7 +966,7 @@ router.post('/validate-qr', authenticate, async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // Check user role (cashier or receptionist)
+    // Check user role - TASK 5: Only cashiers can scan QR codes
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('role, tenant_id')
@@ -910,8 +977,13 @@ router.post('/validate-qr', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (userData.role !== 'cashier' && userData.role !== 'receptionist' && userData.role !== 'tenant_admin') {
-      return res.status(403).json({ error: 'Only cashiers, receptionists, and admins can validate QR codes' });
+    // TASK 5: Strict role enforcement - Only cashiers can scan QR codes
+    if (userData.role !== 'cashier') {
+      return res.status(403).json({ 
+        error: 'Access denied. Only cashiers can scan QR codes.',
+        userRole: userData.role,
+        hint: 'Receptionists and tenant owners cannot scan QR codes. Please use a cashier account.'
+      });
     }
 
     // Get booking details with nested select for joins
@@ -1463,7 +1535,8 @@ router.post('/locks', async (req, res) => {
 // ============================================================================
 // Update booking details (Service Provider only)
 // ============================================================================
-router.patch('/:id', authenticateTenantAdminOnly, async (req, res) => {
+// TASK 5: Receptionist and tenant_admin can edit bookings (not cashier)
+router.patch('/:id', authenticateReceptionistOrTenantAdmin, async (req, res) => {
   try {
     const bookingId = req.params.id;
     const userId = req.user!.id;
@@ -1488,7 +1561,8 @@ router.patch('/:id', authenticateTenantAdminOnly, async (req, res) => {
       });
     }
 
-    // Prepare update payload (only allow specific fields)
+    // TASK 8: Prepare update payload (only allow specific fields)
+    // TASK 5: Only tenant_admin can change slot_id (reschedule), receptionist cannot
     const allowedFields = [
       'customer_name',
       'customer_phone',
@@ -1501,6 +1575,16 @@ router.patch('/:id', authenticateTenantAdminOnly, async (req, res) => {
       'notes',
       'employee_id',
     ];
+    
+    // TASK 8: Only tenant_admin can reschedule bookings (change slot_id)
+    if (req.user!.role === 'tenant_admin' && 'slot_id' in updateData) {
+      allowedFields.push('slot_id');
+    } else if (req.user!.role === 'receptionist' && 'slot_id' in updateData) {
+      return res.status(403).json({ 
+        error: 'Access denied. Only tenant owners can reschedule bookings.',
+        hint: 'Receptionists cannot change booking times. Please contact a tenant owner.'
+      });
+    }
 
     const updatePayload: any = {
       updated_at: new Date().toISOString(),
@@ -1538,6 +1622,63 @@ router.patch('/:id', authenticateTenantAdminOnly, async (req, res) => {
       return res.status(400).json({ error: 'child_count cannot be negative' });
     }
 
+    // TASK 8: Validate slot_id change (rescheduling) - only for tenant_admin
+    let slotChanged = false;
+    let oldSlotId: string | null = null;
+    if (updatePayload.slot_id && updatePayload.slot_id !== currentBooking.slot_id) {
+      slotChanged = true;
+      oldSlotId = currentBooking.slot_id;
+      
+      // Validate new slot exists and belongs to same service/tenant
+      const { data: newSlot, error: slotError } = await supabase
+        .from('time_slots')
+        .select(`
+          id,
+          tenant_id,
+          service_id,
+          total_capacity,
+          remaining_capacity,
+          is_available,
+          start_time_utc,
+          end_time_utc
+        `)
+        .eq('id', updatePayload.slot_id)
+        .single();
+
+      if (slotError || !newSlot) {
+        return res.status(404).json({ error: 'New time slot not found' });
+      }
+
+      // Verify slot belongs to same tenant and service
+      if (newSlot.tenant_id !== tenantId) {
+        return res.status(403).json({ error: 'New slot belongs to a different tenant' });
+      }
+      if (newSlot.service_id !== currentBooking.service_id) {
+        return res.status(400).json({ error: 'New slot belongs to a different service. Cannot change service when rescheduling.' });
+      }
+
+      // Check slot availability and capacity
+      if (!newSlot.is_available) {
+        return res.status(409).json({ error: 'Selected time slot is not available' });
+      }
+
+      const requiredCapacity = updatePayload.visitor_count || currentBooking.visitor_count;
+      if (newSlot.remaining_capacity < requiredCapacity) {
+        return res.status(409).json({ 
+          error: `Not enough capacity. Slot has ${newSlot.remaining_capacity} available, but booking requires ${requiredCapacity}`,
+          available_capacity: newSlot.remaining_capacity,
+          required_capacity: requiredCapacity
+        });
+      }
+
+      // Check if slot is in the past
+      const slotStartTime = new Date(newSlot.start_time_utc);
+      const now = new Date();
+      if (slotStartTime < now) {
+        return res.status(400).json({ error: 'Cannot reschedule to a time slot in the past' });
+      }
+    }
+
     // Update booking
     const { data: updatedBooking, error: updateError } = await supabase
       .from('bookings')
@@ -1548,6 +1689,134 @@ router.patch('/:id', authenticateTenantAdminOnly, async (req, res) => {
 
     if (updateError) {
       throw updateError;
+    }
+
+    // TASK 9 & 10: If slot changed, invalidate old ticket and generate new one, then notify customer
+    if (slotChanged && oldSlotId) {
+      console.log(`\n🔄 ========================================`);
+      console.log(`🔄 TASK 9 & 10: Booking rescheduled - regenerating ticket`);
+      console.log(`   Booking ID: ${bookingId}`);
+      console.log(`   Old Slot: ${oldSlotId}`);
+      console.log(`   New Slot: ${updatePayload.slot_id}`);
+      console.log(`🔄 ========================================\n`);
+
+      // TASK 9: Invalidate old QR code by clearing qr_token and resetting qr_scanned
+      await supabase
+        .from('bookings')
+        .update({
+          qr_token: null,
+          qr_scanned: false,
+          qr_scanned_at: null,
+          qr_scanned_by_user_id: null,
+        })
+        .eq('id', bookingId);
+
+      // TASK 9 & 10: Generate new ticket and send to customer asynchronously
+      Promise.resolve().then(async () => {
+        try {
+          // Get booking details for ticket generation
+          const { data: bookingDetails } = await supabase
+            .from('bookings')
+            .select(`
+              id,
+              customer_name,
+              customer_phone,
+              customer_email,
+              language,
+              services:service_id (name, name_ar),
+              slots:slot_id (slot_date, start_time, end_time),
+              tenants:tenant_id (name, name_ar)
+            `)
+            .eq('id', bookingId)
+            .single();
+
+          if (!bookingDetails) {
+            console.error('❌ Could not fetch booking details for ticket regeneration');
+            return;
+          }
+
+          // Import required modules
+          const { generateBookingTicketPDFBase64 } = await import('../services/pdfService.js');
+          const { sendWhatsAppDocument } = await import('../services/whatsappService.js');
+          const { sendBookingTicketEmail } = await import('../services/emailService.js');
+
+          const ticketLanguage = (bookingDetails.language === 'ar' || bookingDetails.language === 'en')
+            ? bookingDetails.language as 'en' | 'ar'
+            : 'en';
+
+          // Generate new PDF
+          console.log(`📄 Generating new ticket PDF for rescheduled booking ${bookingId}...`);
+          const pdfBase64 = await generateBookingTicketPDFBase64(bookingId, ticketLanguage);
+          const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+
+          // Get tenant WhatsApp settings
+          const { data: tenantData } = await supabase
+            .from('tenants')
+            .select('whatsapp_settings')
+            .eq('id', tenantId)
+            .single();
+
+          let whatsappConfig: any = null;
+          if (tenantData?.whatsapp_settings) {
+            const settings = tenantData.whatsapp_settings;
+            whatsappConfig = {
+              provider: settings.provider,
+              apiUrl: settings.api_url,
+              apiKey: settings.api_key,
+              phoneNumberId: settings.phone_number_id,
+              accessToken: settings.access_token,
+              accountSid: settings.account_sid,
+              authToken: settings.auth_token,
+              from: settings.from,
+            };
+          }
+
+          // TASK 10: Send new ticket via WhatsApp
+          const normalizedPhone = normalizePhoneNumber(bookingDetails.customer_phone);
+          if (normalizedPhone && pdfBuffer) {
+            const whatsappMessage = ticketLanguage === 'ar'
+              ? 'تم تغيير موعد حجزك! يرجى الاطلاع على التذكرة المحدثة المرفقة.'
+              : 'Your booking time has been changed! Please find your updated ticket attached.';
+            
+            await sendWhatsAppDocument(
+              normalizedPhone,
+              pdfBuffer,
+              `booking_ticket_${bookingId}_updated.pdf`,
+              whatsappMessage,
+              whatsappConfig || undefined
+            );
+            console.log(`✅ New ticket sent via WhatsApp to ${normalizedPhone}`);
+          }
+
+          // TASK 10: Send new ticket via Email
+          if (bookingDetails.customer_email && pdfBuffer) {
+            await sendBookingTicketEmail(
+              bookingDetails.customer_email,
+              pdfBuffer,
+              bookingId,
+              tenantId,
+              {
+                service_name: bookingDetails.services?.name || 'Service',
+                service_name_ar: bookingDetails.services?.name_ar || '',
+                slot_date: bookingDetails.slots?.slot_date || '',
+                start_time: bookingDetails.slots?.start_time || '',
+                end_time: bookingDetails.slots?.end_time || '',
+                tenant_name: bookingDetails.tenants?.name || '',
+                tenant_name_ar: bookingDetails.tenants?.name_ar || '',
+              },
+              ticketLanguage
+            );
+            console.log(`✅ New ticket sent via Email to ${bookingDetails.customer_email}`);
+          }
+
+          console.log(`\n✅ TASK 9 & 10 Complete: New ticket generated and sent to customer\n`);
+        } catch (error: any) {
+          console.error('❌ Error regenerating ticket after reschedule:', error);
+          // Don't fail the booking update if ticket regeneration fails
+        }
+      }).catch(error => {
+        console.error('❌ Unhandled error in ticket regeneration promise:', error);
+      });
     }
 
     // Log audit trail
@@ -1565,7 +1834,8 @@ router.patch('/:id', authenticateTenantAdminOnly, async (req, res) => {
     res.json({
       success: true,
       booking: updatedBooking,
-      message: 'Booking updated successfully',
+      message: slotChanged ? 'Booking rescheduled successfully. New ticket has been sent to customer.' : 'Booking updated successfully',
+      slot_changed: slotChanged,
     });
   } catch (error: any) {
     const context = logger.extractContext(req);
