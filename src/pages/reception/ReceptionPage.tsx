@@ -404,42 +404,49 @@ export function ReceptionPage() {
   async function fetchServices() {
     if (!userProfile?.tenant_id) return;
     
-    // Fetch services with their offers
-    const { data: servicesData, error: servicesError } = await supabase
-      .from('services')
-      .select('id, name, name_ar, base_price, original_price, discount_percentage, child_price, capacity_per_slot, capacity_mode')
-      .eq('tenant_id', userProfile.tenant_id)
-      .eq('is_active', true)
-      .order('name');
-    
-    if (servicesError) {
-      console.error('Error fetching services:', servicesError);
-      setServices([]);
-      return;
-    }
-    
-    // Fetch all active offers for these services
-    if (servicesData && servicesData.length > 0) {
-      const serviceIds = servicesData.map(s => s.id);
-      const { data: offersData, error: offersError } = await supabase
-        .from('service_offers')
-        .select('id, service_id, name, name_ar, price, original_price, discount_percentage, is_active')
-        .in('service_id', serviceIds)
+    try {
+      // Fetch services with their offers
+      const { data: servicesData, error: servicesError } = await db
+        .from('services')
+        .select('id, name, name_ar, base_price, original_price, discount_percentage, child_price, capacity_per_slot, capacity_mode')
+        .eq('tenant_id', userProfile.tenant_id)
         .eq('is_active', true)
         .order('name');
       
-      if (offersError) {
-        console.error('Error fetching offers:', offersError);
+      if (servicesError) {
+        console.error('Error fetching services:', servicesError);
+        setServices([]);
+        return;
       }
       
-      // Attach offers to their respective services
-      const servicesWithOffers = servicesData.map(service => ({
-        ...service,
-        offers: offersData?.filter(offer => offer.service_id === service.id) || []
-      }));
-      
-      setServices(servicesWithOffers);
-    } else {
+      // Fetch all active offers for these services
+      if (servicesData && servicesData.length > 0) {
+        const serviceIds = servicesData.map(s => s.id);
+        const { data: offersData, error: offersError } = await db
+          .from('service_offers')
+          .select('id, service_id, name, name_ar, price, original_price, discount_percentage, is_active')
+          .in('service_id', serviceIds)
+          .eq('is_active', true)
+          .order('name');
+        
+        if (offersError) {
+          console.error('Error fetching offers:', offersError);
+        }
+        
+        // Attach offers to their respective services
+        const servicesWithOffers = servicesData.map(service => ({
+          ...service,
+          offers: offersData?.filter(offer => offer.service_id === service.id) || []
+        }));
+        
+        setServices(servicesWithOffers);
+        console.log(`[ReceptionPage] Loaded ${servicesWithOffers.length} services`);
+      } else {
+        console.warn('[ReceptionPage] No active services found for tenant');
+        setServices([]);
+      }
+    } catch (error) {
+      console.error('Unexpected error in fetchServices:', error);
       setServices([]);
     }
   }
@@ -452,7 +459,7 @@ export function ReceptionPage() {
     
     try {
       // Fetch packages first
-      const { data: packagesData, error: packagesError } = await supabase
+      const { data: packagesData, error: packagesError } = await db
         .from('service_packages')
         .select('id, name, name_ar, total_price')
         .eq('tenant_id', userProfile.tenant_id)
@@ -479,19 +486,9 @@ export function ReceptionPage() {
         return;
       }
       
-      const { data: packageServicesData, error: packageServicesError } = await supabase
+      const { data: packageServicesData, error: packageServicesError } = await db
         .from('package_services')
-        .select(`
-          package_id,
-          service_id,
-          services (
-            id,
-            name,
-            name_ar,
-            base_price,
-            child_price
-          )
-        `)
+        .select('package_id, service_id, services(id, name, name_ar, base_price, child_price)')
         .in('package_id', packageIds);
       
       if (packageServicesError) {
@@ -534,12 +531,12 @@ export function ReceptionPage() {
       return;
     }
 
-      const { data } = await supabase
+      const { data } = await db
         .from('customers')
-      .select('*')
-      .eq('tenant_id', userProfile.tenant_id)
-      .eq('phone', fullPhone)
-      .maybeSingle();
+        .select('*')
+        .eq('tenant_id', userProfile.tenant_id)
+        .eq('phone', fullPhone)
+        .maybeSingle();
 
     setSubscriptionCustomerLookup(data);
     if (data) {
@@ -567,7 +564,7 @@ export function ReceptionPage() {
 
     try {
       if (!customerId) {
-        const { data: newCustomer } = await supabase
+        const { data: newCustomer } = await db
           .from('customers')
           .insert({
             tenant_id: userProfile.tenant_id,
@@ -584,7 +581,7 @@ export function ReceptionPage() {
       }
 
       if (customerId) {
-        await supabase.from('package_subscriptions').insert({
+        await db.from('package_subscriptions').insert({
           tenant_id: userProfile.tenant_id,
           customer_id: customerId,
           package_id: subscriptionForm.package_id,
@@ -755,7 +752,7 @@ export function ReceptionPage() {
       // First get shifts for this service
       console.log(`[ReceptionPage] ========================================`);
       console.log(`[ReceptionPage] Fetching shifts for service: ${selectedService}, date: ${dateStr}`);
-      const { data: shifts, error: shiftsError } = await supabase
+      const { data: shifts, error: shiftsError } = await db
         .from('shifts')
         .select('id, days_of_week')
         .eq('service_id', selectedService)
@@ -779,19 +776,9 @@ export function ReceptionPage() {
 
       // Then get slots for these shifts on the selected date
       console.log(`[ReceptionPage] Fetching slots for shift IDs: ${shiftIds.join(', ')}, date: ${dateStr}`);
-      const { data: slotsData, error } = await supabase
+      const { data: slotsData, error } = await db
         .from('slots')
-        .select(`
-          id,
-          slot_date,
-          start_time,
-          end_time,
-          available_capacity,
-          booked_count,
-          employee_id,
-          shift_id,
-          users:employee_id (full_name, full_name_ar)
-        `)
+        .select('id, slot_date, start_time, end_time, available_capacity, booked_count, employee_id, shift_id, users:employee_id(full_name, full_name_ar)')
         .eq('tenant_id', userProfile.tenant_id)
         .eq('slot_date', dateStr)
         .in('shift_id', shiftIds)
@@ -1032,7 +1019,7 @@ export function ReceptionPage() {
 
       // Get all slots for this date and these employees
       const employeeIds = Array.from(employeeMap.keys());
-      const { data: allSlots } = await supabase
+      const { data: allSlots } = await db
         .from('slots')
         .select('id, employee_id')
         .eq('tenant_id', userProfile.tenant_id)
@@ -1061,7 +1048,7 @@ export function ReceptionPage() {
         return;
       }
 
-      const { data: bookings } = await supabase
+      const { data: bookings } = await db
         .from('bookings')
         .select('employee_id')
         .in('slot_id', slotIds)
@@ -1502,7 +1489,7 @@ export function ReceptionPage() {
       const fullPhoneNumber = `${countryCode}${bookingForm.customer_phone}`;
 
       // Save or update customer record
-      const { data: existingCustomer } = await supabase
+      const { data: existingCustomer } = await db
         .from('customers')
         .select('id, total_bookings')
         .eq('tenant_id', userProfile.tenant_id)
@@ -1510,7 +1497,7 @@ export function ReceptionPage() {
         .maybeSingle();
 
       if (existingCustomer) {
-        await supabase
+        await db
           .from('customers')
           .update({
             name: bookingForm.customer_name,
@@ -1520,7 +1507,7 @@ export function ReceptionPage() {
           })
           .eq('id', existingCustomer.id);
       } else {
-        await supabase
+        await db
           .from('customers')
           .insert({
             tenant_id: userProfile.tenant_id,
@@ -1980,7 +1967,7 @@ export function ReceptionPage() {
 
   async function updateBookingStatus(bookingId: string, status: string) {
     try {
-      const { error } = await supabase
+      const { error } = await db
         .from('bookings')
         .update({ status, status_changed_at: new Date().toISOString() })
         .eq('id', bookingId);
@@ -1995,7 +1982,7 @@ export function ReceptionPage() {
 
   async function updatePaymentStatus(bookingId: string, paymentStatus: string) {
     try {
-      const { error } = await supabase
+      const { error } = await db
         .from('bookings')
         .update({ payment_status: paymentStatus })
         .eq('id', bookingId);
@@ -2111,7 +2098,7 @@ export function ReceptionPage() {
     setCustomerPackage(null);
     try {
       // First, try to find in customers table
-      const { data: customerData, error: customerError } = await supabase
+      const { data: customerData, error: customerError } = await db
         .from('customers')
         .select('id, name, email, phone')
         .eq('tenant_id', userProfile.tenant_id)
@@ -2129,15 +2116,9 @@ export function ReceptionPage() {
         }));
 
         // Fetch active package subscription
-        const { data: subscriptionData } = await supabase
+        const { data: subscriptionData } = await db
           .from('package_subscriptions')
-          .select(`
-            id,
-            package_id,
-            status,
-            expires_at,
-            service_packages(name, name_ar, total_price)
-          `)
+          .select('id, package_id, status, expires_at, service_packages(name, name_ar, total_price)')
           .eq('customer_id', customerData.id)
           .eq('status', 'active')
           .maybeSingle();
@@ -2147,15 +2128,9 @@ export function ReceptionPage() {
           const isExpired = subscriptionData.expires_at && new Date(subscriptionData.expires_at) < new Date();
           if (!isExpired) {
             // Fetch usage details
-            const { data: usageData } = await supabase
+            const { data: usageData } = await db
               .from('package_subscription_usage')
-              .select(`
-                service_id,
-                original_quantity,
-                remaining_quantity,
-                used_quantity,
-                services(name, name_ar)
-              `)
+              .select('service_id, original_quantity, remaining_quantity, used_quantity, services(name, name_ar)')
               .eq('subscription_id', subscriptionData.id);
 
             setCustomerPackage({
@@ -2166,7 +2141,7 @@ export function ReceptionPage() {
         }
       } else {
         // Customer not found in customers table, check bookings table for guest bookings
-        const { data: bookingData, error: bookingError } = await supabase
+        const { data: bookingData, error: bookingError } = await db
           .from('bookings')
           .select('customer_name, customer_email, customer_phone')
           .eq('tenant_id', userProfile.tenant_id)
