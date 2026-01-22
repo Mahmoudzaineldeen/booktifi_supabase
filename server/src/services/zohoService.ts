@@ -1132,13 +1132,21 @@ class ZohoService {
         throw new Error(`Booking group ${bookingGroupId} has no tenant_id`);
       }
 
-      // Check if invoice already exists (check first booking)
-      if (firstBooking.zoho_invoice_id) {
-        console.log(`[ZohoService] Invoice already exists for booking group ${bookingGroupId}: ${firstBooking.zoho_invoice_id}`);
-        return {
-          invoiceId: firstBooking.zoho_invoice_id,
-          success: true
-        };
+      // CRITICAL: Idempotency check - prevent duplicate invoices
+      // Check if invoice already exists for this booking group
+      const bookingsWithInvoice = bookings.filter(b => b.zoho_invoice_id);
+      if (bookingsWithInvoice.length > 0) {
+        const existingInvoiceId = bookingsWithInvoice[0].zoho_invoice_id;
+        // Verify all bookings have the same invoice ID (should be the case)
+        const allSameInvoice = bookings.every(b => !b.zoho_invoice_id || b.zoho_invoice_id === existingInvoiceId);
+        
+        if (allSameInvoice && existingInvoiceId) {
+          console.log(`[ZohoService] Invoice already exists for booking group ${bookingGroupId}: ${existingInvoiceId}`);
+          return {
+            invoiceId: existingInvoiceId,
+            success: true
+          };
+        }
       }
 
       // Aggregate all bookings into invoice line items

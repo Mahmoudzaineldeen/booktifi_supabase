@@ -103,6 +103,7 @@ BEGIN
 
   -- ============================================================================
   -- STEP 1: Validate ALL slots BEFORE creating any bookings (prevent overbooking)
+  -- CRITICAL: All validations happen BEFORE any database modifications
   -- ============================================================================
   
   -- CRITICAL: Check for duplicate slot IDs in the array
@@ -114,51 +115,91 @@ BEGIN
   IF v_unique_slot_count != array_length(p_slot_ids, 1) THEN
     RAISE EXCEPTION 'Duplicate slot IDs detected. Each slot can only be booked once per request.';
   END IF;
+
+  -- CRITICAL: Idempotency check - prevent duplicate bookings with same booking_group_id
+  IF p_booking_group_id IS NOT NULL THEN
+    DECLARE
+      v_existing_count integer;
+    BEGIN
+      SELECT COUNT(*)
+      INTO v_existing_count
+      FROM bookings
+      WHERE booking_group_id = p_booking_group_id;
+      
+      IF v_existing_count > 0 THEN
+        RAISE EXCEPTION 'Booking group % already exists. This request appears to be a duplicate.', p_booking_group_id;
+      END IF;
+    END;
+  END IF;
   
+  -- CRITICAL: Pre-validate ALL slots and calculate total available capacity
+  -- This ensures we reject the request immediately if total requested > total available
   v_total_requested := 0;
-  
-  FOR v_slot_index IN 1..array_length(p_slot_ids, 1) LOOP
-    -- Get and lock slot (FOR UPDATE prevents concurrent modifications)
-    SELECT id, available_capacity, is_available, original_capacity, booked_count, tenant_id
-    INTO v_slot_record
-    FROM slots
-    WHERE id = p_slot_ids[v_slot_index]
-    FOR UPDATE; -- Lock slot to prevent race conditions
+  DECLARE
+    v_total_available integer := 0;
+    v_slot_available_capacities integer[] := ARRAY[]::integer[];
+  BEGIN
+    -- First pass: Lock and validate all slots, collect available capacities
+    FOR v_slot_index IN 1..array_length(p_slot_ids, 1) LOOP
+      -- Get and lock slot (FOR UPDATE prevents concurrent modifications)
+      SELECT id, available_capacity, is_available, original_capacity, booked_count, tenant_id
+      INTO v_slot_record
+      FROM slots
+      WHERE id = p_slot_ids[v_slot_index]
+      FOR UPDATE; -- Lock slot to prevent race conditions
 
-    IF NOT FOUND THEN
-      RAISE EXCEPTION 'Slot % not found', p_slot_ids[v_slot_index];
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'Slot % not found', p_slot_ids[v_slot_index];
+      END IF;
+
+      -- Verify slot belongs to tenant
+      IF v_slot_record.tenant_id != p_tenant_id THEN
+        RAISE EXCEPTION 'Slot % does not belong to the specified tenant', p_slot_ids[v_slot_index];
+      END IF;
+
+      -- Check if slot is available
+      IF NOT v_slot_record.is_available THEN
+        RAISE EXCEPTION 'Slot % is not available', p_slot_ids[v_slot_index];
+      END IF;
+
+      -- Calculate currently locked capacity (excluding locks from this session if provided)
+      SELECT COALESCE(SUM(reserved_capacity), 0)
+      INTO v_locked_capacity
+      FROM booking_locks
+      WHERE slot_id = p_slot_ids[v_slot_index]
+        AND lock_expires_at > now()
+        AND (p_session_id IS NULL OR reserved_by_session_id != p_session_id);
+
+      -- Calculate available capacity for this slot
+      v_available_capacity := v_slot_record.available_capacity - v_locked_capacity;
+
+      -- Check if there's enough capacity for this slot
+      -- For bulk booking, we book 1 visitor per slot (each slot gets 1 booking)
+      IF v_available_capacity < 1 THEN
+        RAISE EXCEPTION 'Not enough tickets available for slot %. Only % available, but 1 requested.', 
+          p_slot_ids[v_slot_index], v_available_capacity;
+      END IF;
+
+      -- Store available capacity for this slot
+      v_slot_available_capacities := array_append(v_slot_available_capacities, v_available_capacity);
+      v_total_available := v_total_available + v_available_capacity;
+      v_total_requested := v_total_requested + 1;
+    END LOOP;
+
+    -- CRITICAL: Final validation - ensure total requested does not exceed total available
+    -- This is a redundant check but ensures absolute safety
+    IF v_total_requested > v_total_available THEN
+      RAISE EXCEPTION 'Not enough tickets available. Total available: %, Total requested: %.', 
+        v_total_available, v_total_requested;
     END IF;
 
-    -- Verify slot belongs to tenant
-    IF v_slot_record.tenant_id != p_tenant_id THEN
-      RAISE EXCEPTION 'Slot % does not belong to the specified tenant', p_slot_ids[v_slot_index];
+    -- CRITICAL: Ensure we're not booking more slots than available
+    -- Each slot requires at least 1 available capacity
+    IF array_length(p_slot_ids, 1) > v_total_available THEN
+      RAISE EXCEPTION 'Not enough slots available. Available slots: %, Requested slots: %.', 
+        v_total_available, array_length(p_slot_ids, 1);
     END IF;
-
-    -- Check if slot is available
-    IF NOT v_slot_record.is_available THEN
-      RAISE EXCEPTION 'Slot % is not available', p_slot_ids[v_slot_index];
-    END IF;
-
-    -- Calculate currently locked capacity (excluding locks from this session if provided)
-    SELECT COALESCE(SUM(reserved_capacity), 0)
-    INTO v_locked_capacity
-    FROM booking_locks
-    WHERE slot_id = p_slot_ids[v_slot_index]
-      AND lock_expires_at > now()
-      AND (p_session_id IS NULL OR reserved_by_session_id != p_session_id);
-
-    -- Calculate available capacity
-    v_available_capacity := v_slot_record.available_capacity - v_locked_capacity;
-
-    -- Check if there's enough capacity for this slot
-    -- For bulk booking, we book 1 visitor per slot (each slot gets 1 booking)
-    IF v_available_capacity < 1 THEN
-      RAISE EXCEPTION 'Not enough tickets available for slot %. Only % available, but 1 requested.', 
-        p_slot_ids[v_slot_index], v_available_capacity;
-    END IF;
-
-    v_total_requested := v_total_requested + 1;
-  END LOOP;
+  END;
 
   -- Validate total requested matches visitor_count
   -- In bulk booking, each slot gets 1 visitor, so total slots should match visitor_count

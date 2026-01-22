@@ -1270,6 +1270,7 @@ export async function generateBulkBookingTicketPDFBase64(
   try {
     console.log(`📄 generateBulkBookingTicketPDFBase64: Starting for booking group ${bookingGroupId}`);
     
+    // CRITICAL: Idempotency check - verify bookings exist and are valid
     // Fetch all bookings in the group
     const { data: bookings, error: bookingError } = await supabase
       .from('bookings')
@@ -1304,6 +1305,18 @@ export async function generateBulkBookingTicketPDFBase64(
 
     if (bookingError || !bookings || bookings.length === 0) {
       throw new Error(`No bookings found for group ${bookingGroupId}`);
+    }
+
+    // CRITICAL: Validate all bookings belong to the same customer and service
+    // This ensures ticket consistency
+    const firstBooking = bookings[0];
+    const allSameCustomer = bookings.every(b => 
+      b.customer_name === firstBooking.customer_name &&
+      b.customer_phone === firstBooking.customer_phone
+    );
+
+    if (!allSameCustomer) {
+      throw new Error(`Bookings in group ${bookingGroupId} have inconsistent customer data`);
     }
 
     console.log(`📄 Found ${bookings.length} bookings in group ${bookingGroupId}`);

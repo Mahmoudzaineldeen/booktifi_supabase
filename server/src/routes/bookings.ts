@@ -1068,12 +1068,79 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       });
     }
 
-    // Validate that number of slots matches visitor_count
+    // CRITICAL: Validate that number of slots matches visitor_count
     // In bulk booking, each slot gets 1 visitor
     if (slot_ids.length !== visitor_count) {
       return res.status(400).json({
         error: `Number of slots (${slot_ids.length}) must match visitor_count (${visitor_count}). Each slot requires 1 visitor.`
       });
+    }
+
+    // CRITICAL: Pre-validate slot availability before calling RPC
+    // This provides early rejection and better error messages
+    // The RPC function will do a final check with locks, but this catches obvious issues early
+    try {
+      const { data: slotsData, error: slotsError } = await supabase
+        .from('slots')
+        .select('id, available_capacity, is_available, tenant_id')
+        .in('id', slot_ids)
+        .eq('tenant_id', tenant_id);
+
+      if (slotsError) {
+        return res.status(500).json({ 
+          error: 'Failed to validate slot availability',
+          details: slotsError.message 
+        });
+      }
+
+      if (!slotsData || slotsData.length !== slot_ids.length) {
+        return res.status(400).json({ 
+          error: 'One or more slots not found or do not belong to your tenant' 
+        });
+      }
+
+      // Check if all slots are available and have capacity
+      const unavailableSlots = slotsData.filter(s => !s.is_available || s.available_capacity < 1);
+      if (unavailableSlots.length > 0) {
+        return res.status(409).json({ 
+          error: `Not enough tickets available. ${unavailableSlots.length} slot(s) are unavailable or have no capacity.`,
+          unavailable_slots: unavailableSlots.map(s => s.id)
+        });
+      }
+
+      // Calculate total available capacity
+      const totalAvailable = slotsData.reduce((sum, s) => sum + (s.available_capacity || 0), 0);
+      if (totalAvailable < visitor_count) {
+        return res.status(409).json({ 
+          error: `Not enough tickets available. Total available: ${totalAvailable}, Requested: ${visitor_count}.`
+        });
+      }
+    } catch (validationError: any) {
+      return res.status(500).json({ 
+        error: 'Failed to validate slot availability',
+        details: validationError.message 
+      });
+    }
+
+    // CRITICAL: Idempotency check - prevent duplicate bookings
+    // If booking_group_id is provided, check if it already exists
+    if (booking_group_id) {
+      const { data: existingBookings, error: checkError } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('booking_group_id', booking_group_id)
+        .limit(1);
+
+      if (checkError) {
+        console.error(`[Bulk Booking Creation] ⚠️ Error checking idempotency:`, checkError);
+        // Continue anyway - idempotency check is best effort
+      } else if (existingBookings && existingBookings.length > 0) {
+        return res.status(409).json({ 
+          error: 'Booking group already exists. This appears to be a duplicate request.',
+          booking_group_id: booking_group_id,
+          hint: 'If you intended to create a new booking, use a different booking_group_id or omit it.'
+        });
+      }
     }
 
     // Use RPC for atomic transaction - validates ALL slots before creating any bookings
