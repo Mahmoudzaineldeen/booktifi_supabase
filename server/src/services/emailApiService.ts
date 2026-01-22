@@ -49,8 +49,15 @@ export interface SendEmailResult {
  */
 async function getEmailConfig(tenantId: string): Promise<EmailConfig | null> {
   try {
+    console.log(`[EmailAPI] 🔍 Fetching email configuration for tenant ${tenantId}...`);
+    
     // Check for SendGrid API key in environment (global fallback)
     const sendgridApiKey = process.env.SENDGRID_API_KEY;
+    if (sendgridApiKey) {
+      console.log(`[EmailAPI] ✅ Found SENDGRID_API_KEY in environment variables`);
+    } else {
+      console.log(`[EmailAPI] ⚠️  SENDGRID_API_KEY not found in environment variables`);
+    }
     
     // Check tenant-specific email settings from database
     const { data: tenant, error } = await supabase
@@ -60,18 +67,29 @@ async function getEmailConfig(tenantId: string): Promise<EmailConfig | null> {
       .single();
 
     if (error || !tenant) {
-      console.error(`[EmailAPI] ❌ Tenant ${tenantId} not found`);
+      console.error(`[EmailAPI] ❌ Tenant ${tenantId} not found or error:`, error?.message || 'Unknown error');
+      console.error(`[EmailAPI]    This means emails CANNOT be sent!`);
+      console.error(`[EmailAPI]    ACTION REQUIRED: Configure email settings in tenant settings page`);
       return null;
     }
+
+    console.log(`[EmailAPI] ✅ Tenant found, checking email settings...`);
 
     // Check if tenant has SendGrid API key configured
     const tenantSendgridKey = tenant.email_settings?.sendgrid_api_key || 
                               tenant.smtp_settings?.sendgrid_api_key;
 
+    if (tenantSendgridKey) {
+      console.log(`[EmailAPI] ✅ Found SendGrid API key in tenant settings`);
+    } else {
+      console.log(`[EmailAPI] ⚠️  SendGrid API key not found in tenant settings`);
+    }
+
     // Determine provider priority
     const apiKey = tenantSendgridKey || sendgridApiKey;
     
     if (apiKey) {
+      console.log(`[EmailAPI] ✅ Using SendGrid as email provider`);
       return {
         provider: 'sendgrid',
         sendgridApiKey: apiKey,
@@ -81,6 +99,10 @@ async function getEmailConfig(tenantId: string): Promise<EmailConfig | null> {
     // Fallback to SMTP if available
     const smtpSettings = tenant.smtp_settings;
     if (smtpSettings?.smtp_user && smtpSettings?.smtp_password) {
+      console.log(`[EmailAPI] ✅ Using SMTP as email provider`);
+      console.log(`[EmailAPI]    SMTP Host: ${smtpSettings.smtp_host || 'not set'}`);
+      console.log(`[EmailAPI]    SMTP Port: ${smtpSettings.smtp_port || 'not set'}`);
+      console.log(`[EmailAPI]    SMTP User: ${smtpSettings.smtp_user}`);
       return {
         provider: 'smtp',
         smtpSettings: {
@@ -93,10 +115,32 @@ async function getEmailConfig(tenantId: string): Promise<EmailConfig | null> {
     }
 
     // If no configuration found
-    console.error(`[EmailAPI] ❌ No email configuration found for tenant ${tenantId}`);
+    console.error(`[EmailAPI] ❌ ========================================`);
+    console.error(`[EmailAPI] ❌ NO EMAIL CONFIGURATION FOUND`);
+    console.error(`[EmailAPI] ❌ ========================================`);
+    console.error(`[EmailAPI]    Tenant ID: ${tenantId}`);
+    console.error(`[EmailAPI]    SendGrid API Key: ${apiKey ? 'Found' : 'NOT FOUND'}`);
+    console.error(`[EmailAPI]    SMTP Settings: ${smtpSettings ? 'Partial' : 'NOT FOUND'}`);
+    if (smtpSettings) {
+      console.error(`[EmailAPI]      - Host: ${smtpSettings.smtp_host || 'NOT SET'}`);
+      console.error(`[EmailAPI]      - Port: ${smtpSettings.smtp_port || 'NOT SET'}`);
+      console.error(`[EmailAPI]      - User: ${smtpSettings.smtp_user || 'NOT SET'}`);
+      console.error(`[EmailAPI]      - Password: ${smtpSettings.smtp_password ? 'SET' : 'NOT SET'}`);
+    }
+    console.error(`[EmailAPI] ❌ ========================================`);
+    console.error(`[EmailAPI]    ACTION REQUIRED:`);
+    console.error(`[EmailAPI]    1. Configure SendGrid API Key (recommended):`);
+    console.error(`[EmailAPI]       - Go to tenant settings page`);
+    console.error(`[EmailAPI]       - Add SendGrid API key to email_settings.sendgrid_api_key`);
+    console.error(`[EmailAPI]       - OR set SENDGRID_API_KEY environment variable`);
+    console.error(`[EmailAPI]    2. Configure SMTP Settings (alternative):`);
+    console.error(`[EmailAPI]       - Go to tenant settings page`);
+    console.error(`[EmailAPI]       - Configure SMTP settings (host, port, user, password)`);
+    console.error(`[EmailAPI] ❌ ========================================`);
     return null;
   } catch (error: any) {
     console.error(`[EmailAPI] ❌ Error fetching email config:`, error.message);
+    console.error(`[EmailAPI]    Stack:`, error.stack);
     return null;
   }
 }
@@ -292,12 +336,19 @@ export async function sendEmail(
   tenantId: string,
   options: SendEmailOptions
 ): Promise<SendEmailResult> {
+  console.log(`[EmailAPI] 📧 sendEmail called for tenant ${tenantId}`);
+  console.log(`[EmailAPI]    To: ${Array.isArray(options.to) ? options.to.join(', ') : options.to}`);
+  console.log(`[EmailAPI]    Subject: ${options.subject}`);
+  
   const config = await getEmailConfig(tenantId);
   
   if (!config) {
+    console.error(`[EmailAPI] ❌ CRITICAL: Email service not configured for tenant ${tenantId}`);
+    console.error(`[EmailAPI]    Email will NOT be sent!`);
+    console.error(`[EmailAPI]    Please configure email settings in tenant settings page`);
     return {
       success: false,
-      error: 'Email service not configured for tenant',
+      error: 'Email service not configured for tenant. Please configure SendGrid API key or SMTP settings in tenant settings.',
     };
   }
 

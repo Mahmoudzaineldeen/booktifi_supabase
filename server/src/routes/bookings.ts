@@ -2580,13 +2580,26 @@ router.patch('/:id/time', authenticateTenantAdminOnly, async (req, res) => {
             console.log(`[Booking Time Edit] ⚠️ Step 2 Skipped: No customer phone (${booking?.customer_phone || 'N/A'}) or PDF buffer`);
           }
 
-          // Step 3: Send new ticket via Email (async - don't block)
+          // Step 3: Send new ticket via Email (CRITICAL: Must succeed)
           console.log(`[Booking Time Edit] 🔍 Step 3 Check: customer_email=${!!booking?.customer_email}, pdfBuffer=${!!pdfBuffer}`);
+          
+          // Validate email format before attempting to send
+          if (booking?.customer_email) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(booking.customer_email.trim())) {
+              console.error(`[Booking Time Edit] ❌ Step 3 Failed: Invalid email format: ${booking.customer_email}`);
+            }
+          }
+          
           if (booking?.customer_email && pdfBuffer) {
-            console.log(`[Booking Time Edit] 📧 Step 3: Sending ticket via Email to ${booking.customer_email}...`);
+            const customerEmail = booking.customer_email.trim();
+            console.log(`[Booking Time Edit] 📧 Step 3: Sending ticket via Email to ${customerEmail}...`);
+            console.log(`[Booking Time Edit]    PDF Size: ${(pdfBuffer.length / 1024).toFixed(2)} KB`);
+            console.log(`[Booking Time Edit]    Language: ${ticketLanguage}`);
+            
             try {
-              await sendBookingTicketEmail(
-                booking.customer_email,
+              const emailResult = await sendBookingTicketEmail(
+                customerEmail,
                 pdfBuffer,
                 bookingId,
                 tenantId,
@@ -2601,14 +2614,36 @@ router.patch('/:id/time', authenticateTenantAdminOnly, async (req, res) => {
                 },
                 ticketLanguage
               );
-              console.log(`[Booking Time Edit] ✅ Step 3 Complete: Ticket sent via Email to ${booking.customer_email}`);
+              
+              if (emailResult && emailResult.success) {
+                console.log(`[Booking Time Edit] ✅ Step 3 Complete: Ticket sent via Email to ${customerEmail}`);
+                console.log(`[Booking Time Edit]    Email delivery confirmed: SUCCESS`);
+                console.log(`[Booking Time Edit]    Customer should receive email with updated ticket PDF`);
+              } else {
+                console.error(`[Booking Time Edit] ❌ Step 3 Failed: Email delivery failed`);
+                console.error(`[Booking Time Edit]    Error: ${emailResult?.error || 'Unknown error'}`);
+                console.error(`[Booking Time Edit]    Email: ${customerEmail}`);
+                console.error(`[Booking Time Edit]    This may be due to:`);
+                console.error(`[Booking Time Edit]      - Missing SMTP/SendGrid configuration in tenant settings`);
+                console.error(`[Booking Time Edit]      - Invalid email provider credentials`);
+                console.error(`[Booking Time Edit]      - Email service temporarily unavailable`);
+                console.error(`[Booking Time Edit]    Action: Check tenant email settings and SMTP/SendGrid configuration`);
+              }
             } catch (emailError: any) {
               console.error(`[Booking Time Edit] ❌ Step 3 Failed: Email delivery exception`);
               console.error(`[Booking Time Edit]    Error:`, emailError.message);
               console.error(`[Booking Time Edit]    Stack:`, emailError.stack);
+              console.error(`[Booking Time Edit]    Email: ${customerEmail}`);
+              console.error(`[Booking Time Edit]    Action: Check SMTP/SendGrid configuration in tenant settings`);
             }
           } else {
-            console.log(`[Booking Time Edit] ⚠️ Step 3 Skipped: No customer email (${booking?.customer_email || 'N/A'}) or PDF buffer`);
+            if (!booking?.customer_email) {
+              console.log(`[Booking Time Edit] ⚠️ Step 3 Skipped: No customer email provided`);
+              console.log(`[Booking Time Edit]    Cannot send ticket via email without customer email address`);
+            } else if (!pdfBuffer) {
+              console.log(`[Booking Time Edit] ⚠️ Step 3 Skipped: PDF buffer is null - cannot send email`);
+              console.log(`[Booking Time Edit]    PDF generation may have failed`);
+            }
           }
 
           console.log(`\n✅ ========================================`);
