@@ -402,35 +402,54 @@ export function ReceptionPage() {
   }
 
   async function fetchServices() {
-    if (!userProfile?.tenant_id) return;
+    if (!userProfile?.tenant_id) {
+      console.warn('[ReceptionPage] fetchServices: No tenant_id available', { userProfile });
+      return;
+    }
+    
+    console.log('[ReceptionPage] fetchServices: Starting...', { tenant_id: userProfile.tenant_id });
     
     try {
       // Fetch services with their offers
-      const { data: servicesData, error: servicesError } = await db
+      console.log('[ReceptionPage] fetchServices: Querying services table...');
+      const servicesResult = await db
         .from('services')
         .select('id, name, name_ar, base_price, original_price, discount_percentage, child_price, capacity_per_slot, capacity_mode')
         .eq('tenant_id', userProfile.tenant_id)
         .eq('is_active', true)
         .order('name');
       
+      console.log('[ReceptionPage] fetchServices: Services query result:', { 
+        hasData: !!servicesResult.data, 
+        dataLength: servicesResult.data?.length, 
+        error: servicesResult.error 
+      });
+      
+      const { data: servicesData, error: servicesError } = servicesResult;
+      
       if (servicesError) {
-        console.error('Error fetching services:', servicesError);
+        console.error('[ReceptionPage] Error fetching services:', servicesError);
         setServices([]);
         return;
       }
       
       // Fetch all active offers for these services
       if (servicesData && servicesData.length > 0) {
+        console.log(`[ReceptionPage] fetchServices: Found ${servicesData.length} services, fetching offers...`);
         const serviceIds = servicesData.map(s => s.id);
-        const { data: offersData, error: offersError } = await db
+        const offersResult = await db
           .from('service_offers')
           .select('id, service_id, name, name_ar, price, original_price, discount_percentage, is_active')
           .in('service_id', serviceIds)
           .eq('is_active', true)
           .order('name');
         
+        const { data: offersData, error: offersError } = offersResult;
+        
         if (offersError) {
-          console.error('Error fetching offers:', offersError);
+          console.error('[ReceptionPage] Error fetching offers:', offersError);
+        } else {
+          console.log(`[ReceptionPage] fetchServices: Found ${offersData?.length || 0} offers`);
         }
         
         // Attach offers to their respective services
@@ -439,14 +458,16 @@ export function ReceptionPage() {
           offers: offersData?.filter(offer => offer.service_id === service.id) || []
         }));
         
+        console.log(`[ReceptionPage] fetchServices: Setting ${servicesWithOffers.length} services in state`);
         setServices(servicesWithOffers);
         console.log(`[ReceptionPage] Loaded ${servicesWithOffers.length} services`);
       } else {
-        console.warn('[ReceptionPage] No active services found for tenant');
+        console.warn('[ReceptionPage] No active services found for tenant', { tenant_id: userProfile.tenant_id });
         setServices([]);
       }
     } catch (error) {
-      console.error('Unexpected error in fetchServices:', error);
+      console.error('[ReceptionPage] Unexpected error in fetchServices:', error);
+      console.error('[ReceptionPage] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       setServices([]);
     }
   }
