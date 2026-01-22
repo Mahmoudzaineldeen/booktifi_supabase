@@ -582,15 +582,16 @@ router.post('/create', authenticate, async (req, res) => {
     // Use setImmediate for more reliable execution than process.nextTick
     // CRITICAL: This MUST run - tickets are more important than invoices
     console.log(`\n🎫 ========================================`);
-    console.log(`🎫 TICKET GENERATION SCHEDULED for booking ${bookingId}`);
+    console.log(`🎫 TICKET GENERATION STARTING for booking ${bookingId}`);
     console.log(`🎫 Customer: ${customer_name}`);
     console.log(`🎫 Email: ${customer_email || 'NOT PROVIDED'}`);
     console.log(`🎫 Phone: ${normalizedPhone || customer_phone || 'NOT PROVIDED'}`);
-    console.log(`🎫 This will run asynchronously after response is sent`);
     console.log(`🎫 ========================================\n`);
     
-    // Use Promise.resolve().then() for better reliability on Railway
-    Promise.resolve().then(async () => {
+    // Generate ticket PDF synchronously to ensure it completes before response
+    // This prevents Railway container restarts from killing the process
+    // The actual sending (WhatsApp/Email) can be async
+    const ticketGenerationPromise = (async () => {
       let pdfBuffer: Buffer | null = null;
 
       try {
@@ -795,14 +796,21 @@ router.post('/create', authenticate, async (req, res) => {
         });
         console.error('❌ ========================================\n');
         // Don't fail booking if PDF generation fails, but log the error clearly
+        // Don't re-throw - we want to continue even if ticket generation fails
       }
-    }).catch((error) => {
-      console.error('\n❌ ========================================');
-      console.error('❌ CRITICAL: Unhandled error in ticket generation promise');
-      console.error('❌ ========================================');
-      console.error('Error:', error);
-      console.error('❌ ========================================\n');
-    });
+    })();
+    
+    // Wait for PDF generation and sending to complete before sending response
+    // This ensures tickets are sent even if Railway container restarts
+    // CRITICAL: This prevents Railway from killing the process before tickets are sent
+    try {
+      await ticketGenerationPromise;
+      console.log(`🎫 ✅ Ticket generation and sending completed for booking ${bookingId}`);
+    } catch (error: any) {
+      console.error(`🎫 ⚠️ Ticket generation error (non-blocking):`, error);
+      // Don't fail booking if ticket generation fails - booking is already created
+      // The error was already logged in the inner try-catch
+    }
 
     // Automatically create invoice after booking is created
     // This runs asynchronously so it doesn't block the booking response
