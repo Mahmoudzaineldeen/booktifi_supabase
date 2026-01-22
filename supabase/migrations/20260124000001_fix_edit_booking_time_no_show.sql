@@ -1,21 +1,8 @@
 -- ============================================================================
--- Edit Booking Time Function (Atomic Transaction)
+-- Fix edit_booking_time function - Remove invalid 'no_show' status check
 -- ============================================================================
--- This migration creates the edit_booking_time function which allows
--- tenant providers to edit booking time with strict transactional integrity
--- ============================================================================
-
--- ============================================================================
--- Edit Booking Time Function (Atomic Transaction)
--- ============================================================================
--- This function allows tenant providers to edit booking time with strict
--- transactional integrity:
--- 1. Validates new slot availability
--- 2. Releases old slot capacity
--- 3. Reserves new slot capacity
--- 4. Invalidates old tickets (marks qr_scanned = true, clears qr_token)
--- 5. Updates booking with new slot
--- 6. All in one atomic transaction
+-- The booking_status enum does not include 'no_show', so we need to remove
+-- it from the status check in the edit_booking_time function.
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.edit_booking_time(
@@ -23,7 +10,7 @@ CREATE OR REPLACE FUNCTION public.edit_booking_time(
   p_new_slot_id uuid,
   p_tenant_id uuid,
   p_user_id uuid,
-  p_old_slot_id uuid DEFAULT NULL -- Optional: for validation
+  p_old_slot_id uuid DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -73,6 +60,7 @@ BEGIN
   END IF;
 
   -- Prevent editing cancelled or completed bookings
+  -- Note: 'no_show' is not a valid booking_status enum value
   IF v_booking_record.status IN ('cancelled', 'completed') THEN
     RAISE EXCEPTION 'Cannot edit booking time for bookings with status: %', v_booking_record.status;
   END IF;
@@ -275,8 +263,4 @@ BEGIN
 END;
 $$;
 
-ALTER FUNCTION public.edit_booking_time(
-  uuid, uuid, uuid, uuid, uuid
-) OWNER TO postgres;
-
-COMMENT ON FUNCTION public.edit_booking_time IS 'Atomically edits booking time: validates availability, releases old slot, reserves new slot, invalidates old tickets. All in one transaction. Only tenant providers can use this function.';
+COMMENT ON FUNCTION public.edit_booking_time IS 'Atomically edits booking time: validates availability, releases old slot, reserves new slot, invalidates old tickets. All in one transaction. Only tenant providers can use this function. Fixed: removed invalid no_show status check.';

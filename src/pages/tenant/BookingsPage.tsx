@@ -5,10 +5,11 @@ import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle } from 'lucide-react';
-import { format, startOfWeek, addDays, isSameDay } from 'date-fns';
+import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
+import { fetchAvailableSlots, Slot } from '../../lib/bookingAvailability';
 
 interface Booking {
   id: string;
@@ -22,6 +23,8 @@ interface Booking {
   created_at: string;
   zoho_invoice_id?: string | null;
   zoho_invoice_created_at?: string | null;
+  service_id: string;
+  slot_id: string;
   services: {
     name: string;
     name_ar?: string;
@@ -43,6 +46,12 @@ export function BookingsPage() {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  const [editingBookingTime, setEditingBookingTime] = useState<Booking | null>(null);
+  const [editingTimeDate, setEditingTimeDate] = useState<Date>(new Date());
+  const [availableTimeSlots, setAvailableTimeSlots] = useState<Slot[]>([]);
+  const [loadingTimeSlots, setLoadingTimeSlots] = useState(false);
+  const [selectedNewSlotId, setSelectedNewSlotId] = useState<string>('');
+  const [updatingBookingTime, setUpdatingBookingTime] = useState(false);
   const [deletingBooking, setDeletingBooking] = useState<string | null>(null);
   const [updatingPaymentStatus, setUpdatingPaymentStatus] = useState<string | null>(null);
   const [zohoSyncStatus, setZohoSyncStatus] = useState<Record<string, { success: boolean; error?: string }>>({});
@@ -412,6 +421,111 @@ export function BookingsPage() {
     }
   }
 
+  async function handleEditTimeClick(booking: Booking) {
+    if (!userProfile?.tenant_id || !booking.service_id) {
+      alert(i18n.language === 'ar' 
+        ? 'لا يمكن تعديل وقت الحجز: معلومات غير كافية' 
+        : 'Cannot edit booking time: insufficient information');
+      return;
+    }
+
+    setEditingBookingTime(booking);
+    // Set initial date to current booking date
+    if (booking.slots?.slot_date) {
+      setEditingTimeDate(parseISO(booking.slots.slot_date));
+    } else {
+      setEditingTimeDate(new Date());
+    }
+    setSelectedNewSlotId('');
+    await fetchTimeSlots(booking.service_id, userProfile.tenant_id);
+  }
+
+  async function fetchTimeSlots(serviceId: string, tenantId: string) {
+    if (!editingTimeDate) return;
+
+    setLoadingTimeSlots(true);
+    try {
+      const result = await fetchAvailableSlots({
+        tenantId,
+        serviceId,
+        date: editingTimeDate,
+        includePastSlots: false,
+        includeLockedSlots: false,
+        includeZeroCapacity: false,
+      });
+
+      setAvailableTimeSlots(result.slots);
+    } catch (error: any) {
+      console.error('Error fetching time slots:', error);
+      alert(i18n.language === 'ar' 
+        ? `فشل جلب الأوقات المتاحة: ${error.message}` 
+        : `Failed to fetch available time slots: ${error.message}`);
+      setAvailableTimeSlots([]);
+    } finally {
+      setLoadingTimeSlots(false);
+    }
+  }
+
+  async function handleTimeDateChange(newDate: Date) {
+    setEditingTimeDate(newDate);
+    setSelectedNewSlotId('');
+    if (editingBookingTime && userProfile?.tenant_id) {
+      await fetchTimeSlots(editingBookingTime.service_id, userProfile.tenant_id);
+    }
+  }
+
+  async function updateBookingTime() {
+    if (!editingBookingTime || !selectedNewSlotId || !userProfile?.tenant_id) {
+      alert(i18n.language === 'ar' 
+        ? 'يرجى اختيار وقت جديد' 
+        : 'Please select a new time slot');
+      return;
+    }
+
+    if (!confirm(i18n.language === 'ar' 
+      ? 'هل أنت متأكد من تغيير وقت الحجز؟ سيتم إلغاء التذاكر القديمة وإنشاء تذاكر جديدة.' 
+      : 'Are you sure you want to change the booking time? Old tickets will be invalidated and new tickets will be generated.')) {
+      return;
+    }
+
+    setUpdatingBookingTime(true);
+    try {
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+
+      const response = await fetch(`${API_URL}/bookings/${editingBookingTime.id}/time`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ slot_id: selectedNewSlotId }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update booking time');
+      }
+
+      const result = await response.json();
+      await fetchBookings(); // Refresh list
+      setEditingBookingTime(null);
+      setSelectedNewSlotId('');
+      setAvailableTimeSlots([]);
+      
+      alert(i18n.language === 'ar' 
+        ? 'تم تحديث وقت الحجز بنجاح. سيتم إرسال التذاكر الجديدة للعميل.' 
+        : 'Booking time updated successfully. New tickets will be sent to the customer.');
+    } catch (error: any) {
+      console.error('Error updating booking time:', error);
+      alert(i18n.language === 'ar' 
+        ? `فشل تحديث وقت الحجز: ${error.message}` 
+        : `Failed to update booking time: ${error.message}`);
+    } finally {
+      setUpdatingBookingTime(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-4 md:p-8">
@@ -605,6 +719,17 @@ export function BookingsPage() {
                         >
                           <Edit className="w-4 h-4" />
                           {i18n.language === 'ar' ? 'تعديل' : 'Edit'}
+                        </Button>
+
+                        {/* Change Time Button */}
+                        <Button
+                          onClick={() => handleEditTimeClick(booking)}
+                          variant="ghost"
+                          size="sm"
+                          className="flex items-center gap-1 text-sm"
+                        >
+                          <Clock className="w-4 h-4" />
+                          {i18n.language === 'ar' ? 'تغيير الوقت' : 'Change Time'}
                         </Button>
 
                         {/* Delete Button */}
@@ -854,6 +979,132 @@ export function BookingsPage() {
                   onClick={() => setEditingBooking(null)}
                   variant="ghost"
                   className="flex-1"
+                >
+                  {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Edit Booking Time Modal */}
+      {editingBookingTime && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <CardContent className="p-6">
+              <h2 className="text-xl font-bold mb-4">{i18n.language === 'ar' ? 'تغيير وقت الحجز' : 'Change Booking Time'}</h2>
+              
+              <div className="space-y-4">
+                {/* Current Booking Info */}
+                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <h3 className="text-sm font-semibold mb-2">{i18n.language === 'ar' ? 'الوقت الحالي' : 'Current Time'}</h3>
+                  <div className="text-sm text-gray-600">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Calendar className="w-4 h-4" />
+                      <span>
+                        {editingBookingTime.slots?.slot_date 
+                          ? format(parseISO(editingBookingTime.slots.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })
+                          : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      <span>
+                        {editingBookingTime.slots?.start_time 
+                          ? `${editingBookingTime.slots.start_time} - ${editingBookingTime.slots.end_time}`
+                          : 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* New Date Selection */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">{i18n.language === 'ar' ? 'تاريخ جديد' : 'New Date'}</label>
+                  <input
+                    type="date"
+                    value={format(editingTimeDate, 'yyyy-MM-dd')}
+                    onChange={(e) => {
+                      const newDate = parseISO(e.target.value);
+                      handleTimeDateChange(newDate);
+                    }}
+                    min={format(new Date(), 'yyyy-MM-dd')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+
+                {/* Available Time Slots */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    {i18n.language === 'ar' ? 'الأوقات المتاحة' : 'Available Time Slots'}
+                  </label>
+                  {loadingTimeSlots ? (
+                    <div className="text-center py-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                      <p className="text-sm text-gray-600 mt-2">
+                        {i18n.language === 'ar' ? 'جاري جلب الأوقات...' : 'Loading available slots...'}
+                      </p>
+                    </div>
+                  ) : availableTimeSlots.length === 0 ? (
+                    <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <p className="text-sm text-yellow-800">
+                        {i18n.language === 'ar' 
+                          ? 'لا توجد أوقات متاحة لهذا التاريخ' 
+                          : 'No available time slots for this date'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto p-2 border border-gray-200 rounded-md">
+                      {availableTimeSlots.map((slot) => (
+                        <button
+                          key={slot.id}
+                          onClick={() => setSelectedNewSlotId(slot.id)}
+                          className={`px-3 py-2 text-sm rounded-md border transition-colors ${
+                            selectedNewSlotId === slot.id
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="font-medium">{slot.start_time}</div>
+                          <div className="text-xs opacity-75">
+                            {slot.available_capacity} {i18n.language === 'ar' ? 'متاح' : 'available'}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Warning Message */}
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-xs text-blue-800">
+                    {i18n.language === 'ar' 
+                      ? '⚠️ سيتم إلغاء التذاكر القديمة وإنشاء تذاكر جديدة. سيتم إرسال التذاكر الجديدة للعميل عبر البريد الإلكتروني وواتساب.' 
+                      : '⚠️ Old tickets will be invalidated and new tickets will be generated. New tickets will be sent to the customer via email and WhatsApp.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-2 mt-6">
+                <Button
+                  onClick={updateBookingTime}
+                  disabled={!selectedNewSlotId || updatingBookingTime}
+                  className="flex-1"
+                >
+                  {updatingBookingTime 
+                    ? (i18n.language === 'ar' ? 'جاري التحديث...' : 'Updating...')
+                    : (i18n.language === 'ar' ? 'تحديث الوقت' : 'Update Time')}
+                </Button>
+                <Button
+                  onClick={() => {
+                    setEditingBookingTime(null);
+                    setSelectedNewSlotId('');
+                    setAvailableTimeSlots([]);
+                  }}
+                  variant="ghost"
+                  className="flex-1"
+                  disabled={updatingBookingTime}
                 >
                   {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
                 </Button>

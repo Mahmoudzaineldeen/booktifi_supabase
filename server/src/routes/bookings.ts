@@ -2412,7 +2412,7 @@ router.patch('/:id/time', authenticateTenantAdminOnly, async (req, res) => {
       }
     }
 
-    // Get updated booking details
+    // Get updated booking details (CRITICAL: Must be available for ticket generation)
     const { data: updatedBooking, error: fetchError } = await supabase
       .from('bookings')
       .select(`
@@ -2426,105 +2426,194 @@ router.patch('/:id/time', authenticateTenantAdminOnly, async (req, res) => {
 
     if (fetchError || !updatedBooking) {
       console.error(`[Booking Time Edit] ⚠️ Could not fetch updated booking:`, fetchError);
+      console.error(`[Booking Time Edit] ⚠️ Ticket generation will be skipped due to missing booking data`);
+    } else {
+      console.log(`[Booking Time Edit] ✅ Fetched updated booking for ticket generation`);
+      console.log(`[Booking Time Edit]    Customer: ${updatedBooking.customer_name}`);
+      console.log(`[Booking Time Edit]    Email: ${updatedBooking.customer_email || 'N/A'}`);
+      console.log(`[Booking Time Edit]    Phone: ${updatedBooking.customer_phone || 'N/A'}`);
     }
 
-    // Generate new ticket and send to customer (asynchronously)
-    Promise.resolve().then(async () => {
-      try {
-        console.log(`[Booking Time Edit] 🎫 Generating new ticket...`);
+    // Generate new ticket and send to customer
+    // IMPORTANT: Generate PDF synchronously to ensure it completes (same pattern as booking creation)
+    // This prevents Railway container restarts from killing the process
+    // The actual sending (WhatsApp/Email) can be async
+    if (!updatedBooking) {
+      console.error(`[Booking Time Edit] ❌ CRITICAL: Cannot generate ticket - updated booking not available`);
+      console.error(`[Booking Time Edit]    Ticket generation will be skipped`);
+    } else {
+      console.log(`\n🎫 ========================================`);
+      console.log(`🎫 TICKET REGENERATION STARTING for booking ${bookingId} (time edit)`);
+      console.log(`🎫 Customer: ${updatedBooking.customer_name || 'N/A'}`);
+      console.log(`🎫 Email: ${updatedBooking.customer_email || 'NOT PROVIDED'}`);
+      console.log(`🎫 Phone: ${updatedBooking.customer_phone || 'NOT PROVIDED'}`);
+      console.log(`🎫 ========================================\n`);
+      
+      // Store booking data for async context
+      const bookingForTicket = updatedBooking;
+      
+      // Generate PDF synchronously (before response) to ensure it completes
+      // Same pattern as booking creation - prevents Railway from killing the process
+      // CRITICAL: This promise will be awaited before sending the response
+      const ticketGenerationPromise = (async () => {
+        let pdfBuffer: Buffer | null = null;
         
-        const { generateBookingTicketPDFBase64 } = await import('../services/pdfService.js');
-        const { sendWhatsAppDocument } = await import('../services/whatsappService.js');
-        const { sendBookingTicketEmail } = await import('../services/emailService.js');
-        const { normalizePhoneNumber } = await import('../utils/phoneUtils.js');
+        try {
+          console.log(`[Booking Time Edit] 🎫 Starting ticket regeneration...`);
+          
+          const { generateBookingTicketPDFBase64 } = await import('../services/pdfService.js');
+          const { sendWhatsAppDocument } = await import('../services/whatsappService.js');
+          const { sendBookingTicketEmail } = await import('../services/emailService.js');
+          const { normalizePhoneNumber } = await import('../utils/phoneUtils.js');
 
-        const ticketLanguage = (updatedBooking?.language === 'ar' || updatedBooking?.language === 'en')
-          ? updatedBooking.language as 'en' | 'ar'
-          : 'en';
+          // Use the stored booking data
+          const booking = bookingForTicket;
+          
+          const ticketLanguage = (booking?.language === 'ar' || booking?.language === 'en')
+            ? booking.language as 'en' | 'ar'
+            : 'en';
 
-        // Generate new PDF
-        const pdfBase64 = await generateBookingTicketPDFBase64(bookingId, ticketLanguage);
-        const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+          console.log(`[Booking Time Edit] 📄 Step 1: Generating PDF for booking ${bookingId}...`);
+          console.log(`[Booking Time Edit]    Language: ${ticketLanguage}`);
+          
+          // Generate new PDF - CRITICAL: This must succeed
+          const pdfBase64 = await generateBookingTicketPDFBase64(bookingId, ticketLanguage);
+          
+          if (!pdfBase64 || pdfBase64.length === 0) {
+            console.error(`[Booking Time Edit] ❌ CRITICAL: PDF generation returned empty result`);
+            throw new Error('PDF generation returned empty result');
+          }
+          
+          pdfBuffer = Buffer.from(pdfBase64, 'base64');
+          if (!pdfBuffer || pdfBuffer.length === 0) {
+            console.error(`[Booking Time Edit] ❌ CRITICAL: PDF buffer is empty`);
+            throw new Error('PDF buffer conversion failed');
+          }
+          
+          console.log(`[Booking Time Edit] ✅ Step 1 Complete: PDF generated successfully (${pdfBuffer.length} bytes)`);
 
-        // Get tenant WhatsApp settings
-        const { data: tenantData } = await supabase
-          .from('tenants')
-          .select('whatsapp_settings')
-          .eq('id', tenantId)
-          .single();
+          // Get tenant WhatsApp settings
+          console.log(`[Booking Time Edit] 📱 Step 2a: Fetching WhatsApp configuration...`);
+          const { data: tenantData, error: tenantError } = await supabase
+            .from('tenants')
+            .select('whatsapp_settings')
+            .eq('id', tenantId)
+            .single();
 
-        let whatsappConfig: any = null;
-        if (tenantData?.whatsapp_settings) {
-          const settings = tenantData.whatsapp_settings;
-          whatsappConfig = {
-            provider: settings.provider,
-            apiUrl: settings.api_url,
-            apiKey: settings.api_key,
-            phoneNumberId: settings.phone_number_id,
-            accessToken: settings.access_token,
-            accountSid: settings.account_sid,
-            authToken: settings.auth_token,
-            from: settings.from,
-          };
-        }
+          let whatsappConfig: any = null;
+          if (!tenantError && tenantData && tenantData.whatsapp_settings) {
+            const settings = tenantData.whatsapp_settings;
+            whatsappConfig = {
+              provider: settings.provider,
+              apiUrl: settings.api_url,
+              apiKey: settings.api_key,
+              phoneNumberId: settings.phone_number_id,
+              accessToken: settings.access_token,
+              accountSid: settings.account_sid,
+              authToken: settings.auth_token,
+              from: settings.from,
+            };
+            console.log(`[Booking Time Edit]    ✅ WhatsApp config: provider=${whatsappConfig.provider || 'not set'}`);
+          } else {
+            console.log(`[Booking Time Edit]    ⚠️ No WhatsApp config in tenant settings`);
+          }
 
-        // Send new ticket via WhatsApp
-        if (updatedBooking?.customer_phone) {
-          const normalizedPhone = normalizePhoneNumber(updatedBooking.customer_phone);
-          if (normalizedPhone) {
-            const whatsappMessage = ticketLanguage === 'ar'
-              ? 'تم تغيير موعد حجزك! يرجى الاطلاع على التذكرة المحدثة المرفقة. التذاكر القديمة لم تعد صالحة.'
-              : 'Your booking time has been changed! Please find your updated ticket attached. Old tickets are no longer valid.';
-            
-            try {
-              await sendWhatsAppDocument(
-                normalizedPhone,
-                pdfBuffer,
-                `booking_ticket_${bookingId}_updated.pdf`,
-                whatsappMessage,
-                whatsappConfig || undefined
-              );
-              console.log(`[Booking Time Edit] ✅ New ticket sent via WhatsApp`);
-            } catch (whatsappError: any) {
-              console.error(`[Booking Time Edit] ⚠️ WhatsApp delivery failed:`, whatsappError.message);
+          // Step 2: Send new ticket via WhatsApp (async - don't block)
+          if (booking?.customer_phone && pdfBuffer) {
+            const normalizedPhone = normalizePhoneNumber(booking.customer_phone);
+            if (normalizedPhone) {
+              const whatsappMessage = ticketLanguage === 'ar'
+                ? 'تم تغيير موعد حجزك! يرجى الاطلاع على التذكرة المحدثة المرفقة. التذاكر القديمة لم تعد صالحة.'
+                : 'Your booking time has been changed! Please find your updated ticket attached. Old tickets are no longer valid.';
+              
+              console.log(`[Booking Time Edit] 📱 Step 2: Sending ticket via WhatsApp to ${normalizedPhone}...`);
+              try {
+                const whatsappResult = await sendWhatsAppDocument(
+                  normalizedPhone,
+                  pdfBuffer,
+                  `booking_ticket_${bookingId}_updated.pdf`,
+                  whatsappMessage,
+                  whatsappConfig || undefined
+                );
+                
+                if (whatsappResult && whatsappResult.success) {
+                  console.log(`[Booking Time Edit] ✅ Step 2 Complete: Ticket sent via WhatsApp to ${normalizedPhone}`);
+                } else {
+                  console.error(`[Booking Time Edit] ❌ Step 2 Failed: WhatsApp delivery failed`);
+                  console.error(`[Booking Time Edit]    Error: ${whatsappResult?.error || 'Unknown error'}`);
+                }
+              } catch (whatsappError: any) {
+                console.error(`[Booking Time Edit] ❌ Step 2 Failed: WhatsApp delivery exception`);
+                console.error(`[Booking Time Edit]    Error:`, whatsappError.message);
+                console.error(`[Booking Time Edit]    Stack:`, whatsappError.stack);
+              }
+            } else {
+              console.log(`[Booking Time Edit] ⚠️ Could not normalize phone number: ${booking.customer_phone}`);
             }
+          } else {
+            console.log(`[Booking Time Edit] ⚠️ Step 2 Skipped: No customer phone (${booking?.customer_phone || 'N/A'}) or PDF buffer`);
           }
-        }
 
-        // Send new ticket via Email
-        if (updatedBooking?.customer_email) {
-          try {
-            await sendBookingTicketEmail(
-              updatedBooking.customer_email,
-              pdfBuffer,
-              bookingId,
-              tenantId,
-              {
-                service_name: updatedBooking.services?.name || 'Service',
-                service_name_ar: updatedBooking.services?.name_ar || '',
-                slot_date: updatedBooking.slots?.slot_date || '',
-                start_time: updatedBooking.slots?.start_time || '',
-                end_time: updatedBooking.slots?.end_time || '',
-                tenant_name: updatedBooking.tenants?.name || '',
-                tenant_name_ar: updatedBooking.tenants?.name_ar || '',
-              },
-              ticketLanguage
-            );
-            console.log(`[Booking Time Edit] ✅ New ticket sent via Email`);
-          } catch (emailError: any) {
-            console.error(`[Booking Time Edit] ⚠️ Email delivery failed:`, emailError.message);
+          // Step 3: Send new ticket via Email (async - don't block)
+          if (booking?.customer_email && pdfBuffer) {
+            console.log(`[Booking Time Edit] 📧 Step 3: Sending ticket via Email to ${booking.customer_email}...`);
+            try {
+              await sendBookingTicketEmail(
+                booking.customer_email,
+                pdfBuffer,
+                bookingId,
+                tenantId,
+                {
+                  service_name: booking.services?.name || 'Service',
+                  service_name_ar: booking.services?.name_ar || '',
+                  slot_date: booking.slots?.slot_date || '',
+                  start_time: booking.slots?.start_time || '',
+                  end_time: booking.slots?.end_time || '',
+                  tenant_name: booking.tenants?.name || '',
+                  tenant_name_ar: booking.tenants?.name_ar || '',
+                },
+                ticketLanguage
+              );
+              console.log(`[Booking Time Edit] ✅ Step 3 Complete: Ticket sent via Email to ${booking.customer_email}`);
+            } catch (emailError: any) {
+              console.error(`[Booking Time Edit] ❌ Step 3 Failed: Email delivery exception`);
+              console.error(`[Booking Time Edit]    Error:`, emailError.message);
+              console.error(`[Booking Time Edit]    Stack:`, emailError.stack);
+            }
+          } else {
+            console.log(`[Booking Time Edit] ⚠️ Step 3 Skipped: No customer email (${booking?.customer_email || 'N/A'}) or PDF buffer`);
           }
-        }
 
-        console.log(`[Booking Time Edit] ✅ Ticket generation and delivery completed`);
-      } catch (ticketError: any) {
-        console.error(`[Booking Time Edit] ⚠️ Error generating ticket (non-blocking):`, ticketError.message);
-        // Don't fail the booking update if ticket generation fails
+          console.log(`\n✅ ========================================`);
+          console.log(`✅ TICKET REGENERATION COMPLETE for booking ${bookingId}`);
+          console.log(`✅ PDF: Generated (${pdfBuffer?.length || 0} bytes)`);
+          console.log(`✅ WhatsApp: ${booking?.customer_phone ? 'Sent' : 'Skipped (no phone)'}`);
+          console.log(`✅ Email: ${booking?.customer_email ? 'Sent' : 'Skipped (no email)'}`);
+          console.log(`✅ ========================================\n`);
+        } catch (ticketError: any) {
+          console.error(`\n❌ ========================================`);
+          console.error(`❌ TICKET REGENERATION FAILED for booking ${bookingId}`);
+          console.error(`❌ Error:`, ticketError.message);
+          console.error(`❌ Stack:`, ticketError.stack);
+          console.error(`❌ This is non-blocking - booking time was updated successfully`);
+          console.error(`❌ ========================================\n`);
+          // Don't fail the booking update if ticket generation fails
+        }
+      })();
+
+      // Wait for PDF generation and sending to complete before sending response
+      // This ensures tickets are sent even if Railway container restarts
+      // CRITICAL: This prevents Railway from killing the process before tickets are sent
+      // Same pattern as booking creation
+      try {
+        await ticketGenerationPromise;
+        console.log(`[Booking Time Edit] ✅ Ticket generation and sending completed for booking ${bookingId}`);
+      } catch (error: any) {
+        console.error(`[Booking Time Edit] ⚠️ Ticket generation error (non-blocking):`, error);
+        // Don't fail booking update if ticket generation fails - booking time was already updated
+        // The error was already logged in the inner try-catch
       }
-    }).catch((error) => {
-      console.error(`[Booking Time Edit] ❌ CRITICAL: Unhandled error in ticket generation promise`);
-      console.error(`[Booking Time Edit]    Error:`, error);
-    });
+    }
 
     // Update invoice if price changed (asynchronously)
     if (editData.price_changed && updatedBooking?.zoho_invoice_id) {
