@@ -15,6 +15,7 @@ import { BookingsPageWrapper } from './pages/tenant/BookingsPageWrapper';
 import { EmployeesPageWrapper } from './pages/tenant/EmployeesPageWrapper';
 import { SettingsPageWrapper } from './pages/tenant/SettingsPageWrapper';
 import { ReceptionPage } from './pages/reception/ReceptionPage';
+import { CashierPage } from './pages/cashier/CashierPage';
 // ARCHIVED: import { EmployeePage } from './pages/employee/EmployeePage';
 import { PublicBookingPage } from './pages/public/PublicBookingPage';
 import { ServiceBookingFlow } from './pages/public/ServiceBookingFlow';
@@ -65,6 +66,7 @@ function AppContent() {
       <Route path="/:tenantSlug/admin/debug/navigation" element={<NavigationTest />} />
 
       <Route path="/:tenantSlug/reception" element={<ReceptionPage />} />
+      <Route path="/:tenantSlug/cashier" element={<CashierPage />} />
       {/* ARCHIVED: <Route path="/:tenantSlug/employee" element={<EmployeePage />} /> */}
 
       <Route path="/:tenantSlug/book" element={<PublicBookingPage />} />

@@ -195,15 +195,22 @@ export function ReceptionPage() {
       return;
     }
 
-    if (userProfile.role !== 'receptionist' && userProfile.role !== 'cashier') {
-      console.log('Reception: Wrong role, redirecting to home. Expected: receptionist or cashier, Got:', userProfile.role);
-      navigate('/');
+    // STRICT: Only receptionists allowed on ReceptionPage
+    if (userProfile.role !== 'receptionist') {
+      console.log('ReceptionPage: Wrong role, redirecting. Expected: receptionist, Got:', userProfile.role);
+      if (userProfile.role === 'cashier') {
+        // Redirect cashiers to their own page
+        const tenantSlug = window.location.pathname.split('/')[1];
+        navigate(`/${tenantSlug}/cashier`);
+      } else {
+        navigate('/');
+      }
       return;
     }
 
     // Mark as started to prevent duplicate runs
     initialLoadRef.current = true;
-    console.log('Reception: User is receptionist/cashier, loading initial data...');
+    console.log('ReceptionPage: User is receptionist, loading initial data...');
     sessionStorage.setItem('reception_logged_in', 'true');
     setInitialAuthDone(true);
     
@@ -2751,8 +2758,8 @@ export function ReceptionPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t('reception.title')}</h1>
-              <p className="text-xs md:text-sm text-gray-600">{t('reception.welcome')}, {i18n.language === 'ar' ? userProfile?.full_name_ar : userProfile?.full_name}</p>
+              <h1 className="text-xl md:text-2xl font-bold text-gray-900">{i18n.language === 'ar' ? 'مكتب الاستقبال' : 'Reception Desk'}</h1>
+              <p className="text-xs md:text-sm text-gray-600">{i18n.language === 'ar' ? 'مرحباً، موظف الاستقبال' : 'Welcome, Receptionist'} {i18n.language === 'ar' ? userProfile?.full_name_ar : userProfile?.full_name}</p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Button

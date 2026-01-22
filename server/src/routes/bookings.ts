@@ -187,6 +187,72 @@ function authenticateTenantAdminOnly(req: express.Request, res: express.Response
   }
 }
 
+// Middleware to authenticate cashier only
+function authenticateCashierOnly(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        error: 'Authorization header required',
+        hint: 'Please provide a valid Bearer token in the Authorization header'
+      });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    if (!token || token.trim() === '') {
+      return res.status(401).json({ error: 'Token is required' });
+    }
+
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (jwtError: any) {
+      if (jwtError.name === 'TokenExpiredError') {
+        return res.status(401).json({ 
+          error: 'Token has expired',
+          hint: 'Please log in again to get a new token'
+        });
+      } else if (jwtError.name === 'JsonWebTokenError') {
+        return res.status(401).json({ 
+          error: 'Invalid token',
+          hint: 'The token format is invalid. Please log in again.'
+        });
+      }
+      return res.status(401).json({ 
+        error: 'Token verification failed',
+        hint: jwtError.message || 'Please log in again'
+      });
+    }
+    
+    // STRICT: Only cashiers allowed
+    if (decoded.role !== 'cashier') {
+      return res.status(403).json({ 
+        error: 'Access denied. Only cashiers can perform this action.',
+        userRole: decoded.role,
+        hint: 'You must be logged in as a cashier to perform this action.'
+      });
+    }
+
+    if (!decoded.tenant_id) {
+      return res.status(403).json({ 
+        error: 'Access denied. No tenant associated with your account.',
+        hint: 'Please contact support to associate your account with a tenant.'
+      });
+    }
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      tenant_id: decoded.tenant_id,
+    };
+    
+    next();
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Authentication error', hint: error.message });
+  }
+}
+
 // TASK 5: Middleware to authenticate receptionist OR tenant admin (for booking creation/editing)
 function authenticateReceptionistOrTenantAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
@@ -2044,6 +2110,92 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
       payment_status: req.body.payment_status,
     });
     res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// Cashier-only endpoint: Mark booking as paid (only if currently unpaid)
+router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const userId = req.user!.id;
+    const tenantId = req.user!.tenant_id!;
+
+    // Get current booking to verify ownership and current status
+    const { data: currentBooking, error: fetchError } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('id', bookingId)
+      .single();
+
+    if (fetchError || !currentBooking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    // Verify tenant ownership
+    if (currentBooking.tenant_id !== tenantId) {
+      return res.status(403).json({ 
+        error: 'Access denied. This booking belongs to a different tenant.' 
+      });
+    }
+
+    // STRICT: Cashier can only mark as paid if currently unpaid or awaiting_payment
+    if (currentBooking.payment_status !== 'unpaid' && currentBooking.payment_status !== 'awaiting_payment') {
+      return res.status(400).json({ 
+        error: `Cannot mark as paid. Current payment status is: ${currentBooking.payment_status}. Cashiers can only mark unpaid bookings as paid.`
+      });
+    }
+
+    // Update payment status to paid_manual
+    const { data: updatedBooking, error: updateError } = await supabase
+      .from('bookings')
+      .update({
+        payment_status: 'paid_manual',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', bookingId)
+      .select()
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // Log audit trail
+    await logBookingChange(
+      'payment_status_update',
+      bookingId,
+      tenantId,
+      userId,
+      { payment_status: currentBooking.payment_status },
+      { payment_status: 'paid_manual' },
+      req.ip,
+      req.get('user-agent')
+    );
+
+    // Sync with Zoho if invoice exists (non-blocking)
+    if (currentBooking.zoho_invoice_id) {
+      try {
+        const { zohoService } = await import('../services/zohoService.js');
+        await zohoService.updateInvoiceStatus(
+          tenantId,
+          currentBooking.zoho_invoice_id,
+          'paid_manual'
+        ).catch(err => {
+          console.error('[Cashier Mark Paid] Zoho sync failed (non-blocking):', err.message);
+        });
+      } catch (zohoError: any) {
+        console.error('[Cashier Mark Paid] Zoho sync error (non-blocking):', zohoError.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Booking marked as paid successfully',
+      booking: updatedBooking
+    });
+  } catch (error: any) {
+    logger.error('Mark paid error:', error);
+    res.status(500).json({ error: error.message || 'Failed to mark booking as paid' });
   }
 });
 
