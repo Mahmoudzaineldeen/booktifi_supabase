@@ -69,25 +69,28 @@ interface BookingData {
 async function generateQRCodeDataURL(bookingId: string, apiBaseUrl?: string): Promise<string> {
   try {
     // Construct URL to public booking details endpoint
-    // Priority: FRONTEND_URL (for Netlify) > APP_URL (backend) > apiBaseUrl parameter
-    // The endpoint returns HTML for browser requests, so it can be accessed from frontend or backend URL
+    // The endpoint is on the backend (Railway), so we should use APP_URL (backend URL)
+    // However, if FRONTEND_URL is set and points to a domain that proxies to the backend, we can use that
+    // Priority: apiBaseUrl parameter > APP_URL (backend) > FRONTEND_URL (if it proxies to backend)
     let bookingDetailsUrl: string;
     
     if (apiBaseUrl) {
       // If explicitly provided, use it
       bookingDetailsUrl = `${apiBaseUrl}/api/bookings/${bookingId}/details`;
-    } else if (process.env.FRONTEND_URL) {
-      // Prefer FRONTEND_URL (Netlify) - backend endpoint will still work via CORS
+    } else if (process.env.APP_URL) {
+      // Use backend URL (Railway) - this is the correct endpoint
       // Remove trailing slash if present
+      const backendUrl = process.env.APP_URL.replace(/\/$/, '');
+      bookingDetailsUrl = `${backendUrl}/api/bookings/${bookingId}/details`;
+    } else if (process.env.FRONTEND_URL) {
+      // Fallback: if frontend proxies to backend, use frontend URL
+      // Note: This assumes the frontend has a proxy route for /api/*
       const frontendUrl = process.env.FRONTEND_URL.replace(/\/$/, '');
       bookingDetailsUrl = `${frontendUrl}/api/bookings/${bookingId}/details`;
-    } else if (process.env.APP_URL) {
-      // Fallback to backend URL
-      bookingDetailsUrl = `${process.env.APP_URL}/api/bookings/${bookingId}/details`;
     } else {
       // Last resort: use booking ID only (backward compatibility)
       // External scanners will show the UUID, which can be manually entered
-      console.warn('[QR Code] No FRONTEND_URL or APP_URL set. QR code will contain booking ID only.');
+      console.warn('[QR Code] No APP_URL or FRONTEND_URL set. QR code will contain booking ID only.');
       bookingDetailsUrl = bookingId;
     }
     
@@ -384,9 +387,9 @@ export async function generateBookingTicketPDF(
     }
 
     // Generate QR code and barcode
-    // Prefer FRONTEND_URL (Netlify) for QR codes, fallback to APP_URL (backend)
-    // The endpoint returns HTML for browser requests, so either URL works
-    const qrCodeBaseUrl = process.env.FRONTEND_URL || process.env.APP_URL || undefined;
+    // Use APP_URL (Railway backend) for QR codes - the endpoint is on the backend
+    // The endpoint returns HTML for browser requests, so external scanners will display booking details
+    const qrCodeBaseUrl = process.env.APP_URL || process.env.FRONTEND_URL || undefined;
     const qrDataURL = await generateQRCodeDataURL(bookingId, qrCodeBaseUrl);
     const qrBuffer = Buffer.from(qrDataURL.split(',')[1], 'base64');
     const barcodeBuffer = await generateBarcodeBuffer(bookingId);
