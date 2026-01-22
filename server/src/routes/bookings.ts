@@ -1033,6 +1033,7 @@ router.get('/:id/details', async (req, res) => {
         id,
         customer_name,
         customer_phone,
+        customer_email,
         visitor_count,
         adult_count,
         child_count,
@@ -1043,12 +1044,18 @@ router.get('/:id/details', async (req, res) => {
         qr_scanned_at,
         services!inner (
           name,
-          name_ar
+          name_ar,
+          description,
+          description_ar
         ),
         slots!inner (
           slot_date,
           start_time,
           end_time
+        ),
+        tenants!inner (
+          name,
+          name_ar
         )
       `)
       .eq('id', bookingId)
@@ -1084,10 +1091,52 @@ router.get('/:id/details', async (req, res) => {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
+    // Helper function to format date as MM-DD-YYYY
+    const formatDate = (dateString: string): string => {
+      if (!dateString) return 'N/A';
+      try {
+        const date = new Date(dateString);
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${month}-${day}-${year}`;
+      } catch {
+        return dateString.substring(0, 10) || 'N/A';
+      }
+    };
+
+    // Helper function to format time to 12-hour format (e.g., "8:00 PM")
+    const formatTime12Hour = (timeString: string): string => {
+      if (!timeString) return 'N/A';
+      try {
+        const [hours, minutes] = timeString.split(':');
+        const hour = parseInt(hours || '0', 10);
+        const min = minutes || '00';
+        const period = hour >= 12 ? 'PM' : 'AM';
+        const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+        return `${displayHour}:${min} ${period}`;
+      } catch {
+        return timeString;
+      }
+    };
+
+    // Determine ticket type
+    const getTicketType = (): string => {
+      if (booking.adult_count > 0 && booking.child_count === 0) {
+        return booking.adult_count > 1 ? `${booking.adult_count} Adults` : 'Adult';
+      } else if (booking.child_count > 0 && booking.adult_count === 0) {
+        return booking.child_count > 1 ? `${booking.child_count} Children` : 'Child';
+      } else if (booking.adult_count > 0 && booking.child_count > 0) {
+        return `${booking.adult_count} Adult${booking.adult_count > 1 ? 's' : ''}, ${booking.child_count} Child${booking.child_count > 1 ? 'ren' : ''}`;
+      }
+      return 'General';
+    };
+
     const bookingData = {
       id: booking.id,
       customer_name: booking.customer_name,
       customer_phone: booking.customer_phone,
+      customer_email: (booking as any).customer_email,
       visitor_count: booking.visitor_count,
       adult_count: booking.adult_count,
       child_count: booking.child_count,
@@ -1099,8 +1148,16 @@ router.get('/:id/details', async (req, res) => {
       end_time: (booking.slots as any).end_time,
       service_name: (booking.services as any).name,
       service_name_ar: (booking.services as any).name_ar,
+      service_description: (booking.services as any).description,
+      service_description_ar: (booking.services as any).description_ar,
+      tenant_name: (booking.tenants as any)?.name,
+      tenant_name_ar: (booking.tenants as any)?.name_ar,
       qr_scanned: booking.qr_scanned,
       qr_scanned_at: booking.qr_scanned_at,
+      formatted_date: formatDate((booking.slots as any).slot_date),
+      formatted_start_time: formatTime12Hour((booking.slots as any).start_time),
+      formatted_end_time: formatTime12Hour((booking.slots as any).end_time),
+      ticket_type: getTicketType(),
     };
 
     // Check if request wants HTML (browser) or JSON (API)
