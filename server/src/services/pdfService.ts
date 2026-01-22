@@ -69,20 +69,25 @@ interface BookingData {
 async function generateQRCodeDataURL(bookingId: string, apiBaseUrl?: string): Promise<string> {
   try {
     // Construct URL to public booking details endpoint
-    // If apiBaseUrl is provided, use it; otherwise construct from APP_URL
+    // Priority: FRONTEND_URL (for Netlify) > APP_URL (backend) > apiBaseUrl parameter
+    // The endpoint returns HTML for browser requests, so it can be accessed from frontend or backend URL
     let bookingDetailsUrl: string;
     
     if (apiBaseUrl) {
+      // If explicitly provided, use it
       bookingDetailsUrl = `${apiBaseUrl}/api/bookings/${bookingId}/details`;
-    } else if (process.env.APP_URL) {
-      bookingDetailsUrl = `${process.env.APP_URL}/api/bookings/${bookingId}/details`;
     } else if (process.env.FRONTEND_URL) {
-      // Fallback: if frontend URL is set, use it (frontend can proxy to API)
-      bookingDetailsUrl = `${process.env.FRONTEND_URL}/api/bookings/${bookingId}/details`;
+      // Prefer FRONTEND_URL (Netlify) - backend endpoint will still work via CORS
+      // Remove trailing slash if present
+      const frontendUrl = process.env.FRONTEND_URL.replace(/\/$/, '');
+      bookingDetailsUrl = `${frontendUrl}/api/bookings/${bookingId}/details`;
+    } else if (process.env.APP_URL) {
+      // Fallback to backend URL
+      bookingDetailsUrl = `${process.env.APP_URL}/api/bookings/${bookingId}/details`;
     } else {
       // Last resort: use booking ID only (backward compatibility)
       // External scanners will show the UUID, which can be manually entered
-      console.warn('[QR Code] No APP_URL or FRONTEND_URL set. QR code will contain booking ID only.');
+      console.warn('[QR Code] No FRONTEND_URL or APP_URL set. QR code will contain booking ID only.');
       bookingDetailsUrl = bookingId;
     }
     
