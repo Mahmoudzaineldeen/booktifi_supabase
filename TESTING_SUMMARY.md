@@ -1,185 +1,195 @@
-# Bookati Testing Summary - Quick Reference
+# Testing Summary: Slot Capacity Fix
 
-## Overall Assessment: ⚠️ CONDITIONAL PASS
+## Test Files Created
 
-**Test Coverage**: 50% (56 passed, 40 partial, 17 not tested)  
-**Critical Issues**: 4  
-**High Priority Issues**: 5  
-**Production Ready**: ❌ NO
+### 1. Automated Test Script
+**File**: `tests/test-slot-capacity-fix.js`
 
----
+**What it tests**:
+- ✅ Booking creation reduces slot capacity (pending status)
+- ✅ Booking cancellation restores slot capacity (from pending)
+- ✅ Multiple bookings reduce capacity correctly
 
-## Critical Findings
-
-### ✅ Strengths
-- Core booking functionality works correctly
-- Security foundation solid (RLS, JWT, parameterized queries)
-- Data integrity maintained (triggers, constraints)
-- Multi-tenant isolation enforced
-
-### ⚠️ Weaknesses
-- Only 50% test coverage
-- No performance/load testing
-- Limited error recovery testing
-- Many edge cases untested
-- No automated test suite
-
-### ❌ Critical Issues (Must Fix Before Production)
-1. **No Load Testing** - System behavior under load unknown
-2. **Session Management** - Needs verification
-3. **API Failure Handling** - Needs comprehensive testing
-4. **Input Length Validation** - Missing
-
----
-
-## Test Coverage by Category
-
-| Category | Coverage | Status |
-|----------|----------|--------|
-| Authentication | 53% | ⚠️ Partial |
-| Service Management | 83% | ✅ Good |
-| Booking Management | 60% | ⚠️ Partial |
-| Package Management | 63% | ⚠️ Partial |
-| Security | 62% | ⚠️ Partial |
-| Performance | 0% | ❌ Missing |
-| Integration | 38% | ⚠️ Partial |
-| Edge Cases | 33% | ⚠️ Partial |
-| Failure Scenarios | 22% | ⚠️ Partial |
-
----
-
-## Immediate Actions Required
-
-### Before Production Deployment
-
-1. **Load Testing** (P0)
-   - Test with 100+ concurrent users
-   - Identify bottlenecks
-   - Fix performance issues
-
-2. **Security Audit** (P0)
-   - Penetration testing
-   - Review all auth flows
-   - Test input validation
-
-3. **Error Handling** (P0)
-   - Test all failure scenarios
-   - Improve error messages
-   - Implement retry mechanisms
-
-4. **Input Validation** (P0)
-   - Add comprehensive validation
-   - Test all edge cases
-   - Implement length limits
-
-### Short-term (1-2 Months)
-
-1. **Automated Test Suite**
-   - Unit tests (Jest/Vitest)
-   - Integration tests
-   - E2E tests (Playwright/Cypress)
-
-2. **Performance Optimization**
-   - Optimize queries
-   - Implement caching
-   - Reduce load times
-
-3. **Monitoring**
-   - Application monitoring
-   - Error tracking (Sentry)
-   - Performance monitoring
-
----
-
-## Test Execution Quick Start
-
-### Run All Tests
+**How to run**:
 ```bash
-npm run test
+# Set environment variables
+export TEST_TENANT_ID="your-tenant-id"
+export TEST_SERVICE_ID="your-service-id"
+export TEST_SLOT_ID="your-slot-id"
+export TEST_RECEPTIONIST_TOKEN="your-receptionist-token"
+export VITE_API_URL="https://your-api-url/api"
+
+# Run tests
+node tests/test-slot-capacity-fix.js
 ```
 
-### Run Specific Test Suites
-```bash
-npm run test:unit          # Unit tests
-npm run test:integration   # Integration tests
-npm run test:security      # Security tests
-npm run test:coverage      # With coverage report
+### 2. Manual Testing Guide
+**File**: `tests/MANUAL_SLOT_CAPACITY_TEST.md`
+
+**What it covers**:
+- ✅ Step-by-step manual testing procedures
+- ✅ 5 comprehensive test scenarios
+- ✅ SQL queries for verification
+- ✅ Troubleshooting guide
+- ✅ Success criteria
+
+**How to use**:
+1. Open the guide
+2. Follow each test scenario step-by-step
+3. Verify results match expected outcomes
+
+### 3. SQL Verification Script
+**File**: `tests/verify-slot-capacity-triggers.sql`
+
+**What it does**:
+- ✅ Checks if triggers exist and are active
+- ✅ Verifies functions are defined correctly
+- ✅ Finds test slots with available capacity
+- ✅ Verifies capacity calculations
+- ✅ Identifies slots with incorrect capacity
+- ✅ Provides test queries for manual trigger testing
+
+**How to use**:
+1. Open Supabase SQL Editor
+2. Copy and paste queries from the script
+3. Replace placeholders (`<SLOT_ID>`, `<TENANT_ID>`, etc.)
+4. Run queries to verify triggers are working
+
+## Quick Test Checklist
+
+### Before Testing
+- [ ] Migration `20260123000002_permanent_slot_capacity_fix.sql` is applied
+- [ ] RPC function `create_booking_with_lock` is updated
+- [ ] You have access to Supabase dashboard
+- [ ] You have API access (Railway backend)
+- [ ] You have test credentials (receptionist token)
+
+### Test 1: Basic Capacity Reduction
+- [ ] Find a slot with available capacity
+- [ ] Note initial `available_capacity` and `booked_count`
+- [ ] Create a booking via API
+- [ ] Wait 2 seconds
+- [ ] Verify `available_capacity` decreased by `visitor_count`
+- [ ] Verify `booked_count` increased by `visitor_count`
+
+### Test 2: Capacity Restoration
+- [ ] Create a booking (from Test 1)
+- [ ] Note capacity after creation
+- [ ] Cancel the booking via API
+- [ ] Wait 2 seconds
+- [ ] Verify `available_capacity` increased by `visitor_count`
+- [ ] Verify `booked_count` decreased by `visitor_count`
+
+### Test 3: Multiple Bookings
+- [ ] Note initial capacity
+- [ ] Create 3 bookings
+- [ ] Verify capacity decreased by 3
+- [ ] Cancel all 3 bookings
+- [ ] Verify capacity restored
+
+### Test 4: Recalculation Function
+- [ ] Run `SELECT * FROM recalculate_all_slot_capacities();`
+- [ ] Verify function returns results
+- [ ] Check a specific slot's capacity matches expected value
+
+## Expected Results
+
+### ✅ Success Indicators
+
+1. **Booking Creation**:
+   - Slot `available_capacity` decreases immediately
+   - Slot `booked_count` increases immediately
+   - Works for both `'pending'` and `'confirmed'` bookings
+
+2. **Booking Cancellation**:
+   - Slot `available_capacity` increases
+   - Slot `booked_count` decreases
+   - Works from both `'pending'` and `'confirmed'` statuses
+
+3. **Multiple Bookings**:
+   - Each booking reduces capacity by its `visitor_count`
+   - Capacity calculations are accurate
+
+4. **Recalculation**:
+   - Function fixes any inconsistencies
+   - All slots have correct capacity values
+
+### ❌ Failure Indicators
+
+1. **Capacity not decreasing**:
+   - Booking created but slot capacity unchanged
+   - Check triggers are active
+   - Check functions are correct
+
+2. **Capacity not restoring**:
+   - Booking cancelled but slot capacity unchanged
+   - Check booking status is actually `'cancelled'`
+   - Check trigger is firing
+
+3. **Double reduction**:
+   - Capacity reduced twice for single booking
+   - Check if trigger fires multiple times
+   - Check if RPC function is called multiple times
+
+## Troubleshooting
+
+### Issue: Triggers not firing
+
+**Solution**:
+```sql
+-- Check if triggers are enabled
+SELECT tgname, tgenabled FROM pg_trigger WHERE tgname LIKE '%slot_capacity%';
+
+-- If disabled, enable them
+ALTER TABLE bookings ENABLE TRIGGER trigger_reduce_slot_capacity_on_insert;
+ALTER TABLE bookings ENABLE TRIGGER trigger_manage_slot_capacity_on_update;
 ```
 
-### Setup Test Data
-```bash
-npm run test:setup
+### Issue: Functions not found
+
+**Solution**:
+```sql
+-- Check if functions exist
+SELECT proname FROM pg_proc WHERE proname LIKE '%slot_capacity%';
+
+-- If missing, run the migration
+-- File: supabase/migrations/20260123000002_permanent_slot_capacity_fix.sql
 ```
 
-### Load Testing
-```bash
-k6 run tests/performance/load-test.js
+### Issue: Capacity calculations incorrect
+
+**Solution**:
+```sql
+-- Run recalculation function
+SELECT * FROM recalculate_all_slot_capacities();
+
+-- This will fix all slots
 ```
 
----
+## Next Steps After Testing
 
-## Test Documentation
+1. **If all tests pass**:
+   - ✅ Fix is working correctly
+   - ✅ Deploy to production
+   - ✅ Monitor for any issues
 
-- **Full Evaluation**: `TESTING_EVALUATION.md`
-- **Execution Guide**: `TEST_EXECUTION_GUIDE.md`
-- **Test Suite**: `tests/README.md`
+2. **If tests fail**:
+   - ❌ Check migration was applied
+   - ❌ Check RPC function was updated
+   - ❌ Check triggers are active
+   - ❌ Run recalculation function
+   - ❌ Review error logs
 
----
+3. **Production Deployment**:
+   - Apply migration in production Supabase
+   - Deploy updated RPC function
+   - Run recalculation function
+   - Monitor slot capacity for 24 hours
 
-## Estimated Time to Production Ready
+## Support
 
-**4-6 weeks** with dedicated testing effort
-
-### Week 1-2: Critical Issues
-- Load testing and optimization
-- Security audit and fixes
-- Error handling improvements
-
-### Week 3-4: Test Automation
-- Implement unit tests
-- Add integration tests
-- Create E2E tests
-
-### Week 5-6: Final Validation
-- Complete test coverage
-- Performance tuning
-- Documentation
-
----
-
-## Key Metrics
-
-- **Total Test Cases**: 113
-- **Passed**: 56 (50%)
-- **Partial**: 40 (35%)
-- **Not Tested**: 17 (15%)
-- **Failed**: 0 (0%)
-
----
-
-## Recommendations Priority
-
-### P0 (Critical - Block Production)
-1. Load testing
-2. Security audit
-3. Error recovery testing
-4. Input validation
-
-### P1 (High - Fix Soon)
-1. Edge case testing
-2. Integration testing
-3. Concurrency testing
-4. External service failure testing
-
-### P2 (Medium - Nice to Have)
-1. Accessibility testing
-2. Browser compatibility
-3. Usability testing
-
----
-
-**Status**: ⚠️ **CONDITIONAL PASS** - Do not deploy to production until critical issues resolved.
-
-**Last Updated**: 2025-01-28
-
-
+If you encounter issues:
+1. Check the troubleshooting section
+2. Review the manual testing guide
+3. Check Supabase logs for trigger errors
+4. Verify all migrations are applied
