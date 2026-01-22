@@ -42,6 +42,7 @@ DECLARE
   v_bookings jsonb[] := ARRAY[]::jsonb[];
   v_booking_group_id_final uuid;
   v_price_per_slot numeric(10,2);
+  v_unique_slot_count integer;
 BEGIN
   -- Validate required fields
   IF array_length(p_slot_ids, 1) IS NULL OR array_length(p_slot_ids, 1) = 0 THEN
@@ -104,6 +105,17 @@ BEGIN
   -- ============================================================================
   -- STEP 1: Validate ALL slots BEFORE creating any bookings (prevent overbooking)
   -- ============================================================================
+  
+  -- CRITICAL: Check for duplicate slot IDs in the array
+  -- This prevents booking the same slot multiple times in a single request
+  SELECT COUNT(DISTINCT slot_id)
+  INTO v_unique_slot_count
+  FROM unnest(p_slot_ids) AS slot_id;
+  
+  IF v_unique_slot_count != array_length(p_slot_ids, 1) THEN
+    RAISE EXCEPTION 'Duplicate slot IDs detected. Each slot can only be booked once per request.';
+  END IF;
+  
   v_total_requested := 0;
   
   FOR v_slot_index IN 1..array_length(p_slot_ids, 1) LOOP

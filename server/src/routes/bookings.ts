@@ -1016,6 +1016,7 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
 // TASK: Receptionist and tenant_admin can create bulk bookings
 // This endpoint validates ALL slots before creating any bookings (prevents overbooking)
 // Creates all bookings atomically, generates ONE invoice, and ONE ticket PDF
+// CRITICAL: authenticateReceptionistOrTenantAdmin middleware MUST run first
 router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, res) => {
   try {
     const {
