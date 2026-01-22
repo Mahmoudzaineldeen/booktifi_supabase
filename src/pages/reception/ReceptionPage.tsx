@@ -4522,7 +4522,7 @@ export function ReceptionPage() {
       )}
 
       {/* Legacy QR Scanner Modal (fallback - can be removed after testing) */}
-      {false && isQRScannerOpen && (
+      {false && (
         <Modal
           isOpen={isQRScannerOpen}
           onClose={() => {
@@ -4555,7 +4555,7 @@ export function ReceptionPage() {
                 autoFocus
               />
 
-            {qrValidationResult && (
+              {qrValidationResult && (
               <div className={`p-4 rounded-lg border ${
                 qrValidationResult.success
                   ? 'bg-green-50 border-green-200'
@@ -4645,6 +4645,7 @@ export function ReceptionPage() {
           </form>
         </div>
       </Modal>
+      )}
     </div>
   );
 }
