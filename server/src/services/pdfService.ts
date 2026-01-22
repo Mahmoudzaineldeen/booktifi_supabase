@@ -73,26 +73,43 @@ async function generateQRCodeDataURL(bookingId: string, apiBaseUrl?: string): Pr
     // However, if FRONTEND_URL is set and points to a domain that proxies to the backend, we can use that
     // Priority: apiBaseUrl parameter > APP_URL (backend) > FRONTEND_URL (if it proxies to backend)
     let bookingDetailsUrl: string;
+    let urlSource = 'unknown';
     
     if (apiBaseUrl) {
       // If explicitly provided, use it
       bookingDetailsUrl = `${apiBaseUrl}/api/bookings/${bookingId}/details`;
+      urlSource = 'apiBaseUrl parameter';
     } else if (process.env.APP_URL) {
       // Use backend URL (Railway) - this is the correct endpoint
       // Remove trailing slash if present
       const backendUrl = process.env.APP_URL.replace(/\/$/, '');
       bookingDetailsUrl = `${backendUrl}/api/bookings/${bookingId}/details`;
+      urlSource = 'APP_URL environment variable';
+      
+      // Warn if old Bolt URL is detected
+      if (backendUrl.includes('bolt.host')) {
+        console.error('⚠️  [QR Code] WARNING: APP_URL is set to old Bolt URL:', backendUrl);
+        console.error('   Please update APP_URL in Railway to your Railway backend URL');
+        console.error('   Example: https://your-app-name.up.railway.app');
+      }
     } else if (process.env.FRONTEND_URL) {
       // Fallback: if frontend proxies to backend, use frontend URL
       // Note: This assumes the frontend has a proxy route for /api/*
       const frontendUrl = process.env.FRONTEND_URL.replace(/\/$/, '');
       bookingDetailsUrl = `${frontendUrl}/api/bookings/${bookingId}/details`;
+      urlSource = 'FRONTEND_URL environment variable';
+      console.warn('[QR Code] Using FRONTEND_URL as fallback. Ensure frontend proxies /api/* to backend.');
     } else {
       // Last resort: use booking ID only (backward compatibility)
       // External scanners will show the UUID, which can be manually entered
       console.warn('[QR Code] No APP_URL or FRONTEND_URL set. QR code will contain booking ID only.');
       bookingDetailsUrl = bookingId;
+      urlSource = 'booking ID only (no URL configured)';
     }
+    
+    console.log(`[QR Code] Generated URL for booking ${bookingId}:`);
+    console.log(`   URL: ${bookingDetailsUrl}`);
+    console.log(`   Source: ${urlSource}`);
     
     const qrDataURL = await QRCode.toDataURL(bookingDetailsUrl, {
       errorCorrectionLevel: 'M',
