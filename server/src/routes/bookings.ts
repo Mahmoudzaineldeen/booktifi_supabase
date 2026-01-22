@@ -583,10 +583,14 @@ router.post('/create', authenticate, async (req, res) => {
     // CRITICAL: This MUST run - tickets are more important than invoices
     console.log(`\n🎫 ========================================`);
     console.log(`🎫 TICKET GENERATION SCHEDULED for booking ${bookingId}`);
+    console.log(`🎫 Customer: ${customer_name}`);
+    console.log(`🎫 Email: ${customer_email || 'NOT PROVIDED'}`);
+    console.log(`🎫 Phone: ${normalizedPhone || customer_phone || 'NOT PROVIDED'}`);
     console.log(`🎫 This will run asynchronously after response is sent`);
     console.log(`🎫 ========================================\n`);
     
-    setImmediate(async () => {
+    // Use Promise.resolve().then() for better reliability on Railway
+    Promise.resolve().then(async () => {
       let pdfBuffer: Buffer | null = null;
 
       try {
@@ -792,6 +796,12 @@ router.post('/create', authenticate, async (req, res) => {
         console.error('❌ ========================================\n');
         // Don't fail booking if PDF generation fails, but log the error clearly
       }
+    }).catch((error) => {
+      console.error('\n❌ ========================================');
+      console.error('❌ CRITICAL: Unhandled error in ticket generation promise');
+      console.error('❌ ========================================');
+      console.error('Error:', error);
+      console.error('❌ ========================================\n');
     });
 
     // Automatically create invoice after booking is created
@@ -799,12 +809,12 @@ router.post('/create', authenticate, async (req, res) => {
     // Invoice is created for ALL bookings with email OR phone
     // Delivery: Email (if email provided), WhatsApp (if phone provided), or both
     // Note: Payment status is not used - invoices are created for all bookings
-    // IMPORTANT: Use process.nextTick instead of setImmediate for better reliability
+    // IMPORTANT: Use Promise.resolve().then() for better reliability on Railway
     // This ensures the async operation completes even if the container restarts
     if (normalizedPhone || customer_phone || customer_email) {
-      // Use process.nextTick to ensure invoice creation happens after response is sent
+      // Use Promise.resolve().then() to ensure invoice creation happens after response is sent
       // This prevents container restarts from interrupting the process
-      process.nextTick(async () => {
+      Promise.resolve().then(async () => {
         try {
           console.log(`[Booking Creation] 🧾 Invoice Flow Started for booking ${bookingId}`);
           console.log(`[Booking Creation] 📋 Flow: Booking Confirmed → Create Invoice → Send via Email/WhatsApp`);
@@ -832,6 +842,9 @@ router.post('/create', authenticate, async (req, res) => {
           console.error(`[Booking Creation]    Error stack:`, invoiceError.stack);
           // Don't fail booking if invoice creation fails
         }
+      }).catch((error) => {
+        console.error(`[Booking Creation] ❌ CRITICAL: Unhandled error in invoice generation promise`);
+        console.error(`[Booking Creation]    Error:`, error);
       });
     } else {
       console.log(`[Booking Creation] ⚠️ Invoice not created (no customer email or phone provided)`);
