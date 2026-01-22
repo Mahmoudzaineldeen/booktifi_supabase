@@ -1107,7 +1107,9 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       // Map specific error messages to appropriate status codes
       if (createError.message.includes('Missing required fields') ||
           createError.message.includes('does not match') ||
-          createError.message.includes('must be provided')) {
+          createError.message.includes('must be provided') ||
+          createError.message.includes('Duplicate slot IDs') ||
+          createError.message.includes('duplicate')) {
         return res.status(400).json({ error: createError.message });
       }
       if (createError.message.includes('not found')) {
