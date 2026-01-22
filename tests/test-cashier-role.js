@@ -115,8 +115,8 @@ async function runTests() {
   const testBookingId = bookingData?.bookingId || '00000000-0000-0000-0000-000000000000';
   const testInvoiceId = bookingData?.invoiceId || '00000000-0000-0000-0000-000000000000';
 
-  let passed = 0;
-  let failed = 0;
+  let passedCount = 0;
+  let failedCount = 0;
 
   console.log('🧪 TASK 5: Role-Based Access Enforcement Tests\n');
 
@@ -130,7 +130,7 @@ async function runTests() {
       cashierToken,
       200 // Should succeed if booking exists and not already scanned
     );
-    result ? passed++ : failed++;
+    result ? passedCount++ : failedCount++;
   } else {
     console.log('⚠️  5.1: Cashier can scan QR code - Skipped (no booking available)');
   }
@@ -152,7 +152,7 @@ async function runTests() {
     cashierToken,
     403 // Should be blocked
   );
-  result2 ? passed++ : failed++;
+  result2 ? passedCount++ : failedCount++;
 
   // Test 5.3: Cashier cannot download invoices
   // Note: This may return 404 (invoice not found) or 403 (access denied)
@@ -165,20 +165,20 @@ async function runTests() {
       }
     });
 
-    const passed = response.status === 403 || response.status === 404;
-    const icon = passed ? '✅' : '❌';
+    const testPassed = response.status === 403 || response.status === 404;
+    const icon = testPassed ? '✅' : '❌';
     console.log(`${icon} 5.3: Cashier cannot download invoices`);
     console.log(`   Status: ${response.status} (Expected: 403 or 404)`);
     
-    if (!passed) {
+    if (!testPassed) {
       console.log(`   ⚠️  Unexpected status - cashier should not be able to download invoices`);
-      failed++;
+      failedCount++;
     } else {
-      passed++;
+      passedCount++;
     }
   } catch (error) {
     console.log(`❌ 5.3: Cashier cannot download invoices - Error: ${error.message}`);
-    failed++;
+    failedCount++;
   }
 
   // Test 5.4: Cashier cannot edit bookings
@@ -190,7 +190,7 @@ async function runTests() {
     cashierToken,
     403 // Should be blocked
   );
-  result4 ? passed++ : failed++;
+  result4 ? passedCount++ : failedCount++;
 
   // Test 5.5: Cashier cannot delete bookings
   const result5 = await testEndpoint(
@@ -201,7 +201,7 @@ async function runTests() {
     cashierToken,
     403 // Should be blocked
   );
-  result5 ? passed++ : failed++;
+  result5 ? passedCount++ : failedCount++;
 
   // Test 5.6: Cashier cannot update payment status
   const result6 = await testEndpoint(
@@ -212,17 +212,17 @@ async function runTests() {
     cashierToken,
     403 // Should be blocked
   );
-  result6 ? passed++ : failed++;
+  result6 ? passedCount++ : failedCount++;
 
   console.log('\n' + '='.repeat(50));
   console.log('📊 Test Summary');
   console.log('='.repeat(50));
-  console.log(`✅ Passed: ${passed}`);
-  console.log(`❌ Failed: ${failed}`);
-  console.log(`📝 Total: ${passed + failed}`);
+  console.log(`✅ Passed: ${passedCount}`);
+  console.log(`❌ Failed: ${failedCount}`);
+  console.log(`📝 Total: ${passedCount + failedCount}`);
   console.log('='.repeat(50) + '\n');
 
-  if (failed > 0) {
+  if (failedCount > 0) {
     console.log('❌ Some tests failed. Please review the output above.');
     process.exit(1);
   } else {
