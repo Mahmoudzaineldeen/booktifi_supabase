@@ -8,13 +8,14 @@ import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
-import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan } from 'lucide-react';
+import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText } from 'lucide-react';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { format, addDays, startOfWeek, isSameDay, parseISO, startOfDay, endOfDay, addMinutes, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { countryCodes } from '../../lib/countryCodes';
 import { getApiUrl } from '../../lib/apiUrl';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
+import { createTimeoutSignal } from '../../lib/requestTimeout';
 
 interface Booking {
   id: string;
@@ -28,6 +29,7 @@ interface Booking {
   notes: string | null;
   created_at: string;
   booking_group_id: string | null;
+  zoho_invoice_id?: string | null;
   services: {
     name: string;
     name_ar: string;
@@ -164,6 +166,7 @@ export function ReceptionPage() {
   const [qrInputValue, setQrInputValue] = useState('');
   const [qrValidating, setQrValidating] = useState(false);
   const [qrValidationResult, setQrValidationResult] = useState<{success: boolean; message: string; booking?: any} | null>(null);
+  const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
 
   // Track if initial auth check has been completed
   const [initialAuthDone, setInitialAuthDone] = useState(false);
@@ -657,6 +660,7 @@ export function ReceptionPage() {
           qr_scanned,
           qr_scanned_at,
           qr_scanned_by_user_id,
+          zoho_invoice_id,
           services (name, name_ar),
           slots (slot_date, start_time, end_time),
           users:employee_id (id, full_name, full_name_ar)
@@ -1977,6 +1981,85 @@ export function ReceptionPage() {
     }
   }
 
+  // Download invoice PDF (TASK 7: Receptionist can download invoices)
+  async function downloadInvoice(bookingId: string, zohoInvoiceId: string) {
+    try {
+      setDownloadingInvoice(bookingId);
+      
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+      
+      // Ensure API_URL doesn't have trailing slash
+      const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+      // Add token as query parameter to bypass CORS header issues
+      const downloadUrl = `${baseUrl}/zoho/invoices/${zohoInvoiceId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      
+      console.log('[ReceptionPage] Downloading invoice:', zohoInvoiceId);
+      console.log('[ReceptionPage] Download URL:', downloadUrl.replace(token || '', '***'));
+      
+      // Use fetch to download the PDF and create a blob URL
+      try {
+        const response = await fetch(downloadUrl, {
+          method: 'GET',
+          headers: token ? {
+            'Authorization': `Bearer ${token}`,
+          } : {},
+          signal: createTimeoutSignal('/zoho/invoices', false),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to download invoice: ${response.status} ${response.statusText}. ${errorText}`);
+        }
+
+        // Get the PDF as a blob
+        const blob = await response.blob();
+        
+        // Create a blob URL and trigger download
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = `invoice-${zohoInvoiceId}.pdf`;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        
+        // Clean up
+        setTimeout(() => {
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(blobUrl);
+          setDownloadingInvoice(null);
+        }, 100);
+        
+        console.log('[ReceptionPage] Download completed successfully');
+      } catch (fetchError: any) {
+        console.error('[ReceptionPage] Fetch error:', fetchError);
+        // Fallback to direct link approach if fetch fails
+        console.log('[ReceptionPage] Falling back to direct link approach');
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `invoice-${zohoInvoiceId}.pdf`;
+        link.target = '_blank';
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        
+        setTimeout(() => {
+          document.body.removeChild(link);
+          setDownloadingInvoice(null);
+        }, 1000);
+      }
+      
+    } catch (error: any) {
+      console.error('[ReceptionPage] Error downloading invoice:', error);
+      const errorMessage = error.message || 'Unknown error occurred';
+      alert(i18n.language === 'ar' 
+        ? `فشل تنزيل الفاتورة: ${errorMessage}. يرجى المحاولة مرة أخرى.` 
+        : `Failed to download invoice: ${errorMessage}. Please try again.`);
+      setDownloadingInvoice(null);
+    }
+  }
+
   // Validate QR Code
   async function validateQRCode(bookingId: string) {
     setQrValidating(true);
@@ -2518,6 +2601,22 @@ export function ReceptionPage() {
                       className="w-full"
                     >
                       {t('reception.markAsUnpaid')}
+                    </Button>
+                  )}
+                  
+                  {/* Invoice Download Button (TASK 7: Receptionist can download invoices) */}
+                  {booking.zoho_invoice_id && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => downloadInvoice(booking.id, booking.zoho_invoice_id!)}
+                      disabled={downloadingInvoice === booking.id}
+                      icon={downloadingInvoice === booking.id ? undefined : <Download className="w-3 h-3" />}
+                      className="w-full"
+                    >
+                      {downloadingInvoice === booking.id 
+                        ? (i18n.language === 'ar' ? 'جاري التنزيل...' : 'Downloading...')
+                        : (i18n.language === 'ar' ? 'تنزيل الفاتورة' : 'Download Invoice')}
                     </Button>
                   )}
                   
