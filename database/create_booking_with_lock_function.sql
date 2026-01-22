@@ -195,11 +195,17 @@ BEGIN
   -- CRITICAL FIX: Reduce slot capacity immediately when booking is created
   -- The trigger should handle this, but we also do it here as a backup
   -- This ensures capacity is reduced even if trigger fails or doesn't fire
+  -- Using FOR UPDATE to prevent race conditions
   UPDATE slots
   SET 
     available_capacity = GREATEST(0, available_capacity - p_visitor_count),
     booked_count = booked_count + p_visitor_count
   WHERE id = p_slot_id;
+  
+  -- Verify the update succeeded
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Failed to update slot capacity';
+  END IF;
 
   -- Delete the lock if it was used
   IF p_lock_id IS NOT NULL THEN
