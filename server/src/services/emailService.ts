@@ -17,33 +17,29 @@ import { supabase } from '../db';
 // These were kept for reference but are no longer used
 
 /**
- * Get sender email from tenant settings
+ * Get sender email from tenant SMTP settings
  */
 async function getSenderEmail(tenantId: string): Promise<string> {
   try {
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('smtp_settings, email_settings')
+      .select('smtp_settings')
       .eq('id', tenantId)
       .single();
 
-    if (tenant?.email_settings?.from_email) {
-      return tenant.email_settings.from_email;
-    }
-    
     if (tenant?.smtp_settings?.smtp_user) {
       return tenant.smtp_settings.smtp_user;
     }
-
-    return 'noreply@bookati.com'; // Default fallback
-  } catch {
+    
+    return 'noreply@bookati.com';
+  } catch (error: any) {
+    console.error('Error fetching sender email:', error);
     return 'noreply@bookati.com';
   }
 }
 
 /**
- * Send OTP email
- * Uses production-ready email API service (SendGrid API > SMTP)
+ * Send OTP email via SMTP
  */
 export async function sendOTPEmail(email: string, otp: string, tenantId: string, language: 'en' | 'ar' = 'en') {
   const subject = language === 'ar' 

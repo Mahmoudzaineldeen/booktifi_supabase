@@ -23,6 +23,11 @@ export function getRequestTimeout(endpoint: string, isRelativeUrl: boolean = fal
     endpoint.includes('/refresh') ||
     endpoint.includes('/validate');
 
+  // SMTP/Email test endpoints need longer timeout (SMTP connection + email send can take 30-50s)
+  const isSmtpTestEndpoint = 
+    endpoint.includes('/smtp-settings/test') ||
+    endpoint.includes('/email-test');
+
   // Tenant queries may also be slower
   const isTenantQuery = 
     endpoint.includes('/tenants/') || 
@@ -34,6 +39,9 @@ export function getRequestTimeout(endpoint: string, isRelativeUrl: boolean = fal
   // Apply endpoint-specific timeouts
   if (isAuthEndpoint) {
     // 60 seconds for auth endpoints (handles Railway cold starts)
+    return 60000;
+  } else if (isSmtpTestEndpoint) {
+    // 60 seconds for SMTP test endpoints (connection test + email send can take up to 50s)
     return 60000;
   } else if (isTenantQuery) {
     // 60 seconds for tenant queries (can be slow)

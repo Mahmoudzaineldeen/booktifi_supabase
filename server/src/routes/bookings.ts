@@ -160,10 +160,18 @@ function authenticateTenantAdminOnly(req: express.Request, res: express.Response
     
     // STRICT: Only tenant_admin (Service Provider) can manage payment status and delete bookings
     if (decoded.role !== 'tenant_admin') {
+      console.error('[Auth] Access denied for booking time edit:', {
+        userId: decoded.id,
+        email: decoded.email,
+        actualRole: decoded.role,
+        requiredRole: 'tenant_admin',
+        tenantId: decoded.tenant_id
+      });
       return res.status(403).json({ 
         error: 'Access denied. Only Service Providers (tenant admins) can perform this action.',
         userRole: decoded.role,
-        hint: 'You must be logged in as a Service Provider to perform this action.'
+        requiredRole: 'tenant_admin',
+        hint: 'You must be logged in as a Service Provider (tenant_admin role) to edit booking times. Current role: ' + decoded.role
       });
     }
 
@@ -2758,17 +2766,81 @@ router.delete('/:id', authenticateTenantAdminOnly, async (req, res) => {
       });
     }
 
-    // Soft delete: Mark as cancelled (database enum uses 'cancelled' not 'canceled')
-    // Note: If your database supports soft deletes, use that instead
+    // Before hard delete, restore slot capacity if booking was pending or confirmed
+    // This mimics what the trigger would do, but triggers don't fire on DELETE
+    if (currentBooking.status === 'pending' || currentBooking.status === 'confirmed') {
+      // Fetch the slot to get current capacity values
+      const { data: slotData, error: slotFetchError } = await supabase
+        .from('slots')
+        .select('available_capacity, booked_count, original_capacity')
+        .eq('id', currentBooking.slot_id)
+        .single();
+
+      if (!slotFetchError && slotData) {
+        // Calculate new capacity values
+        const newAvailableCapacity = Math.min(
+          slotData.original_capacity || slotData.available_capacity + currentBooking.visitor_count,
+          slotData.available_capacity + currentBooking.visitor_count
+        );
+        const newBookedCount = Math.max(0, slotData.booked_count - currentBooking.visitor_count);
+
+        // Update slot capacity
+        const { error: slotUpdateError } = await supabase
+          .from('slots')
+          .update({
+            available_capacity: newAvailableCapacity,
+            booked_count: newBookedCount
+          })
+          .eq('id', currentBooking.slot_id);
+
+        if (slotUpdateError) {
+          console.error('[Delete Booking] Failed to restore slot capacity:', slotUpdateError);
+          // Continue with deletion anyway - capacity issue can be fixed manually
+        } else {
+          console.log(`[Delete Booking] Restored slot ${currentBooking.slot_id} capacity: +${currentBooking.visitor_count} visitors`);
+        }
+      } else {
+        console.warn('[Delete Booking] Could not fetch slot to restore capacity:', slotFetchError);
+      }
+    }
+
+    // Restore package usage if applicable (before deletion)
+    if (currentBooking.package_subscription_id && currentBooking.service_id) {
+      // Fetch current package usage
+      const { data: packageUsage, error: packageFetchError } = await supabase
+        .from('package_subscription_usage')
+        .select('used_quantity, remaining_quantity')
+        .eq('subscription_id', currentBooking.package_subscription_id)
+        .eq('service_id', currentBooking.service_id)
+        .single();
+
+      if (!packageFetchError && packageUsage) {
+        const newUsedQuantity = Math.max(0, packageUsage.used_quantity - currentBooking.visitor_count);
+        const newRemainingQuantity = packageUsage.remaining_quantity + currentBooking.visitor_count;
+
+        const { error: packageError } = await supabase
+          .from('package_subscription_usage')
+          .update({
+            used_quantity: newUsedQuantity,
+            remaining_quantity: newRemainingQuantity,
+            updated_at: new Date().toISOString()
+          })
+          .eq('subscription_id', currentBooking.package_subscription_id)
+          .eq('service_id', currentBooking.service_id);
+
+        if (packageError) {
+          console.warn('[Delete Booking] Failed to restore package usage:', packageError);
+          // Continue with deletion anyway
+        } else {
+          console.log(`[Delete Booking] Restored package usage for subscription ${currentBooking.package_subscription_id}`);
+        }
+      }
+    }
+
+    // Hard delete: Actually remove the booking from the database
     const { error: deleteError } = await supabase
       .from('bookings')
-      .update({
-        status: 'cancelled',
-        updated_at: new Date().toISOString(),
-        notes: currentBooking.notes 
-          ? `${currentBooking.notes}\n[DELETED by Service Provider on ${new Date().toISOString()}]`
-          : `[DELETED by Service Provider on ${new Date().toISOString()}]`,
-      })
+      .delete()
       .eq('id', bookingId);
 
     if (deleteError) {

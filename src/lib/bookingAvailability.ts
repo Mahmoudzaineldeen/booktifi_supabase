@@ -76,11 +76,23 @@ export async function fetchAvailableSlots(
   const dateStr = format(date, 'yyyy-MM-dd');
 
   // Step 1: Fetch shifts for this service
+  console.log('[bookingAvailability] ========================================');
+  console.log('[bookingAvailability] Fetching shifts for service:', serviceId);
+  console.log('[bookingAvailability] Tenant ID:', tenantId);
+  console.log('[bookingAvailability] Date:', dateStr);
+  console.log('[bookingAvailability] ========================================');
+  
   const { data: shifts, error: shiftsError } = await db
     .from('shifts')
     .select('id, days_of_week')
     .eq('service_id', serviceId)
     .eq('is_active', true);
+
+  console.log('[bookingAvailability] Shifts query result:', {
+    shiftsFound: shifts?.length || 0,
+    error: shiftsError?.message,
+    shifts: shifts?.map(s => ({ id: s.id, days: s.days_of_week }))
+  });
 
   if (shiftsError) {
     console.error('[bookingAvailability] Error fetching shifts:', shiftsError);
@@ -90,6 +102,7 @@ export async function fetchAvailableSlots(
   const shiftIds = shifts?.map(s => s.id) || [];
 
   if (shiftIds.length === 0) {
+    console.error('[bookingAvailability] ❌ No shifts found for service:', serviceId);
     return { slots: [], shifts: shifts || [], lockedSlotIds: [] };
   }
 
@@ -125,6 +138,21 @@ export async function fetchAvailableSlots(
   }
 
   let availableSlots = (slotsData || []) as Slot[];
+  
+  console.log('[bookingAvailability] Fetched slots from database:', {
+    dateStr,
+    tenantId,
+    serviceId,
+    shiftIds,
+    slotCount: availableSlots.length,
+    slots: availableSlots.map(s => ({ 
+      id: s.id.substring(0, 8), 
+      date: s.slot_date, 
+      time: s.start_time, 
+      capacity: s.available_capacity,
+      shiftId: s.shift_id.substring(0, 8)
+    }))
+  });
 
   // Step 4: Fetch active locks for these slots to exclude locked ones
   const slotIds = availableSlots.map(s => s.id);
@@ -169,18 +197,31 @@ export async function fetchAvailableSlots(
       shiftDaysMap.set(shift.id, shift.days_of_week);
     });
 
-    // Get day of week for selected date (0 = Sunday, 1 = Monday, etc.)
-    const dayOfWeek = date.getDay();
+    // Get day of week from the date string to avoid timezone issues
+    // Parse the date string directly instead of using date.getDay()
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const normalizedDate = new Date(year, month - 1, day);
+    const dayOfWeek = normalizedDate.getDay();
+
+    console.log('[bookingAvailability] Day of week check:', {
+      dateStr,
+      dayOfWeek,
+      dayName: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek],
+      availableSlotCount: availableSlots.length,
+      shifts: Array.from(shiftDaysMap.entries()).map(([id, days]) => ({ id, days }))
+    });
 
     // Filter slots: only keep slots where the day matches the shift's days_of_week
     availableSlots = availableSlots.filter((slot: Slot) => {
       const slotShiftId = slot.shift_id;
       if (!slotShiftId) {
+        console.warn(`[bookingAvailability] Slot ${slot.id} has no shift_id - filtering out`);
         return false;
       }
 
       const shiftDays = shiftDaysMap.get(slotShiftId);
       if (!shiftDays || shiftDays.length === 0) {
+        console.warn(`[bookingAvailability] Shift ${slotShiftId} has no days_of_week - filtering out slot ${slot.id}`);
         return false;
       }
 
@@ -191,10 +232,12 @@ export async function fetchAvailableSlots(
 
       // Day doesn't match the shift's days_of_week, filter it out
       console.warn(
-        `[bookingAvailability] Filtering out slot ${slot.id} on ${dateStr} (DOW=${dayOfWeek}) - doesn't match shift ${slotShiftId} days [${shiftDays.join(', ')}]`
+        `[bookingAvailability] Filtering out slot ${slot.id} on ${dateStr} (DOW=${dayOfWeek}/${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayOfWeek]}) - doesn't match shift ${slotShiftId} days [${shiftDays.join(', ')}]`
       );
       return false;
     });
+
+    console.log('[bookingAvailability] After day-of-week filter: ' + availableSlots.length + ' slots remaining');
   }
 
   // Step 7: Filter out past time slots for today only (unless includePastSlots is true)

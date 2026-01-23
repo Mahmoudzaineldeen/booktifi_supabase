@@ -643,11 +643,24 @@ export function ServicesPage() {
       }
 
       // Now delete the service (this will cascade delete package_services entries)
-      const result = await db.from('services').delete().eq('id', id).then();
-      if (result.error) {
+      const { data: deletedService, error: deleteError } = await db
+        .from('services')
+        .delete()
+        .eq('id', id)
+        .select();
+
+      if (deleteError) {
         // Check if error has a user-friendly message from backend
-        const errorMessage = result.error.message || result.error.error || 'Failed to delete service';
+        const errorMessage = deleteError.message || deleteError.error || 'Failed to delete service';
         alert(`Error deleting service: ${errorMessage}`);
+        return;
+      }
+
+      if (!deletedService || deletedService.length === 0) {
+        alert(i18n.language === 'ar' 
+          ? 'لم يتم العثور على الخدمة أو تم حذفها بالفعل'
+          : 'Service not found or already deleted');
+        await fetchServices();
         return;
       }
 
@@ -674,9 +687,22 @@ export function ServicesPage() {
     if (!confirm(t('service.deleteCategory'))) return;
     
     try {
-      const result = await db.from('service_categories').delete().eq('id', id).then();
-      if (result.error) {
-        alert(`Error deleting category: ${result.error.message}`);
+      const { data: deletedCategory, error: deleteError } = await db
+        .from('service_categories')
+        .delete()
+        .eq('id', id)
+        .select();
+
+      if (deleteError) {
+        alert(`Error deleting category: ${deleteError.message || deleteError.error || 'Failed to delete category'}`);
+        return;
+      }
+
+      if (!deletedCategory || deletedCategory.length === 0) {
+        alert(i18n.language === 'ar' 
+          ? 'لم يتم العثور على الفئة أو تم حذفها بالفعل'
+          : 'Category not found or already deleted');
+        await fetchCategories();
         return;
       }
       await fetchCategories();
@@ -851,9 +877,24 @@ export function ServicesPage() {
     if (!confirm('Delete this shift?')) return;
     
     try {
-      const result = await db.from('shifts').delete().eq('id', id).then();
-      if (result.error) {
-        alert(`Error deleting shift: ${result.error.message}`);
+      const { data: deletedShift, error: deleteError } = await db
+        .from('shifts')
+        .delete()
+        .eq('id', id)
+        .select();
+
+      if (deleteError) {
+        alert(`Error deleting shift: ${deleteError.message || deleteError.error || 'Failed to delete shift'}`);
+        return;
+      }
+
+      if (!deletedShift || deletedShift.length === 0) {
+        alert(i18n.language === 'ar' 
+          ? 'لم يتم العثور على الوردية أو تم حذفها بالفعل'
+          : 'Shift not found or already deleted');
+        if (selectedServiceForSchedule?.id) {
+          await fetchShifts(selectedServiceForSchedule.id);
+        }
         return;
       }
       if (selectedServiceForSchedule) {

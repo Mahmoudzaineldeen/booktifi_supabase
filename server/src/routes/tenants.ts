@@ -231,18 +231,14 @@ router.put('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
         smtp_host, 
         smtp_port, 
         smtp_user, 
-        smtp_password,
-        sendgrid_api_key,
-        from_email 
+        smtp_password
       } = req.body;
       
       return await updateSmtpSettings(bodyTenantId, {
         smtp_host,
         smtp_port,
         smtp_user,
-        smtp_password,
-        sendgrid_api_key,
-        from_email
+        smtp_password
       }, res);
     }
     
@@ -264,18 +260,14 @@ router.put('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
       smtp_host, 
       smtp_port, 
       smtp_user, 
-      smtp_password,
-      sendgrid_api_key,
-      from_email 
+      smtp_password
     } = req.body;
     
     return await updateSmtpSettings(tenantId, {
       smtp_host,
       smtp_port,
       smtp_user,
-      smtp_password,
-      sendgrid_api_key,
-      from_email
+      smtp_password
     }, res);
   } catch (error: any) {
     console.error('[Tenant Settings] Unexpected error:', error);
@@ -299,8 +291,6 @@ async function updateSmtpSettings(
     smtp_port?: number;
     smtp_user?: string;
     smtp_password?: string;
-    sendgrid_api_key?: string;
-    from_email?: string;
   },
   res: express.Response
 ) {
@@ -309,22 +299,37 @@ async function updateSmtpSettings(
       smtp_host,
       smtp_port,
       smtp_user,
-      smtp_password,
-      sendgrid_api_key,
-      from_email
+      smtp_password
     } = settings;
 
-    console.log(`[Tenant Settings] 📝 Updating email settings for tenant ${tenantId}`);
+    console.log(`[Tenant Settings] 📝 Updating SMTP settings for tenant ${tenantId}`);
 
     // Get current tenant settings - verify tenant exists first
     const { data: currentTenant, error: tenantError } = await supabase
       .from('tenants')
-      .select('id, smtp_settings, email_settings')
+      .select('id, smtp_settings')
       .eq('id', tenantId)
       .single();
 
     if (tenantError) {
       console.error(`[Tenant Settings] ❌ Database error fetching tenant ${tenantId}:`, tenantError);
+      
+      // Check if it's a "column does not exist" error
+      if (tenantError.code === '42703' || tenantError.message?.includes('does not exist')) {
+        const missingColumn = tenantError.message?.includes('email_settings') 
+          ? 'email_settings' 
+          : tenantError.message?.includes('smtp_settings')
+          ? 'smtp_settings'
+          : 'unknown column';
+        
+        return res.status(500).json({
+          error: 'Database migration required',
+          hint: `The ${missingColumn} column does not exist in the tenants table. Please run migration: 20260124000002_add_email_settings_to_tenants.sql`,
+          code: 'MIGRATION_REQUIRED',
+          migration: '20260124000002_add_email_settings_to_tenants.sql'
+        });
+      }
+      
       // Check if it's a "not found" error
       if (tenantError.code === 'PGRST116' || tenantError.message?.includes('No rows')) {
         return res.status(404).json({ 
@@ -333,6 +338,7 @@ async function updateSmtpSettings(
           code: 'TENANT_NOT_FOUND'
         });
       }
+      
       // Other database errors
       return res.status(500).json({
         error: 'Database error',
@@ -350,65 +356,54 @@ async function updateSmtpSettings(
       });
     }
 
+    // Validate: SMTP credentials are required
+    if (!smtp_user || !smtp_password) {
+      return res.status(400).json({ 
+        error: 'SMTP credentials are required',
+        hint: 'Please provide SMTP host, port, email, and app password.',
+        code: 'MISSING_SMTP_CONFIG'
+      });
+    }
+
+    // Prepare SMTP settings
+    const smtpSettings = {
+      smtp_host: smtp_host || 'smtp.gmail.com',
+      smtp_port: smtp_port || 587,
+      smtp_user,
+      smtp_password,
+    };
+
     // Prepare update object
     const updateData: any = {
+      smtp_settings: smtpSettings,
       updated_at: new Date().toISOString()
     };
 
-    // Update SendGrid API key (recommended for production)
-    if (sendgrid_api_key !== undefined) {
-      const emailSettings = currentTenant.email_settings || {};
-      emailSettings.sendgrid_api_key = sendgrid_api_key;
-      if (from_email) {
-        emailSettings.from_email = from_email;
-      }
-      updateData.email_settings = emailSettings;
-      console.log(`[Tenant Settings] ✅ SendGrid API key configured for tenant ${tenantId}`);
-    }
-
-    // Update SMTP settings (fallback for local development)
-    if (smtp_user && smtp_password) {
-      const smtpSettings = {
-        smtp_host: smtp_host || 'smtp.gmail.com',
-        smtp_port: smtp_port || 587,
-        smtp_user,
-        smtp_password, // In production, this should be encrypted
-      };
-      updateData.smtp_settings = smtpSettings;
-      console.log(`[Tenant Settings] ✅ SMTP settings configured for tenant ${tenantId}`);
-    }
-
-    // Validate: At least one email method must be configured
-    if (!sendgrid_api_key && (!smtp_user || !smtp_password)) {
-      return res.status(400).json({ 
-        error: 'Either SendGrid API key or SMTP credentials are required',
-        hint: 'For production deployments, SendGrid API is recommended to avoid SMTP port blocking issues.',
-        code: 'MISSING_EMAIL_CONFIG'
-      });
-    }
+    console.log(`[Tenant Settings] ✅ SMTP settings configured for tenant ${tenantId}`);
 
     // Update tenant settings in database
     const { data: updatedTenant, error: updateError } = await supabase
       .from('tenants')
       .update(updateData)
       .eq('id', tenantId)
-      .select('id, smtp_settings, email_settings')
+      .select('id, smtp_settings')
       .single();
 
     if (updateError) {
       console.error(`[Tenant Settings] ❌ Database error updating tenant ${tenantId}:`, updateError);
       
       // Check if column doesn't exist
-      if (updateError.message && updateError.message.includes('column')) {
+      if (updateError.code === '42703' || (updateError.message && updateError.message.includes('does not exist'))) {
         return res.status(500).json({ 
           error: 'Database migration required',
-          hint: 'The email_settings or smtp_settings column may not exist in the tenants table. Please run the migration.',
-          code: 'MIGRATION_REQUIRED'
+          hint: `The smtp_settings column does not exist in the tenants table. Please run migration: 20251203000001_add_smtp_settings_to_tenants.sql`,
+          code: 'MIGRATION_REQUIRED',
+          migration: '20251203000001_add_smtp_settings_to_tenants.sql'
         });
       }
       
       return res.status(500).json({ 
-        error: 'Failed to update tenant settings',
+        error: 'Failed to update SMTP settings',
         hint: updateError.message || 'Database update failed',
         code: 'UPDATE_FAILED'
       });
@@ -426,24 +421,14 @@ async function updateSmtpSettings(
     // Prepare response (mask sensitive data)
     const response: any = {
       success: true,
-      message: 'Email settings updated successfully',
+      message: 'SMTP settings updated successfully',
+      provider: 'smtp',
     };
 
     if (updatedTenant.smtp_settings) {
       const smtpResponse = { ...updatedTenant.smtp_settings };
       smtpResponse.smtp_password = '***';
       response.smtp_settings = smtpResponse;
-    }
-
-    if (updatedTenant.email_settings) {
-      const emailResponse = { ...updatedTenant.email_settings };
-      if (emailResponse.sendgrid_api_key) {
-        emailResponse.sendgrid_api_key = '***';
-      }
-      response.email_settings = emailResponse;
-      response.provider = 'sendgrid';
-    } else if (updatedTenant.smtp_settings) {
-      response.provider = 'smtp';
     }
 
     return res.json(response);
@@ -466,11 +451,17 @@ async function updateSmtpSettings(
 // Test email connection (SendGrid API or SMTP)
 // This endpoint now uses the production-ready email API service
 router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => {
+  console.log('[SMTP Test] ========================================');
+  console.log('[SMTP Test] Email test request received');
+  console.log('[SMTP Test] Tenant ID:', req.user?.tenant_id);
+  console.log('[SMTP Test] ========================================');
+  
   try {
     const tenantId = req.user!.tenant_id;
     const { smtp_host, smtp_port, smtp_user, smtp_password, sendgrid_api_key, from_email } = req.body;
     
     if (!tenantId) {
+      console.error('[SMTP Test] ❌ Tenant ID not found');
       return res.status(400).json({ 
         success: false,
         error: 'Tenant ID not found' 
@@ -479,50 +470,121 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
 
     // If SendGrid API key is provided in request, temporarily save it for testing
     if (sendgrid_api_key) {
-      const { data: tenant } = await supabase
-        .from('tenants')
-        .select('email_settings')
-        .eq('id', tenantId)
-        .single();
+      try {
+        // First check if email_settings column exists
+        const { data: tenant, error: tenantError } = await supabase
+          .from('tenants')
+          .select('smtp_settings')
+          .eq('id', tenantId)
+          .single();
 
-      const emailSettings = tenant?.email_settings || {};
-      emailSettings.sendgrid_api_key = sendgrid_api_key;
-      if (from_email) {
-        emailSettings.from_email = from_email;
+        if (tenantError) {
+          console.error('[SMTP Test] ❌ Error fetching tenant for SendGrid update:', tenantError);
+          // Continue anyway - we can still test with provided credentials
+        } else {
+          // Try to update email_settings if column exists
+          try {
+            const emailSettings = {
+              sendgrid_api_key,
+              from_email: from_email || undefined
+            };
+
+            const { error: updateError } = await supabase
+              .from('tenants')
+              .update({ 
+                email_settings: emailSettings,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', tenantId);
+
+            if (updateError) {
+              console.error('[SMTP Test] ⚠️  Error updating SendGrid settings (column may not exist):', updateError.message);
+              console.log('[SMTP Test] ℹ️  This is non-fatal - continuing with test using provided credentials');
+              // Continue anyway - we can still test with provided credentials
+            } else {
+              console.log('[SMTP Test] ✅ SendGrid API key saved for testing');
+            }
+          } catch (updateErr: any) {
+            console.error('[SMTP Test] ⚠️  Failed to update email_settings:', updateErr.message);
+            console.log('[SMTP Test] ℹ️  The email_settings column may not exist. Run migration 20260124000002_add_email_settings_to_tenants.sql');
+            // Continue anyway - we can still test with provided credentials
+          }
+        }
+      } catch (err: any) {
+        console.error('[SMTP Test] ⚠️  Error saving SendGrid settings:', err.message);
+        // Continue anyway - we can still test
       }
-
-      await supabase
-        .from('tenants')
-        .update({ 
-          email_settings: emailSettings,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', tenantId);
     }
 
     // If SMTP settings are provided in request, temporarily save them for testing
     if (smtp_user && smtp_password) {
-      const smtpSettings = {
-        smtp_host: smtp_host || 'smtp.gmail.com',
-        smtp_port: smtp_port || 587,
-        smtp_user,
-        smtp_password,
-      };
+      try {
+        const smtpSettings = {
+          smtp_host: smtp_host || 'smtp.gmail.com',
+          smtp_port: smtp_port || 587,
+          smtp_user,
+          smtp_password,
+        };
 
-      await supabase
-        .from('tenants')
-        .update({ 
-          smtp_settings: smtpSettings,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', tenantId);
+        const { error: updateError } = await supabase
+          .from('tenants')
+          .update({ 
+            smtp_settings: smtpSettings,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', tenantId);
+
+        if (updateError) {
+          console.error('[SMTP Test] ⚠️  Error updating SMTP settings:', updateError);
+          // Continue anyway - we can still test with provided credentials
+        } else {
+          console.log('[SMTP Test] ✅ SMTP settings saved for testing');
+        }
+      } catch (err: any) {
+        console.error('[SMTP Test] ⚠️  Error saving SMTP settings:', err.message);
+        // Continue anyway - we can still test with provided credentials
+      }
     }
 
     // Test email connection using the unified email API service
-    console.log(`[Email Test] Testing email connection for tenant ${tenantId}...`);
-    const testResult = await testEmailConnection(tenantId);
+    console.log(`[SMTP Test] Testing email connection for tenant ${tenantId}...`);
+    
+    let testResult;
+    try {
+      // Add timeout wrapper to prevent hanging
+      // Use AbortController for better timeout handling
+      const testPromise = testEmailConnection(tenantId);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Email connection test timed out after 20 seconds'));
+        }, 20000);
+        
+        // Clean up timeout if promise resolves first
+        testPromise.finally(() => clearTimeout(timeoutId)).catch(() => {});
+      });
+      
+      testResult = await Promise.race([testPromise, timeoutPromise]);
+    } catch (timeoutError: any) {
+      console.error('[SMTP Test] ❌ Test timed out or failed:', timeoutError.message);
+      console.error('[SMTP Test]    Error type:', timeoutError.name);
+      console.error('[SMTP Test]    Error code:', timeoutError.code);
+      
+      // Ensure we always send a response
+      if (!res.headersSent) {
+        return res.status(500).json({
+          success: false,
+          error: timeoutError.message || 'Email connection test timed out',
+          hint: 'The test took too long to complete. This may indicate network issues or SMTP port blocking. Consider using SendGrid API for production.',
+          provider: 'smtp',
+        });
+      }
+      return; // Response already sent
+    }
+
+    console.log('[SMTP Test] Test result:', testResult);
 
     if (!testResult.success) {
+      console.error('[SMTP Test] ❌ Connection test failed:', testResult.error);
       // Return 400 for configuration errors, 500 for actual connection failures
       const statusCode = testResult.error?.includes('not configured') || 
                         testResult.error?.includes('No email service') 
@@ -531,76 +593,139 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
       
       return res.status(statusCode).json({
         success: false,
-        error: testResult.error || 'Email connection test failed',
+        error: testResult.error || 'SMTP connection test failed',
         provider: testResult.provider,
-        hint: testResult.hint || (testResult.provider === 'sendgrid' 
-          ? 'Please verify your SendGrid API key is correct and has permission to send emails.'
-          : 'SMTP connection failed. For production deployments, consider using SendGrid API to avoid port blocking issues.'),
+        hint: testResult.hint || 'SMTP connection failed. Please check your credentials and network settings.',
       });
     }
+    
+    console.log('[SMTP Test] ✅ Connection test passed, sending test email...');
 
     // If connection test passed, send a test email
-    const { data: tenant } = await supabase
-      .from('tenants')
-      .select('smtp_settings, email_settings')
-      .eq('id', tenantId)
-      .single();
+    let tenant;
+    try {
+      const { data: tenantData, error: tenantError } = await supabase
+        .from('tenants')
+        .select('smtp_settings')
+        .eq('id', tenantId)
+        .single();
 
+      if (tenantError) {
+        console.error('[SMTP Test] ⚠️  Error fetching tenant for email details:', tenantError);
+        // Use provided credentials as fallback
+        tenant = null;
+      } else {
+        tenant = tenantData;
+      }
+    } catch (err: any) {
+      console.error('[SMTP Test] ⚠️  Error fetching tenant:', err.message);
+      tenant = null;
+    }
+
+    // Determine test email address - prioritize provided email, then tenant settings
     const testEmail = smtp_user || 
-                      tenant?.email_settings?.from_email || 
                       tenant?.smtp_settings?.smtp_user || 
                       'test@example.com';
 
-    const fromEmail = tenant?.email_settings?.from_email || 
-                     tenant?.smtp_settings?.smtp_user || 
+    // Determine from email address
+    const fromEmail = tenant?.smtp_settings?.smtp_user || 
+                     smtp_user ||
                      'noreply@bookati.com';
+
+    console.log('[SMTP Test] Preparing test email:');
+    console.log('   From:', fromEmail);
+    console.log('   To:', testEmail);
+    console.log('   Provider: SMTP');
 
     const testEmailOptions: SendEmailOptions = {
       from: `"Bookati Test" <${fromEmail}>`,
       to: testEmail,
-      subject: 'Email Connection Test - Bookati',
+      subject: 'SMTP Connection Test - Bookati',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #2563eb;">Email Connection Test</h2>
-          <p>This is a test email to verify your email configuration.</p>
-          <p>If you received this email, your <strong>${testResult.provider?.toUpperCase() || 'EMAIL'}</strong> configuration is working correctly! ✅</p>
+          <h2 style="color: #2563eb;">SMTP Connection Test</h2>
+          <p>This is a test email to verify your SMTP configuration.</p>
+          <p>If you received this email, your SMTP configuration is working correctly! ✅</p>
           <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
           <p style="color: #999; font-size: 12px;">This is an automated test email from Bookati.</p>
         </div>
       `,
     };
 
-    const sendResult = await sendEmail(tenantId, testEmailOptions);
+    let sendResult;
+    try {
+      console.log('[SMTP Test] Attempting to send test email...');
+      // Add timeout wrapper for email sending
+      const sendPromise = sendEmail(tenantId, testEmailOptions);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Email send timed out after 30 seconds'));
+        }, 30000);
+        
+        // Clean up timeout if promise resolves first
+        sendPromise.finally(() => clearTimeout(timeoutId)).catch(() => {});
+      });
+      
+      sendResult = await Promise.race([sendPromise, timeoutPromise]);
+    } catch (timeoutError: any) {
+      console.error('[SMTP Test] ❌ Email send timed out or failed:', timeoutError.message);
+      console.error('[SMTP Test]    Error type:', timeoutError.name);
+      console.error('[SMTP Test]    Error code:', timeoutError.code);
+      
+      // Ensure we always send a response
+      if (!res.headersSent) {
+        return res.status(500).json({
+          success: false,
+          error: timeoutError.message || 'Email send timed out',
+          hint: 'The email send took too long to complete. This may indicate SMTP port blocking or network issues.',
+          provider: 'smtp',
+        });
+      }
+      return; // Response already sent
+    }
+
+    console.log('[SMTP Test] Send result:', sendResult);
 
     if (sendResult.success) {
+      console.log('[SMTP Test] ✅ Test email sent successfully');
       return res.json({
         success: true,
-        message: `Email connection test successful! Test email sent via ${testResult.provider?.toUpperCase() || 'EMAIL'}.`,
-        provider: testResult.provider,
+        message: `SMTP connection test successful! Test email sent to ${testEmail}.`,
+        provider: 'smtp',
         messageId: sendResult.messageId,
         testEmail,
-        hint: testResult.provider === 'sendgrid' 
-          ? 'SendGrid API is recommended for production deployments as it avoids SMTP port blocking issues.'
-          : 'Consider using SendGrid API for production to avoid SMTP connection timeouts in cloud environments.',
       });
     } else {
+      console.error('[SMTP Test] ❌ Email send failed:', sendResult.error);
       return res.status(500).json({
         success: false,
-        error: `Connection test passed but email send failed: ${sendResult.error}`,
-        provider: testResult.provider,
-        hint: 'Please verify your email configuration is correct.',
+        error: `SMTP connection verified but email send failed: ${sendResult.error}`,
+        provider: 'smtp',
+        hint: 'SMTP connection works but email sending failed. Please check your SMTP credentials.',
       });
     }
 
   } catch (error: any) {
-    console.error('[SMTP Test] Unexpected error:', error);
-    console.error('[SMTP Test] Error stack:', error.stack);
-    res.status(500).json({ 
-      success: false,
-      error: error.message || 'SMTP connection test failed',
-      code: error.code,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
+    console.error('[SMTP Test] ❌ ========================================');
+    console.error('[SMTP Test] ❌ Unexpected error:', error);
+    console.error('[SMTP Test] ❌ Error message:', error.message);
+    console.error('[SMTP Test] ❌ Error code:', error.code);
+    console.error('[SMTP Test] ❌ Error name:', error.name);
+    console.error('[SMTP Test] ❌ Error stack:', error.stack);
+    console.error('[SMTP Test] ❌ ========================================');
+    
+    // Ensure we always send a response, even if there was an error
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        success: false,
+        error: error.message || 'SMTP connection test failed',
+        code: error.code,
+        hint: 'An unexpected error occurred. Please check your SMTP settings and server logs for details.',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    } else {
+      console.error('[SMTP Test] ⚠️  Response already sent, cannot send error response');
+    }
   }
 });
 

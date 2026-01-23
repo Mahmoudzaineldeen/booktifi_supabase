@@ -96,20 +96,23 @@ export function BookingsPage() {
 
       if (error) throw error;
 
+      // Filter out cancelled bookings (they should be hard-deleted, but filter as safety measure)
+      const activeBookings = (data || []).filter(booking => booking.status !== 'cancelled');
+
       if (viewMode === 'calendar') {
         const weekStart = startOfWeek(calendarDate, { weekStartsOn: 0 });
         const weekEnd = addDays(weekStart, 6);
         const weekStartStr = format(weekStart, 'yyyy-MM-dd');
         const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
 
-        const filteredBookings = (data || []).filter(booking => {
+        const filteredBookings = activeBookings.filter(booking => {
           const slotDate = booking.slots?.slot_date;
           if (!slotDate) return false;
           return slotDate >= weekStartStr && slotDate <= weekEndStr;
         });
         setBookings(filteredBookings);
       } else {
-        setBookings((data || []).slice(0, 50));
+        setBookings(activeBookings.slice(0, 50));
       }
     } catch (err) {
       console.error('Error fetching bookings:', err);
@@ -422,6 +425,15 @@ export function BookingsPage() {
   }
 
   async function handleEditTimeClick(booking: Booking) {
+    console.log('[BookingsPage] ========================================');
+    console.log('[BookingsPage] EDIT TIME CLICK - Booking details:');
+    console.log('   Booking ID:', booking.id);
+    console.log('   Customer:', booking.customer_name);
+    console.log('   Service ID:', booking.service_id);
+    console.log('   Service Name:', booking.services?.name);
+    console.log('   Current slot date:', booking.slots?.slot_date);
+    console.log('[BookingsPage] ========================================');
+    
     if (!userProfile?.tenant_id || !booking.service_id) {
       alert(i18n.language === 'ar' 
         ? 'لا يمكن تعديل وقت الحجز: معلومات غير كافية' 
@@ -431,8 +443,17 @@ export function BookingsPage() {
 
     setEditingBookingTime(booking);
     // Set initial date to current booking date
+    // FIX: Parse date string directly to avoid timezone issues with parseISO
     if (booking.slots?.slot_date) {
-      setEditingTimeDate(parseISO(booking.slots.slot_date));
+      const [year, month, day] = booking.slots.slot_date.split('-').map(Number);
+      const parsedDate = new Date(year, month - 1, day);
+      setEditingTimeDate(parsedDate);
+      console.log('[BookingsPage] Edit time click - date set:', {
+        slotDate: booking.slots.slot_date,
+        parsedDate,
+        dayOfWeek: parsedDate.getDay(),
+        dayName: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][parsedDate.getDay()]
+      });
     } else {
       setEditingTimeDate(new Date());
     }
@@ -445,14 +466,44 @@ export function BookingsPage() {
 
     setLoadingTimeSlots(true);
     try {
+      console.log('[BookingsPage] ========================================');
+      console.log('[BookingsPage] Fetching available slots for booking time edit...');
+      console.log('   Service ID:', serviceId);
+      console.log('   Date object:', editingTimeDate);
+      console.log('   Date string:', format(editingTimeDate, 'yyyy-MM-dd'));
+      console.log('   Day of week:', editingTimeDate.getDay(), ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][editingTimeDate.getDay()]);
+      console.log('   Tenant ID:', tenantId);
+      console.log('[BookingsPage] ========================================');
+      
       const result = await fetchAvailableSlots({
         tenantId,
         serviceId,
         date: editingTimeDate,
-        includePastSlots: false,
-        includeLockedSlots: false,
-        includeZeroCapacity: false,
+        includePastSlots: true,  // Allow rescheduling to any slot (past or future)
+        includeLockedSlots: false, // Still exclude locked slots
+        includeZeroCapacity: false, // Still exclude fully booked slots
       });
+
+      console.log('[BookingsPage] ========================================');
+      console.log('[BookingsPage] Fetched slots:', result.slots.length);
+      console.log('[BookingsPage] Shifts found:', result.shifts.length);
+      if (result.shifts.length > 0) {
+        console.log('[BookingsPage] Shift schedules:', result.shifts.map(s => ({
+          id: s.id.substring(0, 8),
+          days: s.days_of_week,
+          dayNames: s.days_of_week.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d])
+        })));
+      }
+      console.log('[BookingsPage] ========================================');
+      
+      if (result.slots.length === 0) {
+        console.warn('[BookingsPage] ❌ No slots found for this date. Possible reasons:');
+        console.warn('   - No shifts defined for this service');
+        console.warn('   - No slots created for this date');
+        console.warn('   - All slots are fully booked');
+        console.warn('   - Day of week does not match shift schedule');
+        console.warn('   CHECK THE LOGS ABOVE FOR DETAILS');
+      }
 
       setAvailableTimeSlots(result.slots);
     } catch (error: any) {
@@ -1052,6 +1103,11 @@ export function BookingsPage() {
                         {i18n.language === 'ar' 
                           ? 'لا توجد أوقات متاحة لهذا التاريخ' 
                           : 'No available time slots for this date'}
+                      </p>
+                      <p className="text-xs text-yellow-700 mt-2">
+                        {i18n.language === 'ar'
+                          ? 'تأكد من وجود ورديات ووقتات لهذا التاريخ'
+                          : 'Make sure shifts and slots exist for this date, or try a different date'}
                       </p>
                     </div>
                   ) : (

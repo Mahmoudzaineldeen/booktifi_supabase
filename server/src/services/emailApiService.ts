@@ -1,18 +1,15 @@
 /**
- * Production-Ready Email API Service
- * Uses SendGrid API (HTTP-based) instead of SMTP for cloud environments
- * Falls back to SMTP for local development if API is not configured
+ * Simplified Email Service - SMTP Only
+ * Uses only SMTP (no SendGrid) for email sending
  */
 
-import axios from 'axios';
 import { supabase } from '../db';
 
-export type EmailProvider = 'sendgrid' | 'smtp' | 'auto';
+export type EmailProvider = 'smtp';
 
 export interface EmailConfig {
   provider: EmailProvider;
-  sendgridApiKey?: string;
-  smtpSettings?: {
+  smtpSettings: {
     host: string;
     port: number;
     user: string;
@@ -44,59 +41,28 @@ export interface SendEmailResult {
 }
 
 /**
- * Get email configuration for a tenant
- * Priority: SendGrid API > SMTP from database > Environment variables
+ * Get SMTP configuration for a tenant
  */
 async function getEmailConfig(tenantId: string): Promise<EmailConfig | null> {
   try {
-    console.log(`[EmailAPI] 🔍 Fetching email configuration for tenant ${tenantId}...`);
+    console.log(`[EmailAPI] 🔍 Fetching SMTP configuration for tenant ${tenantId}...`);
     
-    // Check for SendGrid API key in environment (global fallback)
-    const sendgridApiKey = process.env.SENDGRID_API_KEY;
-    if (sendgridApiKey) {
-      console.log(`[EmailAPI] ✅ Found SENDGRID_API_KEY in environment variables`);
-    } else {
-      console.log(`[EmailAPI] ⚠️  SENDGRID_API_KEY not found in environment variables`);
-    }
-    
-    // Check tenant-specific email settings from database
+    // Get SMTP settings from database
     const { data: tenant, error } = await supabase
       .from('tenants')
-      .select('smtp_settings, email_settings')
+      .select('smtp_settings')
       .eq('id', tenantId)
       .single();
 
     if (error || !tenant) {
       console.error(`[EmailAPI] ❌ Tenant ${tenantId} not found or error:`, error?.message || 'Unknown error');
       console.error(`[EmailAPI]    This means emails CANNOT be sent!`);
-      console.error(`[EmailAPI]    ACTION REQUIRED: Configure email settings in tenant settings page`);
+      console.error(`[EmailAPI]    ACTION REQUIRED: Configure SMTP settings in tenant settings page`);
       return null;
     }
 
-    console.log(`[EmailAPI] ✅ Tenant found, checking email settings...`);
+    console.log(`[EmailAPI] ✅ Tenant found, checking SMTP settings...`);
 
-    // Check if tenant has SendGrid API key configured
-    const tenantSendgridKey = tenant.email_settings?.sendgrid_api_key || 
-                              tenant.smtp_settings?.sendgrid_api_key;
-
-    if (tenantSendgridKey) {
-      console.log(`[EmailAPI] ✅ Found SendGrid API key in tenant settings`);
-    } else {
-      console.log(`[EmailAPI] ⚠️  SendGrid API key not found in tenant settings`);
-    }
-
-    // Determine provider priority
-    const apiKey = tenantSendgridKey || sendgridApiKey;
-    
-    if (apiKey) {
-      console.log(`[EmailAPI] ✅ Using SendGrid as email provider`);
-      return {
-        provider: 'sendgrid',
-        sendgridApiKey: apiKey,
-      };
-    }
-
-    // Fallback to SMTP if available
     const smtpSettings = tenant.smtp_settings;
     if (smtpSettings?.smtp_user && smtpSettings?.smtp_password) {
       console.log(`[EmailAPI] ✅ Using SMTP as email provider`);
@@ -116,10 +82,9 @@ async function getEmailConfig(tenantId: string): Promise<EmailConfig | null> {
 
     // If no configuration found
     console.error(`[EmailAPI] ❌ ========================================`);
-    console.error(`[EmailAPI] ❌ NO EMAIL CONFIGURATION FOUND`);
+    console.error(`[EmailAPI] ❌ NO SMTP CONFIGURATION FOUND`);
     console.error(`[EmailAPI] ❌ ========================================`);
     console.error(`[EmailAPI]    Tenant ID: ${tenantId}`);
-    console.error(`[EmailAPI]    SendGrid API Key: ${apiKey ? 'Found' : 'NOT FOUND'}`);
     console.error(`[EmailAPI]    SMTP Settings: ${smtpSettings ? 'Partial' : 'NOT FOUND'}`);
     if (smtpSettings) {
       console.error(`[EmailAPI]      - Host: ${smtpSettings.smtp_host || 'NOT SET'}`);
@@ -129,125 +94,24 @@ async function getEmailConfig(tenantId: string): Promise<EmailConfig | null> {
     }
     console.error(`[EmailAPI] ❌ ========================================`);
     console.error(`[EmailAPI]    ACTION REQUIRED:`);
-    console.error(`[EmailAPI]    1. Configure SendGrid API Key (recommended):`);
+    console.error(`[EmailAPI]    Configure SMTP Settings:`);
     console.error(`[EmailAPI]       - Go to tenant settings page`);
-    console.error(`[EmailAPI]       - Add SendGrid API key to email_settings.sendgrid_api_key`);
-    console.error(`[EmailAPI]       - OR set SENDGRID_API_KEY environment variable`);
-    console.error(`[EmailAPI]    2. Configure SMTP Settings (alternative):`);
-    console.error(`[EmailAPI]       - Go to tenant settings page`);
-    console.error(`[EmailAPI]       - Configure SMTP settings (host, port, user, password)`);
+    console.error(`[EmailAPI]       - Set SMTP Host: smtp.gmail.com`);
+    console.error(`[EmailAPI]       - Set SMTP Port: 465 (SSL) - Port 587 is blocked by Railway`);
+    console.error(`[EmailAPI]       - Set Email: your Gmail address`);
+    console.error(`[EmailAPI]       - Set App Password from: https://myaccount.google.com/apppasswords`);
+    console.error(`[EmailAPI]       - NOTE: You MUST use App Password, not your regular Gmail password`);
     console.error(`[EmailAPI] ❌ ========================================`);
     return null;
   } catch (error: any) {
-    console.error(`[EmailAPI] ❌ Error fetching email config:`, error.message);
+    console.error(`[EmailAPI] ❌ Error fetching SMTP config:`, error.message);
     console.error(`[EmailAPI]    Stack:`, error.stack);
     return null;
   }
 }
 
 /**
- * Send email via SendGrid API
- */
-async function sendViaSendGrid(
-  config: EmailConfig,
-  options: SendEmailOptions
-): Promise<SendEmailResult> {
-  if (!config.sendgridApiKey) {
-    return {
-      success: false,
-      error: 'SendGrid API key not configured',
-      provider: 'sendgrid',
-    };
-  }
-
-  try {
-    const toEmails = Array.isArray(options.to) ? options.to : [options.to];
-    
-    // Prepare attachments for SendGrid
-    const attachments = options.attachments?.map(att => {
-      const content = Buffer.isBuffer(att.content) 
-        ? att.content.toString('base64')
-        : typeof att.content === 'string'
-        ? Buffer.from(att.content).toString('base64')
-        : '';
-
-      return {
-        content,
-        filename: att.filename,
-        type: att.contentType,
-        disposition: 'attachment',
-      };
-    }) || [];
-
-    const payload = {
-      personalizations: [
-        {
-          to: toEmails.map(email => ({ email })),
-          subject: options.subject,
-        },
-      ],
-      from: { email: options.from },
-      content: [
-        {
-          type: 'text/html',
-          value: options.html,
-        },
-        ...(options.text ? [{
-          type: 'text/plain',
-          value: options.text,
-        }] : []),
-      ],
-      ...(attachments.length > 0 && { attachments }),
-      ...(options.replyTo && { reply_to: { email: options.replyTo } }),
-    };
-
-    const response = await axios.post(
-      'https://api.sendgrid.com/v3/mail/send',
-      payload,
-      {
-        headers: {
-          'Authorization': `Bearer ${config.sendgridApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 30000, // 30 seconds
-      }
-    );
-
-    // SendGrid returns 202 Accepted on success
-    if (response.status === 202) {
-      const messageId = response.headers['x-message-id'] || `sg-${Date.now()}`;
-      console.log(`[EmailAPI] ✅ Email sent via SendGrid to ${toEmails.join(', ')}`);
-      console.log(`   Message ID: ${messageId}`);
-      return {
-        success: true,
-        messageId,
-        provider: 'sendgrid',
-      };
-    }
-
-    return {
-      success: false,
-      error: `Unexpected response status: ${response.status}`,
-      provider: 'sendgrid',
-    };
-  } catch (error: any) {
-    const errorMessage = error.response?.data?.errors?.[0]?.message || error.message;
-    const errorCode = error.response?.status || error.code;
-    
-    console.error(`[EmailAPI] ❌ SendGrid error:`, errorMessage);
-    console.error(`   Status: ${errorCode}`);
-    console.error(`   Response:`, error.response?.data);
-
-    return {
-      success: false,
-      error: errorMessage,
-      provider: 'sendgrid',
-    };
-  }
-}
-
-/**
- * Send email via SMTP (fallback for local development)
+ * Send email via SMTP
  */
 async function sendViaSMTP(
   config: EmailConfig,
@@ -329,8 +193,7 @@ async function sendViaSMTP(
 }
 
 /**
- * Main email sending function
- * Automatically chooses best provider (SendGrid API > SMTP)
+ * Main email sending function - SMTP only
  */
 export async function sendEmail(
   tenantId: string,
@@ -343,47 +206,26 @@ export async function sendEmail(
   const config = await getEmailConfig(tenantId);
   
   if (!config) {
-    console.error(`[EmailAPI] ❌ CRITICAL: Email service not configured for tenant ${tenantId}`);
+    console.error(`[EmailAPI] ❌ CRITICAL: SMTP not configured for tenant ${tenantId}`);
     console.error(`[EmailAPI]    Email will NOT be sent!`);
-    console.error(`[EmailAPI]    Please configure email settings in tenant settings page`);
+    console.error(`[EmailAPI]    Please configure SMTP settings in tenant settings page`);
     return {
       success: false,
-      error: 'Email service not configured for tenant. Please configure SendGrid API key or SMTP settings in tenant settings.',
+      error: 'SMTP not configured. Please configure SMTP settings (host, port, email, app password).',
     };
   }
 
-  // Log which provider will be used
-  console.log(`[EmailAPI] 📧 Sending email via ${config.provider.toUpperCase()}`);
+  // Log SMTP details
+  console.log(`[EmailAPI] 📧 Sending email via SMTP`);
   console.log(`   To: ${Array.isArray(options.to) ? options.to.join(', ') : options.to}`);
   console.log(`   Subject: ${options.subject}`);
   console.log(`   Attachments: ${options.attachments?.length || 0}`);
 
-  // Try SendGrid first (production-ready)
-  if (config.provider === 'sendgrid' || (config.provider === 'auto' && config.sendgridApiKey)) {
-    const result = await sendViaSendGrid(config, options);
-    
-    // If SendGrid fails and we have SMTP fallback, try SMTP
-    if (!result.success && config.smtpSettings && config.provider === 'auto') {
-      console.log(`[EmailAPI] ⚠️ SendGrid failed, falling back to SMTP...`);
-      return await sendViaSMTP(config, options);
-    }
-    
-    return result;
-  }
-
-  // Use SMTP (for local development)
-  if (config.provider === 'smtp' || config.smtpSettings) {
-    return await sendViaSMTP(config, options);
-  }
-
-  return {
-    success: false,
-    error: 'No email provider configured',
-  };
+  return await sendViaSMTP(config, options);
 }
 
 /**
- * Test email connection
+ * Test SMTP connection
  */
 export async function testEmailConnection(tenantId: string): Promise<{
   success: boolean;
@@ -397,41 +239,15 @@ export async function testEmailConnection(tenantId: string): Promise<{
   if (!config) {
     return {
       success: false,
-      error: 'Email service not configured',
-      hint: 'Please configure SendGrid API Key (recommended for production) or SMTP settings in the tenant settings page.',
+      error: 'SMTP not configured',
+      hint: 'Please configure SMTP settings (host, port, email, app password) in the tenant settings page.',
     };
-  }
-
-  // Test SendGrid
-  if (config.sendgridApiKey) {
-    try {
-      const response = await axios.get('https://api.sendgrid.com/v3/user/profile', {
-        headers: {
-          'Authorization': `Bearer ${config.sendgridApiKey}`,
-        },
-        timeout: 10000,
-      });
-
-      if (response.status === 200) {
-        return {
-          success: true,
-          provider: 'sendgrid',
-          message: `SendGrid API connected successfully. Account: ${response.data.email || 'Verified'}`,
-        };
-      }
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.errors?.[0]?.message || error.message;
-      return {
-        success: false,
-        provider: 'sendgrid',
-        error: `SendGrid API test failed: ${errorMessage}`,
-      };
-    }
   }
 
   // Test SMTP
   if (config.smtpSettings) {
     try {
+      console.log(`[EmailAPI] Testing SMTP connection to ${config.smtpSettings.host}:${config.smtpSettings.port}...`);
       const nodemailer = await import('nodemailer');
       
       const useSecure = config.smtpSettings.port === 465;
@@ -448,18 +264,33 @@ export async function testEmailConnection(tenantId: string): Promise<{
         tls: {
           rejectUnauthorized: false,
         },
-        connectionTimeout: 30000,
-        greetingTimeout: 30000,
-        socketTimeout: 30000,
+        connectionTimeout: 15000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
         requireTLS: useTLS,
       });
 
-      await new Promise<void>((resolve, reject) => {
+      // Add timeout wrapper to prevent hanging
+      const verifyPromise = new Promise<void>((resolve, reject) => {
         transporter.verify((error) => {
-          if (error) reject(error);
-          else resolve();
+          if (error) {
+            console.error(`[EmailAPI] SMTP verify error:`, error.message);
+            reject(error);
+          } else {
+            console.log(`[EmailAPI] ✅ SMTP connection verified successfully`);
+            resolve();
+          }
         });
       });
+
+      // Add timeout to verification
+      const timeoutPromise = new Promise<void>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('SMTP verification timeout after 15 seconds'));
+        }, 15000);
+      });
+
+      await Promise.race([verifyPromise, timeoutPromise]);
 
       return {
         success: true,
@@ -467,16 +298,33 @@ export async function testEmailConnection(tenantId: string): Promise<{
         message: `SMTP connection verified: ${config.smtpSettings.host}:${config.smtpSettings.port}`,
       };
     } catch (error: any) {
+      console.error(`[EmailAPI] ❌ SMTP test failed:`, error.message);
+      console.error(`   Error code: ${error.code}`);
+      console.error(`   Error command: ${error.command}`);
+      
+      // Provide more helpful error messages
+      let errorMessage = error.message;
+      let errorHint = 'Please check your SMTP settings.';
+      
+      if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED' || error.message?.includes('timeout')) {
+        errorMessage = `SMTP connection timeout. Port ${config.smtpSettings.port} is likely blocked by your hosting provider (Railway, Vercel, etc. block SMTP ports).`;
+        errorHint = `SOLUTION: Change SMTP Port from ${config.smtpSettings.port} to 465 (SSL/TLS). Port 465 is less commonly blocked. In your SMTP settings, set port to 465 and try again.`;
+      } else if (error.code === 'EAUTH' || error.code === 'EAUTHFAILED') {
+        errorMessage = `SMTP authentication failed. Your email or password is incorrect.`;
+        errorHint = 'For Gmail: You MUST use an App Password (not your regular password). Generate one at: https://myaccount.google.com/apppasswords';
+      }
+      
       return {
         success: false,
         provider: 'smtp',
-        error: `SMTP connection failed: ${error.message}`,
+        error: errorMessage,
+        hint: errorHint,
       };
     }
   }
 
   return {
     success: false,
-    error: 'No email provider configured',
+    error: 'SMTP not configured',
   };
 }

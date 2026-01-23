@@ -375,7 +375,20 @@ export function SettingsPage() {
 
     try {
       const token = localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+
       const API_URL = getApiUrl();
+      console.log('[SMTP Test] Making request to:', `${API_URL}/tenants/smtp-settings/test`);
+      console.log('[SMTP Test] Note: SMTP connection test may take up to 60 seconds');
+      
+      // Show initial message to indicate the test is in progress
+      setSmtpMessage({ 
+        type: 'success', 
+        text: 'Testing SMTP connection... This may take up to 60 seconds.',
+      });
+      
       const response = await fetch(`${API_URL}/tenants/smtp-settings/test`, {
         method: 'POST',
         headers: {
@@ -383,13 +396,43 @@ export function SettingsPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(smtpSettings),
+        signal: createTimeoutSignal(`${API_URL}/tenants/smtp-settings/test`, !API_URL.startsWith('http')),
       });
 
-      const data = await response.json();
+      console.log('[SMTP Test] Response status:', response.status);
+
+      // Handle non-JSON responses
+      const contentType = response.headers.get('content-type');
+      let data;
+      
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          data = await response.json();
+          console.log('[SMTP Test] Response data:', data);
+        } catch (jsonError) {
+          console.error('[SMTP Test] Failed to parse JSON response:', jsonError);
+          throw new Error(`Server returned invalid response (${response.status}). The server may have encountered an error.`);
+        }
+      } else {
+        const text = await response.text();
+        console.error('[SMTP Test] Non-JSON response:', text);
+        throw new Error(`Server returned unexpected response format (${response.status}): ${text.substring(0, 100)}`);
+      }
+      
+      // Log the full error if status is not OK
+      if (!response.ok) {
+        console.error('[SMTP Test] ❌ Server returned error:', {
+          status: response.status,
+          error: data.error,
+          hint: data.hint,
+          code: data.code,
+          provider: data.provider
+        });
+      }
 
       if (!response.ok) {
         // Include hint from API response if available
-        const error = new Error(data.error || 'SMTP connection test failed');
+        const error = new Error(data.error || data.message || 'SMTP connection test failed');
         (error as any).hint = data.hint;
         (error as any).data = data;
         throw error;
@@ -397,14 +440,31 @@ export function SettingsPage() {
 
       setSmtpMessage({ 
         type: 'success', 
-        text: `Connection test successful! Test email sent to ${data.testEmail}` 
+        text: data.message || `Connection test successful! Test email sent to ${data.testEmail || 'your email'}`,
+        hint: data.hint
       });
     } catch (err: any) {
-      console.error('SMTP test error:', err);
+      console.error('[SMTP Test] Error:', err);
+      
+      // Handle different error types
+      let errorMessage = 'SMTP connection test failed';
+      let errorHint = 'Please check your settings and try again.';
+      
+      if (err.name === 'AbortError' || err.message?.includes('timeout')) {
+        errorMessage = 'Request timed out after 60 seconds.';
+        errorHint = 'The SMTP server took too long to respond. This may indicate port blocking, firewall issues, or incorrect SMTP settings. For Gmail, make sure you are using an App Password.';
+      } else if (err.message?.includes('Failed to fetch') || err.message?.includes('ERR_CONNECTION_RESET')) {
+        errorMessage = 'Connection failed or was interrupted.';
+        errorHint = 'The connection to the server was reset. This could be due to: (1) SMTP port being blocked by your hosting provider, (2) Firewall restrictions, (3) Incorrect SMTP credentials. For Gmail, use an App Password from https://myaccount.google.com/apppasswords';
+      } else if (err.message) {
+        errorMessage = err.message;
+        errorHint = err.hint || err.data?.hint || errorHint;
+      }
+      
       setSmtpMessage({ 
         type: 'error', 
-        text: err.message || err.data?.error || 'SMTP connection test failed. Please check your settings.',
-        hint: err.hint || err.data?.hint
+        text: errorMessage,
+        hint: errorHint
       });
     } finally {
       setSmtpTestLoading(false);
@@ -1259,7 +1319,10 @@ export function SettingsPage() {
                     placeholder="587"
                     required
                   />
-                  <p className="text-xs text-gray-500">Default: 587 (Gmail uses 587)</p>
+                  <p className="text-xs text-gray-500">
+                    Use 587 for TLS or 465 for SSL. 
+                    <strong className="text-orange-600"> If 587 is blocked by your host, try 465.</strong>
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -1296,15 +1359,18 @@ export function SettingsPage() {
                       {showSmtpPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+                  <p className="text-xs text-red-600 font-medium">
+                    ⚠️ For Gmail: You MUST use an App Password, not your regular password!
+                  </p>
                   <p className="text-xs text-gray-500">
-                    For Gmail: Generate an App Password from{" "}
+                    Generate an App Password at{" "}
                     <a 
                       href="https://myaccount.google.com/apppasswords" 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline"
+                      className="text-blue-600 hover:underline font-medium"
                     >
-                      Google Account Settings
+                      https://myaccount.google.com/apppasswords
                     </a>
                   </p>
                 </div>
