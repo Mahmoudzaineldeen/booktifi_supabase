@@ -2098,20 +2098,80 @@ router.patch('/:id', authenticateReceptionistOrTenantAdmin, async (req, res) => 
       }
     }
 
-    // Validate visitor counts if provided
-    if (updatePayload.visitor_count !== undefined) {
-      if (updatePayload.visitor_count < 1) {
-        return res.status(400).json({ error: 'visitor_count must be at least 1' });
-      }
+    // CRITICAL: Ensure visitor_count, adult_count, and child_count are consistent
+    // The database constraint requires: visitor_count = adult_count + child_count AND visitor_count > 0
+    
+    // Get current values as defaults
+    const currentVisitorCount = currentBooking.visitor_count || 1;
+    const currentAdultCount = currentBooking.adult_count ?? currentVisitorCount;
+    const currentChildCount = currentBooking.child_count ?? 0;
+
+    // Determine final values (use provided values or keep existing)
+    let finalVisitorCount = updatePayload.visitor_count !== undefined 
+      ? updatePayload.visitor_count 
+      : currentVisitorCount;
+    
+    let finalAdultCount = updatePayload.adult_count !== undefined 
+      ? updatePayload.adult_count 
+      : currentAdultCount;
+    
+    let finalChildCount = updatePayload.child_count !== undefined 
+      ? updatePayload.child_count 
+      : currentChildCount;
+
+    // Validate individual fields
+    if (finalVisitorCount < 1) {
+      return res.status(400).json({ error: 'visitor_count must be at least 1' });
     }
 
-    if (updatePayload.adult_count !== undefined && updatePayload.adult_count < 0) {
+    if (finalAdultCount < 0) {
       return res.status(400).json({ error: 'adult_count cannot be negative' });
     }
 
-    if (updatePayload.child_count !== undefined && updatePayload.child_count < 0) {
+    if (finalChildCount < 0) {
       return res.status(400).json({ error: 'child_count cannot be negative' });
     }
+
+    // CRITICAL: Ensure visitor_count = adult_count + child_count
+    // If visitor_count is provided but doesn't match, we have two options:
+    // 1. Reject the update (strict validation)
+    // 2. Auto-calculate visitor_count from adult_count + child_count (user-friendly)
+    // We'll use option 2 for better UX, but log a warning if visitor_count was explicitly provided
+    
+    const calculatedVisitorCount = finalAdultCount + finalChildCount;
+    
+    if (updatePayload.visitor_count !== undefined && finalVisitorCount !== calculatedVisitorCount) {
+      // User provided visitor_count that doesn't match adult_count + child_count
+      // Auto-correct: use calculated value instead
+      console.warn(`[Update Booking] visitor_count mismatch: provided=${finalVisitorCount}, calculated=${calculatedVisitorCount}. Using calculated value.`);
+      finalVisitorCount = calculatedVisitorCount;
+    } else if (updatePayload.visitor_count === undefined && (updatePayload.adult_count !== undefined || updatePayload.child_count !== undefined)) {
+      // User updated adult_count or child_count but not visitor_count
+      // Auto-calculate visitor_count
+      finalVisitorCount = calculatedVisitorCount;
+    }
+
+    // Final validation: ensure consistency
+    if (finalVisitorCount !== calculatedVisitorCount) {
+      return res.status(400).json({
+        error: `visitor_count (${finalVisitorCount}) must equal adult_count (${finalAdultCount}) + child_count (${finalChildCount})`,
+        provided: {
+          visitor_count: updatePayload.visitor_count,
+          adult_count: updatePayload.adult_count,
+          child_count: updatePayload.child_count
+        },
+        calculated: {
+          visitor_count: calculatedVisitorCount,
+          adult_count: finalAdultCount,
+          child_count: finalChildCount
+        }
+      });
+    }
+
+    // Update the payload with consistent values
+    updatePayload.visitor_count = finalVisitorCount;
+    updatePayload.adult_count = finalAdultCount;
+    updatePayload.child_count = finalChildCount;
 
     // TASK 8: Validate slot_id change (rescheduling) - only for tenant_admin
     let slotChanged = false;

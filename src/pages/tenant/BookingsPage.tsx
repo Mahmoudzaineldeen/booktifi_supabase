@@ -334,9 +334,23 @@ export function BookingsPage() {
   }
 
   async function deleteBooking(bookingId: string) {
-    if (!confirm(i18n.language === 'ar' 
-      ? 'هل أنت متأكد من حذف هذا الحجز؟ لا يمكن التراجع عن هذا الإجراء.' 
-      : 'Are you sure you want to delete this booking? This action cannot be undone.')) {
+    // Find the booking to check its payment status
+    const booking = bookings.find(b => b.id === bookingId);
+    const isPaid = booking?.payment_status === 'paid' || booking?.payment_status === 'paid_manual';
+
+    // Show appropriate confirmation message based on payment status
+    let confirmMessage: string;
+    if (isPaid) {
+      confirmMessage = i18n.language === 'ar'
+        ? 'هذا الحجز مدفوع بالفعل. هل أنت متأكد من حذفه؟ لا يمكن التراجع عن هذا الإجراء.'
+        : 'This booking is already paid. Are you sure you want to delete it? This action cannot be undone.';
+    } else {
+      confirmMessage = i18n.language === 'ar'
+        ? 'هل أنت متأكد من حذف هذا الحجز؟ لا يمكن التراجع عن هذا الإجراء.'
+        : 'Are you sure you want to delete this booking? This action cannot be undone.';
+    }
+
+    if (!confirm(confirmMessage)) {
       return;
     }
 
@@ -345,7 +359,12 @@ export function BookingsPage() {
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
 
-      const response = await fetch(`${API_URL}/bookings/${bookingId}`, {
+      // Include allowDeletePaid=true if booking is paid
+      const url = isPaid 
+        ? `${API_URL}/bookings/${bookingId}?allowDeletePaid=true`
+        : `${API_URL}/bookings/${bookingId}`;
+
+      const response = await fetch(url, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
