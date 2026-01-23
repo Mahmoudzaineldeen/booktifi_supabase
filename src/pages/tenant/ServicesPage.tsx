@@ -652,16 +652,43 @@ export function ServicesPage() {
       if (deleteError) {
         // Check if error has a user-friendly message from backend
         const errorMessage = deleteError.message || deleteError.error || 'Failed to delete service';
+        console.error('[Delete Service] Database error:', deleteError);
         alert(`Error deleting service: ${errorMessage}`);
         return;
       }
 
+      // VERIFY DELETION: Ensure at least one row was actually deleted
       if (!deletedService || deletedService.length === 0) {
-        alert(i18n.language === 'ar' 
-          ? 'لم يتم العثور على الخدمة أو تم حذفها بالفعل'
-          : 'Service not found or already deleted');
-        await fetchServices();
-        return;
+        console.warn('[Delete Service] ⚠️ No rows deleted! Service may not exist or deletion was blocked:', id);
+        
+        // Double-check: Query to see if service still exists
+        const { data: stillExists, error: checkError } = await db
+          .from('services')
+          .select('id, name')
+          .eq('id', id)
+          .single();
+
+        if (!checkError && stillExists) {
+          console.error('[Delete Service] ❌ Service still exists after delete attempt!', stillExists);
+          alert(i18n.language === 'ar' 
+            ? 'فشل حذف الخدمة. لا تزال موجودة في قاعدة البيانات. يرجى التحقق من السجلات.'
+            : 'Failed to delete service. It still exists in the database. Please check server logs.');
+          await fetchServices();
+          return;
+        } else if (checkError && checkError.code === 'PGRST116') {
+          // PGRST116 = no rows returned (service doesn't exist)
+          console.log('[Delete Service] ✅ Service does not exist (may have been deleted by another process)');
+          // Continue to show success message (idempotent operation)
+        } else {
+          console.error('[Delete Service] ❌ Unexpected error checking service existence:', checkError);
+          alert(i18n.language === 'ar' 
+            ? 'فشل التحقق من حذف الخدمة. يرجى التحقق من السجلات.'
+            : 'Failed to verify service deletion. Please check server logs.');
+          await fetchServices();
+          return;
+        }
+      } else {
+        console.log(`[Delete Service] ✅ Successfully deleted service ${id}. Deleted ${deletedService.length} row(s).`);
       }
 
       // Show success message

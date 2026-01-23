@@ -2838,30 +2838,95 @@ router.delete('/:id', authenticateTenantAdminOnly, async (req, res) => {
     }
 
     // Hard delete: Actually remove the booking from the database
-    const { error: deleteError } = await supabase
+    // CRITICAL: Use .select() to get deleted rows and verify deletion occurred
+    const { data: deletedRows, error: deleteError } = await supabase
       .from('bookings')
       .delete()
-      .eq('id', bookingId);
+      .eq('id', bookingId)
+      .select();
 
     if (deleteError) {
+      console.error('[Delete Booking] Database error during deletion:', deleteError);
       throw deleteError;
     }
 
-    // Log audit trail
-    await logBookingChange(
-      'delete',
-      bookingId,
-      tenantId,
-      userId,
-      currentBooking,
-      { status: 'cancelled', deleted_at: new Date().toISOString() },
-      req.ip,
-      req.get('user-agent')
-    );
+    // VERIFY DELETION: Ensure at least one row was actually deleted
+    if (!deletedRows || deletedRows.length === 0) {
+      console.error('[Delete Booking] ❌ No rows deleted! Booking may not exist or deletion was blocked:', {
+        bookingId,
+        tenantId,
+        userId,
+        currentBookingStatus: currentBooking.status,
+        currentBookingPaymentStatus: currentBooking.payment_status
+      });
+      
+      // Double-check: Query to see if booking still exists
+      const { data: stillExists, error: checkError } = await supabase
+        .from('bookings')
+        .select('id, status, payment_status')
+        .eq('id', bookingId)
+        .single();
+
+      if (!checkError && stillExists) {
+        console.error('[Delete Booking] ❌ Booking still exists after delete attempt!', stillExists);
+        return res.status(500).json({ 
+          error: 'Failed to delete booking. The booking still exists in the database.',
+          hint: 'This may be due to database constraints or RLS policies. Check server logs for details.'
+        });
+      } else if (checkError && checkError.code === 'PGRST116') {
+        // PGRST116 = no rows returned (booking doesn't exist)
+        console.log('[Delete Booking] ✅ Booking does not exist (may have been deleted by another process)');
+        // Return success even though we didn't delete it (idempotent operation)
+      } else {
+        console.error('[Delete Booking] ❌ Unexpected error checking booking existence:', checkError);
+        return res.status(500).json({ 
+          error: 'Failed to verify booking deletion. Please check server logs.'
+        });
+      }
+    } else {
+      console.log(`[Delete Booking] ✅ Successfully deleted booking ${bookingId}. Deleted ${deletedRows.length} row(s).`);
+    }
+
+    // Log audit trail (only if we actually deleted something)
+    if (deletedRows && deletedRows.length > 0) {
+      await logBookingChange(
+        'delete',
+        bookingId,
+        tenantId,
+        userId,
+        currentBooking,
+        { status: 'cancelled', deleted_at: new Date().toISOString() },
+        req.ip,
+        req.get('user-agent')
+      );
+
+      // FINAL VERIFICATION: Double-check the booking is actually gone from the database
+      const { data: verifyExists, error: verifyError } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('id', bookingId)
+        .maybeSingle();
+
+      if (verifyError && verifyError.code !== 'PGRST116') {
+        console.warn('[Delete Booking] ⚠️ Error during verification query:', verifyError);
+      } else if (verifyExists) {
+        console.error('[Delete Booking] ❌ CRITICAL: Booking still exists after deletion!', {
+          bookingId,
+          verifyExists
+        });
+        return res.status(500).json({ 
+          error: 'Booking deletion verification failed. The booking may still exist.',
+          hint: 'Check database constraints or RLS policies.'
+        });
+      } else {
+        console.log('[Delete Booking] ✅ Verification passed: Booking confirmed deleted from database');
+      }
+    }
 
     res.json({
       success: true,
       message: 'Booking deleted successfully',
+      deleted: deletedRows?.length || 0
     });
   } catch (error: any) {
     const context = logger.extractContext(req);
