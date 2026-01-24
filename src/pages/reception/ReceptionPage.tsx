@@ -9,7 +9,7 @@ import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
-import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText } from 'lucide-react';
+import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search } from 'lucide-react';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { format, addDays, startOfWeek, isSameDay, parseISO, startOfDay, endOfDay, addMinutes, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -173,6 +173,13 @@ export function ReceptionPage() {
   const [qrValidating, setQrValidating] = useState(false);
   const [qrValidationResult, setQrValidationResult] = useState<{success: boolean; message: string; booking?: any} | null>(null);
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Booking[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Track if initial auth check has been completed
   const [initialAuthDone, setInitialAuthDone] = useState(false);
@@ -649,6 +656,87 @@ export function ReceptionPage() {
     setSubscriptionCustomerLookup(null);
     setSubscriptionCountryCode(tenantDefaultCountry);
   }
+
+  // Search bookings function
+  async function searchBookings(query: string) {
+    if (!userProfile?.tenant_id || !query || query.trim().length < 2) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const API_URL = getApiUrl();
+      const session = await db.auth.getSession();
+      const response = await fetch(`${API_URL}/bookings/search?q=${encodeURIComponent(query.trim())}&limit=50`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.data.session?.access_token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Search failed');
+      }
+
+      const result = await response.json();
+      
+      // Transform results to match Booking interface
+      const transformedBookings = (result.bookings || []).map((b: any) => ({
+        id: b.id,
+        customer_name: b.customer_name,
+        customer_phone: b.customer_phone,
+        customer_email: b.customer_email,
+        visitor_count: b.visitor_count,
+        adult_count: b.adult_count,
+        child_count: b.child_count,
+        total_price: b.total_price,
+        status: b.status,
+        payment_status: b.payment_status,
+        notes: b.notes,
+        created_at: b.created_at,
+        booking_group_id: b.booking_group_id,
+        zoho_invoice_id: b.zoho_invoice_id,
+        zoho_invoice_created_at: b.zoho_invoice_created_at,
+        services: b.services || { name: '', name_ar: '' },
+        slots: b.slots || { slot_date: '', start_time: '', end_time: '' },
+        users: b.users || null
+      }));
+
+      setSearchResults(transformedBookings);
+      setShowSearchResults(true);
+    } catch (error) {
+      console.error('Search error:', error);
+      setSearchResults([]);
+      setShowSearchResults(false);
+    } finally {
+      setIsSearching(false);
+    }
+  }
+
+  // Debounced search handler
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (searchQuery.trim().length >= 2) {
+      searchTimeoutRef.current = setTimeout(() => {
+        searchBookings(searchQuery);
+      }, 300); // 300ms debounce
+    } else {
+      setSearchResults([]);
+      setShowSearchResults(false);
+    }
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery]);
 
   async function fetchBookings() {
     if (!userProfile?.tenant_id) return;
@@ -2204,6 +2292,7 @@ export function ReceptionPage() {
   }
 
   function resetForm() {
+    // Clear all booking form state completely
     setBookingForm({
       customer_phone: '',
       customer_name: '',
@@ -2219,7 +2308,9 @@ export function ReceptionPage() {
     setPreviewData(null);
     setSelectedSlots([]);
     setCountryCode(tenantDefaultCountry);
+    setCustomerPhoneFull(''); // Clear full phone number
     setSelectedService('');
+    setSelectedOffer(''); // Clear selected offer
     setSelectedSlot('');
     setSelectedEmployee('');
     setSelectedTimeSlot(null);
@@ -2227,6 +2318,16 @@ export function ReceptionPage() {
     setAssignmentMode('automatic');
     setShowFullCalendar(false);
     setSelectedServices([]);
+    setCustomerPackage(null); // Clear customer package
+    setIsLookingUpCustomer(false);
+    
+    // Clear any cached booking data from localStorage
+    try {
+      localStorage.removeItem('reception_booking_draft');
+      localStorage.removeItem('reception_customer_data');
+    } catch (e) {
+      console.warn('Failed to clear localStorage:', e);
+    }
   }
 
   function getNext8Days() {
@@ -2644,7 +2745,9 @@ export function ReceptionPage() {
     return result;
   }
 
-  const displayBookings = groupBookings(activeTab === 'today' ? todayBookings : bookings);
+  // Use search results if searching, otherwise use regular bookings
+  const bookingsToDisplay = showSearchResults ? searchResults : (activeTab === 'today' ? todayBookings : bookings);
+  const displayBookings = groupBookings(bookingsToDisplay);
 
   return (
     <div className="min-h-screen bg-gray-50 overflow-x-hidden">
@@ -2680,17 +2783,71 @@ export function ReceptionPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Search Bar */}
+        <div className="mb-6">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                if (e.target.value.trim().length === 0) {
+                  setShowSearchResults(false);
+                  setSearchResults([]);
+                }
+              }}
+              placeholder={t('reception.searchBookings') || 'Search by phone, name, date, service, or booking ID...'}
+              className="pl-10 pr-10"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setShowSearchResults(false);
+                  setSearchResults([]);
+                }}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
+          </div>
+          {isSearching && (
+            <p className="mt-2 text-sm text-gray-500">{t('common.loading')}...</p>
+          )}
+          {showSearchResults && !isSearching && (
+            <p className="mt-2 text-sm text-gray-600">
+              {searchResults.length > 0 
+                ? `${searchResults.length} ${t('reception.searchResults') || 'results found'}`
+                : t('reception.noSearchResults') || 'No results found'}
+            </p>
+          )}
+        </div>
+
         <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex gap-2 overflow-x-auto pb-2">
             <Button
               variant={activeTab === 'today' ? 'primary' : 'secondary'}
-              onClick={() => setActiveTab('today')}
+              onClick={() => {
+                setActiveTab('today');
+                setSearchQuery('');
+                setShowSearchResults(false);
+                setSearchResults([]);
+              }}
+              disabled={showSearchResults}
             >
               {t('dashboard.today')} ({todayBookings.length})
             </Button>
             <Button
               variant={activeTab === 'all' ? 'primary' : 'secondary'}
-              onClick={() => setActiveTab('all')}
+              onClick={() => {
+                setActiveTab('all');
+                setSearchQuery('');
+                setShowSearchResults(false);
+                setSearchResults([]);
+              }}
+              disabled={showSearchResults}
             >
               {t('reception.allBookings')} ({bookings.length})
             </Button>
@@ -2743,9 +2900,15 @@ export function ReceptionPage() {
             <CardContent className="py-12 text-center">
               <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">
-                {activeTab === 'today' ? t('reception.noBookingsToday') : t('booking.noBookingsYet')}
+                {showSearchResults 
+                  ? t('reception.noSearchResults') || 'No results found'
+                  : (activeTab === 'today' ? t('reception.noBookingsToday') : t('booking.noBookingsYet'))}
               </h3>
-              <p className="text-gray-600">{t('reception.createNewBooking')}</p>
+              <p className="text-gray-600">
+                {showSearchResults 
+                  ? t('common.tryDifferentSearch') || 'Try a different search term'
+                  : t('reception.createNewBooking')}
+              </p>
             </CardContent>
           </Card>
         ) : viewMode === 'list' ? (

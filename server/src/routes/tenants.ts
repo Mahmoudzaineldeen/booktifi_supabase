@@ -1378,6 +1378,14 @@ router.get('/currency', authenticateTenantAdmin, async (req, res) => {
       .eq('id', tenantId)
       .single();
 
+    // Handle missing column gracefully (PostgreSQL error code 42703 = undefined column)
+    if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+      console.warn('[Currency] currency_code column does not exist yet, using default SAR');
+      return res.json({
+        currency_code: 'SAR',
+      });
+    }
+
     if (error) {
       console.error('[Currency] Error fetching currency:', error);
       return res.status(500).json({ error: 'Failed to fetch currency settings' });
@@ -1387,6 +1395,13 @@ router.get('/currency', authenticateTenantAdmin, async (req, res) => {
       currency_code: tenant?.currency_code || 'SAR',
     });
   } catch (error: any) {
+    // Handle missing column gracefully in catch block too
+    if (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist')) {
+      console.warn('[Currency] currency_code column does not exist yet, using default SAR');
+      return res.json({
+        currency_code: 'SAR',
+      });
+    }
     console.error('[Currency] Error:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }

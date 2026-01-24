@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface ImageCarouselProps {
   images: string[];
@@ -12,9 +13,6 @@ interface ImageCarouselProps {
   objectFit?: 'cover' | 'contain';
 }
 
-export function ImageCarousel({
-  const { t } = useTranslation();
-  
 export function ImageCarousel({
   images,
   className = '',

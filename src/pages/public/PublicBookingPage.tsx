@@ -1409,12 +1409,12 @@ export function PublicBookingPage() {
           <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 leading-tight">
             {i18n.language === 'ar'
               ? settings.hero_title_ar || 'مرحباً بك في خدماتنا'
-              : settings.hero_title || t('booking.ourServices'))}
+              : settings.hero_title || t('booking.ourServices')}
           </h2>
           <p className="text-xl md:text-2xl mb-8 opacity-90 max-w-2xl mx-auto">
             {i18n.language === 'ar'
               ? settings.hero_subtitle_ar || 'احجز موعدك بسهولة عبر الإنترنت'
-              : settings.hero_subtitle || t('booking.bookYourServices'))}
+              : settings.hero_subtitle || t('booking.bookYourServices')}
           </p>
           <button
             onClick={() => document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' })}

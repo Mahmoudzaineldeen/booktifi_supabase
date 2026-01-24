@@ -34,6 +34,7 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Fetch currency from tenant settings
+   * Uses API endpoint for better error handling and to avoid direct database queries
    */
   const fetchCurrency = useCallback(async () => {
     if (!userProfile?.tenant_id) {
@@ -43,19 +44,34 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const { data, error } = await db
-        .from('tenants')
-        .select('currency_code')
-        .eq('id', userProfile.tenant_id)
-        .single();
+      // Use API endpoint instead of direct database query for better error handling
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const session = await db.auth.getSession();
+      const token = session.data.session?.access_token;
 
-      if (error) {
-        console.warn('[Currency] Error fetching currency, using default:', error);
-        setCurrencyCode('SAR');
-      } else if (data?.currency_code) {
-        setCurrencyCode(data.currency_code);
+      const response = await fetch(`${API_URL}/tenants/currency`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.currency_code) {
+          setCurrencyCode(result.currency_code);
+        } else {
+          setCurrencyCode('SAR'); // Default fallback
+        }
       } else {
-        setCurrencyCode('SAR'); // Default fallback
+        // If API fails (e.g., column doesn't exist, auth error, etc.), use default
+        const errorData = await response.json().catch(() => ({}));
+        console.warn('[Currency] Error fetching currency from API, using default:', {
+          status: response.status,
+          error: errorData.error || response.statusText
+        });
+        setCurrencyCode('SAR');
       }
     } catch (err) {
       console.error('[Currency] Error fetching currency:', err);

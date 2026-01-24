@@ -538,8 +538,7 @@ export function CustomerForgotPasswordPage() {
                 <form onSubmit={handleLookupIdentifier} className="space-y-4">
                   <div className="text-center mb-4">
                     <p className="text-sm text-gray-600">
-                      {i18n.language === 'ar' 
-                        : t('auth.enterIdentifier')}
+                      {t('auth.enterIdentifier')}
                     </p>
                   </div>
                   

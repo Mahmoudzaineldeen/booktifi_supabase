@@ -411,9 +411,7 @@ export function PhoneEntryPage() {
                     {t('phoneEntry.enterVerificationCode')}
                   </h2>
                   <p className="text-gray-600">
-                    {i18n.language === 'ar' 
-                      : t('phoneEntry.verificationCodeSentTo', { phone })}
-                    }
+                    {t('phoneEntry.verificationCodeSentTo', { phone })}
                   </p>
                 </div>
 

@@ -2070,14 +2070,9 @@ router.patch('/:id', authenticateReceptionistOrTenantAdmin, async (req, res) => 
       'employee_id',
     ];
     
-    // TASK 8: Only tenant_admin can reschedule bookings (change slot_id)
-    if (req.user!.role === 'tenant_admin' && 'slot_id' in updateData) {
+    // TASK 2: Receptionist and tenant_admin can reschedule bookings (change slot_id)
+    if ((req.user!.role === 'tenant_admin' || req.user!.role === 'receptionist') && 'slot_id' in updateData) {
       allowedFields.push('slot_id');
-    } else if (req.user!.role === 'receptionist' && 'slot_id' in updateData) {
-      return res.status(403).json({ 
-        error: 'Access denied. Only tenant owners can reschedule bookings.',
-        hint: 'Receptionists cannot change booking times. Please contact a tenant owner.'
-      });
     }
 
     const updatePayload: any = {
@@ -3206,6 +3201,235 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
   } catch (error: any) {
     logger.error('Mark paid error:', error);
     res.status(500).json({ error: error.message || 'Failed to mark booking as paid' });
+  }
+});
+
+// ============================================================================
+// Search bookings (Receptionist and Tenant Admin only)
+// ============================================================================
+router.get('/search', authenticateReceptionistOrTenantAdmin, async (req, res) => {
+  try {
+    const userId = req.user!.id;
+    const tenantId = req.user!.tenant_id!;
+    const searchQuery = (req.query.q as string || '').trim();
+    const limit = parseInt(req.query.limit as string) || 50;
+
+    if (!searchQuery || searchQuery.length < 2) {
+      return res.status(400).json({ 
+        error: 'Search query must be at least 2 characters long' 
+      });
+    }
+
+    // Build search query with multiple filters
+    // Search by: customer phone, customer name, booking ID, service name, date
+    let query = supabase
+      .from('bookings')
+      .select(`
+        id,
+        customer_name,
+        customer_phone,
+        customer_email,
+        visitor_count,
+        adult_count,
+        child_count,
+        total_price,
+        status,
+        payment_status,
+        notes,
+        created_at,
+        booking_group_id,
+        zoho_invoice_id,
+        zoho_invoice_created_at,
+        services:service_id (
+          id,
+          name,
+          name_ar
+        ),
+        slots:slot_id (
+          id,
+          slot_date,
+          start_time,
+          end_time
+        ),
+        users:employee_id (
+          id,
+          full_name,
+          full_name_ar
+        )
+      `, { count: 'exact' })
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    // Case-insensitive search across multiple fields
+    const searchPattern = `%${searchQuery}%`;
+    
+    // Try to match booking ID first (exact UUID match)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(searchQuery)) {
+      query = query.eq('id', searchQuery);
+    } else {
+      // Search in customer fields and service names
+      // Use OR conditions for multiple field search
+      query = query.or(`
+        customer_name.ilike.${searchPattern},
+        customer_phone.ilike.${searchPattern},
+        customer_email.ilike.${searchPattern},
+        notes.ilike.${searchPattern}
+      `);
+    }
+
+    const { data: bookings, error, count } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    // If no direct matches, also search in related tables (services)
+    if (!bookings || bookings.length === 0) {
+      // Search by service name
+      const { data: serviceMatches } = await supabase
+        .from('services')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .or(`name.ilike.${searchPattern},name_ar.ilike.${searchPattern}`)
+        .limit(10);
+
+      if (serviceMatches && serviceMatches.length > 0) {
+        const serviceIds = serviceMatches.map(s => s.id);
+        const { data: bookingsByService } = await supabase
+          .from('bookings')
+          .select(`
+            id,
+            customer_name,
+            customer_phone,
+            customer_email,
+            visitor_count,
+            adult_count,
+            child_count,
+            total_price,
+            status,
+            payment_status,
+            notes,
+            created_at,
+            booking_group_id,
+            zoho_invoice_id,
+            zoho_invoice_created_at,
+            services:service_id (
+              id,
+              name,
+              name_ar
+            ),
+            slots:slot_id (
+              id,
+              slot_date,
+              start_time,
+              end_time
+            ),
+            users:employee_id (
+              id,
+              full_name,
+              full_name_ar
+            )
+          `)
+          .eq('tenant_id', tenantId)
+          .in('service_id', serviceIds)
+          .order('created_at', { ascending: false })
+          .limit(limit);
+
+        if (bookingsByService) {
+          return res.json({
+            bookings: bookingsByService,
+            count: bookingsByService.length,
+            searchQuery
+          });
+        }
+      }
+
+      // Search by date (try to parse as date)
+      const dateMatch = searchQuery.match(/(\d{4})-(\d{2})-(\d{2})|(\d{2})\/(\d{2})\/(\d{4})/);
+      if (dateMatch) {
+        let dateStr: string;
+        if (dateMatch[1]) {
+          // YYYY-MM-DD format
+          dateStr = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+        } else {
+          // MM/DD/YYYY format
+          dateStr = `${dateMatch[6]}-${dateMatch[4]}-${dateMatch[5]}`;
+        }
+
+        const { data: slotsOnDate } = await supabase
+          .from('slots')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .eq('slot_date', dateStr)
+          .limit(100);
+
+        if (slotsOnDate && slotsOnDate.length > 0) {
+          const slotIds = slotsOnDate.map(s => s.id);
+          const { data: bookingsByDate } = await supabase
+            .from('bookings')
+            .select(`
+              id,
+              customer_name,
+              customer_phone,
+              customer_email,
+              visitor_count,
+              adult_count,
+              child_count,
+              total_price,
+              status,
+              payment_status,
+              notes,
+              created_at,
+              booking_group_id,
+              zoho_invoice_id,
+              zoho_invoice_created_at,
+              services:service_id (
+                id,
+                name,
+                name_ar
+              ),
+              slots:slot_id (
+                id,
+                slot_date,
+                start_time,
+                end_time
+              ),
+              users:employee_id (
+                id,
+                full_name,
+                full_name_ar
+              )
+            `)
+            .eq('tenant_id', tenantId)
+            .in('slot_id', slotIds)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+          if (bookingsByDate) {
+            return res.json({
+              bookings: bookingsByDate,
+              count: bookingsByDate.length,
+              searchQuery
+            });
+          }
+        }
+      }
+    }
+
+    res.json({
+      bookings: bookings || [],
+      count: bookings?.length || 0,
+      searchQuery
+    });
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Search bookings error', error, context);
+    res.status(500).json({
+      error: error.message || 'Internal server error',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
