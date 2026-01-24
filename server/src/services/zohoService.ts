@@ -911,7 +911,8 @@ class ZohoService {
         ),
         tenants (
           name,
-          name_ar
+          name_ar,
+          currency_code
         ),
         service_offers (
           price,
@@ -939,6 +940,7 @@ class ZohoService {
       slot_date: bookings.slots.slot_date,
       tenant_name: bookings.tenants.name,
       tenant_name_ar: bookings.tenants.name_ar,
+      tenant_currency_code: bookings.tenants.currency_code || 'SAR',
       offer_price: bookings.service_offers?.price,
       offer_name: bookings.service_offers?.name,
       offer_name_ar: bookings.service_offers?.name_ar,
@@ -1072,7 +1074,7 @@ class ZohoService {
         line_items: lineItems,
         date: invoiceDate.toISOString().split('T')[0], // Use today's date for invoice
         due_date: dueDate.toISOString().split('T')[0], // Due date must be after invoice date
-        currency_code: 'SAR',
+        currency_code: (booking as any).tenant_currency_code || 'SAR',
         notes: booking.notes || `Booking ID: ${booking.id}`,
         custom_fields: customFields,
       };
@@ -1110,7 +1112,8 @@ class ZohoService {
           ),
           tenants (
             name,
-            name_ar
+            name_ar,
+            currency_code
           ),
           service_offers (
             price,
@@ -1199,7 +1202,7 @@ class ZohoService {
         line_items: lineItems,
         date: new Date().toISOString().split('T')[0],
         due_date: new Date().toISOString().split('T')[0],
-        currency_code: 'SAR',
+        currency_code: (firstBooking as any).tenants?.currency_code || 'SAR',
         notes: `Booking Group: ${bookingGroupId}\nTotal Bookings: ${bookings.length}`
       };
 

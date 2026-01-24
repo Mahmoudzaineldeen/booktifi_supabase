@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -50,6 +51,7 @@ interface Shift {
 export function ServicesPage() {
   const { t, i18n } = useTranslation();
   const { userProfile } = useAuth();
+  const { formatPrice } = useCurrency();
   const [services, setServices] = useState<Service[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -197,8 +199,8 @@ export function ServicesPage() {
         const finalAdultPrice = typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0));
         if (serviceForm.child_price > finalAdultPrice) {
           alert(i18n.language === 'ar'
-            ? `سعر تذكرة الأطفال (${serviceForm.child_price} SAR) لا يمكن أن يتجاوز سعر تذكرة الكبار (${finalAdultPrice} SAR)`
-            : `Child ticket price (${serviceForm.child_price} SAR) cannot exceed Adult ticket price (${finalAdultPrice} SAR)`);
+            ? `سعر تذكرة الأطفال (${formatPrice(serviceForm.child_price)}) لا يمكن أن يتجاوز سعر تذكرة الكبار (${formatPrice(finalAdultPrice)})`
+            : `Child ticket price (${formatPrice(serviceForm.child_price)}) cannot exceed Adult ticket price (${formatPrice(finalAdultPrice)})`);
           return;
         }
       }
@@ -1130,7 +1132,7 @@ export function ServicesPage() {
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">{t('service.price')}</span>
-                    <span className="font-medium">{service.base_price} SAR</span>
+                    <span className="font-medium">{formatPrice(service.base_price)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">{t('service.capacity')}</span>
@@ -1355,7 +1357,7 @@ export function ServicesPage() {
                   value={(() => {
                     // Calculate final adult price: use base_price (discounted) if discount exists, else base_price
                     const finalAdultPrice = typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0));
-                    return `${finalAdultPrice.toFixed(2)} SAR`;
+                    return formatPrice(finalAdultPrice);
                   })()}
                   readOnly
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
@@ -1377,9 +1379,9 @@ export function ServicesPage() {
                   const basePrice = typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0));
                   const originalPrice = typeof serviceForm.original_price === 'number' ? serviceForm.original_price : (serviceForm.original_price ? parseFloat(String(serviceForm.original_price)) : null);
                   if (originalPrice && originalPrice > basePrice) {
-                    return <>Original: {originalPrice} SAR → Discounted: {basePrice} SAR</>;
+                    return <>Original: {formatPrice(originalPrice)} → Discounted: {formatPrice(basePrice)}</>;
                   }
-                  return <>Uses Base Price: {basePrice} SAR</>;
+                  return <>Uses Base Price: {formatPrice(basePrice)}</>;
                 })()}
               </p>
             </div>
@@ -1402,7 +1404,7 @@ export function ServicesPage() {
                   // Validation: Child price cannot exceed Adult price
                   const finalAdultPrice = typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0)); // This is the discounted/base price
                   if (childPrice !== null && childPrice > finalAdultPrice) {
-                    alert(`Child ticket price cannot exceed Adult ticket price (${finalAdultPrice} SAR)`);
+                    alert(`Child ticket price cannot exceed Adult ticket price (${formatPrice(finalAdultPrice)})`);
                     return;
                   }
                   
@@ -1411,7 +1413,7 @@ export function ServicesPage() {
                 min="0.01"
                 step="0.01"
                 placeholder="e.g., 50 (optional)"
-                helperText={serviceForm.base_price ? `Optional. If set, must be between 0.01 and ${typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0))} SAR (Adult price). If not set, child tickets will use adult price.` : 'Optional. If not set, child tickets will use adult price.'}
+                helperText={serviceForm.base_price ? `Optional. If set, must be between 0.01 and ${formatPrice(typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0)))} (Adult price). If not set, child tickets will use adult price.` : 'Optional. If not set, child tickets will use adult price.'}
               />
             </div>
           </div>
@@ -1468,7 +1470,7 @@ export function ServicesPage() {
                 const discount = serviceForm.discount_percentage || Math.round(((originalPrice - basePrice) / originalPrice) * 100);
                 return (
                   <p className="text-xs text-gray-600 mt-2">
-                    Current price: {basePrice} SAR (Save {discount}%)
+                    Current price: {formatPrice(basePrice)} (Save {discount}%)
                   </p>
                 );
               }

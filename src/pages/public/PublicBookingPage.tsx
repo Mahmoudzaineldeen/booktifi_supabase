@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { getApiUrl } from '../../lib/apiUrl';
 import { Button } from '../../components/ui/Button';
@@ -136,6 +137,7 @@ export function PublicBookingPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { userProfile } = useAuth();
+  const { formatPrice } = useCurrency();
   const isLoggedIn = userProfile?.role === 'customer';
   const isServiceProvider = userProfile?.role === 'tenant_admin' || userProfile?.role === 'receptionist' || userProfile?.role === 'cashier';
   const [tenant, setTenant] = useState<Tenant | null>(null);
@@ -1992,11 +1994,11 @@ export function PublicBookingPage() {
                       <div className="flex items-center gap-2 mb-2">
                         {pkg.original_price && pkg.original_price > pkg.total_price && (
                           <span className="text-sm text-gray-400 line-through">
-                            {pkg.original_price} {t('service.currency') || 'SAR'}
+                            {formatPrice(pkg.original_price)}
                           </span>
                         )}
                         <span className="text-xl font-bold" style={{ color: primaryColor }}>
-                          {pkg.total_price} {t('service.currency') || 'SAR'}
+                          {formatPrice(pkg.total_price)}
                         </span>
                       </div>
 

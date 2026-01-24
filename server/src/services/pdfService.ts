@@ -5,6 +5,7 @@ import JsBarcode from 'jsbarcode';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync } from 'fs';
+import { formatCurrency, getCurrency } from '../utils/currency';
 // Import arabic-reshaper for proper Arabic text shaping
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
@@ -317,6 +318,8 @@ export async function generateBookingTicketPDF(
       offer_id: bookings.offer_id,
     };
     const tenantSettings = bookings.tenants.landing_page_settings;
+    const tenantCurrencyCode = bookings.tenants.currency_code || 'SAR';
+    const tenantCurrency = getCurrency(tenantCurrencyCode);
     
     // Determine individual ticket price
     let individualTicketPrice: number;
@@ -880,7 +883,7 @@ export async function generateBookingTicketPDF(
     doc.fillColor(primaryColor)
        .fontSize(16)
        .font(priceFont.font)
-       .text(`${displayPrice.toFixed(2)} ${getText('SAR', 'ريال')}`, rightColX, infoBoxY + 32, {
+       .text(formatCurrency(displayPrice, tenantCurrencyCode), rightColX, infoBoxY + 32, {
          align: priceFont.align,
          width: contentWidth / 2 - 25
        });
@@ -1067,7 +1070,7 @@ export async function generateBookingTicketPDF(
     doc.fillColor('#2C3E50')
        .fontSize(10)
        .font(ticketDetailValueFont.font)
-       .text(`${individualTicketPrice.toFixed(2)} ${getText('SAR', 'ريال')}`, ticketInfoX, yPos + 12, {
+       .text(formatCurrency(individualTicketPrice, tenantCurrencyCode), ticketInfoX, yPos + 12, {
          align: ticketDetailValueFont.align,
          width: rightSectionWidth - 30
        });

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
@@ -114,6 +115,7 @@ export function PackageSchedulePage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { userProfile } = useAuth();
+  const { formatPrice } = useCurrency();
   const isLoggedIn = userProfile?.role === 'customer';
 
   const [loading, setLoading] = useState(true);
@@ -1139,7 +1141,7 @@ export function PackageSchedulePage() {
                           </div>
                           {service && (
                             <span className="text-sm font-semibold text-gray-900">
-                              {parseFloat(String(service.base_price || 0)).toFixed(2)} {t('service.currency') || 'SAR'}
+                              {formatPrice(parseFloat(String(service.base_price || 0)))}
                             </span>
                           )}
                         </div>
@@ -1197,7 +1199,7 @@ export function PackageSchedulePage() {
                               </span>
                             </div>
                             <span className="text-sm font-semibold text-gray-900">
-                              {parseFloat(String(service.child_price || 0)).toFixed(2)} {t('service.currency') || 'SAR'}
+                              {formatPrice(parseFloat(String(service.child_price || 0)))}
                             </span>
                           </div>
                           <div className="flex items-center gap-3">
@@ -1418,7 +1420,7 @@ export function PackageSchedulePage() {
                                   {i18n.language === 'ar' ? 'السعر الأساسي' : 'Base Price'}
                                 </div>
                                 <div className="text-sm font-semibold text-gray-900">
-                                  {basePrice.toFixed(2)} {t('service.currency') || 'SAR'}
+                                  {formatPrice(basePrice)}
                                 </div>
                               </div>
                               {hasServiceDiscount && (
@@ -1428,7 +1430,7 @@ export function PackageSchedulePage() {
                                       {i18n.language === 'ar' ? 'السعر الأصلي' : 'Original Price'}
                                     </div>
                                     <div className="text-sm text-gray-400 line-through">
-                                      {originalPrice.toFixed(2)} {t('service.currency') || 'SAR'}
+                                      {formatPrice(originalPrice)}
                                     </div>
                                   </div>
                                   <div className="flex items-center justify-between">
@@ -1452,7 +1454,7 @@ export function PackageSchedulePage() {
                                   {i18n.language === 'ar' ? 'تذاكر الكبار' : 'Adult Tickets'}
                                 </div>
                                 <div className="text-sm font-semibold text-gray-900">
-                                  {totalAdults} × {basePrice.toFixed(2)} = {adultSubtotal.toFixed(2)} {t('service.currency') || 'SAR'}
+                                  {totalAdults} × {formatPrice(basePrice)} = {formatPrice(adultSubtotal)}
                                 </div>
                               </div>
                             )}
@@ -1462,7 +1464,7 @@ export function PackageSchedulePage() {
                                   {i18n.language === 'ar' ? 'تذاكر الأطفال' : 'Child Tickets'}
                                 </div>
                                 <div className="text-sm font-semibold text-gray-900">
-                                  {totalChildren} × {displayChildPrice.toFixed(2)} = {childSubtotal.toFixed(2)} {t('service.currency') || 'SAR'}
+                                  {totalChildren} × {formatPrice(displayChildPrice)} = {formatPrice(childSubtotal)}
                                 </div>
                               </div>
                             )}
@@ -1471,7 +1473,7 @@ export function PackageSchedulePage() {
                                 {i18n.language === 'ar' ? 'المجموع الفرعي' : 'Subtotal'}
                               </div>
                               <div className="text-sm font-semibold text-gray-900">
-                                {totalPrice.toFixed(2)} {t('service.currency') || 'SAR'}
+                                {formatPrice(totalPrice)}
                               </div>
                             </div>
                             <div className="flex items-center justify-between pt-2 border-t">
@@ -1479,7 +1481,7 @@ export function PackageSchedulePage() {
                                 {i18n.language === 'ar' ? 'الإجمالي' : 'Total'}
                               </div>
                               <div className="text-lg font-bold" style={{ color: primaryColor }}>
-                                {totalPrice.toFixed(2)} {t('service.currency') || 'SAR'}
+                                {formatPrice(totalPrice)}
                               </div>
                             </div>
                           </div>

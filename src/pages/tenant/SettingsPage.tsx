@@ -6,10 +6,12 @@ import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
-import { Settings, Save, Building2, Lock, Eye, EyeOff, Mail, CheckCircle, XCircle, MessageCircle, FileText, ExternalLink } from 'lucide-react';
+import { Settings, Save, Building2, Lock, Eye, EyeOff, Mail, CheckCircle, XCircle, MessageCircle, FileText, ExternalLink, DollarSign } from 'lucide-react';
 
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
+import { useCurrency } from '../../contexts/CurrencyContext';
+import { getAvailableCurrencies, type Currency } from '../../lib/currency';
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -79,6 +81,12 @@ export function SettingsPage() {
     token_expires_at: string | null;
   } | null>(null);
 
+  // Currency settings state
+  const { currencyCode: currentCurrencyCode, refreshCurrency } = useCurrency();
+  const [selectedCurrencyCode, setSelectedCurrencyCode] = useState<string>('SAR');
+  const [currencyLoading, setCurrencyLoading] = useState(false);
+  const [currencyMessage, setCurrencyMessage] = useState<{ type: 'success' | 'error'; text: string; warning?: string } | null>(null);
+
   // Access control: Redirect customers and unauthorized users
   useEffect(() => {
     if (authLoading) return; // Wait for auth to load
@@ -127,6 +135,36 @@ export function SettingsPage() {
       });
     }
   }, [tenant]);
+
+  // Load currency settings
+  useEffect(() => {
+    async function loadCurrencySettings() {
+      if (!userProfile?.tenant_id) return;
+      
+      try {
+        const token = localStorage.getItem('auth_token');
+        const API_URL = getApiUrl();
+        const response = await fetch(`${API_URL}/tenants/currency`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setSelectedCurrencyCode(data.currency_code || 'SAR');
+        } else {
+          setSelectedCurrencyCode('SAR'); // Default fallback
+        }
+      } catch (err) {
+        console.error('Error loading currency settings:', err);
+        setSelectedCurrencyCode('SAR'); // Default fallback
+      }
+    }
+
+    loadCurrencySettings();
+  }, [userProfile?.tenant_id]);
 
   // Load SMTP settings
   useEffect(() => {
@@ -1262,6 +1300,125 @@ export function SettingsPage() {
               </form>
             </CardContent>
           </Card>
+
+          {/* Currency Settings - Only for Tenant Provider */}
+          {userProfile?.role === 'tenant_admin' && (
+            <Card>
+              <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50">
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <DollarSign className="w-6 h-6 text-green-600" />
+                  {t('settings.currency.title') || 'Currency Settings'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-6">
+                <p className="text-sm text-gray-600">
+                  {t('settings.currency.description') || 'Select the currency for all financial displays, invoices, and tickets. This affects the entire system.'}
+                </p>
+
+                {currencyMessage && (
+                  <div className={`p-3 rounded-lg text-sm ${
+                    currencyMessage.type === 'success'
+                      ? 'bg-green-50 border border-green-200 text-green-700'
+                      : 'bg-red-50 border border-red-200 text-red-700'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {currencyMessage.type === 'success' ? (
+                        <CheckCircle className="w-4 h-4" />
+                      ) : (
+                        <XCircle className="w-4 h-4" />
+                      )}
+                      {currencyMessage.text}
+                    </div>
+                    {currencyMessage.warning && (
+                      <div className="mt-2 pt-2 border-t border-yellow-300 text-yellow-700 text-xs">
+                        ⚠️ {currencyMessage.warning}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    {t('settings.currency.selectCurrency') || 'Select Currency'}
+                  </label>
+                  <select
+                    value={selectedCurrencyCode}
+                    onChange={(e) => setSelectedCurrencyCode(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    disabled={currencyLoading}
+                  >
+                    {getAvailableCurrencies().map((currency) => (
+                      <option key={currency.code} value={currency.code}>
+                        {currency.symbol} - {currency.name} ({currency.code})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500">
+                    {t('settings.currency.hint') || 'This currency will be used for all prices, invoices, and tickets. Existing invoices will keep their original currency.'}
+                  </p>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <Button
+                    onClick={async () => {
+                      if (!userProfile?.tenant_id) {
+                        setCurrencyMessage({ type: 'error', text: 'Tenant ID not found' });
+                        return;
+                      }
+
+                      if (selectedCurrencyCode === currentCurrencyCode) {
+                        setCurrencyMessage({ type: 'error', text: 'Currency is already set to this value' });
+                        return;
+                      }
+
+                      setCurrencyLoading(true);
+                      setCurrencyMessage(null);
+
+                      try {
+                        const token = localStorage.getItem('auth_token');
+                        const API_URL = getApiUrl();
+                        const response = await fetch(`${API_URL}/tenants/currency`, {
+                          method: 'PUT',
+                          headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                          },
+                          body: JSON.stringify({ currency_code: selectedCurrencyCode }),
+                        });
+
+                        if (!response.ok) {
+                          const error = await response.json();
+                          throw new Error(error.error || 'Failed to update currency');
+                        }
+
+                        const result = await response.json();
+                        setCurrencyMessage({
+                          type: 'success',
+                          text: `Currency updated to ${selectedCurrencyCode} successfully`,
+                          warning: result.warning,
+                        });
+
+                        // Refresh currency context
+                        await refreshCurrency();
+                      } catch (err: any) {
+                        console.error('Error updating currency:', err);
+                        setCurrencyMessage({
+                          type: 'error',
+                          text: err.message || 'Failed to update currency',
+                        });
+                      } finally {
+                        setCurrencyLoading(false);
+                      }
+                    }}
+                    loading={currencyLoading}
+                    icon={<DollarSign className="w-4 h-4" />}
+                  >
+                    {t('settings.currency.save') || 'Save Currency'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AuthProvider } from './contexts/AuthContext';
+import { CurrencyProvider } from './contexts/CurrencyContext';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/auth/LoginPage';
 import { SignupPage } from './pages/auth/SignupPage';
@@ -96,7 +97,9 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppContent />
+        <CurrencyProvider>
+          <AppContent />
+        </CurrencyProvider>
       </AuthProvider>
     </BrowserRouter>
   );

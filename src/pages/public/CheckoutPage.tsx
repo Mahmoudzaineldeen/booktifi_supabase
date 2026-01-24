@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -112,6 +113,7 @@ export function CheckoutPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { userProfile } = useAuth();
+  const { formatPrice } = useCurrency();
   const isLoggedIn = userProfile?.role === 'customer';
 
   const [loading, setLoading] = useState(true);
@@ -1237,7 +1239,7 @@ export function CheckoutPage() {
                                   {i18n.language === 'ar' ? 'كبار' : 'Adults'} × {svcAdultCount}
                                 </span>
                                 <span>
-                                  {adultPriceForService.toFixed(2)} × {svcAdultCount} = {(adultPriceForService * svcAdultCount).toFixed(2)} {t('service.currency') || 'SAR'}
+                                  {formatPrice(adultPriceForService)} × {svcAdultCount} = {formatPrice(adultPriceForService * svcAdultCount)}
                                 </span>
                               </div>
                             )}
@@ -1247,13 +1249,13 @@ export function CheckoutPage() {
                                   {i18n.language === 'ar' ? 'أطفال' : 'Children'} × {svcChildCount}
                                 </span>
                                 <span>
-                                  {childPriceForService.toFixed(2)} × {svcChildCount} = {(childPriceForService * svcChildCount).toFixed(2)} {t('service.currency') || 'SAR'}
+                                  {formatPrice(childPriceForService)} × {svcChildCount} = {formatPrice(childPriceForService * svcChildCount)}
                                 </span>
                               </div>
                             )}
                             <div className="flex justify-between text-sm font-medium text-gray-900 mt-2">
                               <span>{i18n.language === 'ar' ? 'المجموع' : 'Subtotal'}</span>
-                              <span>{serviceTotal.toFixed(2)} {t('service.currency') || 'SAR'}</span>
+                              <span>{formatPrice(serviceTotal)}</span>
                             </div>
                           </div>
                         );
@@ -1263,7 +1265,7 @@ export function CheckoutPage() {
                           {i18n.language === 'ar' ? 'السعر الإجمالي' : 'Total Price'}
                         </span>
                         <span className="text-xl font-bold" style={{ color: primaryColor }}>
-                          {total.toFixed(2)} {t('service.currency') || 'SAR'}
+                          {formatPrice(total)}
                         </span>
                       </div>
                     </>
@@ -1276,7 +1278,7 @@ export function CheckoutPage() {
                             {i18n.language === 'ar' ? 'السعر الأصلي' : 'Original Price'}
                           </span>
                           <span className="text-gray-500 line-through">
-                            {servicePackage.original_price.toFixed(2)} {t('service.currency') || 'SAR'}
+                            {formatPrice(servicePackage.original_price)}
                           </span>
                         </div>
                       )}
@@ -1285,7 +1287,7 @@ export function CheckoutPage() {
                           {i18n.language === 'ar' ? 'السعر الإجمالي' : 'Total Price'}
                         </span>
                         <span className="text-xl font-bold" style={{ color: primaryColor }}>
-                          {total.toFixed(2)} {t('service.currency') || 'SAR'}
+                          {formatPrice(total)}
                         </span>
                       </div>
                     </>
@@ -1307,11 +1309,11 @@ export function CheckoutPage() {
                             <div className="text-right">
                               {selectedOffer.original_price && selectedOffer.original_price > selectedOffer.price && (
                                 <div className="text-xs text-gray-400 line-through mb-1">
-                                  {selectedOffer.original_price.toFixed(2)} {t('service.currency') || 'SAR'}
+                                  {formatPrice(selectedOffer.original_price)}
                                 </div>
                               )}
                               <span className="text-sm font-semibold text-gray-900">
-                                {selectedOffer.price.toFixed(2)} {t('service.currency') || 'SAR'}
+                                {formatPrice(selectedOffer.price)}
                               </span>
                               {selectedOffer.discount_percentage && selectedOffer.discount_percentage > 0 && (
                                 <div className="text-xs text-green-600 mt-1">
@@ -1331,7 +1333,7 @@ export function CheckoutPage() {
                               {i18n.language === 'ar' ? 'السعر الأساسي' : 'Base Price'}
                             </span>
                             <span className="text-gray-900">
-                              {basePrice.toFixed(2)} {t('service.currency') || 'SAR'}
+                              {formatPrice(basePrice)}
                             </span>
                           </div>
                           {service?.original_price && service.original_price > service.base_price && (
@@ -1341,7 +1343,7 @@ export function CheckoutPage() {
                                   {i18n.language === 'ar' ? 'السعر الأصلي' : 'Original Price'}
                                 </span>
                                 <span className="text-gray-500 line-through">
-                                  {originalPrice.toFixed(2)} {t('service.currency') || 'SAR'}
+                                  {formatPrice(originalPrice)}
                                 </span>
                               </div>
                               {serviceDiscount > 0 && (
@@ -1363,11 +1365,11 @@ export function CheckoutPage() {
                         <div className="mb-4 pb-3 border-b space-y-1">
                           <div className="flex justify-between text-sm">
                             <span className="text-gray-600">{i18n.language === 'ar' ? 'السعر الأساسي' : 'Base Price'}</span>
-                            <span className="text-gray-900">{service.base_price.toFixed(2)} {t('service.currency') || 'SAR'}</span>
+                            <span className="text-gray-900">{formatPrice(service.base_price)}</span>
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-gray-600">{i18n.language === 'ar' ? 'السعر الأصلي' : 'Original Price'}</span>
-                            <span className="text-gray-400 line-through">{service.original_price.toFixed(2)} {t('service.currency') || 'SAR'}</span>
+                            <span className="text-gray-400 line-through">{formatPrice(service.original_price)}</span>
                           </div>
                           {service.discount_percentage && (
                             <div className="flex justify-between text-sm">
@@ -1390,7 +1392,7 @@ export function CheckoutPage() {
                                 </span>
                               </div>
                               <span className="text-gray-900">
-                                {adultCount} × {adultPrice.toFixed(2)} = {(adultCount * adultPrice).toFixed(2)} {t('service.currency') || 'SAR'}
+                                {adultCount} × {formatPrice(adultPrice)} = {formatPrice(adultCount * adultPrice)}
                               </span>
                             </div>
                           )}
@@ -1403,7 +1405,7 @@ export function CheckoutPage() {
                                 </span>
                               </div>
                               <span className="text-gray-900">
-                                {childCount} × {childPrice.toFixed(2)} = {(childCount * childPrice).toFixed(2)} {t('service.currency') || 'SAR'}
+                                {childCount} × {formatPrice(childPrice)} = {formatPrice(childCount * childPrice)}
                               </span>
                             </div>
                           )}
@@ -1425,7 +1427,7 @@ export function CheckoutPage() {
                             {i18n.language === 'ar' ? 'المجموع الفرعي' : 'Subtotal'}
                           </span>
                           <span className="text-gray-900 font-medium">
-                            {subtotal.toFixed(2)} {t('service.currency') || 'SAR'}
+                            {formatPrice(subtotal)}
                           </span>
                         </div>
 
@@ -1438,7 +1440,7 @@ export function CheckoutPage() {
                               className="text-2xl font-bold"
                               style={{ color: primaryColor }}
                             >
-                              {total.toFixed(2)} {t('service.currency') || 'SAR'}
+                              {formatPrice(total)}
                             </span>
                           </div>
                         </div>

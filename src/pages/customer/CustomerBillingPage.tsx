@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader } from '../../components/ui/Card';
@@ -43,6 +44,7 @@ export function CustomerBillingPage() {
   const { i18n } = useTranslation();
   const navigate = useNavigate();
   const { userProfile, signOut, loading: authLoading } = useAuth();
+  const { formatPrice } = useCurrency();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -689,7 +691,7 @@ export function CustomerBillingPage() {
                           backgroundClip: 'text'
                         }}
                       >
-                        {invoice.total_price.toFixed(2)} SAR
+                        {formatPrice(invoice.total_price)}
                       </div>
                       <div className="flex items-center gap-2 justify-end">
                         {invoice.payment_status === 'paid' ? (

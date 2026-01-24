@@ -130,6 +130,52 @@ function getTenantIdForQuery(req: express.Request, requiredTenantId?: string): s
   return req.user?.tenant_id || null;
 }
 
+// Middleware to authenticate tenant admin ONLY (strict - no receptionist/cashier)
+function authenticateTenantAdminOnly(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authorization header required' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (jwtError: any) {
+      if (jwtError.name === 'TokenExpiredError') {
+        return res.status(401).json({ error: 'Token has expired' });
+      }
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    
+    // STRICT: Only tenant_admin can change currency
+    if (decoded.role !== 'tenant_admin') {
+      console.error('[Auth] Access denied for currency change:', {
+        userId: decoded.id,
+        actualRole: decoded.role,
+        requiredRole: 'tenant_admin'
+      });
+      return res.status(403).json({ 
+        error: 'Access denied. Only Service Providers (tenant admins) can change currency.',
+        userRole: decoded.role
+      });
+    }
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      tenant_id: decoded.tenant_id,
+    };
+    
+    next();
+  } catch (error: any) {
+    console.error('[Auth] Authentication error:', error);
+    return res.status(401).json({ error: 'Authentication failed' });
+  }
+}
+
 // Get SMTP settings for tenant
 router.get('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
   try {
@@ -1314,6 +1360,90 @@ router.post('/zoho-config/test', authenticateTenantAdmin, async (req, res) => {
       error: error.message || 'Internal server error',
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
+  }
+});
+
+// ============================================================================
+// Currency Settings
+// ============================================================================
+
+// Get currency settings
+router.get('/currency', authenticateTenantAdmin, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id!;
+
+    const { data: tenant, error } = await supabase
+      .from('tenants')
+      .select('currency_code')
+      .eq('id', tenantId)
+      .single();
+
+    if (error) {
+      console.error('[Currency] Error fetching currency:', error);
+      return res.status(500).json({ error: 'Failed to fetch currency settings' });
+    }
+
+    res.json({
+      currency_code: tenant?.currency_code || 'SAR',
+    });
+  } catch (error: any) {
+    console.error('[Currency] Error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// Update currency settings (Tenant Provider only)
+router.put('/currency', authenticateTenantAdminOnly, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const { currency_code } = req.body;
+
+    // Validate currency code
+    const validCurrencies = ['SAR', 'USD', 'GBP', 'EUR'];
+    if (!currency_code || !validCurrencies.includes(currency_code)) {
+      return res.status(400).json({
+        error: 'Invalid currency code',
+        valid_currencies: validCurrencies,
+        hint: `Currency must be one of: ${validCurrencies.join(', ')}`
+      });
+    }
+
+    // Check for pending unpaid invoices (warn but don't block)
+    const { count: unpaidCount, error: countError } = await supabase
+      .from('bookings')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .in('payment_status', ['unpaid', 'awaiting_payment']);
+
+    if (countError) {
+      console.warn('[Currency] Could not check unpaid invoices:', countError);
+    }
+
+    // Update currency
+    const { data: updatedTenant, error: updateError } = await supabase
+      .from('tenants')
+      .update({ currency_code })
+      .eq('id', tenantId)
+      .select('currency_code')
+      .single();
+
+    if (updateError) {
+      console.error('[Currency] Error updating currency:', updateError);
+      return res.status(500).json({ error: 'Failed to update currency' });
+    }
+
+    console.log(`[Currency] ✅ Currency updated to ${currency_code} for tenant ${tenantId}`);
+
+    res.json({
+      success: true,
+      currency_code: updatedTenant.currency_code,
+      warning: unpaidCount && unpaidCount > 0
+        ? `You have ${unpaidCount} unpaid booking(s). Existing invoices will keep their original currency.`
+        : undefined,
+    });
+  } catch (error: any) {
+    console.error('[Currency] Error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 

@@ -2,6 +2,7 @@ import express from 'express';
 import { supabase } from '../db';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
+import { formatCurrency } from '../utils/currency';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -1590,7 +1591,8 @@ router.get('/:id/details', async (req, res) => {
         ),
         tenants!inner (
           name,
-          name_ar
+          name_ar,
+          currency_code
         )
       `)
       .eq('id', bookingId)
@@ -1714,6 +1716,7 @@ router.get('/:id/details', async (req, res) => {
       service_description_ar: (booking.services as any).description_ar || null,
       tenant_name: (booking.tenants as any)?.name || null,
       tenant_name_ar: (booking.tenants as any)?.name_ar || null,
+      tenant_currency_code: (booking.tenants as any)?.currency_code || 'SAR',
       formatted_date: formatDate((booking.slots as any).slot_date),
       formatted_start_time: formatTime12Hour((booking.slots as any).start_time),
       formatted_end_time: formatTime12Hour((booking.slots as any).end_time),
@@ -1891,7 +1894,7 @@ router.get('/:id/details', async (req, res) => {
               
               <div class="detail-section">
                 <div class="detail-label">PRICE</div>
-                <div class="price">${bookingData.total_price.toFixed(2)} SAR</div>
+                <div class="price">${formatCurrency(bookingData.total_price, bookingData.tenant_currency_code || 'SAR')}</div>
               </div>
             </div>
             <div class="footer">

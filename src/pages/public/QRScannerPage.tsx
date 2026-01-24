@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { Card, CardContent } from '../../components/ui/Card';
 import { format, parseISO } from 'date-fns';
@@ -29,6 +30,7 @@ interface BookingDetails {
 export function QRScannerPage() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const navigate = useNavigate();
+  const { formatPrice } = useCurrency();
   const [bookingDetails, setBookingDetails] = useState<BookingDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -227,7 +229,7 @@ export function QRScannerPage() {
                       <div>
                         <p className="text-sm text-gray-500">Price</p>
                         <p className="font-medium">
-                          {bookingDetails.total_price.toFixed(2)} SAR
+                          {formatPrice(bookingDetails.total_price)}
                         </p>
                       </div>
                     </div>

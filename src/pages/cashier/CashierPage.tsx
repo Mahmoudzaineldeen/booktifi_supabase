@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -39,6 +40,7 @@ interface Booking {
 export function CashierPage() {
   const { t, i18n } = useTranslation();
   const { userProfile, signOut, loading: authLoading } = useAuth();
+  const { formatPrice } = useCurrency();
   const navigate = useNavigate();
   const [scannedBooking, setScannedBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
@@ -468,7 +470,7 @@ export function CashierPage() {
                 {/* Price */}
                 <div className="border-t pt-4">
                   <p className="text-xs text-gray-500 mb-1">{i18n.language === 'ar' ? 'السعر الإجمالي' : 'Total Price'}</p>
-                  <p className="text-2xl font-bold text-gray-900">{scannedBooking.total_price} SAR</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatPrice(scannedBooking.total_price)}</p>
                 </div>
 
                 {/* Payment Action - Cashier can only mark as paid if unpaid */}

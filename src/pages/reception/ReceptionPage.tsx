@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -112,6 +113,7 @@ interface CustomerPackage {
 export function ReceptionPage() {
   const { t, i18n } = useTranslation();
   const { userProfile, signOut, loading: authLoading } = useAuth();
+  const { formatPrice } = useCurrency();
   const navigate = useNavigate();
   const tenantDefaultCountry = useTenantDefaultCountry();
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -2408,7 +2410,7 @@ export function ReceptionPage() {
                 <div>
                   <span className="text-gray-500">{t('booking.visitorCount')}:</span>
                   <div className="font-medium">
-                    {(booking as any).groupCount || booking.visitor_count} • {(booking as any).grouped_total_price || booking.total_price} SAR
+                    {(booking as any).groupCount || booking.visitor_count} • {formatPrice((booking as any).grouped_total_price || booking.total_price)}
                   </div>
                 </div>
               </div>
@@ -2984,7 +2986,7 @@ export function ReceptionPage() {
                                 // Child price is mandatory and set by service provider
                                 const childPrice = service.child_price || adultPrice;
                                 return (adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count);
-                              })()} SAR
+                              })()}
                             </span>
                           )}
                         </div>
@@ -3060,14 +3062,14 @@ export function ReceptionPage() {
                   <span className="text-2xl font-bold">
                     {(() => {
                       const service = services.find(s => s.id === selectedService);
-                      if (!service) return '0 SAR';
+                      if (!service) return formatPrice(0);
                       const packageCheck = checkServiceInPackage(service.id);
                       if (packageCheck.available && packageCheck.remaining >= (bookingForm.visitor_count as number)) {
-                        return 'Package Service (0 SAR)';
+                        return `Package Service (${formatPrice(0)})`;
                       }
                       const adultPrice = service.adult_price || service.base_price || 0;
                       const childPrice = service.child_price || adultPrice;
-                      return `${(adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count)} SAR`;
+                      return formatPrice((adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count));
                     })()}
                   </span>
                 </div>
@@ -3217,7 +3219,7 @@ export function ReceptionPage() {
                 const packageCheck = checkServiceInPackage(service.id);
                 return (
                   <option key={service.id} value={service.id}>
-                    {i18n.language === 'ar' ? service.name_ar : service.name} - {service.base_price} SAR
+                    {i18n.language === 'ar' ? service.name_ar : service.name} - {formatPrice(service.base_price)}
                     {packageCheck.available && ` 🎁 (${packageCheck.remaining} ${t('packages.remaining')})`}
                     {service.offers && service.offers.length > 0 && ` (${service.offers.length} ${i18n.language === 'ar' ? 'عروض' : 'offers'})`}
                   </option>
@@ -3253,10 +3255,10 @@ export function ReceptionPage() {
                     value={selectedOffer}
                     onChange={(e) => setSelectedOffer(e.target.value)}
                   >
-                    <option value="">{i18n.language === 'ar' ? 'السعر الأساسي' : 'Base Price'} ({service?.base_price} SAR)</option>
+                    <option value="">{i18n.language === 'ar' ? 'السعر الأساسي' : 'Base Price'} ({formatPrice(service?.base_price || 0)})</option>
                     {availableOffers.map((offer) => (
                       <option key={offer.id} value={offer.id}>
-                        {i18n.language === 'ar' ? offer.name_ar || offer.name : offer.name} - {offer.price} SAR
+                        {i18n.language === 'ar' ? offer.name_ar || offer.name : offer.name} - {formatPrice(offer.price)}
                         {offer.discount_percentage && ` (${i18n.language === 'ar' ? 'خصم' : 'Save'} ${offer.discount_percentage}%)`}
                       </option>
                     ))}
@@ -3337,7 +3339,7 @@ export function ReceptionPage() {
                             </button>
                           </div>
                           <p className="text-xs text-gray-600 mt-1">
-                            {service?.base_price || 0} SAR per ticket
+                            {formatPrice(service?.base_price || 0)} per ticket
                             {service?.original_price && service?.original_price > service?.base_price && (
                               <span className="text-green-600 ml-1">(Discounted)</span>
                             )}
@@ -3398,7 +3400,7 @@ export function ReceptionPage() {
                             </button>
                           </div>
                           <p className="text-xs text-gray-600 mt-1">
-                            {service?.child_price || service?.base_price || 0} SAR per ticket
+                            {formatPrice(service?.child_price || service?.base_price || 0)} per ticket
                           </p>
                         </div>
                       </div>
@@ -3418,7 +3420,7 @@ export function ReceptionPage() {
                               // Child price is mandatory and set by service provider
                               const childPrice = service?.child_price || adultPrice;
                               return (adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count);
-                            })()} SAR
+                            })()}
                           </span>
                         </div>
                       </div>
@@ -3556,7 +3558,7 @@ export function ReceptionPage() {
                         )}
                       </div>
                       <div className="text-sm font-medium text-green-600">
-                        {item.service.base_price} SAR
+                        {formatPrice(item.service.base_price)}
                       </div>
                     </div>
                     <button
@@ -3574,7 +3576,7 @@ export function ReceptionPage() {
               <div className="mt-3 pt-3 border-t border-green-200 flex justify-between items-center">
                 <span className="font-medium text-gray-900">Total:</span>
                 <span className="text-lg font-bold text-green-600">
-                  {selectedServices.reduce((sum, item) => sum + item.service.base_price, 0)} SAR
+                  {formatPrice(selectedServices.reduce((sum, item) => sum + item.service.base_price, 0))}
                 </span>
               </div>
             </div>
@@ -3718,7 +3720,7 @@ export function ReceptionPage() {
                                 {t('packages.packageService')}
                               </span>
                             ) : (
-                              <span className="text-gray-700 font-medium">{pricingInfo.price} {t('common.sar')}</span>
+                              <span className="text-gray-700 font-medium">{formatPrice(pricingInfo.price)}</span>
                             )}
                           </div>
                         );
@@ -4281,7 +4283,7 @@ export function ReceptionPage() {
                 <label className="text-sm font-medium text-gray-500">Total Price</label>
                 <div className="mt-1 flex items-center gap-2">
                   <DollarSign className="w-4 h-4 text-gray-400" />
-                  <span className="font-medium">{selectedBookingForDetails.total_price} SAR</span>
+                  <span className="font-medium">{formatPrice(selectedBookingForDetails.total_price)}</span>
                 </div>
               </div>
             </div>
@@ -4467,7 +4469,7 @@ export function ReceptionPage() {
               <option value="">{t('packages.selectPackage')}</option>
               {packages.map(pkg => (
                 <option key={pkg.id} value={pkg.id}>
-                  {i18n.language === 'ar' ? pkg.name_ar : pkg.name} - {pkg.total_price} {t('common.sar')}
+                  {i18n.language === 'ar' ? pkg.name_ar : pkg.name} - {formatPrice(pkg.total_price)}
                 </option>
               ))}
             </select>

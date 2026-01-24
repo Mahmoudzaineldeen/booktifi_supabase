@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -155,6 +156,7 @@ export function ServiceBookingFlow() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { userProfile } = useAuth();
+  const { formatPrice } = useCurrency();
   const isLoggedIn = userProfile?.role === 'customer';
   const isServiceProvider = userProfile?.role === 'tenant_admin' || userProfile?.role === 'receptionist' || userProfile?.role === 'cashier';
 
@@ -1314,7 +1316,7 @@ export function ServiceBookingFlow() {
                         </span>
                         {dateAvail.minPrice > 0 && (
                           <span className="text-[10px] text-gray-500 mt-0.5 leading-tight">
-                            {dateAvail.minPrice} {t('service.currency') || 'SAR'}
+                            {formatPrice(dateAvail.minPrice)}
                           </span>
                         )}
                       </button>
@@ -1465,7 +1467,7 @@ export function ServiceBookingFlow() {
                                         </span>
                                         {dateAvail && !isPast && dateAvail.minPrice > 0 && (
                                           <span className="text-[9px] font-semibold mt-0.5" style={{ color: primaryColor }}>
-                                            {dateAvail.minPrice} {t('service.currency') || 'SAR'}
+                                            {formatPrice(dateAvail.minPrice)}
                                           </span>
                                         )}
                                       </button>
@@ -1481,8 +1483,8 @@ export function ServiceBookingFlow() {
                         <div className="mt-6 pt-4 border-t border-gray-200 flex items-center gap-2 text-sm text-gray-500">
                           <span className="text-xs">
                             {i18n.language === 'ar' 
-                              ? `جميع الأسعار بالعملة المحلية (${t('service.currency') || 'SAR'})`
-                              : `All prices are in ${t('service.currency') || 'SAR'}`}
+                              ? `جميع الأسعار بالعملة المحلية`
+                              : `All prices are in local currency`}
                           </span>
                         </div>
                       </div>
@@ -1574,7 +1576,7 @@ export function ServiceBookingFlow() {
                           <span className="text-sm text-gray-500">from</span>
                         </div>
                         <div className="text-2xl font-bold" style={{ color: primaryColor }}>
-                          {service.base_price} {t('service.currency') || 'SAR'}
+                          {formatPrice(service.base_price)}
                         </div>
                         <button
                           className={`mt-3 px-6 py-2 rounded-lg font-medium transition-all ${
@@ -1686,7 +1688,7 @@ export function ServiceBookingFlow() {
                             <div className="mb-1">
                               <div className="flex items-center justify-end gap-2 flex-wrap">
                                 <span className="text-sm text-gray-400 line-through">
-                                  {offer.original_price} {t('service.currency') || 'SAR'}
+                                  {formatPrice(offer.original_price)}
                                 </span>
                                 {offer.discount_percentage && (
                                   <span className="text-xs font-semibold text-red-600">
@@ -1700,7 +1702,7 @@ export function ServiceBookingFlow() {
                             <span className="text-xs text-gray-500">{i18n.language === 'ar' ? 'من' : 'from'}</span>
                           </div>
                           <div className="text-2xl font-bold mb-3" style={{ color: primaryColor }}>
-                            {offer.price} {t('service.currency') || 'SAR'}
+                            {formatPrice(offer.price)}
                           </div>
                           <button
                             className={`w-full px-6 py-2.5 rounded-lg font-medium transition-all ${
@@ -1785,7 +1787,7 @@ export function ServiceBookingFlow() {
                               <span className="text-sm text-gray-500">from</span>
                             </div>
                             <div className="text-2xl font-bold" style={{ color: primaryColor }}>
-                              {service.base_price} {t('service.currency') || 'SAR'}
+                              {formatPrice(service.base_price)}
                             </div>
                             <button
                               className={`mt-3 px-6 py-2 rounded-lg font-medium transition-all ${
@@ -1879,7 +1881,7 @@ export function ServiceBookingFlow() {
                               {pkg.original_price && pkg.original_price > pkg.total_price && (
                                 <div className="mb-1">
                                   <span className="text-sm text-gray-400 line-through">
-                                    {pkg.original_price} {t('service.currency') || 'SAR'}
+                                    {formatPrice(pkg.original_price)}
                                   </span>
                                 </div>
                               )}
@@ -1887,7 +1889,7 @@ export function ServiceBookingFlow() {
                                 <span className="text-sm text-gray-500">from</span>
                               </div>
                               <div className="text-2xl font-bold" style={{ color: primaryColor }}>
-                                {pkg.total_price} {t('service.currency') || 'SAR'}
+                                {formatPrice(pkg.total_price)}
                               </div>
                               {pkg.original_price && pkg.original_price > pkg.total_price && (
                                 <div className="mt-1">
@@ -1968,7 +1970,7 @@ export function ServiceBookingFlow() {
                           } else {
                             price = parseFloat(String(service.base_price || 0));
                           }
-                          return `${price.toFixed(2)} ${t('service.currency') || 'SAR'}`;
+                          return formatPrice(price);
                         })()}
                       </span>
                     </div>
@@ -2015,7 +2017,7 @@ export function ServiceBookingFlow() {
                           </span>
                         </div>
                         <span className="text-sm font-semibold text-gray-900">
-                          {parseFloat(String(service.child_price || 0)).toFixed(2)} {t('service.currency') || 'SAR'}
+                          {formatPrice(parseFloat(String(service.child_price || 0)))}
                         </span>
                       </div>
                       <div className="flex items-center gap-3">
@@ -2263,11 +2265,11 @@ export function ServiceBookingFlow() {
                             <div className="text-right">
                               {originalPrice && originalPrice > pricePerTicket && (
                                 <div className="text-sm text-gray-400 line-through mb-1">
-                                  {originalPrice.toFixed(2)} {t('service.currency') || 'SAR'}
+                                  {formatPrice(originalPrice)}
                                 </div>
                               )}
                               <span className="text-sm font-semibold text-gray-900">
-                                {pricePerTicket.toFixed(2)} {t('service.currency') || 'SAR'}
+                                {formatPrice(pricePerTicket)}
                               </span>
                               {originalPrice && originalPrice > pricePerTicket && selectedOffer && selectedOffer.discount_percentage && (
                                 <div className="text-xs text-green-600 mt-1">
@@ -2284,7 +2286,7 @@ export function ServiceBookingFlow() {
                                 {i18n.language === 'ar' ? 'تذاكر الكبار' : 'Adult Tickets'}
                               </span>
                               <span className="text-gray-900 font-medium">
-                                {adultCount} × {pricePerTicket.toFixed(2)} = {adultSubtotal.toFixed(2)} {t('service.currency') || 'SAR'}
+                                {adultCount} × {formatPrice(pricePerTicket)} = {formatPrice(adultSubtotal)}
                               </span>
                             </div>
                           )}
@@ -2294,7 +2296,7 @@ export function ServiceBookingFlow() {
                                 {i18n.language === 'ar' ? 'تذاكر الأطفال' : 'Child Tickets'}
                               </span>
                               <span className="text-gray-900 font-medium">
-                                {childCount} × {childPrice.toFixed(2)} = {childSubtotal.toFixed(2)} {t('service.currency') || 'SAR'}
+                                {childCount} × {formatPrice(childPrice)} = {formatPrice(childSubtotal)}
                               </span>
                             </div>
                           )}
@@ -2306,7 +2308,7 @@ export function ServiceBookingFlow() {
                                 {i18n.language === 'ar' ? 'المجموع الفرعي' : 'Subtotal'}
                               </span>
                               <span className="text-gray-900 font-medium">
-                                {subtotal.toFixed(2)} {t('service.currency') || 'SAR'}
+                                {formatPrice(subtotal)}
                               </span>
                             </div>
                           </div>
@@ -2318,7 +2320,7 @@ export function ServiceBookingFlow() {
                                 {i18n.language === 'ar' ? 'الإجمالي' : 'Total'}
                               </span>
                               <span className="text-xl font-bold" style={{ color: primaryColor }}>
-                                {subtotal.toFixed(2)} {t('service.currency') || 'SAR'}
+                                {formatPrice(subtotal)}
                               </span>
                             </div>
                           </div>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { getApiUrl } from '../../lib/apiUrl';
 import { Button } from '../../components/ui/Button';
@@ -48,6 +49,7 @@ interface Service {
 export function PackagesPage() {
   const { t, i18n } = useTranslation();
   const { userProfile } = useAuth();
+  const { formatPrice } = useCurrency();
   const [packages, setPackages] = useState<ServicePackage[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
@@ -922,7 +924,7 @@ export function PackagesPage() {
                     </p>
                   )}
                   <div className="text-2xl font-bold text-blue-600 mb-4">
-                    {pkg.total_price} {t('common.sar')}
+                    {formatPrice(pkg.total_price)}
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -1199,7 +1201,7 @@ export function PackagesPage() {
                   className="w-full px-4 py-3 border-2 border-blue-200 rounded-lg bg-white cursor-not-allowed font-semibold text-gray-700 text-lg"
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">
-                  {t('common.sar') || 'SAR'}
+                  {formatPrice(0, { showSymbol: true, showDecimals: false }).replace('0', '').trim()}
                 </span>
               </div>
               <p className="text-xs text-gray-600 mt-2 flex items-center gap-1">
@@ -1310,7 +1312,7 @@ export function PackagesPage() {
                     className="font-semibold text-lg"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">
-                    {t('common.sar') || 'SAR'}
+                    {formatPrice(0, { showSymbol: true, showDecimals: false }).replace('0', '').trim()}
                   </span>
                 </div>
                 <p className="text-xs text-gray-600 mt-2">
@@ -1359,7 +1361,7 @@ export function PackagesPage() {
                           )
                           .map(service => (
                       <option key={service.id} value={service.id}>
-                              {i18n.language === 'ar' ? service.name_ar : service.name} - {service.base_price || 0} {t('common.sar')}
+                              {i18n.language === 'ar' ? service.name_ar : service.name} - {formatPrice(service.base_price || 0)}
                       </option>
                           ))
                       ) : (
@@ -1374,7 +1376,7 @@ export function PackagesPage() {
                   {selectedService && (
                     <div className="px-3 py-2 bg-blue-50 rounded-lg border border-blue-200 min-w-[120px] text-center">
                       <span className="text-sm font-semibold text-blue-700">
-                        {selectedService.base_price || 0} {t('common.sar')}
+                        {formatPrice(selectedService.base_price || 0)}
                       </span>
                     </div>
                   )}
