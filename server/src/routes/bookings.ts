@@ -1038,27 +1038,37 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
             return; // Exit early if Zoho is not configured
           }
           
-          // Check if token is expired
+          // Check if token is expired (only reject actually expired tokens)
+          // getAccessToken() will auto-refresh tokens close to expiration
           if (zohoToken.expires_at) {
             const expiresAt = new Date(zohoToken.expires_at);
             const now = new Date();
-            const bufferMinutes = 5;
-            const expiresAtWithBuffer = new Date(expiresAt.getTime() - (bufferMinutes * 60 * 1000));
+            const minutesUntilExpiry = Math.round((expiresAt.getTime() - now.getTime()) / 1000 / 60);
             
-            console.log(`[Booking Creation] 🔍 Step 3: Checking token expiration...`);
+            console.log(`[Booking Creation] 🔍 Step 3: Checking token status...`);
             console.log(`[Booking Creation]    Token expires at: ${expiresAt.toISOString()}`);
             console.log(`[Booking Creation]    Current time: ${now.toISOString()}`);
-            console.log(`[Booking Creation]    Time until expiration: ${Math.round((expiresAt.getTime() - now.getTime()) / 1000 / 60)} minutes`);
+            console.log(`[Booking Creation]    Minutes until expiration: ${minutesUntilExpiry}`);
             
-            if (expiresAtWithBuffer <= now) {
+            // Only reject if token is actually expired (not close to expiration)
+            // getAccessToken() will handle auto-refresh for tokens close to expiration
+            if (expiresAt <= now) {
               console.error(`[Booking Creation] ❌ Zoho token expired for tenant ${tenant_id}`);
               console.error(`[Booking Creation]    Token expired at: ${expiresAt.toISOString()}`);
               console.error(`[Booking Creation]    Current time: ${now.toISOString()}`);
               console.error(`[Booking Creation]    Invoice creation skipped. Please refresh Zoho connection in Settings`);
               return; // Exit early if token is expired
+            } else {
+              // Token is valid - getAccessToken() will handle refresh if needed
+              if (minutesUntilExpiry <= 5) {
+                console.warn(`[Booking Creation] ⚠️ Token expires soon (${minutesUntilExpiry} minutes) - will be auto-refreshed by getAccessToken()`);
+              } else {
+                console.log(`[Booking Creation] ✅ Token is valid (expires in ${minutesUntilExpiry} minutes)`);
+              }
+              // Continue - don't block invoice creation for valid tokens
             }
           } else {
-            console.warn(`[Booking Creation] ⚠️ Zoho token has no expiration date`);
+            console.warn(`[Booking Creation] ⚠️ Zoho token has no expiration date - proceeding (getAccessToken() will handle validation)`);
           }
           
           console.log(`[Booking Creation] ✅ Zoho is configured and connected for tenant ${tenant_id}`);
