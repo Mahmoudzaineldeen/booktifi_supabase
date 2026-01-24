@@ -24,11 +24,44 @@ export function useTenantDefaultCountry(): string {
       } else if (tenantSlug) {
         // If we have tenant slug but no tenant in context, fetch it
         try {
-          const { data } = await db
+          // First try to get tenant with default_country_code
+          const { data, error } = await db
             .from('tenants')
             .select('id, default_country_code')
             .eq('slug', tenantSlug)
             .maybeSingle();
+          
+          // Handle missing column gracefully (PostgreSQL error code 42703 = undefined column)
+          // Also handle 400 errors from API that indicate missing column
+          if (error && (
+            error.code === '42703' || 
+            error.message?.includes('column') || 
+            error.message?.includes('does not exist') ||
+            error.message?.includes('Invalid column name') ||
+            (error as any).status === 400 ||
+            String(error.message || '').includes('Invalid column name')
+          )) {
+            console.warn('[useTenantDefaultCountry] default_country_code column does not exist yet, trying id only');
+            // Try to get just the tenant ID without default_country_code
+            try {
+              const { data: tenantData } = await db
+                .from('tenants')
+                .select('id')
+                .eq('slug', tenantSlug)
+                .maybeSingle();
+              if (tenantData?.id) {
+                tenantId = tenantData.id;
+              }
+            } catch (fallbackErr) {
+              console.warn('[useTenantDefaultCountry] Could not fetch tenant ID:', fallbackErr);
+            }
+            return; // Use default '+966'
+          }
+          
+          if (error) {
+            console.error('[useTenantDefaultCountry] Error fetching tenant:', error);
+            return; // Use default '+966'
+          }
           
           if (data) {
             tenantId = data.id;
@@ -37,7 +70,18 @@ export function useTenantDefaultCountry(): string {
               return;
             }
           }
-        } catch (err) {
+        } catch (err: any) {
+          // Handle missing column in catch block too
+          // Also handle 400 errors from API that indicate missing column
+          if (err?.code === '42703' || 
+              err?.message?.includes('column') || 
+              err?.message?.includes('does not exist') ||
+              err?.message?.includes('Invalid column name') ||
+              err?.status === 400 ||
+              String(err?.message || '').includes('Invalid column name')) {
+            console.warn('[useTenantDefaultCountry] default_country_code column does not exist yet, using default +966');
+            return; // Use default '+966'
+          }
           console.error('[useTenantDefaultCountry] Error fetching tenant:', err);
         }
       }
@@ -52,16 +96,44 @@ export function useTenantDefaultCountry(): string {
         }
 
         try {
-          const { data } = await db
+          const { data, error } = await db
             .from('tenants')
             .select('default_country_code')
             .eq('id', tenantId)
             .maybeSingle();
           
+          // Handle missing column gracefully
+          // Also handle 400 errors from API that indicate missing column
+          if (error && (
+            error.code === '42703' || 
+            error.message?.includes('column') || 
+            error.message?.includes('does not exist') || 
+            error.message?.includes('Invalid column name') ||
+            (error as any).status === 400
+          )) {
+            console.warn('[useTenantDefaultCountry] default_country_code column does not exist yet, using default +966');
+            return; // Use default '+966'
+          }
+          
+          if (error) {
+            console.error('[useTenantDefaultCountry] Error fetching default country code:', error);
+            return; // Use default '+966'
+          }
+          
           if (data?.default_country_code) {
             setDefaultCountryCode(data.default_country_code);
           }
-        } catch (err) {
+        } catch (err: any) {
+          // Handle missing column in catch block too
+          // Also handle 400 errors from API that indicate missing column
+          if (err?.code === '42703' || 
+              err?.message?.includes('column') || 
+              err?.message?.includes('does not exist') || 
+              err?.message?.includes('Invalid column name') ||
+              err?.status === 400) {
+            console.warn('[useTenantDefaultCountry] default_country_code column does not exist yet, using default +966');
+            return; // Use default '+966'
+          }
           console.error('[useTenantDefaultCountry] Error fetching default country code:', err);
         }
       }
