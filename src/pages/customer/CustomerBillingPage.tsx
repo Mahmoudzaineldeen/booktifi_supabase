@@ -41,7 +41,7 @@ interface PaginationInfo {
 
 export function CustomerBillingPage() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { userProfile, signOut, loading: authLoading } = useAuth();
   const { formatPrice } = useCurrency();
@@ -703,7 +703,7 @@ export function CustomerBillingPage() {
                             }}
                           >
                             <CheckCircle className="w-4 h-4" />
-                            {i18n.language === 'ar' ? 'مدفوع' : 'Paid'}
+                            {t('status.paid')}
                           </span>
                         ) : (
                           <span 
@@ -714,7 +714,7 @@ export function CustomerBillingPage() {
                             }}
                           >
                             <XCircle className="w-4 h-4" />
-                            {i18n.language === 'ar' ? 'غير مدفوع' : 'Unpaid'}
+                            {t('status.unpaid')}
                           </span>
                         )}
                       </div>

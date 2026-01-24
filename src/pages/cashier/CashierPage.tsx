@@ -446,7 +446,7 @@ export function CashierPage() {
                     scannedBooking.status === 'completed' ? 'bg-blue-100 text-blue-800' :
                     'bg-gray-100 text-gray-800'
                   }`}>
-                    {scannedBooking.status.toUpperCase()}
+                    {t(`status.${scannedBooking.status}`) || t(`booking.${scannedBooking.status}`) || scannedBooking.status}
                   </span>
                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                     scannedBooking.payment_status === 'paid' || scannedBooking.payment_status === 'paid_manual' 
@@ -457,7 +457,7 @@ export function CashierPage() {
                       ? 'bg-amber-100 text-amber-800' :
                     'bg-gray-100 text-gray-800'
                   }`}>
-                    {scannedBooking.payment_status.toUpperCase().replace('_', ' ')}
+                    {t(`status.${scannedBooking.payment_status}`) || t(`booking.${scannedBooking.payment_status}`) || scannedBooking.payment_status}
                   </span>
                   {scannedBooking.qr_scanned && (
                     <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 flex items-center gap-1">

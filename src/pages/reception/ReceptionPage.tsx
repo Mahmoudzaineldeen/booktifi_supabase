@@ -2486,7 +2486,7 @@ export function ReceptionPage() {
                   booking.status === 'completed' ? 'bg-blue-100 text-blue-800' :
                   'bg-gray-100 text-gray-800'
                 }`}>
-                  {booking.status.toUpperCase()}
+                  {t(`status.${booking.status}`) || t(`booking.${booking.status}`) || booking.status}
                 </span>
                 <span className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
                   booking.payment_status === 'paid' || booking.payment_status === 'paid_manual' ? 'bg-emerald-100 text-emerald-800' :
@@ -2495,7 +2495,7 @@ export function ReceptionPage() {
                   booking.payment_status === 'refunded' ? 'bg-purple-100 text-purple-800' :
                   'bg-gray-100 text-gray-800'
                 }`}>
-                  {booking.payment_status.toUpperCase().replace('_', ' ')}
+                  {t(`status.${booking.payment_status}`) || t(`booking.${booking.payment_status}`) || booking.payment_status}
                 </span>
               </div>
               {booking.status !== 'cancelled' && (
@@ -3815,7 +3815,7 @@ export function ReceptionPage() {
                         {validation.message}
                       </div>
                       <div className="text-xs mt-2 text-gray-600 italic">
-                        💡 Tip: Click a slot multiple times to select it multiple times. Right-click or Ctrl+Click to remove one.
+                        💡 {t('common.tip')}: {t('common.clickSlotMultiple')}
                       </div>
                     </div>
                   );

@@ -812,8 +812,8 @@ export function BookingsPage() {
                         >
                           <Trash2 className="w-4 h-4" />
                           {deletingBooking === booking.id 
-                            ? (i18n.language === 'ar' ? 'جاري الحذف...' : 'Deleting...')
-                            : (i18n.language === 'ar' ? 'حذف' : 'Delete')}
+                            ? t('common.deleting')
+                            : t('common.delete')}
                         </Button>
                       </div>
                     </div>
@@ -1143,7 +1143,7 @@ export function BookingsPage() {
                         >
                           <div className="font-medium">{slot.start_time}</div>
                           <div className="text-xs opacity-75">
-                            {slot.available_capacity} {i18n.language === 'ar' ? 'متاح' : 'available'}
+                            {slot.available_capacity} {t('common.available')}
                           </div>
                         </button>
                       ))}
@@ -1154,9 +1154,7 @@ export function BookingsPage() {
                 {/* Warning Message */}
                 <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <p className="text-xs text-blue-800">
-                    {i18n.language === 'ar' 
-                      ? '⚠️ سيتم إلغاء التذاكر القديمة وإنشاء تذاكر جديدة. سيتم إرسال التذاكر الجديدة للعميل عبر البريد الإلكتروني وواتساب.' 
-                      : '⚠️ Old tickets will be invalidated and new tickets will be generated. New tickets will be sent to the customer via email and WhatsApp.'}
+                    {t('common.oldTicketsInvalidated')}
                   </p>
                 </div>
               </div>

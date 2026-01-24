@@ -594,5 +594,116 @@
     "submit": "إرسال المراجعة",
     "successTitle": "شكراً لك!",
     "successMessage": "تم إرسال مراجعتك بنجاح."
+  },
+  "settings": {
+    "currency": {
+      "title": "إعدادات العملة",
+      "description": "اختر العملة لجميع العروض المالية والفواتير والتذاكر. يؤثر هذا على النظام بالكامل.",
+      "selectCurrency": "اختر العملة",
+      "hint": "سيتم استخدام هذه العملة لجميع الأسعار والفواتير والتذاكر. ستحتفظ الفواتير الموجودة بعملتها الأصلية.",
+      "save": "حفظ العملة",
+      "updated": "تم تحديث العملة إلى {{code}} بنجاح",
+      "alreadySet": "العملة مضبوطة بالفعل على هذه القيمة",
+      "updateFailed": "فشل تحديث العملة"
+    },
+    "smtp": {
+      "title": "إعدادات البريد الإلكتروني (SMTP)",
+      "host": "خادم SMTP",
+      "port": "منفذ SMTP",
+      "user": "اسم المستخدم",
+      "password": "كلمة المرور",
+      "testEmail": "اختبار البريد الإلكتروني",
+      "save": "حفظ إعدادات SMTP",
+      "saved": "تم حفظ إعدادات SMTP بنجاح",
+      "testSent": "تم إرسال بريد اختبار بنجاح",
+      "testFailed": "فشل إرسال بريد الاختبار",
+      "defaultHost": "الافتراضي: smtp.gmail.com",
+      "portHint": "استخدم 587 لـ TLS أو 465 لـ SSL. إذا كان 587 محظوراً من قبل مضيفك، جرب 465.",
+      "testEmailPlaceholder": "example@example.com",
+      "userHint": "عنوان البريد الإلكتروني لإرسال الرسائل منه"
+    },
+    "whatsapp": {
+      "title": "إعدادات واتساب",
+      "provider": "المزود",
+      "apiUrl": "رابط API",
+      "apiKey": "مفتاح API",
+      "phoneNumberId": "معرف رقم الهاتف",
+      "accessToken": "رمز الوصول",
+      "accountSid": "معرف الحساب",
+      "authToken": "رمز المصادقة",
+      "from": "من",
+      "test": "اختبار واتساب",
+      "save": "حفظ إعدادات واتساب",
+      "saved": "تم حفظ إعدادات واتساب بنجاح",
+      "testSent": "تم إرسال رسالة اختبار بنجاح",
+      "testFailed": "فشل إرسال رسالة الاختبار"
+    },
+    "zoho": {
+      "title": "إعدادات Zoho",
+      "clientId": "معرف العميل",
+      "clientSecret": "سر العميل",
+      "redirectUri": "رابط إعادة التوجيه",
+      "region": "المنطقة",
+      "connect": "ربط Zoho",
+      "disconnect": "قطع الاتصال",
+      "disconnectConfirm": "هل أنت متأكد من قطع اتصال Zoho؟ سيتم إزالة جميع الرموز المخزنة.",
+      "connected": "متصل",
+      "notConnected": "غير متصل",
+      "expired": "منتهي الصلاحية",
+      "tokenExpiresAt": "ينتهي الرمز في",
+      "save": "حفظ إعدادات Zoho",
+      "saved": "تم حفظ إعدادات Zoho بنجاح"
+    },
+    "security": {
+      "title": "إعدادات الأمان",
+      "accountEmail": "بريد الحساب",
+      "currentPassword": "كلمة المرور الحالية",
+      "newPassword": "كلمة المرور الجديدة",
+      "confirmPassword": "تأكيد كلمة المرور الجديدة",
+      "updatePassword": "تحديث كلمة المرور",
+      "enterCurrentPassword": "أدخل كلمة المرور الحالية",
+      "enterNewPassword": "أدخل كلمة المرور الجديدة (6 أحرف على الأقل)",
+      "confirmNewPassword": "أكد كلمة المرور الجديدة"
+    },
+    "loading": "جاري تحميل الإعدادات...",
+    "manageSettings": "إدارة إعدادات المنشأة والتفضيلات"
+  },
+  "navigation": {
+    "previewMode": "وضع المعاينة",
+    "viewBookingPage": "عرض صفحة الحجز",
+    "viewCustomerPage": "عرض صفحة العميل"
+  },
+  "status": {
+    "pending": "قيد الانتظار",
+    "confirmed": "مؤكد",
+    "checked_in": "تم تسجيل الدخول",
+    "completed": "مكتمل",
+    "cancelled": "ملغى",
+    "unpaid": "غير مدفوع",
+    "paid": "مدفوع",
+    "paid_manual": "مدفوع يدوياً",
+    "awaiting_payment": "في انتظار الدفع",
+    "refunded": "مسترد",
+    "expired": "منتهي"
+  },
+  "dashboard": {
+    "viewMode": {
+      "dashboard": "لوحة التحكم",
+      "calendar": "التقويم"
+    },
+    "expiredBookings": "الحجوزات المنتهية"
+  },
+  "common": {
+    "tip": "نصيحة",
+    "clickSlotMultiple": "انقر على الفترة عدة مرات لتحديدها عدة مرات. انقر بزر الماوس الأيمن أو Ctrl+Click لإزالة واحدة.",
+    "available": "متاح",
+    "total": "الإجمالي",
+    "deleting": "جاري الحذف...",
+    "delete": "حذف",
+    "paid": "مدفوع",
+    "unpaid": "غير مدفوع",
+    "notEnoughCapacity": "⚠️ لا توجد أماكن كافية. المتاح: {{available}}، المطلوب: {{requested}}",
+    "oldTicketsInvalidated": "⚠️ سيتم إلغاء التذاكر القديمة وإنشاء تذاكر جديدة. سيتم إرسال التذاكر الجديدة للعميل عبر البريد الإلكتروني وواتساب.",
+    "capacityForService": "⚠️ لا توجد أماكن كافية لخدمة \"{{service}}\". المتاح: {{available}}، المطلوب: {{requested}}"
   }
 }

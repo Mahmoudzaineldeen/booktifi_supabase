@@ -1,8 +1,9 @@
 full Arabic 
-riyal currency use new ryal currency
+done riyal currency use new ryal currency
 done create packages failed
 search bar in receptionist page
 new customer admin admin remove landing page,settings ,navigation.perview
 new user can only see see bookings and edit them
+the receptionist has the full control on the bookings like the admin
 remove child ticket
 remove cached info in the booking as recptionist

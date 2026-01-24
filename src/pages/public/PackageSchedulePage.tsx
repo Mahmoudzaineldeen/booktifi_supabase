@@ -1478,7 +1478,7 @@ export function PackageSchedulePage() {
                             </div>
                             <div className="flex items-center justify-between pt-2 border-t">
                               <div className="text-base font-bold text-gray-900">
-                                {i18n.language === 'ar' ? 'الإجمالي' : 'Total'}
+                                {t('common.total')}
                               </div>
                               <div className="text-lg font-bold" style={{ color: primaryColor }}>
                                 {formatPrice(totalPrice)}
@@ -1496,9 +1496,11 @@ export function PackageSchedulePage() {
                                 const serviceVisitors = adultCount + childCount;
                                 return (
                                   <p key={idx} className="text-sm text-red-700">
-                                    ⚠️ {i18n.language === 'ar' 
-                                      ? `لا توجد أماكن كافية لخدمة "${i18n.language === 'ar' ? svc.service_name_ar : svc.service_name}". المتاح: ${slot?.available_capacity}, المطلوب: ${serviceVisitors}`
-                                      : `Not enough capacity for service "${i18n.language === 'ar' ? svc.service_name_ar : svc.service_name}". Available: ${slot?.available_capacity}, Requested: ${serviceVisitors}`}
+                                    ⚠️ {t('common.capacityForService', { 
+                                      service: i18n.language === 'ar' ? svc.service_name_ar : svc.service_name,
+                                      available: slot?.available_capacity,
+                                      requested: serviceVisitors
+                                    })}
                                   </p>
                                 );
                               })}

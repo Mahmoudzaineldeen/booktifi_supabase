@@ -176,7 +176,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
             {/* Preview Mode Section */}
             <div className="mt-6 pt-6 border-t border-gray-200">
               <p className="px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                {t('navigation.previewMode') || 'Preview Mode'}
+                {t('navigation.previewMode')}
               </p>
               <Link
                 to={`/${tenantSlug}/book`}
@@ -186,7 +186,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
                 className="flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
               >
                 <Eye className="w-5 h-5" />
-                <span>{t('navigation.viewBookingPage') || 'View Booking Page'}</span>
+                <span>{t('navigation.viewBookingPage')}</span>
                 <ExternalLink className="w-4 h-4 ml-auto" />
               </Link>
               <Link
@@ -197,7 +197,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
                 className="flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
               >
                 <Eye className="w-5 h-5" />
-                <span>{t('navigation.viewCustomerPage') || 'View Customer Page'}</span>
+                <span>{t('navigation.viewCustomerPage')}</span>
                 <ExternalLink className="w-4 h-4 ml-auto" />
               </Link>
             </div>

@@ -524,7 +524,7 @@ export function TenantDashboardContent() {
             }`}
           >
             <Grid className="w-4 h-4 inline-block mr-1 md:mr-2" />
-            <span className="hidden sm:inline">Dashboard</span>
+            <span className="hidden sm:inline">{t('dashboard.viewMode.dashboard')}</span>
           </button>
           <button
             onClick={() => setViewMode('calendar')}
@@ -535,7 +535,7 @@ export function TenantDashboardContent() {
             }`}
           >
             <Calendar className="w-4 h-4 inline-block mr-1 md:mr-2" />
-            <span className="hidden sm:inline">Calendar</span>
+            <span className="hidden sm:inline">{t('dashboard.viewMode.calendar')}</span>
           </button>
         </div>
       </div>
@@ -642,7 +642,7 @@ export function TenantDashboardContent() {
                           booking.status === 'checked_in' ? 'bg-blue-100 text-blue-800' :
                           'bg-yellow-100 text-yellow-800'
                         }`}>
-                          {booking.status}
+                          {t(`status.${booking.status}`) || t(`booking.${booking.status}`) || booking.status}
                         </span>
                       </div>
                       <p className="text-sm text-gray-600">{serviceName}</p>
@@ -677,9 +677,9 @@ export function TenantDashboardContent() {
       {/* Expired Bookings */}
       {expiredBookings.length > 0 && (
         <div className="mt-8">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            {t('dashboard.expiredBookings') || 'Expired Bookings'}
-          </h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">
+              {t('dashboard.expiredBookings')}
+            </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {expiredBookings.map((booking) => {
               const slot = booking.slots;
@@ -698,7 +698,7 @@ export function TenantDashboardContent() {
                           booking.status === 'cancelled' ? 'bg-red-100 text-red-800' :
                           'bg-gray-100 text-gray-800'
                         }`}>
-                          {booking.status}
+                          {t(`status.${booking.status}`) || t(`booking.${booking.status}`) || booking.status}
                         </span>
                       </div>
                       <p className="text-sm text-gray-600">{serviceName}</p>

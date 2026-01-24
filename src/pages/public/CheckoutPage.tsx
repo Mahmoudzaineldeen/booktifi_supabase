@@ -1463,10 +1463,7 @@ export function CheckoutPage() {
                   return slotCapacity !== null && slotCapacity < actualVisitorCount ? (
                     <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                       <p className="text-sm text-red-700">
-                        {i18n.language === 'ar' 
-                          ? `⚠️ لا توجد أماكن كافية. المتاح: ${slotCapacity}، المطلوب: ${actualVisitorCount}`
-                          : `⚠️ Not enough capacity available. Available: ${slotCapacity}, Requested: ${actualVisitorCount}`
-                        }
+                        {t('common.notEnoughCapacity', { available: slotCapacity, requested: actualVisitorCount })}
                       </p>
                     </div>
                   ) : null;

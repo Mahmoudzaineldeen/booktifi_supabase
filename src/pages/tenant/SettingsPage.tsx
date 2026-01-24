@@ -11,7 +11,7 @@ import { Settings, Save, Building2, Lock, Eye, EyeOff, Mail, CheckCircle, XCircl
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { useCurrency } from '../../contexts/CurrencyContext';
-import { getAvailableCurrencies, type Currency } from '../../lib/currency';
+import { getAvailableCurrencies } from '../../lib/currency';
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -136,52 +136,47 @@ export function SettingsPage() {
     }
   }, [tenant]);
 
-  // Load currency settings
+  // Load currency settings - use CurrencyContext as primary source
   useEffect(() => {
-    async function loadCurrencySettings() {
-      if (!userProfile?.tenant_id) return;
-      
-      try {
-        // Try to load from Supabase directly first (more reliable)
-        const { data, error } = await db
-          .from('tenants')
-          .select('currency_code')
-          .eq('id', userProfile.tenant_id)
-          .single();
+    // Use currency from CurrencyContext (which already handles loading)
+    if (currentCurrencyCode) {
+      setSelectedCurrencyCode(currentCurrencyCode);
+    } else {
+      // Fallback to API only if context doesn't have it yet
+      async function loadCurrencyFromAPI() {
+        if (!userProfile?.tenant_id) return;
+        
+        try {
+          const token = localStorage.getItem('auth_token');
+          if (token) {
+            const API_URL = getApiUrl();
+            const response = await fetch(`${API_URL}/tenants/currency`, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+            });
 
-        if (!error && data?.currency_code) {
-          setSelectedCurrencyCode(data.currency_code);
-          return;
-        }
-
-        // Fallback to API if Supabase fails
-        const token = localStorage.getItem('auth_token');
-        if (token) {
-          const API_URL = getApiUrl();
-          const response = await fetch(`${API_URL}/tenants/currency`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            setSelectedCurrencyCode(data.currency_code || 'SAR');
+            if (response.ok) {
+              const data = await response.json();
+              setSelectedCurrencyCode(data.currency_code || 'SAR');
+            } else {
+              // Silently fallback to default - API might not be available
+              setSelectedCurrencyCode('SAR');
+            }
           } else {
-            setSelectedCurrencyCode('SAR'); // Default fallback
+            setSelectedCurrencyCode('SAR');
           }
-        } else {
-          setSelectedCurrencyCode('SAR'); // Default fallback
+        } catch (err) {
+          // Silently handle errors - use default currency
+          console.warn('Could not load currency from API, using default:', err);
+          setSelectedCurrencyCode('SAR');
         }
-      } catch (err) {
-        console.error('Error loading currency settings:', err);
-        setSelectedCurrencyCode('SAR'); // Default fallback
       }
+      
+      loadCurrencyFromAPI();
     }
-
-    loadCurrencySettings();
-  }, [userProfile?.tenant_id]);
+  }, [currentCurrencyCode, userProfile?.tenant_id]);
 
   // Load SMTP settings
   useEffect(() => {
@@ -1099,7 +1094,7 @@ export function SettingsPage() {
       <div className="p-4 md:p-8">
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading settings...</p>
+          <p className="mt-4 text-gray-600">{t('settings.loading')}</p>
         </div>
       </div>
     );
@@ -1109,7 +1104,7 @@ export function SettingsPage() {
     <div className="p-4 md:p-8">
       <div className="mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('navigation.settings')}</h1>
-        <p className="text-sm md:text-base text-gray-600 mt-1">Manage your tenant settings and preferences</p>
+        <p className="text-sm md:text-base text-gray-600 mt-1">{t('settings.manageSettings')}</p>
       </div>
 
       <div className="max-w-3xl">
@@ -1129,7 +1124,7 @@ export function SettingsPage() {
                 value={formData.name || ''}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 required
-                placeholder="Enter business name in English"
+                placeholder={t('tenant.businessNameEnglish')}
               />
 
               <Input
@@ -1210,7 +1205,7 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Lock className="w-5 h-5" />
-                Security Settings
+                {t('settings.security.title')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1227,7 +1222,7 @@ export function SettingsPage() {
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Account Email
+                    {t('settings.security.accountEmail')}
                   </label>
                   <Input
                     type="text"
@@ -1239,14 +1234,14 @@ export function SettingsPage() {
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Current Password
+                    {t('settings.security.currentPassword')}
                   </label>
                   <div className="relative">
                     <Input
                       type={showCurrentPassword ? 'text' : 'password'}
                       value={passwordData.currentPassword}
                       onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-                      placeholder="Enter current password"
+                      placeholder={t('settings.security.enterCurrentPassword')}
                       required
                     />
                     <button
@@ -1261,14 +1256,14 @@ export function SettingsPage() {
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    New Password
+                    {t('settings.security.newPassword')}
                   </label>
                   <div className="relative">
                     <Input
                       type={showNewPassword ? 'text' : 'password'}
                       value={passwordData.newPassword}
                       onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-                      placeholder="Enter new password (min. 6 characters)"
+                      placeholder={t('settings.security.enterNewPassword')}
                       required
                       minLength={6}
                     />
@@ -1284,14 +1279,14 @@ export function SettingsPage() {
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Confirm New Password
+                    {t('settings.security.confirmPassword')}
                   </label>
                   <div className="relative">
                     <Input
                       type={showConfirmPassword ? 'text' : 'password'}
                       value={passwordData.confirmPassword}
                       onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
-                      placeholder="Confirm new password"
+                      placeholder={t('settings.security.confirmNewPassword')}
                       required
                       minLength={6}
                     />
@@ -1311,7 +1306,7 @@ export function SettingsPage() {
                     loading={passwordLoading}
                     icon={<Lock className="w-4 h-4" />}
                   >
-                    Update Password
+                    {t('settings.security.updatePassword')}
                   </Button>
                 </div>
               </form>
@@ -1324,12 +1319,12 @@ export function SettingsPage() {
               <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50">
                 <CardTitle className="flex items-center gap-2 text-xl">
                   <DollarSign className="w-6 h-6 text-green-600" />
-                  {t('settings.currency.title') || 'Currency Settings'}
+                  {t('settings.currency.title')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 pt-6">
                 <p className="text-sm text-gray-600">
-                  {t('settings.currency.description') || 'Select the currency for all financial displays, invoices, and tickets. This affects the entire system.'}
+                  {t('settings.currency.description')}
                 </p>
 
                 {currencyMessage && (
@@ -1371,7 +1366,7 @@ export function SettingsPage() {
                     ))}
                   </select>
                   <p className="text-xs text-gray-500">
-                    {t('settings.currency.hint') || 'This currency will be used for all prices, invoices, and tickets. Existing invoices will keep their original currency.'}
+                    {t('settings.currency.hint')}
                   </p>
                 </div>
 
@@ -1430,7 +1425,7 @@ export function SettingsPage() {
                     loading={currencyLoading}
                     icon={<DollarSign className="w-4 h-4" />}
                   >
-                    {t('settings.currency.save') || 'Save Currency'}
+                    {t('settings.currency.save')}
                   </Button>
                 </div>
               </CardContent>
@@ -1441,7 +1436,7 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Mail className="w-5 h-5" />
-                Email Settings (SMTP)
+                {t('settings.smtp.title')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1470,7 +1465,7 @@ export function SettingsPage() {
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    SMTP Host
+                    {t('settings.smtp.host')}
                   </label>
                   <Input
                     type="text"
@@ -1479,12 +1474,12 @@ export function SettingsPage() {
                     placeholder="smtp.gmail.com"
                     required
                   />
-                  <p className="text-xs text-gray-500">Default: smtp.gmail.com</p>
+                  <p className="text-xs text-gray-500">{t('settings.smtp.defaultHost')}</p>
                 </div>
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    SMTP Port
+                    {t('settings.smtp.port')}
                   </label>
                   <Input
                     type="number"
@@ -1494,14 +1489,13 @@ export function SettingsPage() {
                     required
                   />
                   <p className="text-xs text-gray-500">
-                    Use 587 for TLS or 465 for SSL. 
-                    <strong className="text-orange-600"> If 587 is blocked by your host, try 465.</strong>
+                    {t('settings.smtp.portHint')}
                   </p>
                 </div>
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Email Address
+                    {t('settings.smtp.user')}
                   </label>
                   <Input
                     type="email"
@@ -1510,12 +1504,12 @@ export function SettingsPage() {
                     placeholder="your-email@gmail.com"
                     required
                   />
-                  <p className="text-xs text-gray-500">The email address to send emails from</p>
+                  <p className="text-xs text-gray-500">{t('settings.smtp.user')}</p>
                 </div>
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    App Password
+                    {t('settings.smtp.password')}
                   </label>
                   <div className="relative">
                     <Input
@@ -1557,7 +1551,7 @@ export function SettingsPage() {
                     variant="secondary"
                     icon={<Mail className="w-4 h-4" />}
                   >
-                    Test Connection
+                    {t('settings.smtp.testEmail')}
                   </Button>
                   <Button
                     type="button"
@@ -1568,7 +1562,7 @@ export function SettingsPage() {
                     loading={smtpLoading}
                     icon={<Save className="w-4 h-4" />}
                   >
-                    Save SMTP Settings
+                    {t('settings.smtp.save')}
                   </Button>
                 </div>
               </div>
@@ -1770,7 +1764,7 @@ export function SettingsPage() {
                     loading={whatsappLoading}
                     icon={<Save className="w-4 h-4" />}
                   >
-                    Save WhatsApp Settings
+                    {t('settings.whatsapp.save')}
                   </Button>
                 </div>
               </div>
@@ -1781,7 +1775,7 @@ export function SettingsPage() {
             <CardHeader className="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-t-lg">
               <CardTitle className="flex items-center gap-2 text-white">
                 <FileText className="w-5 h-5" />
-                Zoho Invoice Integration
+                {t('settings.zoho.title')}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6">
@@ -1962,7 +1956,7 @@ export function SettingsPage() {
                       variant="secondary"
                       icon={<XCircle className="w-4 h-4" />}
                     >
-                      Disconnect
+                      {t('settings.zoho.disconnect')}
                     </Button>
                   )}
                   <Button
@@ -1994,7 +1988,7 @@ export function SettingsPage() {
                     loading={zohoLoading}
                     icon={<Save className="w-4 h-4" />}
                   >
-                    Save Zoho Settings
+                    {t('settings.zoho.save')}
                   </Button>
                 </div>
               </div>
