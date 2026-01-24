@@ -957,39 +957,84 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     // Automatically create invoice after booking is created
     // This runs asynchronously so it doesn't block the booking response
     // Invoice is created for ALL bookings with email OR phone
+    // ============================================================================
+    // INVOICE CREATION FLOW
+    // ============================================================================
+    // CRITICAL: Log invoice creation attempt BEFORE the promise
+    console.log(`[Booking Creation] ========================================`);
+    console.log(`[Booking Creation] 🧾 INVOICE CREATION CHECK`);
+    console.log(`[Booking Creation] ========================================`);
+    console.log(`[Booking Creation]    Booking ID: ${bookingId}`);
+    console.log(`[Booking Creation]    Tenant ID: ${tenant_id}`);
+    console.log(`[Booking Creation]    Customer Email: ${customer_email || 'NOT PROVIDED'}`);
+    console.log(`[Booking Creation]    Customer Phone: ${normalizedPhone || customer_phone || 'NOT PROVIDED'}`);
+    console.log(`[Booking Creation]    Has Email: ${!!customer_email}`);
+    console.log(`[Booking Creation]    Has Phone: ${!!(normalizedPhone || customer_phone)}`);
+    console.log(`[Booking Creation]    Will Create Invoice: ${!!(normalizedPhone || customer_phone || customer_email)}`);
+    console.log(`[Booking Creation] ========================================`);
+    
     // Delivery: Email (if email provided), WhatsApp (if phone provided), or both
     // Note: Payment status is not used - invoices are created for all bookings
     // IMPORTANT: Use Promise.resolve().then() for better reliability on Railway
     // This ensures the async operation completes even if the container restarts
     if (normalizedPhone || customer_phone || customer_email) {
+      console.log(`[Booking Creation] ✅ Customer contact available - proceeding with invoice creation`);
+      
       // Use Promise.resolve().then() to ensure invoice creation happens after response is sent
       // This prevents container restarts from interrupting the process
-      Promise.resolve().then(async () => {
+      const invoicePromise = Promise.resolve().then(async () => {
         try {
-          console.log(`[Booking Creation] 🧾 Invoice Flow Started for booking ${bookingId}`);
-          console.log(`[Booking Creation] 📋 Flow: Booking Confirmed → Create Invoice → Send via Email/WhatsApp`);
+          console.log(`[Booking Creation] ========================================`);
+          console.log(`[Booking Creation] 🧾 INVOICE FLOW STARTED`);
+          console.log(`[Booking Creation] ========================================`);
+          console.log(`[Booking Creation]    Booking ID: ${bookingId}`);
+          console.log(`[Booking Creation]    Tenant ID: ${tenant_id}`);
           console.log(`[Booking Creation]    Customer Email: ${customer_email || 'NOT PROVIDED'}`);
           console.log(`[Booking Creation]    Customer Phone: ${normalizedPhone || customer_phone || 'NOT PROVIDED'}`);
+          console.log(`[Booking Creation]    Flow: Booking Confirmed → Create Invoice → Send via Email/WhatsApp`);
+          console.log(`[Booking Creation] ========================================`);
           
           // Check if Zoho is configured for this tenant before attempting invoice creation
-          const { data: zohoConfig } = await supabase
+          console.log(`[Booking Creation] 🔍 Step 1: Checking Zoho configuration...`);
+          const { data: zohoConfig, error: zohoConfigError } = await supabase
             .from('tenant_zoho_configs')
-            .select('id, is_active')
+            .select('id, is_active, client_id, redirect_uri')
             .eq('tenant_id', tenant_id)
             .eq('is_active', true)
-            .single();
+            .maybeSingle();
           
-          const { data: zohoToken } = await supabase
+          if (zohoConfigError) {
+            console.error(`[Booking Creation] ❌ Error checking Zoho config: ${zohoConfigError.message}`);
+            console.error(`[Booking Creation]    Error code: ${zohoConfigError.code}`);
+            console.error(`[Booking Creation]    Error details: ${JSON.stringify(zohoConfigError)}`);
+          }
+          
+          console.log(`[Booking Creation] 🔍 Step 2: Checking Zoho tokens...`);
+          const { data: zohoToken, error: zohoTokenError } = await supabase
             .from('zoho_tokens')
-            .select('id, expires_at')
+            .select('id, expires_at, access_token')
             .eq('tenant_id', tenant_id)
-            .single();
+            .maybeSingle();
+          
+          if (zohoTokenError) {
+            console.error(`[Booking Creation] ❌ Error checking Zoho token: ${zohoTokenError.message}`);
+            console.error(`[Booking Creation]    Error code: ${zohoTokenError.code}`);
+            console.error(`[Booking Creation]    Error details: ${JSON.stringify(zohoTokenError)}`);
+          }
+          
+          console.log(`[Booking Creation] 📊 Configuration Check Results:`);
+          console.log(`[Booking Creation]    Zoho Config exists: ${!!zohoConfig}`);
+          console.log(`[Booking Creation]    Zoho Config active: ${zohoConfig?.is_active || false}`);
+          console.log(`[Booking Creation]    Zoho Config has client_id: ${!!zohoConfig?.client_id}`);
+          console.log(`[Booking Creation]    Zoho Token exists: ${!!zohoToken}`);
           
           if (!zohoConfig || !zohoToken) {
-            console.warn(`[Booking Creation] ⚠️ Zoho Invoice not configured for tenant ${tenant_id}`);
-            console.warn(`[Booking Creation]    Config exists: ${!!zohoConfig}, Token exists: ${!!zohoToken}`);
-            console.warn(`[Booking Creation]    Invoice creation skipped. Please configure Zoho Invoice in Settings → Zoho Integration`);
-            console.warn(`[Booking Creation]    Steps: 1) Add Zoho credentials, 2) Complete OAuth flow, 3) Verify connection`);
+            console.error(`[Booking Creation] ❌ Zoho Invoice not configured for tenant ${tenant_id}`);
+            console.error(`[Booking Creation]    Config exists: ${!!zohoConfig}, Token exists: ${!!zohoToken}`);
+            console.error(`[Booking Creation]    Config error: ${zohoConfigError?.message || 'None'}`);
+            console.error(`[Booking Creation]    Token error: ${zohoTokenError?.message || 'None'}`);
+            console.error(`[Booking Creation]    Invoice creation skipped. Please configure Zoho Invoice in Settings → Zoho Integration`);
+            console.error(`[Booking Creation]    Steps: 1) Add Zoho credentials, 2) Complete OAuth flow, 3) Verify connection`);
             return; // Exit early if Zoho is not configured
           }
           
@@ -997,53 +1042,116 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
           if (zohoToken.expires_at) {
             const expiresAt = new Date(zohoToken.expires_at);
             const now = new Date();
-            if (expiresAt <= now) {
-              console.warn(`[Booking Creation] ⚠️ Zoho token expired for tenant ${tenant_id}`);
-              console.warn(`[Booking Creation]    Token expired at: ${expiresAt.toISOString()}`);
-              console.warn(`[Booking Creation]    Invoice creation skipped. Please refresh Zoho connection in Settings`);
+            const bufferMinutes = 5;
+            const expiresAtWithBuffer = new Date(expiresAt.getTime() - (bufferMinutes * 60 * 1000));
+            
+            console.log(`[Booking Creation] 🔍 Step 3: Checking token expiration...`);
+            console.log(`[Booking Creation]    Token expires at: ${expiresAt.toISOString()}`);
+            console.log(`[Booking Creation]    Current time: ${now.toISOString()}`);
+            console.log(`[Booking Creation]    Time until expiration: ${Math.round((expiresAt.getTime() - now.getTime()) / 1000 / 60)} minutes`);
+            
+            if (expiresAtWithBuffer <= now) {
+              console.error(`[Booking Creation] ❌ Zoho token expired for tenant ${tenant_id}`);
+              console.error(`[Booking Creation]    Token expired at: ${expiresAt.toISOString()}`);
+              console.error(`[Booking Creation]    Current time: ${now.toISOString()}`);
+              console.error(`[Booking Creation]    Invoice creation skipped. Please refresh Zoho connection in Settings`);
               return; // Exit early if token is expired
             }
+          } else {
+            console.warn(`[Booking Creation] ⚠️ Zoho token has no expiration date`);
           }
           
           console.log(`[Booking Creation] ✅ Zoho is configured and connected for tenant ${tenant_id}`);
+          console.log(`[Booking Creation] 🔍 Step 4: Importing ZohoService...`);
           const { zohoService } = await import('../services/zohoService.js');
+          console.log(`[Booking Creation] ✅ ZohoService imported successfully`);
 
           // Follow the exact invoice flow:
           // 1. Booking Confirmed ✓ (already done)
           // 2. Create Invoice in Zoho Invoice
           // 3. Send via Email (if email provided)
           // 4. Download PDF and Send via WhatsApp (if phone provided)
+          console.log(`[Booking Creation] 🔍 Step 5: Calling zohoService.generateReceipt(${bookingId})...`);
+          const startTime = Date.now();
+          
           const invoiceResult = await zohoService.generateReceipt(bookingId);
+          
+          const duration = Date.now() - startTime;
+          console.log(`[Booking Creation] ⏱️ Invoice generation took ${duration}ms`);
+          
           if (invoiceResult.success) {
-            console.log(`[Booking Creation] ✅ Invoice created automatically: ${invoiceResult.invoiceId}`);
+            console.log(`[Booking Creation] ========================================`);
+            console.log(`[Booking Creation] ✅ INVOICE CREATED SUCCESSFULLY`);
+            console.log(`[Booking Creation] ========================================`);
+            console.log(`[Booking Creation]    Invoice ID: ${invoiceResult.invoiceId}`);
+            console.log(`[Booking Creation]    Booking ID: ${bookingId}`);
             console.log(`[Booking Creation]    Email delivery: ${customer_email ? 'WILL ATTEMPT' : 'SKIPPED (no email)'}`);
             console.log(`[Booking Creation]    WhatsApp delivery: ${(normalizedPhone || customer_phone) ? 'WILL ATTEMPT' : 'SKIPPED (no phone)'}`);
+            console.log(`[Booking Creation] ========================================`);
           } else {
-            console.error(`[Booking Creation] ⚠️ Invoice creation failed: ${invoiceResult.error}`);
+            console.error(`[Booking Creation] ========================================`);
+            console.error(`[Booking Creation] ❌ INVOICE CREATION FAILED`);
+            console.error(`[Booking Creation] ========================================`);
+            console.error(`[Booking Creation]    Booking ID: ${bookingId}`);
+            console.error(`[Booking Creation]    Error: ${invoiceResult.error || 'Unknown error'}`);
             console.error(`[Booking Creation]    This may be due to Zoho connection issues. Check server logs for details.`);
             console.error(`[Booking Creation]    Note: Ticket will still be sent even if invoice creation fails.`);
+            console.error(`[Booking Creation] ========================================`);
           }
         } catch (invoiceError: any) {
+          console.error(`[Booking Creation] ========================================`);
+          console.error(`[Booking Creation] ❌ EXCEPTION IN INVOICE CREATION`);
+          console.error(`[Booking Creation] ========================================`);
+          console.error(`[Booking Creation]    Booking ID: ${bookingId}`);
+          console.error(`[Booking Creation]    Error Type: ${invoiceError?.constructor?.name || 'Unknown'}`);
+          console.error(`[Booking Creation]    Error Message: ${invoiceError?.message || 'Unknown error'}`);
+          console.error(`[Booking Creation]    Error Code: ${invoiceError?.code || 'N/A'}`);
+          console.error(`[Booking Creation]    Error Stack: ${invoiceError?.stack || 'No stack trace'}`);
+          
           // Check if error is about missing Zoho configuration
           if (invoiceError.message?.includes('No Zoho token found') || 
               invoiceError.message?.includes('Zoho credentials not configured') ||
               invoiceError.message?.includes('Please complete OAuth flow')) {
-            console.warn(`[Booking Creation] ⚠️ Zoho Invoice not configured: ${invoiceError.message}`);
-            console.warn(`[Booking Creation]    Invoice creation skipped. Please configure Zoho Invoice in Settings → Zoho Integration`);
+            console.error(`[Booking Creation]    Category: Zoho Configuration Missing`);
+            console.error(`[Booking Creation]    Action: Invoice creation skipped. Please configure Zoho Invoice in Settings → Zoho Integration`);
           } else {
-            console.error(`[Booking Creation] ⚠️ Error creating invoice (non-blocking):`, invoiceError.message);
-            console.error(`[Booking Creation]    Error stack:`, invoiceError.stack);
+            console.error(`[Booking Creation]    Category: Unexpected Error`);
+            console.error(`[Booking Creation]    Action: Invoice creation failed but booking was created successfully`);
           }
+          console.error(`[Booking Creation] ========================================`);
+          
           // Don't fail booking if invoice creation fails
         }
-      }).catch((error) => {
-        console.error(`[Booking Creation] ❌ CRITICAL: Unhandled error in invoice generation promise`);
-        console.error(`[Booking Creation]    Error:`, error);
       });
+      
+      // CRITICAL: Add error handler to catch promise rejections
+      invoicePromise.catch((error) => {
+        console.error(`[Booking Creation] ❌ CRITICAL: Unhandled error in invoice generation promise`);
+        console.error(`[Booking Creation]    Error Type: ${error?.constructor?.name || 'Unknown'}`);
+        console.error(`[Booking Creation]    Error Message: ${error?.message || 'Unknown error'}`);
+        console.error(`[Booking Creation]    Error Stack: ${error?.stack || 'No stack trace'}`);
+        console.error(`[Booking Creation]    Full Error:`, JSON.stringify(error, Object.getOwnPropertyNames(error)));
+      });
+      
+      // Log that promise was created
+      console.log(`[Booking Creation] ✅ Invoice creation promise created and queued`);
     } else {
       console.log(`[Booking Creation] ⚠️ Invoice not created (no customer email or phone provided)`);
       console.log(`[Booking Creation]    At least one contact method (email or phone) is required for invoice delivery`);
+      console.log(`[Booking Creation]    Booking was created successfully, but invoice will not be generated`);
     }
+
+    // ============================================================================
+    // FINAL VERIFICATION: Log booking creation success
+    // ============================================================================
+    console.log(`[Booking Creation] ========================================`);
+    console.log(`[Booking Creation] ✅ BOOKING CREATED SUCCESSFULLY`);
+    console.log(`[Booking Creation] ========================================`);
+    console.log(`[Booking Creation]    Booking ID: ${bookingId}`);
+    console.log(`[Booking Creation]    Customer: ${customer_name}`);
+    console.log(`[Booking Creation]    Total Price: ${bookingData.total_price || 'N/A'}`);
+    console.log(`[Booking Creation]    Invoice Creation: ${(normalizedPhone || customer_phone || customer_email) ? 'QUEUED' : 'SKIPPED (no contact)'}`);
+    console.log(`[Booking Creation] ========================================`);
 
     // Return the booking with proper structure
     res.status(201).json({ 
