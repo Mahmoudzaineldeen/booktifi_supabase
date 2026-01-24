@@ -142,18 +142,35 @@ export function SettingsPage() {
       if (!userProfile?.tenant_id) return;
       
       try {
-        const token = localStorage.getItem('auth_token');
-        const API_URL = getApiUrl();
-        const response = await fetch(`${API_URL}/tenants/currency`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
+        // Try to load from Supabase directly first (more reliable)
+        const { data, error } = await db
+          .from('tenants')
+          .select('currency_code')
+          .eq('id', userProfile.tenant_id)
+          .single();
 
-        if (response.ok) {
-          const data = await response.json();
-          setSelectedCurrencyCode(data.currency_code || 'SAR');
+        if (!error && data?.currency_code) {
+          setSelectedCurrencyCode(data.currency_code);
+          return;
+        }
+
+        // Fallback to API if Supabase fails
+        const token = localStorage.getItem('auth_token');
+        if (token) {
+          const API_URL = getApiUrl();
+          const response = await fetch(`${API_URL}/tenants/currency`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            setSelectedCurrencyCode(data.currency_code || 'SAR');
+          } else {
+            setSelectedCurrencyCode('SAR'); // Default fallback
+          }
         } else {
           setSelectedCurrencyCode('SAR'); // Default fallback
         }

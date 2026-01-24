@@ -49,7 +49,7 @@ interface Service {
 export function PackagesPage() {
   const { t, i18n } = useTranslation();
   const { userProfile } = useAuth();
-  const { formatPrice } = useCurrency();
+  const { formatPrice, formatPriceString, getSymbolJSX } = useCurrency();
   const [packages, setPackages] = useState<ServicePackage[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1201,7 +1201,7 @@ export function PackagesPage() {
                   className="w-full px-4 py-3 border-2 border-blue-200 rounded-lg bg-white cursor-not-allowed font-semibold text-gray-700 text-lg"
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">
-                  {formatPrice(0, { showSymbol: true, showDecimals: false }).replace('0', '').trim()}
+                  {getSymbolJSX()}
                 </span>
               </div>
               <p className="text-xs text-gray-600 mt-2 flex items-center gap-1">
@@ -1312,7 +1312,7 @@ export function PackagesPage() {
                     className="font-semibold text-lg"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">
-                    {formatPrice(0, { showSymbol: true, showDecimals: false }).replace('0', '').trim()}
+                    {getSymbolJSX()}
                   </span>
                 </div>
                 <p className="text-xs text-gray-600 mt-2">

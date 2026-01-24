@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { SARIcon } from './SARIcon';
 
 interface CurrencySymbolProps {
   currencyCode: string;
@@ -12,31 +13,9 @@ interface CurrencySymbolProps {
   size?: number;
 }
 
-export function CurrencySymbol({ currencyCode, className = '', size = 16 }: CurrencySymbolProps) {
+export function CurrencySymbol({ currencyCode, className = '', size = 18 }: CurrencySymbolProps) {
   if (currencyCode === 'SAR') {
-    return (
-      <img
-        src="/assets/currency/sar-icon.png"
-        alt="SAR"
-        className={className}
-        style={{ 
-          width: size, 
-          height: size, 
-          display: 'inline-block', 
-          verticalAlign: 'middle',
-          objectFit: 'contain'
-        }}
-        onError={(e) => {
-          // Fallback to text if image fails to load
-          const target = e.target as HTMLImageElement;
-          target.style.display = 'none';
-          const fallback = document.createElement('span');
-          fallback.textContent = 'ر.س';
-          fallback.className = className;
-          target.parentNode?.appendChild(fallback);
-        }}
-      />
-    );
+    return <SARIcon size={size} className={className} />;
   }
 
   // For other currencies, return the text symbol

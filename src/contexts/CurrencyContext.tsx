@@ -9,13 +9,20 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useAuth } from './AuthContext';
 import { db } from '../lib/db';
 import { getCurrency, formatCurrency, type Currency, DEFAULT_CURRENCY } from '../lib/currency';
+import { SARIcon } from '../components/ui/SARIcon';
+
+// SAR icon path - using absolute path from public folder
+// In Vite, files in public/ are served from root, so this path should work
+const SAR_ICON_PATH = '/assets/currency/sar-icon.png';
 
 interface CurrencyContextType {
   currency: Currency;
   currencyCode: string;
   isLoading: boolean;
   formatPrice: (amount: number | string, options?: { showSymbol?: boolean; showDecimals?: boolean }) => string | React.ReactNode;
+  formatPriceString: (amount: number | string, options?: { showSymbol?: boolean; showDecimals?: boolean }) => string; // Always returns string
   getSymbol: () => string;
+  getSymbolJSX: () => React.ReactNode; // Returns JSX for SAR icon, string for others
   refreshCurrency: () => Promise<void>;
   // Helper to check if currency uses an icon
   hasIcon: () => boolean;
@@ -91,9 +98,9 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
       
       if (isNaN(numAmount)) {
         return (
-          <>
-            0 <img src={currency.iconUrl} alt="SAR" style={{ width: 16, height: 16, display: 'inline-block', verticalAlign: 'middle' }} />
-          </>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            0 <SARIcon size={18} />
+          </span>
         );
       }
 
@@ -106,9 +113,9 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
         : formattedInteger;
 
       return (
-        <>
-          {formattedNumber} <img src={currency.iconUrl} alt="SAR" style={{ width: 16, height: 16, display: 'inline-block', verticalAlign: 'middle', marginLeft: '2px' }} />
-        </>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+          {formattedNumber} <SARIcon size={18} />
+        </span>
       );
     }
 
@@ -117,11 +124,32 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
   }, [currencyCode, currency]);
 
   /**
-   * Get currency symbol
+   * Format price as string (always returns string, even for SAR)
+   * Use this when you need string operations like .replace()
+   */
+  const formatPriceString = useCallback((
+    amount: number | string,
+    options?: { showSymbol?: boolean; showDecimals?: boolean }
+  ): string => {
+    return formatCurrency(amount, currencyCode, options);
+  }, [currencyCode]);
+
+  /**
+   * Get currency symbol as string
    */
   const getSymbol = useCallback((): string => {
     return currency.symbol;
   }, [currency]);
+
+  /**
+   * Get currency symbol as JSX (icon for SAR, string for others)
+   */
+  const getSymbolJSX = useCallback((): React.ReactNode => {
+    if (currencyCode === 'SAR') {
+      return <SARIcon size={18} />;
+    }
+    return currency.symbol;
+  }, [currencyCode, currency]);
 
   /**
    * Check if currency has an icon
@@ -142,7 +170,9 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
     currencyCode,
     isLoading,
     formatPrice,
+    formatPriceString,
     getSymbol,
+    getSymbolJSX,
     refreshCurrency,
     hasIcon,
     getIconUrl,
