@@ -175,10 +175,14 @@ export function ReceptionPage() {
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
 
   // Search state
+  type SearchType = 'phone' | 'customer_name' | 'date' | 'service_name' | 'booking_id' | '';
+  const [searchType, setSearchType] = useState<SearchType>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchDate, setSearchDate] = useState<string>(''); // For date picker
   const [searchResults, setSearchResults] = useState<Booking[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [searchValidationError, setSearchValidationError] = useState<string>('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Track if initial auth check has been completed
@@ -657,19 +661,83 @@ export function ReceptionPage() {
     setSubscriptionCountryCode(tenantDefaultCountry);
   }
 
-  // Search bookings function
-  async function searchBookings(query: string) {
-    if (!userProfile?.tenant_id || !query || query.trim().length < 2) {
+  // Validate search input based on search type
+  function validateSearchInput(type: SearchType, value: string): { valid: boolean; error?: string } {
+    if (!type) {
+      return { valid: false, error: t('reception.selectSearchType') || 'Please select a search type first' };
+    }
+
+    if (!value || value.trim().length === 0) {
+      return { valid: false, error: t('reception.enterSearchValue') || 'Please enter a search value' };
+    }
+
+    switch (type) {
+      case 'phone':
+        // Phone should be numeric and at least 5 digits
+        const phoneDigits = value.replace(/\D/g, '');
+        if (phoneDigits.length < 5) {
+          return { valid: false, error: t('reception.phoneMinLength') || 'Phone number must be at least 5 digits' };
+        }
+        break;
+      case 'booking_id':
+        // Booking ID must be a valid UUID format
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(value.trim())) {
+          return { valid: false, error: t('reception.invalidBookingId') || 'Invalid booking ID format' };
+        }
+        break;
+      case 'customer_name':
+        // Name should be at least 2 characters
+        if (value.trim().length < 2) {
+          return { valid: false, error: t('reception.nameMinLength') || 'Name must be at least 2 characters' };
+        }
+        break;
+      case 'service_name':
+        // Service name should be at least 2 characters
+        if (value.trim().length < 2) {
+          return { valid: false, error: t('reception.serviceMinLength') || 'Service name must be at least 2 characters' };
+        }
+        break;
+      case 'date':
+        // Date validation is handled by date picker
+        if (!value) {
+          return { valid: false, error: t('reception.selectDate') || 'Please select a date' };
+        }
+        break;
+    }
+
+    return { valid: true };
+  }
+
+  // Search bookings function with explicit search type
+  async function searchBookings(type: SearchType, value: string) {
+    if (!userProfile?.tenant_id || !type || !value) {
       setSearchResults([]);
       setShowSearchResults(false);
       return;
     }
 
+    // Validate input
+    const validation = validateSearchInput(type, value);
+    if (!validation.valid) {
+      setSearchValidationError(validation.error || '');
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+
+    setSearchValidationError('');
     setIsSearching(true);
     try {
       const API_URL = getApiUrl();
       const session = await db.auth.getSession();
-      const response = await fetch(`${API_URL}/bookings/search?q=${encodeURIComponent(query.trim())}&limit=50`, {
+      
+      // Build query params - only send the selected search type parameter
+      const params = new URLSearchParams();
+      params.append(type, value.trim());
+      params.append('limit', '50');
+
+      const response = await fetch(`${API_URL}/bookings/search?${params.toString()}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -678,7 +746,8 @@ export function ReceptionPage() {
       });
 
       if (!response.ok) {
-        throw new Error('Search failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Search failed');
       }
 
       const result = await response.json();
@@ -707,8 +776,9 @@ export function ReceptionPage() {
 
       setSearchResults(transformedBookings);
       setShowSearchResults(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Search error:', error);
+      setSearchValidationError(error.message || t('reception.searchError') || 'Search failed');
       setSearchResults([]);
       setShowSearchResults(false);
     } finally {
@@ -716,19 +786,62 @@ export function ReceptionPage() {
     }
   }
 
-  // Debounced search handler
+  // Handle search type change
+  const handleSearchTypeChange = (type: SearchType) => {
+    setSearchType(type);
+    setSearchQuery('');
+    setSearchDate('');
+    setSearchResults([]);
+    setShowSearchResults(false);
+    setSearchValidationError('');
+  };
+
+  // Handle search input change
+  const handleSearchInputChange = (value: string) => {
+    if (searchType === 'phone') {
+      // Only allow digits for phone
+      const digitsOnly = value.replace(/\D/g, '');
+      setSearchQuery(digitsOnly);
+    } else if (searchType === 'booking_id') {
+      // Allow UUID format for booking ID
+      setSearchQuery(value);
+    } else {
+      setSearchQuery(value);
+    }
+    setSearchValidationError('');
+  };
+
+  // Handle date change
+  const handleDateChange = (date: string) => {
+    setSearchDate(date);
+    setSearchValidationError('');
+    // Auto-search when date is selected
+    if (date && searchType === 'date') {
+      searchBookings('date', date);
+    } else if (!date) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+    }
+  };
+
+  // Debounced search handler for text inputs
   useEffect(() => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
 
-    if (searchQuery.trim().length >= 2) {
-      searchTimeoutRef.current = setTimeout(() => {
-        searchBookings(searchQuery);
-      }, 300); // 300ms debounce
-    } else {
+    // Only search if search type is selected and not date (date is handled separately)
+    if (searchType && searchType !== 'date' && searchType !== '' && searchQuery.trim().length > 0) {
+      const validation = validateSearchInput(searchType, searchQuery);
+      if (validation.valid) {
+        searchTimeoutRef.current = setTimeout(() => {
+          searchBookings(searchType, searchQuery);
+        }, 300); // 300ms debounce
+      }
+    } else if (searchType === '' || (searchType !== 'date' && searchQuery.trim().length === 0)) {
       setSearchResults([]);
       setShowSearchResults(false);
+      setSearchValidationError('');
     }
 
     return () => {
@@ -736,7 +849,7 @@ export function ReceptionPage() {
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [searchQuery]);
+  }, [searchQuery, searchType]);
 
   async function fetchBookings() {
     if (!userProfile?.tenant_id) return;
@@ -2783,45 +2896,114 @@ export function ReceptionPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Search Bar */}
-        <div className="mb-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <Input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                if (e.target.value.trim().length === 0) {
-                  setShowSearchResults(false);
-                  setSearchResults([]);
-                }
-              }}
-              placeholder={t('reception.searchBookings') || 'Search by phone, name, date, service, or booking ID...'}
-              className="pl-10 pr-10"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => {
-                  setSearchQuery('');
-                  setShowSearchResults(false);
-                  setSearchResults([]);
-                }}
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+        {/* Search Bar with Type Selector */}
+        <div className="mb-6 space-y-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* Search Type Selector */}
+            <div className="w-full sm:w-64">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('reception.searchType') || 'Search By'}
+              </label>
+              <select
+                value={searchType}
+                onChange={(e) => handleSearchTypeChange(e.target.value as SearchType)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               >
-                <X className="w-5 h-5" />
-              </button>
-            )}
+                <option value="">{t('reception.selectSearchType') || 'Select search type...'}</option>
+                <option value="phone">{t('reception.searchByPhone') || 'Customer Phone Number'}</option>
+                <option value="customer_name">{t('reception.searchByName') || 'Customer Name'}</option>
+                <option value="date">{t('reception.searchByDate') || 'Booking Date'}</option>
+                <option value="service_name">{t('reception.searchByService') || 'Service Name'}</option>
+                <option value="booking_id">{t('reception.searchByBookingId') || 'Booking ID'}</option>
+              </select>
+            </div>
+
+            {/* Search Input (conditional based on type) */}
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {searchType === 'date' 
+                  ? (t('reception.selectDate') || 'Select Date')
+                  : (t('reception.searchValue') || 'Search Value')}
+              </label>
+              {searchType === 'date' ? (
+                <Input
+                  type="date"
+                  value={searchDate}
+                  onChange={(e) => handleDateChange(e.target.value)}
+                  className={`w-full ${!searchType ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={!searchType || searchType !== 'date'}
+                />
+              ) : (
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <Input
+                    type={searchType === 'phone' || searchType === 'booking_id' ? 'text' : 'text'}
+                    value={searchQuery}
+                    onChange={(e) => handleSearchInputChange(e.target.value)}
+                    placeholder={
+                      searchType === 'phone' 
+                        ? (t('reception.phonePlaceholder') || 'Enter phone number...')
+                        : searchType === 'booking_id'
+                        ? (t('reception.bookingIdPlaceholder') || 'Enter booking ID (UUID)...')
+                        : searchType === 'customer_name'
+                        ? (t('reception.namePlaceholder') || 'Enter customer name...')
+                        : searchType === 'service_name'
+                        ? (t('reception.servicePlaceholder') || 'Enter service name...')
+                        : (t('reception.selectSearchTypeFirst') || 'Select search type first...')
+                    }
+                    className={`pl-10 pr-10 ${!searchType ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    disabled={!searchType}
+                  />
+                  {(searchQuery || searchDate) && (
+                    <button
+                      onClick={() => {
+                        setSearchQuery('');
+                        setSearchDate('');
+                        setSearchType('');
+                        setShowSearchResults(false);
+                        setSearchResults([]);
+                        setSearchValidationError('');
+                      }}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      title={t('common.clear') || 'Clear'}
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-          {isSearching && (
-            <p className="mt-2 text-sm text-gray-500">{t('common.loading')}...</p>
+
+          {/* Validation Error */}
+          {searchValidationError && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">
+              {searchValidationError}
+            </div>
           )}
-          {showSearchResults && !isSearching && (
-            <p className="mt-2 text-sm text-gray-600">
-              {searchResults.length > 0 
-                ? `${searchResults.length} ${t('reception.searchResults') || 'results found'}`
-                : t('reception.noSearchResults') || 'No results found'}
-            </p>
+
+          {/* Search Status */}
+          {isSearching && (
+            <p className="text-sm text-gray-500">{t('common.loading')}...</p>
+          )}
+          {showSearchResults && !isSearching && searchType && (
+            <div className="flex items-center justify-between text-sm">
+              <p className="text-gray-600">
+                <span className="font-medium">{t('reception.searchingBy') || 'Searching by'}: </span>
+                <span>
+                  {searchType === 'phone' && (t('reception.searchByPhone') || 'Phone Number')}
+                  {searchType === 'customer_name' && (t('reception.searchByName') || 'Customer Name')}
+                  {searchType === 'date' && (t('reception.searchByDate') || 'Booking Date')}
+                  {searchType === 'service_name' && (t('reception.searchByService') || 'Service Name')}
+                  {searchType === 'booking_id' && (t('reception.searchByBookingId') || 'Booking ID')}
+                </span>
+              </p>
+              <p className="text-gray-600">
+                {searchResults.length > 0 
+                  ? `${searchResults.length} ${t('reception.searchResults') || 'results found'}`
+                  : t('reception.noSearchResults') || 'No results found'}
+              </p>
+            </div>
           )}
         </div>
 
@@ -2832,8 +3014,11 @@ export function ReceptionPage() {
               onClick={() => {
                 setActiveTab('today');
                 setSearchQuery('');
+                setSearchDate('');
+                setSearchType('');
                 setShowSearchResults(false);
                 setSearchResults([]);
+                setSearchValidationError('');
               }}
               disabled={showSearchResults}
             >
@@ -2844,8 +3029,11 @@ export function ReceptionPage() {
               onClick={() => {
                 setActiveTab('all');
                 setSearchQuery('');
+                setSearchDate('');
+                setSearchType('');
                 setShowSearchResults(false);
                 setSearchResults([]);
+                setSearchValidationError('');
               }}
               disabled={showSearchResults}
             >

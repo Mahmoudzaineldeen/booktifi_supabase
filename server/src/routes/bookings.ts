@@ -3207,221 +3207,222 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
 // ============================================================================
 // Search bookings (Receptionist and Tenant Admin only)
 // ============================================================================
+// CRITICAL: Only accepts ONE search parameter at a time
+// Valid parameters: phone, customer_name, date, service_name, booking_id
 router.get('/search', authenticateReceptionistOrTenantAdmin, async (req, res) => {
   try {
     const userId = req.user!.id;
     const tenantId = req.user!.tenant_id!;
-    const searchQuery = (req.query.q as string || '').trim();
     const limit = parseInt(req.query.limit as string) || 50;
 
-    if (!searchQuery || searchQuery.length < 2) {
+    // Extract search parameters - only ONE is allowed
+    const phone = req.query.phone as string;
+    const customer_name = req.query.customer_name as string;
+    const date = req.query.date as string;
+    const service_name = req.query.service_name as string;
+    const booking_id = req.query.booking_id as string;
+
+    // Count how many search parameters are provided
+    const searchParams = [phone, customer_name, date, service_name, booking_id].filter(p => p && p.trim().length > 0);
+    
+    if (searchParams.length === 0) {
       return res.status(400).json({ 
-        error: 'Search query must be at least 2 characters long' 
+        error: 'No search parameter provided',
+        hint: 'Provide exactly one of: phone, customer_name, date, service_name, or booking_id'
       });
     }
 
-    // Build search query with multiple filters
-    // Search by: customer phone, customer name, booking ID, service name, date
-    let query = supabase
-      .from('bookings')
-      .select(`
+    if (searchParams.length > 1) {
+      return res.status(400).json({ 
+        error: 'Multiple search parameters provided',
+        hint: 'Provide exactly ONE search parameter: phone, customer_name, date, service_name, or booking_id'
+      });
+    }
+
+    // Base query structure
+    const baseSelect = `
+      id,
+      customer_name,
+      customer_phone,
+      customer_email,
+      visitor_count,
+      adult_count,
+      child_count,
+      total_price,
+      status,
+      payment_status,
+      notes,
+      created_at,
+      booking_group_id,
+      zoho_invoice_id,
+      zoho_invoice_created_at,
+      services:service_id (
         id,
-        customer_name,
-        customer_phone,
-        customer_email,
-        visitor_count,
-        adult_count,
-        child_count,
-        total_price,
-        status,
-        payment_status,
-        notes,
-        created_at,
-        booking_group_id,
-        zoho_invoice_id,
-        zoho_invoice_created_at,
-        services:service_id (
-          id,
-          name,
-          name_ar
-        ),
-        slots:slot_id (
-          id,
-          slot_date,
-          start_time,
-          end_time
-        ),
-        users:employee_id (
-          id,
-          full_name,
-          full_name_ar
-        )
-      `, { count: 'exact' })
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+        name,
+        name_ar
+      ),
+      slots:slot_id (
+        id,
+        slot_date,
+        start_time,
+        end_time
+      ),
+      users:employee_id (
+        id,
+        full_name,
+        full_name_ar
+      )
+    `;
 
-    // Case-insensitive search across multiple fields
-    const searchPattern = `%${searchQuery}%`;
-    
-    // Try to match booking ID first (exact UUID match)
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (uuidRegex.test(searchQuery)) {
-      query = query.eq('id', searchQuery);
-    } else {
-      // Search in customer fields and service names
-      // Use OR conditions for multiple field search
-      query = query.or(`
-        customer_name.ilike.${searchPattern},
-        customer_phone.ilike.${searchPattern},
-        customer_email.ilike.${searchPattern},
-        notes.ilike.${searchPattern}
-      `);
-    }
+    let bookings: any[] = [];
+    let searchType = '';
 
-    const { data: bookings, error, count } = await query;
+    // Handle each search type explicitly - only ONE will execute
+    if (phone && phone.trim().length > 0) {
+      searchType = 'phone';
+      // Validate phone format (should be numeric, at least 5 digits)
+      const phoneDigits = phone.replace(/\D/g, '');
+      if (phoneDigits.length < 5) {
+        return res.status(400).json({ 
+          error: 'Phone number must be at least 5 digits',
+          searchType: 'phone'
+        });
+      }
 
-    if (error) {
-      throw error;
-    }
+      // Search by phone (case-insensitive, partial match)
+      const { data, error } = await supabase
+        .from('bookings')
+        .select(baseSelect, { count: 'exact' })
+        .eq('tenant_id', tenantId)
+        .ilike('customer_phone', `%${phone.trim()}%`)
+        .order('created_at', { ascending: false })
+        .limit(limit);
 
-    // If no direct matches, also search in related tables (services)
-    if (!bookings || bookings.length === 0) {
-      // Search by service name
-      const { data: serviceMatches } = await supabase
+      if (error) throw error;
+      bookings = data || [];
+
+    } else if (customer_name && customer_name.trim().length > 0) {
+      searchType = 'customer_name';
+      // Validate name length
+      if (customer_name.trim().length < 2) {
+        return res.status(400).json({ 
+          error: 'Customer name must be at least 2 characters',
+          searchType: 'customer_name'
+        });
+      }
+
+      // Search by customer name (case-insensitive, partial match)
+      const { data, error } = await supabase
+        .from('bookings')
+        .select(baseSelect, { count: 'exact' })
+        .eq('tenant_id', tenantId)
+        .ilike('customer_name', `%${customer_name.trim()}%`)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+      bookings = data || [];
+
+    } else if (date && date.trim().length > 0) {
+      searchType = 'date';
+      // Validate date format (YYYY-MM-DD)
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(date.trim())) {
+        return res.status(400).json({ 
+          error: 'Invalid date format. Use YYYY-MM-DD',
+          searchType: 'date'
+        });
+      }
+
+      // Search by date - find slots on that date, then bookings for those slots
+      const { data: slotsOnDate, error: slotsError } = await supabase
+        .from('slots')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('slot_date', date.trim())
+        .limit(100);
+
+      if (slotsError) throw slotsError;
+
+      if (slotsOnDate && slotsOnDate.length > 0) {
+        const slotIds = slotsOnDate.map(s => s.id);
+        const { data, error } = await supabase
+          .from('bookings')
+          .select(baseSelect, { count: 'exact' })
+          .eq('tenant_id', tenantId)
+          .in('slot_id', slotIds)
+          .order('created_at', { ascending: false })
+          .limit(limit);
+
+        if (error) throw error;
+        bookings = data || [];
+      } else {
+        bookings = []; // No slots on that date = no bookings
+      }
+
+    } else if (service_name && service_name.trim().length > 0) {
+      searchType = 'service_name';
+      // Validate service name length
+      if (service_name.trim().length < 2) {
+        return res.status(400).json({ 
+          error: 'Service name must be at least 2 characters',
+          searchType: 'service_name'
+        });
+      }
+
+      // Search by service name - find services first, then bookings
+      const { data: serviceMatches, error: serviceError } = await supabase
         .from('services')
         .select('id')
         .eq('tenant_id', tenantId)
-        .or(`name.ilike.${searchPattern},name_ar.ilike.${searchPattern}`)
+        .or(`name.ilike.%${service_name.trim()}%,name_ar.ilike.%${service_name.trim()}%`)
         .limit(10);
+
+      if (serviceError) throw serviceError;
 
       if (serviceMatches && serviceMatches.length > 0) {
         const serviceIds = serviceMatches.map(s => s.id);
-        const { data: bookingsByService } = await supabase
+        const { data, error } = await supabase
           .from('bookings')
-          .select(`
-            id,
-            customer_name,
-            customer_phone,
-            customer_email,
-            visitor_count,
-            adult_count,
-            child_count,
-            total_price,
-            status,
-            payment_status,
-            notes,
-            created_at,
-            booking_group_id,
-            zoho_invoice_id,
-            zoho_invoice_created_at,
-            services:service_id (
-              id,
-              name,
-              name_ar
-            ),
-            slots:slot_id (
-              id,
-              slot_date,
-              start_time,
-              end_time
-            ),
-            users:employee_id (
-              id,
-              full_name,
-              full_name_ar
-            )
-          `)
+          .select(baseSelect, { count: 'exact' })
           .eq('tenant_id', tenantId)
           .in('service_id', serviceIds)
           .order('created_at', { ascending: false })
           .limit(limit);
 
-        if (bookingsByService) {
-          return res.json({
-            bookings: bookingsByService,
-            count: bookingsByService.length,
-            searchQuery
-          });
-        }
+        if (error) throw error;
+        bookings = data || [];
+      } else {
+        bookings = []; // No matching services = no bookings
       }
 
-      // Search by date (try to parse as date)
-      const dateMatch = searchQuery.match(/(\d{4})-(\d{2})-(\d{2})|(\d{2})\/(\d{2})\/(\d{4})/);
-      if (dateMatch) {
-        let dateStr: string;
-        if (dateMatch[1]) {
-          // YYYY-MM-DD format
-          dateStr = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
-        } else {
-          // MM/DD/YYYY format
-          dateStr = `${dateMatch[6]}-${dateMatch[4]}-${dateMatch[5]}`;
-        }
-
-        const { data: slotsOnDate } = await supabase
-          .from('slots')
-          .select('id')
-          .eq('tenant_id', tenantId)
-          .eq('slot_date', dateStr)
-          .limit(100);
-
-        if (slotsOnDate && slotsOnDate.length > 0) {
-          const slotIds = slotsOnDate.map(s => s.id);
-          const { data: bookingsByDate } = await supabase
-            .from('bookings')
-            .select(`
-              id,
-              customer_name,
-              customer_phone,
-              customer_email,
-              visitor_count,
-              adult_count,
-              child_count,
-              total_price,
-              status,
-              payment_status,
-              notes,
-              created_at,
-              booking_group_id,
-              zoho_invoice_id,
-              zoho_invoice_created_at,
-              services:service_id (
-                id,
-                name,
-                name_ar
-              ),
-              slots:slot_id (
-                id,
-                slot_date,
-                start_time,
-                end_time
-              ),
-              users:employee_id (
-                id,
-                full_name,
-                full_name_ar
-              )
-            `)
-            .eq('tenant_id', tenantId)
-            .in('slot_id', slotIds)
-            .order('created_at', { ascending: false })
-            .limit(limit);
-
-          if (bookingsByDate) {
-            return res.json({
-              bookings: bookingsByDate,
-              count: bookingsByDate.length,
-              searchQuery
-            });
-          }
-        }
+    } else if (booking_id && booking_id.trim().length > 0) {
+      searchType = 'booking_id';
+      // Validate UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(booking_id.trim())) {
+        return res.status(400).json({ 
+          error: 'Invalid booking ID format. Must be a valid UUID',
+          searchType: 'booking_id'
+        });
       }
+
+      // Search by booking ID (exact match)
+      const { data, error } = await supabase
+        .from('bookings')
+        .select(baseSelect, { count: 'exact' })
+        .eq('tenant_id', tenantId)
+        .eq('id', booking_id.trim())
+        .limit(limit);
+
+      if (error) throw error;
+      bookings = data || [];
     }
 
     res.json({
       bookings: bookings || [],
       count: bookings?.length || 0,
-      searchQuery
+      searchType
     });
   } catch (error: any) {
     const context = logger.extractContext(req);
