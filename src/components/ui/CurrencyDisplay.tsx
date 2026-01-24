@@ -66,7 +66,7 @@ export function CurrencyDisplay({
     // SAR uses icon
     return (
       <span className={className}>
-        {formattedNumber} <CurrencySymbol currencyCode={currencyCode} size={symbolSize} />
+        {formattedNumber} <CurrencySymbol currencyCode={currencyCode} size={symbolSize || 18} />
       </span>
     );
   }

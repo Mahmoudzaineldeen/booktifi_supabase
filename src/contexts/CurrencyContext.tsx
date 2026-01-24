@@ -9,11 +9,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useAuth } from './AuthContext';
 import { db } from '../lib/db';
 import { getCurrency, formatCurrency, type Currency, DEFAULT_CURRENCY } from '../lib/currency';
-import { SARIcon } from '../components/ui/SARIcon';
-
-// SAR icon path - using absolute path from public folder
-// In Vite, files in public/ are served from root, so this path should work
-const SAR_ICON_PATH = '/assets/currency/sar-icon.png';
 
 interface CurrencyContextType {
   currency: Currency;
@@ -98,9 +93,20 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
       
       if (isNaN(numAmount)) {
         return (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            0 <SARIcon size={18} />
-          </span>
+          <>
+            0 <img 
+              src={currency.iconUrl} 
+              alt="SAR" 
+              style={{ 
+                width: 18, 
+                height: 18, 
+                display: 'inline-block', 
+                verticalAlign: 'middle',
+                marginLeft: '3px',
+                objectFit: 'contain'
+              }} 
+            />
+          </>
         );
       }
 
@@ -113,9 +119,20 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
         : formattedInteger;
 
       return (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-          {formattedNumber} <SARIcon size={18} />
-        </span>
+        <>
+          {formattedNumber} <img 
+            src={currency.iconUrl} 
+            alt="SAR" 
+            style={{ 
+              width: 18, 
+              height: 18, 
+              display: 'inline-block', 
+              verticalAlign: 'middle', 
+              marginLeft: '3px',
+              objectFit: 'contain'
+            }} 
+          />
+        </>
       );
     }
 
@@ -145,8 +162,20 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
    * Get currency symbol as JSX (icon for SAR, string for others)
    */
   const getSymbolJSX = useCallback((): React.ReactNode => {
-    if (currencyCode === 'SAR') {
-      return <SARIcon size={18} />;
+    if (currencyCode === 'SAR' && currency.iconUrl) {
+      return (
+        <img 
+          src={currency.iconUrl} 
+          alt="SAR" 
+          style={{ 
+            width: 18, 
+            height: 18, 
+            display: 'inline-block', 
+            verticalAlign: 'middle',
+            objectFit: 'contain'
+          }} 
+        />
+      );
     }
     return currency.symbol;
   }, [currencyCode, currency]);
