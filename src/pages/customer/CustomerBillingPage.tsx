@@ -353,7 +353,7 @@ export function CustomerBillingPage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">{i18n.language === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
+          <p className="mt-4 text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -386,7 +386,7 @@ export function CustomerBillingPage() {
                 className="flex items-center gap-2"
               >
                 <ArrowLeft className="w-5 h-5" />
-                {i18n.language === 'ar' ? 'العودة' : 'Back'}
+                {t('common.back')}
               </Button>
               <div className="flex items-center gap-3">
                 <div 
@@ -404,7 +404,7 @@ export function CustomerBillingPage() {
                       backgroundImage: `linear-gradient(to right, ${primaryColor}, ${secondaryColor})`
                     }}
                   >
-                    {i18n.language === 'ar' ? 'الفوترة' : 'Billing'}
+                    {t('billing.title')}
                   </h1>
                   <span className="text-sm text-gray-500 font-medium">
                     {tenantName}
@@ -427,12 +427,12 @@ export function CustomerBillingPage() {
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    {i18n.language === 'ar' ? 'جاري التحديث...' : 'Refreshing...'}
+                    {t('common.refreshing')}
                   </>
                 ) : (
                   <>
                     <FileText className="w-4 h-4" />
-                    {i18n.language === 'ar' ? 'تحديث' : 'Refresh'}
+                    {t('common.refresh')}
                   </>
                 )}
               </Button>
@@ -442,7 +442,7 @@ export function CustomerBillingPage() {
                 onClick={() => signOut()}
                 className="flex items-center gap-2"
               >
-                {i18n.language === 'ar' ? 'تسجيل الخروج' : 'Sign Out'}
+                {t('common.signOut')}
               </Button>
             </div>
           </div>
@@ -454,19 +454,17 @@ export function CustomerBillingPage() {
         {loading ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">{i18n.language === 'ar' ? 'جاري تحميل الفواتير...' : 'Loading invoices...'}</p>
+            <p className="mt-4 text-gray-600">{t('billing.loadingInvoices')}</p>
           </div>
         ) : invoices.length === 0 ? (
           <Card className="text-center py-12">
             <CardContent>
               <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-gray-700 mb-2">
-                {i18n.language === 'ar' ? 'لا توجد فواتير' : 'No Invoices'}
+                {t('billing.noInvoices')}
               </h3>
               <p className="text-gray-500 mb-6">
-                {i18n.language === 'ar' 
-                  ? 'لم يتم إنشاء أي فواتير بعد. ستظهر الفواتير هنا بعد إتمام الحجوزات.' 
-                  : 'No invoices have been created yet. Invoices will appear here after completing bookings.'}
+                {t('billing.noInvoicesDescription')}
               </p>
               {process.env.NODE_ENV === 'development' && (
                 <div className="mt-4 p-4 bg-gray-100 rounded text-left text-sm">
@@ -485,7 +483,7 @@ export function CustomerBillingPage() {
                 }}
                 className="mt-4"
               >
-                {i18n.language === 'ar' ? 'العودة إلى لوحة التحكم' : 'Back to Dashboard'}
+                {t('billing.backToDashboard')}
               </Button>
             </CardContent>
           </Card>
@@ -501,7 +499,7 @@ export function CustomerBillingPage() {
                     value={searchInput}
                     onChange={(e) => setSearchInput(e.target.value)}
                     onKeyPress={handleSearchKeyPress}
-                    placeholder={i18n.language === 'ar' ? 'ابحث عن فاتورة...' : 'Search invoices...'}
+                    placeholder={t('billing.searchInvoices')}
                     className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2"
                     style={{
                       borderColor: `${primaryColor}30`,
@@ -535,7 +533,7 @@ export function CustomerBillingPage() {
                     onChange={(e) => setUseLazyLoading(e.target.checked)}
                     className="rounded"
                   />
-                  <span>{i18n.language === 'ar' ? 'تحميل تلقائي' : 'Auto Load'}</span>
+                  <span>{t('common.autoLoad')}</span>
                 </label>
               </div>
             </div>
@@ -561,11 +559,11 @@ export function CustomerBillingPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
                     <h3 className="font-semibold mb-2" style={{ color: primaryColor }}>
-                      {i18n.language === 'ar' ? '🔍 تشخيص: أحدث فاتورة' : '🔍 Diagnostic: Latest Invoice'}
+                      {t('billing.diagnosticLatestInvoice')}
                     </h3>
                     <div className="space-y-1 text-sm">
                       <div>
-                        <span className="font-medium">{i18n.language === 'ar' ? 'من قاعدة البيانات:' : 'From Database:'}</span>{' '}
+                        <span className="font-medium">{t('common.fromDatabase')}</span>{' '}
                         <span className="font-mono">
                           {latestInvoiceFromDB.timestamp 
                             ? format(new Date(latestInvoiceFromDB.timestamp), 'MMM dd, yyyy HH:mm:ss')
@@ -580,7 +578,7 @@ export function CustomerBillingPage() {
                       {invoices.length > 0 && (
                         <>
                           <div>
-                            <span className="font-medium">{i18n.language === 'ar' ? 'المعروض في الصفحة:' : 'Displayed on Page:'}</span>{' '}
+                            <span className="font-medium">{t('common.displayedOnPage')}</span>{' '}
                             <span className="font-mono">
                               {format(new Date(invoices[0].zoho_invoice_created_at || invoices[0].created_at), 'MMM dd, yyyy HH:mm:ss')}
                             </span>
@@ -599,9 +597,9 @@ export function CustomerBillingPage() {
                             return (
                               <div className={`mt-2 p-2 rounded ${isMatch ? 'bg-green-100 text-green-800' : isNewerInDB ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
                                 {isMatch ? (
-                                  <span>✅ {i18n.language === 'ar' ? 'متطابق - جميع الفواتير معروضة' : 'Match - All invoices displayed'}</span>
+                                  <span>✅ {t('common.match')}</span>
                                 ) : isNewerInDB ? (
-                                  <span>⚠️ {i18n.language === 'ar' ? `هناك فواتير أحدث في قاعدة البيانات (${Math.round((dbTime - displayedTime) / 1000)} ثانية)` : `Newer invoices exist in database (${Math.round((dbTime - displayedTime) / 1000)} seconds newer)`}</span>
+                                  <span>⚠️ {t('billing.newerInvoicesInDB', { seconds: Math.round((dbTime - displayedTime) / 1000) })}</span>
                                 ) : (
                                   <span>ℹ️ {i18n.language === 'ar' ? 'الفاتورة المعروضة أحدث من قاعدة البيانات' : 'Displayed invoice is newer than database'}</span>
                                 )}
@@ -622,12 +620,12 @@ export function CustomerBillingPage() {
                     {latestInvoiceFromDB.loading ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        {i18n.language === 'ar' ? 'جاري...' : 'Loading...'}
+                        {t('common.loading')}
                       </>
                     ) : (
                       <>
                         <FileText className="w-4 h-4" />
-                        {i18n.language === 'ar' ? 'تحديث' : 'Refresh'}
+                        {t('common.refresh')}
                       </>
                     )}
                   </Button>
@@ -727,7 +725,7 @@ export function CustomerBillingPage() {
                   }}>
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: primaryColor }}>
-                        {i18n.language === 'ar' ? 'رقم الفاتورة' : 'Invoice Number'}
+                        {t('billing.invoiceNumber')}
                       </p>
                       <p className="font-mono text-sm font-medium bg-white px-3 py-2 rounded border" style={{
                         borderColor: `${primaryColor}20`
@@ -737,7 +735,7 @@ export function CustomerBillingPage() {
                     </div>
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: primaryColor }}>
-                        {i18n.language === 'ar' ? 'تاريخ الإنشاء' : 'Created Date'}
+                        {t('billing.createdDate')}
                       </p>
                       <p className="text-sm font-medium bg-white px-3 py-2 rounded border" style={{
                         borderColor: `${primaryColor}20`
@@ -766,8 +764,8 @@ export function CustomerBillingPage() {
                     >
                       <Download className="w-5 h-5" />
                       {downloadingInvoice === invoice.id 
-                        ? (i18n.language === 'ar' ? 'جاري التنزيل...' : 'Downloading...')
-                        : (i18n.language === 'ar' ? 'تنزيل PDF' : 'Download PDF')}
+                        ? t('billing.downloading')
+                        : t('billing.downloadPdf')}
                     </Button>
                   </div>
                 </CardContent>
@@ -780,7 +778,7 @@ export function CustomerBillingPage() {
                 {loadingMore ? (
                   <div className="flex items-center gap-2 text-gray-600">
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>{i18n.language === 'ar' ? 'جاري التحميل...' : 'Loading more...'}</span>
+                    <span>{t('common.loadingMore')}</span>
                   </div>
                 ) : (
                   <Button
@@ -788,7 +786,7 @@ export function CustomerBillingPage() {
                     variant="ghost"
                     className="flex items-center gap-2"
                   >
-                    {i18n.language === 'ar' ? 'تحميل المزيد' : 'Load More'}
+                    {t('common.loadMore')}
                   </Button>
                 )}
               </div>
@@ -804,7 +802,7 @@ export function CustomerBillingPage() {
                   className="flex items-center gap-2"
                 >
                   <ChevronLeft className="w-4 h-4" />
-                  {i18n.language === 'ar' ? 'السابق' : 'Previous'}
+                  {t('common.previous')}
                 </Button>
                 
                 <div className="flex items-center gap-1">
@@ -847,7 +845,7 @@ export function CustomerBillingPage() {
                   variant="ghost"
                   className="flex items-center gap-2"
                 >
-                  {i18n.language === 'ar' ? 'التالي' : 'Next'}
+                  {t('common.next')}
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>

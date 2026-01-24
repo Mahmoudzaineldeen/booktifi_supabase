@@ -25,6 +25,7 @@ export function WarningModal({
   cancelText = 'Cancel',
   requiresExplicitConfirmation = false,
 }: WarningModalProps) {
+  const { t } = useTranslation();
   const [confirmationText, setConfirmationText] = React.useState('');
   const [understood, setUnderstood] = React.useState(false);
 
@@ -90,13 +91,13 @@ export function WarningModal({
                   className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                 />
                 <label htmlFor="understood" className="ml-2 text-sm text-gray-700">
-                  I understand the consequences of this action
+                  {t('common.iUnderstand')}
                 </label>
               </div>
 
               <div>
                 <label htmlFor="confirmation" className="block text-sm font-medium text-gray-700 mb-1">
-                  Type "CONFIRM" to proceed:
+                  {t('common.typeConfirm')}
                 </label>
                 <input
                   type="text"
@@ -104,7 +105,7 @@ export function WarningModal({
                   value={confirmationText}
                   onChange={(e) => setConfirmationText(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="CONFIRM"
+                  placeholder={t('common.confirmPlaceholder')}
                 />
               </div>
             </div>

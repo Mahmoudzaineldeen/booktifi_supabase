@@ -692,7 +692,7 @@ export function BookingsPage() {
                               <FileText className="w-5 h-5 text-blue-600" />
                               <div>
                                 <h4 className="font-semibold text-blue-900 text-sm">
-                                  {i18n.language === 'ar' ? 'الفاتورة' : 'Invoice'}
+                                  {t('billing.invoice')}
                                 </h4>
                                 <p className="text-xs text-blue-700 font-mono mt-1">
                                   {booking.zoho_invoice_id}
@@ -702,18 +702,18 @@ export function BookingsPage() {
                             {booking.payment_status === 'paid' ? (
                               <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
                                 <CheckCircle className="w-3 h-3" />
-                                {i18n.language === 'ar' ? 'مدفوع' : 'Paid'}
+                                {t('status.paid')}
                               </span>
                             ) : (
                               <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
                                 <XCircle className="w-3 h-3" />
-                                {i18n.language === 'ar' ? 'غير مدفوع' : 'Unpaid'}
+                                {t('status.unpaid')}
                               </span>
                             )}
                           </div>
                           {booking.zoho_invoice_created_at && (
                             <p className="text-xs text-blue-600 mb-3">
-                              {i18n.language === 'ar' ? 'تاريخ الإنشاء:' : 'Created:'}{' '}
+                              {t('billing.created')}{' '}
                               {format(new Date(booking.zoho_invoice_created_at), 'MMM dd, yyyy HH:mm', { locale: i18n.language === 'ar' ? ar : undefined })}
                             </p>
                           )}
@@ -726,8 +726,8 @@ export function BookingsPage() {
                           >
                             <Download className="w-4 h-4" />
                             {downloadingInvoice === booking.id 
-                              ? (i18n.language === 'ar' ? 'جاري التنزيل...' : 'Downloading...')
-                              : (i18n.language === 'ar' ? 'تنزيل PDF' : 'Download PDF')}
+                              ? t('billing.downloading')
+                              : t('billing.downloadPdf')}
                           </Button>
                         </div>
                       ) : (
@@ -759,7 +759,7 @@ export function BookingsPage() {
                             <option value="refunded">{i18n.language === 'ar' ? 'مسترد' : 'Refunded'}</option>
                           </select>
                           {updatingPaymentStatus === booking.id && (
-                            <span className="text-xs text-gray-500">{i18n.language === 'ar' ? 'جاري التحديث...' : 'Updating...'}</span>
+                            <span className="text-xs text-gray-500">{t('bookings.updating')}</span>
                           )}
                         </div>
 
@@ -769,12 +769,12 @@ export function BookingsPage() {
                             {zohoSyncStatus[booking.id].success ? (
                               <span className="text-green-600 flex items-center gap-1">
                                 <CheckCircle className="w-3 h-3" />
-                                {i18n.language === 'ar' ? 'Zoho متزامن' : 'Zoho Synced'}
+                                {t('bookings.zohoSynced')}
                               </span>
                             ) : (
                               <span className="text-red-600 flex items-center gap-1">
                                 <AlertCircle className="w-3 h-3" />
-                                {i18n.language === 'ar' ? 'فشل Zoho' : 'Zoho Failed'}
+                                {t('bookings.zohoFailed')}
                               </span>
                             )}
                           </div>
@@ -799,7 +799,7 @@ export function BookingsPage() {
                           className="flex items-center gap-1 text-sm"
                         >
                           <Clock className="w-4 h-4" />
-                          {i18n.language === 'ar' ? 'تغيير الوقت' : 'Change Time'}
+                          {t('bookings.changeTime')}
                         </Button>
 
                         {/* Delete Button */}
@@ -970,11 +970,11 @@ export function BookingsPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-md">
             <CardContent className="p-6">
-              <h2 className="text-xl font-bold mb-4">{i18n.language === 'ar' ? 'تعديل الحجز' : 'Edit Booking'}</h2>
+              <h2 className="text-xl font-bold mb-4">{t('billing.editBooking')}</h2>
               
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">{i18n.language === 'ar' ? 'اسم العميل' : 'Customer Name'}</label>
+                  <label className="block text-sm font-medium mb-1">{t('billing.customerName')}</label>
                   <input
                     type="text"
                     value={editingBooking.customer_name}
@@ -984,7 +984,7 @@ export function BookingsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">{i18n.language === 'ar' ? 'البريد الإلكتروني' : 'Email'}</label>
+                  <label className="block text-sm font-medium mb-1">{t('billing.email')}</label>
                   <input
                     type="email"
                     value={editingBooking.customer_email || ''}
@@ -994,7 +994,7 @@ export function BookingsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">{i18n.language === 'ar' ? 'عدد الزوار' : 'Visitor Count'}</label>
+                  <label className="block text-sm font-medium mb-1">{t('billing.visitorCount')}</label>
                   <input
                     type="number"
                     min="1"
@@ -1005,7 +1005,7 @@ export function BookingsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">{i18n.language === 'ar' ? 'السعر الإجمالي' : 'Total Price'}</label>
+                  <label className="block text-sm font-medium mb-1">{t('billing.totalPrice')}</label>
                   <input
                     type="number"
                     min="0"
@@ -1017,17 +1017,17 @@ export function BookingsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">{i18n.language === 'ar' ? 'الحالة' : 'Status'}</label>
+                  <label className="block text-sm font-medium mb-1">{t('billing.status')}</label>
                   <select
                     value={editingBooking.status}
                     onChange={(e) => setEditingBooking({ ...editingBooking, status: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   >
-                    <option value="pending">{i18n.language === 'ar' ? 'قيد الانتظار' : 'Pending'}</option>
-                    <option value="confirmed">{i18n.language === 'ar' ? 'مؤكد' : 'Confirmed'}</option>
-                    <option value="checked_in">{i18n.language === 'ar' ? 'تم تسجيل الدخول' : 'Checked In'}</option>
-                    <option value="completed">{i18n.language === 'ar' ? 'مكتمل' : 'Completed'}</option>
-                    <option value="cancelled">{i18n.language === 'ar' ? 'ملغي' : 'Cancelled'}</option>
+                    <option value="pending">{t('status.pending')}</option>
+                    <option value="confirmed">{t('status.confirmed')}</option>
+                    <option value="checked_in">{t('status.checked_in')}</option>
+                    <option value="completed">{t('status.completed')}</option>
+                    <option value="cancelled">{t('status.cancelled')}</option>
                   </select>
                 </div>
               </div>
@@ -1043,7 +1043,7 @@ export function BookingsPage() {
                   })}
                   className="flex-1"
                 >
-                  {i18n.language === 'ar' ? 'حفظ' : 'Save'}
+                  {t('common.save')}
                 </Button>
                 <Button
                   onClick={() => setEditingBooking(null)}
@@ -1063,12 +1063,12 @@ export function BookingsPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <CardContent className="p-6">
-              <h2 className="text-xl font-bold mb-4">{i18n.language === 'ar' ? 'تغيير وقت الحجز' : 'Change Booking Time'}</h2>
+              <h2 className="text-xl font-bold mb-4">{t('bookings.changeBookingTime')}</h2>
               
               <div className="space-y-4">
                 {/* Current Booking Info */}
                 <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <h3 className="text-sm font-semibold mb-2">{i18n.language === 'ar' ? 'الوقت الحالي' : 'Current Time'}</h3>
+                  <h3 className="text-sm font-semibold mb-2">{t('bookings.currentTime')}</h3>
                   <div className="text-sm text-gray-600">
                     <div className="flex items-center gap-2 mb-1">
                       <Calendar className="w-4 h-4" />
@@ -1091,7 +1091,7 @@ export function BookingsPage() {
 
                 {/* New Date Selection */}
                 <div>
-                  <label className="block text-sm font-medium mb-1">{i18n.language === 'ar' ? 'تاريخ جديد' : 'New Date'}</label>
+                  <label className="block text-sm font-medium mb-1">{t('bookings.newDate')}</label>
                   <input
                     type="date"
                     value={format(editingTimeDate, 'yyyy-MM-dd')}
@@ -1107,13 +1107,13 @@ export function BookingsPage() {
                 {/* Available Time Slots */}
                 <div>
                   <label className="block text-sm font-medium mb-1">
-                    {i18n.language === 'ar' ? 'الأوقات المتاحة' : 'Available Time Slots'}
+                    {t('bookings.availableTimeSlots')}
                   </label>
                   {loadingTimeSlots ? (
                     <div className="text-center py-4">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
                       <p className="text-sm text-gray-600 mt-2">
-                        {i18n.language === 'ar' ? 'جاري جلب الأوقات...' : 'Loading available slots...'}
+                        {t('bookings.loadingAvailableSlots')}
                       </p>
                     </div>
                   ) : availableTimeSlots.length === 0 ? (
@@ -1166,8 +1166,8 @@ export function BookingsPage() {
                   className="flex-1"
                 >
                   {updatingBookingTime 
-                    ? (i18n.language === 'ar' ? 'جاري التحديث...' : 'Updating...')
-                    : (i18n.language === 'ar' ? 'تحديث الوقت' : 'Update Time')}
+                    ? t('bookings.updating')
+                    : t('bookings.updateTime')}
                 </Button>
                 <Button
                   onClick={() => {
