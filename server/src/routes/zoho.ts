@@ -3,6 +3,9 @@ import { supabase } from '../db';
 import { zohoService } from '../services/zohoService';
 import { zohoCredentials } from '../config/zohoCredentials';
 import axios from 'axios';
+import jwt from 'jsonwebtoken';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
 const router = express.Router();
 
@@ -636,8 +639,6 @@ router.get('/invoices/:invoiceId/download', async (req, res) => {
     
     if (token) {
       try {
-        const jwt = require('jsonwebtoken');
-        const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
         const decoded = jwt.verify(token, JWT_SECRET) as any;
         userRole = decoded.role;
         userTenantId = decoded.tenant_id;
