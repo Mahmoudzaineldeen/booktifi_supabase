@@ -104,16 +104,35 @@ class ZohoService {
 
     const token: ZohoToken = tokens;
 
-    // Check if token is expired (with 5 minute buffer)
+    // Check if token is expired or expiring soon (with 5 minute buffer)
     const expiresAt = new Date(token.expires_at);
     const now = new Date();
     const buffer = 5 * 60 * 1000; // 5 minutes
+    const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+    const minutesUntilExpiry = Math.round(timeUntilExpiry / 1000 / 60);
 
-    if (expiresAt.getTime() - now.getTime() < buffer) {
-      console.log(`[ZohoService] Token expired or expiring soon, refreshing for tenant ${tenantId}...`);
-      return await this.refreshAccessToken(tenantId, token.refresh_token);
+    console.log(`[ZohoService] getAccessToken() - Token status:`);
+    console.log(`[ZohoService]    Expires at: ${expiresAt.toISOString()}`);
+    console.log(`[ZohoService]    Current time: ${now.toISOString()}`);
+    console.log(`[ZohoService]    Minutes until expiry: ${minutesUntilExpiry}`);
+
+    if (timeUntilExpiry < buffer) {
+      if (timeUntilExpiry <= 0) {
+        console.log(`[ZohoService] Token is expired (${minutesUntilExpiry} minutes ago), refreshing for tenant ${tenantId}...`);
+      } else {
+        console.log(`[ZohoService] Token expires soon (${minutesUntilExpiry} minutes), refreshing for tenant ${tenantId}...`);
+      }
+      try {
+        const newAccessToken = await this.refreshAccessToken(tenantId, token.refresh_token);
+        console.log(`[ZohoService] ✅ Token refreshed successfully`);
+        return newAccessToken;
+      } catch (refreshError: any) {
+        console.error(`[ZohoService] ❌ Failed to refresh token: ${refreshError.message}`);
+        throw new Error(`Failed to refresh Zoho token. Please reconnect Zoho in Settings → Zoho Integration. Error: ${refreshError.message}`);
+      }
     }
 
+    console.log(`[ZohoService] ✅ Token is valid, using existing access token`);
     return token.access_token;
   }
 
@@ -1562,9 +1581,9 @@ class ZohoService {
         };
       }
       
-      // Precondition 3: Token Existence Check (expiration handled by getAccessToken())
+      // Precondition 3: Token Status Check (expiration handled by getAccessToken())
       // CRITICAL: We don't check expiration here because getAccessToken() will auto-refresh
-      // tokens that are close to expiration. We only verify the token exists.
+      // expired or soon-to-expire tokens. We only verify the token record exists.
       if (zohoToken.expires_at) {
         const expiresAt = new Date(zohoToken.expires_at);
         const now = new Date();
@@ -1575,30 +1594,19 @@ class ZohoService {
         console.log(`[ZohoService]    Current time: ${now.toISOString()}`);
         console.log(`[ZohoService]    Minutes until expiry: ${minutesUntilExpiry}`);
         
-        // Only reject if token is actually expired (not just close to expiration)
-        // getAccessToken() will handle auto-refresh for tokens close to expiration
-        if (expiresAt <= now) {
-          const errorMsg = `Zoho connection expired for tenant ${booking.tenant_id}. Token expired at: ${expiresAt.toISOString()}. Please reconnect Zoho in Settings → Zoho Integration`;
-          console.error(`[ZohoService] ❌ PRECONDITION FAILED: ${errorMsg}`);
-          return {
-            invoiceId: '',
-            success: false,
-            error: errorMsg
-          };
+        if (minutesUntilExpiry <= 5) {
+          console.warn(`[ZohoService] ⚠️ Token expires soon (${minutesUntilExpiry} minutes) - getAccessToken() will auto-refresh`);
+        } else if (minutesUntilExpiry > 0) {
+          console.log(`[ZohoService] ✅ Token is valid (expires in ${minutesUntilExpiry} minutes)`);
         } else {
-          // Token exists and is not expired - getAccessToken() will handle refresh if needed
-          if (minutesUntilExpiry <= 5) {
-            console.warn(`[ZohoService] ⚠️ Token expires soon (${minutesUntilExpiry} minutes) - will be auto-refreshed by getAccessToken()`);
-          } else {
-            console.log(`[ZohoService] ✅ Token is valid (expires in ${minutesUntilExpiry} minutes)`);
-          }
-          // Continue - don't block invoice creation for tokens that are still valid
+          console.warn(`[ZohoService] ⚠️ Token is expired (${Math.abs(minutesUntilExpiry)} minutes ago) - getAccessToken() will attempt to refresh using refresh_token`);
         }
+        // Continue - getAccessToken() will handle refresh for expired tokens
       } else {
         console.warn(`[ZohoService] ⚠️ Token has no expiration date - proceeding (getAccessToken() will handle validation)`);
       }
       
-      console.log(`[ZohoService] ✅ Precondition 2: Zoho OAuth tokens exist and are valid`);
+      console.log(`[ZohoService] ✅ Precondition 2: Zoho OAuth tokens exist (getAccessToken() will handle refresh if needed)`);
       
       // Precondition 4: Customer Contact (at least email OR phone)
       const hasEmail = booking.customer_email && booking.customer_email.trim().length > 0;
