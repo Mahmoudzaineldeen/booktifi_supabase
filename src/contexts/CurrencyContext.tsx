@@ -14,9 +14,12 @@ interface CurrencyContextType {
   currency: Currency;
   currencyCode: string;
   isLoading: boolean;
-  formatPrice: (amount: number | string, options?: { showSymbol?: boolean; showDecimals?: boolean }) => string;
+  formatPrice: (amount: number | string, options?: { showSymbol?: boolean; showDecimals?: boolean }) => string | React.ReactNode;
   getSymbol: () => string;
   refreshCurrency: () => Promise<void>;
+  // Helper to check if currency uses an icon
+  hasIcon: () => boolean;
+  getIconUrl: () => string | undefined;
 }
 
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined);
@@ -75,19 +78,63 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Format price using current tenant currency
+   * Returns JSX.Element for SAR (with icon) or string for other currencies
    */
   const formatPrice = useCallback((
     amount: number | string,
     options?: { showSymbol?: boolean; showDecimals?: boolean }
-  ): string => {
+  ): string | React.ReactNode => {
+    // For SAR with icon, return JSX
+    if (currencyCode === 'SAR' && currency.iconUrl && (options?.showSymbol !== false)) {
+      const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+      const currencyData = getCurrency(currencyCode);
+      
+      if (isNaN(numAmount)) {
+        return (
+          <>
+            0 <img src={currency.iconUrl} alt="SAR" style={{ width: 16, height: 16, display: 'inline-block', verticalAlign: 'middle' }} />
+          </>
+        );
+      }
+
+      const parts = numAmount.toFixed(currencyData.decimalPlaces).split('.');
+      const integerPart = parts[0];
+      const decimalPart = parts[1];
+      const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, currencyData.thousandsSeparator);
+      const formattedNumber = options?.showDecimals !== false
+        ? `${formattedInteger}${currencyData.decimalSeparator}${decimalPart}`
+        : formattedInteger;
+
+      return (
+        <>
+          {formattedNumber} <img src={currency.iconUrl} alt="SAR" style={{ width: 16, height: 16, display: 'inline-block', verticalAlign: 'middle', marginLeft: '2px' }} />
+        </>
+      );
+    }
+
+    // For other currencies or when showSymbol is false, return string
     return formatCurrency(amount, currencyCode, options);
-  }, [currencyCode]);
+  }, [currencyCode, currency]);
 
   /**
    * Get currency symbol
    */
   const getSymbol = useCallback((): string => {
     return currency.symbol;
+  }, [currency]);
+
+  /**
+   * Check if currency has an icon
+   */
+  const hasIcon = useCallback((): boolean => {
+    return !!currency.iconUrl;
+  }, [currency]);
+
+  /**
+   * Get icon URL if available
+   */
+  const getIconUrl = useCallback((): string | undefined => {
+    return currency.iconUrl;
   }, [currency]);
 
   const value: CurrencyContextType = {
@@ -97,6 +144,8 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
     formatPrice,
     getSymbol,
     refreshCurrency,
+    hasIcon,
+    getIconUrl,
   };
 
   return (

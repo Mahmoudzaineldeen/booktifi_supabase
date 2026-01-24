@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
+import { CurrencyDisplay } from '../../components/ui/CurrencyDisplay';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';

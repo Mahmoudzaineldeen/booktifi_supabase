@@ -7,7 +7,8 @@
 
 export interface Currency {
   code: string; // ISO 4217 code (SAR, USD, GBP, EUR)
-  symbol: string; // Currency symbol ($, £, €, ر.س)
+  symbol: string; // Currency symbol ($, £, €, ر.س) - used as fallback or for non-React contexts
+  iconUrl?: string; // Optional icon URL for currency symbol (e.g., SAR icon)
   name: string; // Display name in English
   name_ar: string; // Display name in Arabic
   symbolPosition: 'before' | 'after'; // Where symbol appears relative to number
@@ -22,7 +23,8 @@ export interface Currency {
 export const CURRENCIES: Record<string, Currency> = {
   SAR: {
     code: 'SAR',
-    symbol: 'ر.س', // New Saudi Riyal symbol
+    symbol: 'ر.س', // Fallback text symbol (used in non-React contexts like PDFs, emails)
+    iconUrl: '/assets/currency/sar-icon.png', // Icon for React components
     name: 'Saudi Riyal',
     name_ar: 'ريال سعودي',
     symbolPosition: 'after',
