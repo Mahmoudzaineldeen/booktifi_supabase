@@ -13,6 +13,9 @@ interface ImageCarouselProps {
 }
 
 export function ImageCarousel({
+  const { t } = useTranslation();
+  
+export function ImageCarousel({
   images,
   className = '',
   autoPlay = false,
@@ -22,6 +25,7 @@ export function ImageCarousel({
   aspectRatio = '16:9',
   objectFit = 'contain',
 }: ImageCarouselProps) {
+  const { t } = useTranslation();
   const [currentIndex, setCurrentIndex] = useState(0);
 
   // Ensure images is an array
@@ -97,7 +101,7 @@ export function ImageCarousel({
                 goToNext();
               }}
               className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/60 hover:bg-black/80 text-white p-2.5 rounded-full opacity-100 group-hover:opacity-100 transition-all z-20 shadow-lg hover:scale-110"
-              aria-label="Next image"
+              aria-label={t('common.nextImage')}
             >
               <ChevronRight className="w-5 h-5" />
             </button>

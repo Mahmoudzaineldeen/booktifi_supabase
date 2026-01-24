@@ -14,6 +14,7 @@ export function ImageGallery({
   thumbnailSize = 'md',
   showLightbox = true,
 }: ImageGalleryProps) {
+  const { t } = useTranslation();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
@@ -61,7 +62,7 @@ export function ImageGallery({
           <div className="relative group cursor-pointer" onClick={() => openLightbox(safeImages[0], 0)}>
             <img
               src={safeImages[0]}
-              alt="Main"
+              alt={t('common.mainImage')}
               className="w-full h-64 object-cover rounded-lg"
               loading="eager"
               onError={(e) => {
@@ -119,7 +120,7 @@ export function ImageGallery({
           <div className="relative max-w-7xl max-h-full" onClick={(e) => e.stopPropagation()}>
             <img
               src={selectedImage}
-              alt="Lightbox"
+              alt={t('common.lightboxImage')}
               className="max-w-full max-h-[90vh] object-contain"
             />
 
@@ -137,7 +138,7 @@ export function ImageGallery({
                 <button
                   onClick={nextImage}
                   className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/20 hover:bg-white/30 text-white p-3 rounded-full"
-                  aria-label="Next image"
+                  aria-label={t('common.nextImage')}
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

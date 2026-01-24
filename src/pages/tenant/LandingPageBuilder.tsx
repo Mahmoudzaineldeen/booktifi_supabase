@@ -321,8 +321,16 @@ export function LandingPageBuilder() {
         // If no settings exist, keep defaults but mark as loaded
         setLoading(false);
       }
-    } catch (err) {
-      console.error('Error fetching landing page settings:', err);
+    } catch (err: any) {
+      // Handle timeout errors gracefully - don't show error to user, just use defaults
+      if (err?.code === 'TIMEOUT' || err?.message?.includes('timeout') || err?.message?.includes('taking longer')) {
+        console.warn('Landing page settings request timed out. Using default settings. This may be due to Railway cold start.');
+        // Use default settings if timeout occurs - don't retry to avoid further delays
+        // The defaults are already set in useState, so just mark as loaded
+      } else {
+        console.error('Error fetching landing page settings:', err);
+        // On other errors, also use defaults to prevent UI from breaking
+      }
     } finally {
       setLoading(false);
     }
@@ -340,10 +348,10 @@ export function LandingPageBuilder() {
 
       if (error) throw error;
 
-      alert('Landing page settings saved successfully!');
+      alert(t('landingPage.savedSuccessfully'));
     } catch (err: any) {
       console.error('Error saving landing page settings:', err);
-      alert(`Error: ${err.message}`);
+      alert(t('landingPage.saveError', { message: err.message || t('common.error') }));
     } finally {
       setSaving(false);
     }
@@ -353,7 +361,7 @@ export function LandingPageBuilder() {
     if (tenant?.slug) {
       window.open(`/${tenant.slug}/book`, '_blank');
     } else {
-      alert('Tenant slug not available. Please save settings first.');
+      alert(t('landingPage.tenantSlugNotAvailable'));
     }
   }
 
@@ -369,8 +377,8 @@ export function LandingPageBuilder() {
     <div className="p-4 md:p-8 max-w-5xl mx-auto">
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Landing Page Builder</h1>
-          <p className="text-sm md:text-base text-gray-600 mt-1">Customize your public booking page</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('landingPage.title')}</h1>
+          <p className="text-sm md:text-base text-gray-600 mt-1">{t('landingPage.subtitle')}</p>
         </div>
         <div className="flex gap-3">
           <Button
@@ -378,14 +386,14 @@ export function LandingPageBuilder() {
             icon={<Eye className="w-4 h-4" />}
             onClick={handlePreview}
           >
-            Preview
+            {t('landingPage.preview')}
           </Button>
           <Button
             icon={<Save className="w-4 h-4" />}
             onClick={handleSave}
             disabled={saving}
           >
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving ? t('landingPage.saving') : t('landingPage.saveChanges')}
           </Button>
         </div>
       </div>
@@ -393,29 +401,29 @@ export function LandingPageBuilder() {
       <div className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>Hero Section</CardTitle>
+            <CardTitle>{t('landingPage.heroSection')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <Input
-                label="Hero Title (English)"
+                label={t('landingPage.heroTitleEnglish')}
                 value={settings.hero_title}
                 onChange={(e) => setSettings({ ...settings, hero_title: e.target.value })}
               />
               <Input
-                label="Hero Title (Arabic)"
+                label={t('landingPage.heroTitleArabic')}
                 value={settings.hero_title_ar}
                 onChange={(e) => setSettings({ ...settings, hero_title_ar: e.target.value })}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <Input
-                label="Hero Subtitle (English)"
+                label={t('landingPage.heroSubtitleEnglish')}
                 value={settings.hero_subtitle}
                 onChange={(e) => setSettings({ ...settings, hero_subtitle: e.target.value })}
               />
               <Input
-                label="Hero Subtitle (Arabic)"
+                label={t('landingPage.heroSubtitleArabic')}
                 value={settings.hero_subtitle_ar}
                 onChange={(e) => setSettings({ ...settings, hero_subtitle_ar: e.target.value })}
               />
@@ -423,7 +431,7 @@ export function LandingPageBuilder() {
             {/* Hero Image - Upload or URL */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Hero Image (Optional - Legacy)
+                {t('landingPage.heroImageOptional')}
               </label>
               <div className="flex gap-2 mb-2">
                 <button
@@ -435,7 +443,7 @@ export function LandingPageBuilder() {
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                   }`}
                 >
-                  Use URL
+                  {t('landingPage.useUrl')}
                 </button>
                 <button
                   type="button"
@@ -446,14 +454,14 @@ export function LandingPageBuilder() {
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                   }`}
                 >
-                  Upload Image
+                  {t('landingPage.uploadImage')}
                 </button>
               </div>
               {uploadMode.heroImage === 'url' ? (
             <Input
               value={settings.hero_image_url || ''}
               onChange={(e) => setSettings({ ...settings, hero_image_url: e.target.value || null })}
-              placeholder="https://example.com/image.jpg"
+              placeholder={t('landingPage.imageUrlPlaceholder')}
             />
               ) : (
                 <div>
@@ -467,7 +475,7 @@ export function LandingPageBuilder() {
                       // Validate file size (200MB limit)
                       const maxSize = 200 * 1024 * 1024;
                       if (file.size > maxSize) {
-                        alert('File size exceeds 200MB limit');
+                        alert(t('landingPage.fileSizeExceeds'));
                         return;
                       }
                       
@@ -476,14 +484,14 @@ export function LandingPageBuilder() {
                         setSettings({ ...settings, hero_image_url: base64 });
                       } catch (error) {
                         console.error('Error processing image:', error);
-                        alert('Error processing image. Please try again.');
+                        alert(t('landingPage.errorProcessingImage'));
                       }
                     }}
                     className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                   />
                   {settings.hero_image_url && settings.hero_image_url.startsWith('data:') && (
                     <div className="mt-2 flex items-center gap-2">
-                      <img src={settings.hero_image_url} alt="Preview" className="h-20 w-20 object-cover rounded border" />
+                      <img src={settings.hero_image_url} alt={t('landingPage.previewAlt')} className="h-20 w-20 object-cover rounded border" />
                       <button
                         type="button"
                         onClick={() => setSettings({ ...settings, hero_image_url: null })}
@@ -500,7 +508,7 @@ export function LandingPageBuilder() {
             {/* Hero Video - Upload or URL */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Hero Video (YouTube/Vimeo URL or Upload - Optional)
+                {t('landingPage.heroVideoOptional')}
               </label>
               <div className="flex gap-2 mb-2">
                 <button
@@ -512,7 +520,7 @@ export function LandingPageBuilder() {
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                   }`}
                 >
-                  Use URL
+                  {t('landingPage.useUrl')}
                 </button>
                 <button
                   type="button"
@@ -523,14 +531,14 @@ export function LandingPageBuilder() {
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                   }`}
                 >
-                  Upload Video
+                  {t('landingPage.uploadVideo')}
                 </button>
               </div>
               {uploadMode.heroVideo === 'url' ? (
             <Input
               value={settings.hero_video_url || ''}
               onChange={(e) => setSettings({ ...settings, hero_video_url: e.target.value || null })}
-              placeholder="https://youtube.com/watch?v=..."
+              placeholder={t('landingPage.videoUrlPlaceholder')}
             />
               ) : (
                 <div>
@@ -544,7 +552,7 @@ export function LandingPageBuilder() {
                       // Validate file size (200MB limit)
                       const maxSize = 200 * 1024 * 1024;
                       if (file.size > maxSize) {
-                        alert('File size exceeds 200MB limit');
+                        alert(t('landingPage.fileSizeExceeds'));
                         return;
                       }
                       
@@ -553,7 +561,7 @@ export function LandingPageBuilder() {
                         setSettings({ ...settings, hero_video_url: base64 });
                       } catch (error) {
                         console.error('Error processing video:', error);
-                        alert('Error processing video. Please try again.');
+                        alert(t('landingPage.errorProcessingVideo'));
                       }
                     }}
                     className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
@@ -575,7 +583,7 @@ export function LandingPageBuilder() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Hero Images (for carousel) - URLs or Upload
+                {t('landingPage.heroImagesCarousel')}
               </label>
               <div className="mb-2">
                 <input
@@ -590,7 +598,7 @@ export function LandingPageBuilder() {
                     const maxSize = 200 * 1024 * 1024;
                     const invalidFiles = files.filter(file => file.size > maxSize);
                     if (invalidFiles.length > 0) {
-                      alert('One or more files exceed the 200MB limit');
+                      alert(t('landingPage.oneOrMoreFilesExceed'));
                       return;
                     }
                     
@@ -629,7 +637,7 @@ export function LandingPageBuilder() {
                   const urls = e.target.value.split('\n').filter(url => url.trim());
                   setSettings({ ...settings, hero_images: urls });
                 }}
-                placeholder="https://example.com/image1.jpg&#10;https://example.com/image2.jpg&#10;Or upload images above"
+                placeholder={t('landingPage.imagesUrlPlaceholder')}
               />
               {settings.hero_images && settings.hero_images.length > 0 && (
                 <div className="mt-2 grid grid-cols-4 gap-2">
@@ -664,16 +672,16 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Trust Indicators</CardTitle>
+            <CardTitle>{t('landingPage.trustIndicators')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
               <p className="text-sm text-blue-800">
-                <strong>Note:</strong> Rating and review count are automatically calculated from your reviews in the database. You only need to set the trust message here.
+                <strong>{t('common.info')}:</strong> {t('landingPage.trustMessageNote')}
               </p>
             </div>
             <Input
-              label="Trust Message (e.g., 'Loved by thousands of customers')"
+              label={t('landingPage.trustMessageLabel')}
               value={settings.trust_indicators?.message || ''}
               onChange={(e) => setSettings({
                 ...settings,
@@ -682,19 +690,19 @@ export function LandingPageBuilder() {
                   message: e.target.value || undefined,
                 },
               })}
-              placeholder="Loved by thousands of customers"
+              placeholder={t('landingPage.trustMessagePlaceholder')}
             />
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Video Section</CardTitle>
+            <CardTitle>{t('landingPage.videoSection')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Video (YouTube/Vimeo URL or Upload)
+                {t('landingPage.videoLabel')}
               </label>
               <div className="flex gap-2 mb-2">
                 <button
@@ -706,7 +714,7 @@ export function LandingPageBuilder() {
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                   }`}
                 >
-                  Use URL
+                  {t('landingPage.useUrl')}
                 </button>
                 <button
                   type="button"
@@ -717,14 +725,14 @@ export function LandingPageBuilder() {
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                   }`}
                 >
-                  Upload Video
+                  {t('landingPage.uploadVideo')}
                 </button>
               </div>
               {uploadMode.videoSection === 'url' ? (
             <Input
               value={settings.video_url || ''}
               onChange={(e) => setSettings({ ...settings, video_url: e.target.value || null })}
-              placeholder="https://youtube.com/watch?v=..."
+              placeholder={t('landingPage.videoUrlPlaceholder')}
             />
               ) : (
                 <div>
@@ -738,7 +746,7 @@ export function LandingPageBuilder() {
                       // Validate file size (200MB limit)
                       const maxSize = 200 * 1024 * 1024;
                       if (file.size > maxSize) {
-                        alert('File size exceeds 200MB limit');
+                        alert(t('landingPage.fileSizeExceeds'));
                         return;
                       }
                       
@@ -747,7 +755,7 @@ export function LandingPageBuilder() {
                         setSettings({ ...settings, video_url: base64 });
                       } catch (error) {
                         console.error('Error processing video:', error);
-                        alert('Error processing video. Please try again.');
+                        alert(t('landingPage.errorProcessingVideo'));
                       }
                     }}
                     className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
@@ -772,17 +780,17 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>About Section</CardTitle>
+            <CardTitle>{t('landingPage.aboutSection')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <Input
-                label="About Title (English)"
+                label={t('landingPage.aboutTitleEnglish')}
                 value={settings.about_title}
                 onChange={(e) => setSettings({ ...settings, about_title: e.target.value })}
               />
               <Input
-                label="About Title (Arabic)"
+                label={t('landingPage.aboutTitleArabic')}
                 value={settings.about_title_ar}
                 onChange={(e) => setSettings({ ...settings, about_title_ar: e.target.value })}
               />
@@ -790,7 +798,7 @@ export function LandingPageBuilder() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  About Description (English)
+                  {t('landingPage.aboutDescriptionEnglish')}
                 </label>
                 <textarea
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -801,7 +809,7 @@ export function LandingPageBuilder() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  About Description (Arabic)
+                  {t('landingPage.aboutDescriptionArabic')}
                 </label>
                 <textarea
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -816,13 +824,13 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Design & Colors</CardTitle>
+            <CardTitle>{t('tenant.appearance')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Primary Color
+                  {t('landingPage.primaryColor')}
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -840,7 +848,7 @@ export function LandingPageBuilder() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Secondary Color
+                  {t('landingPage.secondaryColor')}
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -865,7 +873,7 @@ export function LandingPageBuilder() {
                   onChange={(e) => setSettings({ ...settings, show_services: e.target.checked })}
                   className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                 />
-                <span className="text-sm font-medium text-gray-700">Show Services Section</span>
+                <span className="text-sm font-medium text-gray-700">{t('service.services')}</span>
               </label>
             </div>
           </CardContent>
@@ -873,22 +881,22 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Contact Information</CardTitle>
+            <CardTitle>{t('landingPage.contactSection')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <Input
-                label="Contact Email"
+                label={t('landingPage.contactEmail')}
                 type="email"
                 value={settings.contact_email || ''}
                 onChange={(e) => setSettings({ ...settings, contact_email: e.target.value || null })}
-                placeholder="contact@example.com"
+                placeholder={t('landingPage.contactEmailPlaceholder')}
               />
               <Input
-                label="Contact Phone"
+                label={t('landingPage.contactPhone')}
                 value={settings.contact_phone || ''}
                 onChange={(e) => setSettings({ ...settings, contact_phone: e.target.value || null })}
-                placeholder="+966 50 123 4567"
+                placeholder={t('landingPage.contactPhonePlaceholder')}
               />
             </div>
           </CardContent>
@@ -896,40 +904,40 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Social Media Links</CardTitle>
+            <CardTitle>{t('landingPage.socialMediaLinks')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <Input
-              label="Facebook URL"
+              label={t('landingPage.facebookUrl')}
               value={settings.social_facebook || ''}
               onChange={(e) => setSettings({ ...settings, social_facebook: e.target.value || null })}
-              placeholder="https://facebook.com/yourpage"
+              placeholder={t('landingPage.facebookUrlPlaceholder')}
             />
             <Input
-              label="Twitter URL"
+              label={t('landingPage.twitterUrl')}
               value={settings.social_twitter || ''}
               onChange={(e) => setSettings({ ...settings, social_twitter: e.target.value || null })}
-              placeholder="https://twitter.com/yourpage"
+              placeholder={t('landingPage.twitterUrlPlaceholder')}
             />
             <Input
-              label="Instagram URL"
+              label={t('landingPage.instagramUrl')}
               value={settings.social_instagram || ''}
               onChange={(e) => setSettings({ ...settings, social_instagram: e.target.value || null })}
-              placeholder="https://instagram.com/yourpage"
+              placeholder={t('landingPage.instagramUrlPlaceholder')}
             />
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>FAQ Section</CardTitle>
+            <CardTitle>{t('landingPage.faqSection')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-4">
               {(settings.faq_items || []).map((faq, index) => (
                 <div key={index} className="border border-gray-200 rounded-lg p-4 space-y-3">
                   <div className="flex justify-between items-center">
-                    <h4 className="font-medium">FAQ {index + 1}</h4>
+                    <h4 className="font-medium">{t('landingPage.faqSection')} {index + 1}</h4>
                     <button
                       type="button"
                       onClick={() => {
@@ -939,12 +947,12 @@ export function LandingPageBuilder() {
                       }}
                       className="text-red-600 hover:text-red-700 text-sm"
                     >
-                      Remove
+                      {t('landingPage.removeFaq')}
                     </button>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <Input
-                      label="Question (English)"
+                      label={t('landingPage.questionEnglish')}
                       value={faq.question}
                       onChange={(e) => {
                         const newFaqs = [...(settings.faq_items || [])];
@@ -953,7 +961,7 @@ export function LandingPageBuilder() {
                       }}
                     />
                     <Input
-                      label="Question (Arabic)"
+                      label={t('landingPage.questionArabic')}
                       value={faq.question_ar || ''}
                       onChange={(e) => {
                         const newFaqs = [...(settings.faq_items || [])];
@@ -964,7 +972,7 @@ export function LandingPageBuilder() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Answer (English)</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t('landingPage.answerEnglish')}</label>
                       <textarea
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                         rows={3}
@@ -977,7 +985,7 @@ export function LandingPageBuilder() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Answer (Arabic)</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t('landingPage.answerArabic')}</label>
                       <textarea
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                         rows={3}
@@ -1005,7 +1013,7 @@ export function LandingPageBuilder() {
                 }}
                 className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-gray-400"
               >
-                + Add FAQ Item
+                + {t('landingPage.addFaq')}
               </button>
             </div>
           </CardContent>

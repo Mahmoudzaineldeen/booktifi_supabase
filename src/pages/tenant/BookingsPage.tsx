@@ -248,7 +248,7 @@ export function BookingsPage() {
 
         if (!response.ok) {
           const errorText = await response.text();
-          throw new Error(`Failed to download invoice: ${response.status} ${response.statusText}. ${errorText}`);
+          throw new Error(t('bookings.failedToDownloadInvoice', { message: `${response.status} ${response.statusText}. ${errorText}` }));
         }
 
         // Get the PDF as a blob
@@ -291,10 +291,8 @@ export function BookingsPage() {
       
     } catch (error: any) {
       console.error('[BookingsPage] Error downloading invoice:', error);
-      const errorMessage = error.message || 'Unknown error occurred';
-      alert(i18n.language === 'ar' 
-        ? `فشل تنزيل الفاتورة: ${errorMessage}. يرجى المحاولة مرة أخرى.` 
-        : `Failed to download invoice: ${errorMessage}. Please try again.`);
+      const errorMessage = error.message || t('common.error');
+      alert(t('bookings.failedToDownloadInvoice', { message: errorMessage }));
       setDownloadingInvoice(null);
     }
   }
@@ -315,21 +313,17 @@ export function BookingsPage() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to update booking');
+        throw new Error(error.error || t('bookings.failedToUpdateBooking', { message: t('common.error') }));
       }
 
       const result = await response.json();
       await fetchBookings(); // Refresh list
       setEditingBooking(null);
       
-      alert(i18n.language === 'ar' 
-        ? 'تم تحديث الحجز بنجاح' 
-        : 'Booking updated successfully');
+      alert(t('bookings.bookingUpdatedSuccessfully'));
     } catch (error: any) {
       console.error('Error updating booking:', error);
-      alert(i18n.language === 'ar' 
-        ? `فشل تحديث الحجز: ${error.message}` 
-        : `Failed to update booking: ${error.message}`);
+      alert(t('bookings.failedToUpdateBooking', { message: error.message }));
     }
   }
 
@@ -341,13 +335,9 @@ export function BookingsPage() {
     // Show appropriate confirmation message based on payment status
     let confirmMessage: string;
     if (isPaid) {
-      confirmMessage = i18n.language === 'ar'
-        ? 'هذا الحجز مدفوع بالفعل. هل أنت متأكد من حذفه؟ لا يمكن التراجع عن هذا الإجراء.'
-        : 'This booking is already paid. Are you sure you want to delete it? This action cannot be undone.';
+      confirmMessage = t('bookings.confirmDeletePaid');
     } else {
-      confirmMessage = i18n.language === 'ar'
-        ? 'هل أنت متأكد من حذف هذا الحجز؟ لا يمكن التراجع عن هذا الإجراء.'
-        : 'Are you sure you want to delete this booking? This action cannot be undone.';
+      confirmMessage = t('bookings.confirmDelete');
     }
 
     if (!confirm(confirmMessage)) {
@@ -373,20 +363,16 @@ export function BookingsPage() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to delete booking');
+        throw new Error(error.error || t('bookings.failedToDeleteBooking', { message: t('common.error') }));
       }
 
       await fetchBookings(); // Refresh list
       setDeletingBooking(null);
       
-      alert(i18n.language === 'ar' 
-        ? 'تم حذف الحجز بنجاح' 
-        : 'Booking deleted successfully');
+      alert(t('bookings.bookingDeletedSuccessfully'));
     } catch (error: any) {
       console.error('Error deleting booking:', error);
-      alert(i18n.language === 'ar' 
-        ? `فشل حذف الحجز: ${error.message}` 
-        : `Failed to delete booking: ${error.message}`);
+      alert(t('bookings.failedToDeleteBooking', { message: error.message }));
       setDeletingBooking(null);
     }
   }
@@ -408,7 +394,7 @@ export function BookingsPage() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to update payment status');
+        throw new Error(error.error || t('bookings.failedToUpdatePaymentStatus', { message: t('common.error') }));
       }
 
       const result = await response.json();
@@ -426,19 +412,13 @@ export function BookingsPage() {
       
       // Show sync status if available
       if (result.zoho_sync && !result.zoho_sync.success) {
-        alert(i18n.language === 'ar' 
-          ? `تم تحديث حالة الدفع، لكن فشل مزامنة Zoho: ${result.zoho_sync.error}` 
-          : `Payment status updated, but Zoho sync failed: ${result.zoho_sync.error}`);
+        alert(t('bookings.paymentStatusUpdatedButZohoFailed', { error: result.zoho_sync.error }));
       } else {
-        alert(i18n.language === 'ar' 
-          ? 'تم تحديث حالة الدفع بنجاح' 
-          : 'Payment status updated successfully');
+        alert(t('bookings.paymentStatusUpdatedSuccessfully'));
       }
     } catch (error: any) {
       console.error('Error updating payment status:', error);
-      alert(i18n.language === 'ar' 
-        ? `فشل تحديث حالة الدفع: ${error.message}` 
-        : `Failed to update payment status: ${error.message}`);
+      alert(t('bookings.failedToUpdatePaymentStatus', { message: error.message }));
       setUpdatingPaymentStatus(null);
     }
   }
@@ -454,9 +434,7 @@ export function BookingsPage() {
     console.log('[BookingsPage] ========================================');
     
     if (!userProfile?.tenant_id || !booking.service_id) {
-      alert(i18n.language === 'ar' 
-        ? 'لا يمكن تعديل وقت الحجز: معلومات غير كافية' 
-        : 'Cannot edit booking time: insufficient information');
+      alert(t('bookings.cannotEditBookingTime'));
       return;
     }
 
@@ -527,9 +505,7 @@ export function BookingsPage() {
       setAvailableTimeSlots(result.slots);
     } catch (error: any) {
       console.error('Error fetching time slots:', error);
-      alert(i18n.language === 'ar' 
-        ? `فشل جلب الأوقات المتاحة: ${error.message}` 
-        : `Failed to fetch available time slots: ${error.message}`);
+      alert(t('bookings.failedToFetchTimeSlots', { message: error.message }));
       setAvailableTimeSlots([]);
     } finally {
       setLoadingTimeSlots(false);
@@ -546,15 +522,11 @@ export function BookingsPage() {
 
   async function updateBookingTime() {
     if (!editingBookingTime || !selectedNewSlotId || !userProfile?.tenant_id) {
-      alert(i18n.language === 'ar' 
-        ? 'يرجى اختيار وقت جديد' 
-        : 'Please select a new time slot');
+      alert(t('bookings.pleaseSelectNewTimeSlot'));
       return;
     }
 
-    if (!confirm(i18n.language === 'ar' 
-      ? 'هل أنت متأكد من تغيير وقت الحجز؟ سيتم إلغاء التذاكر القديمة وإنشاء تذاكر جديدة.' 
-      : 'Are you sure you want to change the booking time? Old tickets will be invalidated and new tickets will be generated.')) {
+    if (!confirm(t('bookings.confirmChangeBookingTime'))) {
       return;
     }
 
@@ -574,7 +546,7 @@ export function BookingsPage() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to update booking time');
+        throw new Error(error.error || t('bookings.failedToUpdateBookingTime', { message: t('common.error') }));
       }
 
       const result = await response.json();
@@ -583,14 +555,10 @@ export function BookingsPage() {
       setSelectedNewSlotId('');
       setAvailableTimeSlots([]);
       
-      alert(i18n.language === 'ar' 
-        ? 'تم تحديث وقت الحجز بنجاح. سيتم إرسال التذاكر الجديدة للعميل.' 
-        : 'Booking time updated successfully. New tickets will be sent to the customer.');
+      alert(t('bookings.bookingTimeUpdatedSuccessfully'));
     } catch (error: any) {
       console.error('Error updating booking time:', error);
-      alert(i18n.language === 'ar' 
-        ? `فشل تحديث وقت الحجز: ${error.message}` 
-        : `Failed to update booking time: ${error.message}`);
+      alert(t('bookings.failedToUpdateBookingTime', { message: error.message }));
     } finally {
       setUpdatingBookingTime(false);
     }
@@ -611,8 +579,8 @@ export function BookingsPage() {
           <div className="flex items-center gap-3">
             <Calendar className="w-8 h-8 text-blue-600" />
             <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Bookings</h1>
-              <p className="text-sm md:text-base text-gray-600 mt-1">View and manage all bookings</p>
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('bookings.title')}</h1>
+              <p className="text-sm md:text-base text-gray-600 mt-1">{t('bookings.subtitle')}</p>
             </div>
           </div>
         </div>
@@ -649,9 +617,9 @@ export function BookingsPage() {
               <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
               <div className="flex items-center justify-center gap-2 mb-2">
                 <Calendar className="w-5 h-5 text-gray-400" />
-                <h3 className="text-lg font-medium text-gray-900">No Bookings Yet</h3>
+                <h3 className="text-lg font-medium text-gray-900">{t('bookings.noBookingsYet')}</h3>
               </div>
-              <p className="text-gray-600">Bookings will appear here once customers start booking</p>
+              <p className="text-gray-600">{t('bookings.bookingsWillAppear')}</p>
             </CardContent>
           </Card>
         ) : (
@@ -734,9 +702,7 @@ export function BookingsPage() {
                         <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
                           <p className="text-xs text-gray-600 flex items-center gap-2">
                             <FileText className="w-4 h-4" />
-                            {i18n.language === 'ar' 
-                              ? 'لا توجد فاتورة لهذا الحجز' 
-                              : 'No invoice for this booking'}
+                            {t('bookings.noInvoiceForBooking')}
                           </p>
                         </div>
                       )}
@@ -752,11 +718,11 @@ export function BookingsPage() {
                             disabled={updatingPaymentStatus === booking.id}
                             className="px-3 py-1 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            <option value="unpaid">{i18n.language === 'ar' ? 'غير مدفوع' : 'Unpaid'}</option>
-                            <option value="awaiting_payment">{i18n.language === 'ar' ? 'في انتظار الدفع' : 'Awaiting Payment'}</option>
-                            <option value="paid">{i18n.language === 'ar' ? 'مدفوع' : 'Paid'}</option>
-                            <option value="paid_manual">{i18n.language === 'ar' ? 'مدفوع يدوياً' : 'Paid (Manual)'}</option>
-                            <option value="refunded">{i18n.language === 'ar' ? 'مسترد' : 'Refunded'}</option>
+                            <option value="unpaid">{t('bookings.unpaid')}</option>
+                            <option value="awaiting_payment">{t('bookings.awaitingPaymentOption')}</option>
+                            <option value="paid">{t('bookings.paid')}</option>
+                            <option value="paid_manual">{t('bookings.paidManualOption')}</option>
+                            <option value="refunded">{t('bookings.refundedOption')}</option>
                           </select>
                           {updatingPaymentStatus === booking.id && (
                             <span className="text-xs text-gray-500">{t('bookings.updating')}</span>
@@ -788,7 +754,7 @@ export function BookingsPage() {
                           className="flex items-center gap-1 text-sm"
                         >
                           <Edit className="w-4 h-4" />
-                          {i18n.language === 'ar' ? 'تعديل' : 'Edit'}
+                          {t('bookings.edit')}
                         </Button>
 
                         {/* Change Time Button */}
@@ -845,7 +811,7 @@ export function BookingsPage() {
                 onClick={() => setCalendarDate(new Date())}
                 className="px-4 py-2 bg-white hover:bg-gray-50 rounded-lg font-medium text-sm transition-colors shadow-sm"
               >
-                Today
+                {t('bookings.today')}
               </button>
               <button
                 onClick={() => setCalendarDate(addDays(calendarDate, 7))}
@@ -864,7 +830,7 @@ export function BookingsPage() {
               <div className="grid grid-cols-8 border-b bg-gradient-to-r from-blue-50 to-indigo-50 sticky top-0 z-10">
                 <div className="px-2 py-3 text-xs font-medium text-gray-500 border-r flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  Time
+                  {t('bookings.time')}
                 </div>
                 {Array.from({ length: 7 }, (_, i) => {
                   const day = addDays(startOfWeek(calendarDate, { weekStartsOn: 0 }), i);
@@ -1050,7 +1016,7 @@ export function BookingsPage() {
                   variant="ghost"
                   className="flex-1"
                 >
-                  {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
+                  {t('common.cancel')}
                 </Button>
               </div>
             </CardContent>
@@ -1119,14 +1085,10 @@ export function BookingsPage() {
                   ) : availableTimeSlots.length === 0 ? (
                     <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                       <p className="text-sm text-yellow-800">
-                        {i18n.language === 'ar' 
-                          ? 'لا توجد أوقات متاحة لهذا التاريخ' 
-                          : 'No available time slots for this date'}
+                        {t('bookings.noAvailableTimeSlots')}
                       </p>
                       <p className="text-xs text-yellow-700 mt-2">
-                        {i18n.language === 'ar'
-                          ? 'تأكد من وجود ورديات ووقتات لهذا التاريخ'
-                          : 'Make sure shifts and slots exist for this date, or try a different date'}
+                        {t('bookings.makeSureShiftsAndSlotsExist')}
                       </p>
                     </div>
                   ) : (
@@ -1179,7 +1141,7 @@ export function BookingsPage() {
                   className="flex-1"
                   disabled={updatingBookingTime}
                 >
-                  {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
+                  {t('common.cancel')}
                 </Button>
               </div>
             </CardContent>

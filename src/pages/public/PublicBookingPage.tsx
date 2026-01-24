@@ -1278,7 +1278,7 @@ export function PublicBookingPage() {
                   {i18n.language === 'ar' ? tenant.name_ar : tenant.name}
                 </h1>
                 <span className="text-sm text-gray-500 font-medium">
-                  {i18n.language === 'ar' ? 'احجز خدماتك الآن' : 'Book Your Services'}
+                  {t('booking.bookYourServices')}
                 </span>
               </div>
             </div>
@@ -1324,7 +1324,7 @@ export function PublicBookingPage() {
                   }}
                 >
                   <User className="w-4 h-4 mr-2" />
-                  {i18n.language === 'ar' ? 'حسابي' : 'My Account'}
+                  {t('booking.myAccount')}
                 </Button>
               ) : (
                 <Button
@@ -1346,7 +1346,7 @@ export function PublicBookingPage() {
                   }}
                 >
                   <User className="w-4 h-4 mr-2" />
-                  {i18n.language === 'ar' ? 'تسجيل الدخول' : 'Sign In'}
+                  {t('booking.signIn')}
                 </Button>
               )}
               <div className="h-6 w-px bg-gray-300"></div>
@@ -1409,12 +1409,12 @@ export function PublicBookingPage() {
           <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 leading-tight">
             {i18n.language === 'ar'
               ? settings.hero_title_ar || 'مرحباً بك في خدماتنا'
-              : settings.hero_title || 'Welcome to Our Services'}
+              : settings.hero_title || t('booking.ourServices'))}
           </h2>
           <p className="text-xl md:text-2xl mb-8 opacity-90 max-w-2xl mx-auto">
             {i18n.language === 'ar'
               ? settings.hero_subtitle_ar || 'احجز موعدك بسهولة عبر الإنترنت'
-              : settings.hero_subtitle || 'Book your appointment online easily'}
+              : settings.hero_subtitle || t('booking.bookYourServices'))}
           </p>
           <button
             onClick={() => document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' })}
@@ -1454,7 +1454,7 @@ export function PublicBookingPage() {
                 </h2>
               </div>
               <p className="text-lg text-gray-600">
-                {i18n.language === 'ar' ? 'اختر الخدمة' : 'Choose Service'}
+                {t('booking.chooseService')}
               </p>
             </div>
 
@@ -1465,7 +1465,7 @@ export function PublicBookingPage() {
                   <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <Input
                     type="text"
-                    placeholder={i18n.language === 'ar' ? 'ابحث عن خدمة...' : 'Search services...'}
+                    placeholder={t('booking.searchServices')}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-12 pr-4 py-3 w-full text-lg border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -1508,7 +1508,7 @@ export function PublicBookingPage() {
                   onClick={() => setSearchQuery('')}
                   className="text-blue-600 hover:text-blue-700 underline mt-2"
                 >
-                  {i18n.language === 'ar' ? 'مسح البحث' : 'Clear search'}
+                  {t('booking.clearSearch')}
                 </button>
               </div>
             ) : (
@@ -1678,7 +1678,7 @@ export function PublicBookingPage() {
                               {i18n.language === 'ar' ? service.name_ar : service.name}
                               {isOffer && (
                                 <span className="ml-2 text-sm font-normal text-gray-500">
-                                  ({i18n.language === 'ar' ? 'عرض خاص' : 'Special Offer'})
+                                  ({t('booking.specialOffer')})
                                 </span>
                               )}
                             </h3>
@@ -1711,7 +1711,7 @@ export function PublicBookingPage() {
                               {isOffer && service.closing_time && (
                                 <div className="flex items-center gap-1">
                                   <Calendar className="w-4 h-4" />
-                                  <span>{i18n.language === 'ar' ? 'إغلاق:' : 'Closes:'} {service.closing_time}</span>
+                                  <span>{t('booking.closes')} {service.closing_time}</span>
                                 </div>
                               )}
                             </div>
@@ -1907,11 +1907,11 @@ export function PublicBookingPage() {
               <div className="flex items-center justify-center gap-3 mb-4">
                 <Package className="w-8 h-8" style={{ color: primaryColor }} />
                 <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
-                  {i18n.language === 'ar' ? 'باقاتنا' : 'Our Packages'}
+                  {t('booking.ourPackages')}
                 </h2>
               </div>
               <p className="text-lg text-gray-600">
-                {i18n.language === 'ar' ? 'اختر باقة' : 'Choose Package'}
+                {t('booking.choosePackage')}
               </p>
             </div>
 
@@ -1972,7 +1972,7 @@ export function PublicBookingPage() {
                       {savePercentage > 0 && (
                         <div className="absolute top-4 right-4">
                           <span className="bg-green-500 text-white px-3 py-1 rounded-full text-xs font-bold shadow-md">
-                            {i18n.language === 'ar' ? `وفر ${savePercentage}%` : `Save ${savePercentage}%`}
+                            {t('booking.save')} {savePercentage}%
                           </span>
                         </div>
                       )}
@@ -2049,7 +2049,7 @@ export function PublicBookingPage() {
           <div className="max-w-5xl mx-auto">
             <div className="text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
-                {i18n.language === 'ar' ? 'آراء العملاء' : 'From happy customers'}
+                {t('booking.fromHappyCustomers')}
               </h2>
               {allReviews.length > 0 && (
                 <p className="text-lg text-gray-600 font-medium">
@@ -2104,8 +2104,8 @@ export function PublicBookingPage() {
                   }}
                   onDelete={async (reviewId) => {
                     const confirmMessage = isServiceProvider
-                      ? (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟ (أنت تحذف كـ service provider)' : 'Are you sure you want to delete this review? (You are deleting as service provider)')
-                      : (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟' : 'Are you sure you want to delete this review?');
+                      ? t('booking.areYouSureDeleteReviewAsProvider')
+                      : t('booking.areYouSureDeleteReview');
                     if (window.confirm(confirmMessage)) {
                       try {
                         // Use centralized API URL utility - import at top of file
@@ -2152,7 +2152,7 @@ export function PublicBookingPage() {
           <div className="max-w-4xl mx-auto">
             <div className="text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-                {i18n.language === 'ar' ? 'الأسئلة الشائعة' : 'Frequently Asked Questions'}
+                {t('booking.frequentlyAskedQuestions')}
               </h2>
             </div>
             <FAQ
@@ -2170,10 +2170,10 @@ export function PublicBookingPage() {
           <div className="max-w-7xl mx-auto">
             <div className="text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-                {i18n.language === 'ar' ? 'خدمات أخرى قد تهمك' : 'You May Also Like'}
+                {t('booking.youMayAlsoLike')}
               </h2>
               <p className="text-lg text-gray-600">
-                {i18n.language === 'ar' ? 'اكتشف المزيد من خدماتنا' : 'Discover more of our services'}
+                {t('booking.discoverMoreServices')}
               </p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -2264,7 +2264,7 @@ export function PublicBookingPage() {
               {(settings.contact_email || settings.contact_phone) && (
                 <div>
                   <h3 className="text-lg font-semibold mb-4">
-                    {i18n.language === 'ar' ? 'اتصل بنا' : 'Contact Us'}
+                    {t('booking.contactUs')}
                   </h3>
                   <div className="space-y-3">
                     {settings.contact_email && (
@@ -2297,7 +2297,7 @@ export function PublicBookingPage() {
               {(settings.social_facebook || settings.social_twitter || settings.social_instagram) && (
                 <div>
                   <h3 className="text-lg font-semibold mb-4">
-                    {i18n.language === 'ar' ? 'تابعنا' : 'Follow Us'}
+                    {t('booking.followUs')}
                   </h3>
                   <div className="flex gap-4">
                     {settings.social_facebook && (
@@ -2322,18 +2322,18 @@ export function PublicBookingPage() {
               {/* Quick Links */}
               <div>
                 <h3 className="text-lg font-semibold mb-4">
-                  {i18n.language === 'ar' ? 'روابط سريعة' : 'Quick Links'}
+                  {t('booking.quickLinks')}
                 </h3>
                 <div className="space-y-2">
                   <a href="#services" className="block text-gray-400 hover:text-white text-sm transition-colors">
-                    {i18n.language === 'ar' ? 'خدماتنا' : 'Our Services'}
+                    {t('booking.ourServices')}
                   </a>
                   <a href="#about" className="block text-gray-400 hover:text-white text-sm transition-colors">
-                    {i18n.language === 'ar' ? 'معلومات عنا' : 'About Us'}
+                    {t('booking.aboutUs')}
                   </a>
                   {faqItems.length > 0 && (
                     <a href="#faq" className="block text-gray-400 hover:text-white text-sm transition-colors">
-                      {i18n.language === 'ar' ? 'الأسئلة الشائعة' : 'FAQ'}
+                      {t('booking.frequentlyAskedQuestions')}
                     </a>
               )}
             </div>
@@ -2344,7 +2344,7 @@ export function PublicBookingPage() {
             {settings.payment_methods && settings.payment_methods.length > 0 && (
               <div className="border-t border-gray-800 mt-8 pt-8">
                 <p className="text-sm text-gray-400 mb-4">
-                  {i18n.language === 'ar' ? 'طرق الدفع المقبولة' : 'We Accept'}
+                  {t('booking.weAccept')}
                 </p>
                 <div className="flex flex-wrap gap-3">
                   {settings.payment_methods.map((method: string, index: number) => (
@@ -2359,7 +2359,7 @@ export function PublicBookingPage() {
             {/* Copyright */}
             <div className="border-t border-gray-800 mt-8 pt-8 text-center">
               <p className="text-gray-400 text-sm">
-                &copy; {new Date().getFullYear()} {i18n.language === 'ar' ? tenant.name_ar : tenant.name}. {i18n.language === 'ar' ? 'جميع الحقوق محفوظة' : 'All rights reserved'}.
+                &copy; {new Date().getFullYear()} {i18n.language === 'ar' ? tenant.name_ar : tenant.name}. {t('booking.allRightsReserved')}.
               </p>
             </div>
           </div>
@@ -2381,7 +2381,7 @@ export function PublicBookingPage() {
           setIsModalOpen(false);
           resetForm();
         }}
-        title={selectedService ? (i18n.language === 'ar' ? selectedService.name_ar : selectedService.name) : 'Book Service'}
+        title={selectedService ? (i18n.language === 'ar' ? selectedService.name_ar : selectedService.name) : t('booking.bookService')}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           {selectedService && (
@@ -2408,7 +2408,7 @@ export function PublicBookingPage() {
                       </span>
                     </div>
                     <div className="text-xs text-blue-700">
-                      {t('booking.completeBooking') || 'Complete booking within'} {Math.floor(bookingLock.seconds_remaining / 60)}:{(bookingLock.seconds_remaining % 60).toString().padStart(2, '0')}
+                      {t('booking.completeBooking')} {Math.floor(bookingLock.seconds_remaining / 60)}:{(bookingLock.seconds_remaining % 60).toString().padStart(2, '0')}
                     </div>
                   </div>
                 </div>
@@ -2509,15 +2509,15 @@ export function PublicBookingPage() {
           </div>
 
           <Input
-            label="Your Name *"
+            label={t('booking.yourNameRequired')}
             value={bookingForm.customer_name}
             onChange={(e) => setBookingForm({ ...bookingForm, customer_name: e.target.value })}
             required
-            placeholder="John Doe"
+            placeholder={t('booking.yourNamePlaceholder')}
           />
 
           <PhoneInput
-            label="Phone Number *"
+            label={t('booking.phoneNumberRequired')}
             value={bookingForm.customer_phone}
             onChange={(value) => setBookingForm({ ...bookingForm, customer_phone: value })}
             defaultCountry="+966"
@@ -2525,7 +2525,7 @@ export function PublicBookingPage() {
           />
 
           <Input
-            label="Email Address"
+            label={t('booking.emailAddress')}
             type="email"
             value={bookingForm.customer_email}
             onChange={(e) => setBookingForm({ ...bookingForm, customer_email: e.target.value })}
@@ -2679,7 +2679,7 @@ export function PublicBookingPage() {
               fullWidth
               onClick={() => setShowCreateAccountPrompt(false)}
             >
-              {t('common.maybeLater') || 'Maybe Later'}
+              {t('booking.maybeLater')}
             </Button>
           </div>
         </div>
@@ -2750,7 +2750,7 @@ export function PublicBookingPage() {
                 {modalServiceImages.length > 0 && (
                   <div className="flex-1 min-h-0 flex flex-col">
                     <h3 className="text-sm font-semibold text-gray-900 mb-3 flex-shrink-0">
-                      {i18n.language === 'ar' ? 'الصور' : 'Photos'}
+                      {t('booking.photos')}
                     </h3>
                     <div className="flex-1 min-h-0 relative bg-gray-50 rounded-lg">
                       <ImageCarousel
@@ -2769,7 +2769,7 @@ export function PublicBookingPage() {
                 {latestReviews.length > 0 && (
                   <div className="flex-shrink-0">
                     <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                      {i18n.language === 'ar' ? `آخر ${latestReviews.length} مراجعات` : `Latest ${latestReviews.length} Reviews`}
+                      {t('booking.latestReviews', { count: latestReviews.length })}
                     </h3>
                     <div className="relative overflow-visible px-0">
                       <ReviewsCarousel

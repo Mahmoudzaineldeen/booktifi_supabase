@@ -26,6 +26,7 @@ export function TestimonialsCarousel({
   autoPlay = false,
   autoPlayInterval = 5000,
 }: TestimonialsCarouselProps) {
+  const { t } = useTranslation();
   const [currentIndex, setCurrentIndex] = useState(0);
 
   // Auto-play functionality
@@ -129,7 +130,7 @@ export function TestimonialsCarousel({
           <button
             onClick={goToNext}
             className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 md:translate-x-12 bg-white rounded-full p-2 shadow-lg hover:shadow-xl transition-shadow text-gray-600 hover:text-blue-600 z-10"
-            aria-label="Next testimonial"
+            aria-label={t('common.nextTestimonial')}
           >
             <ChevronRight className="w-6 h-6" />
           </button>

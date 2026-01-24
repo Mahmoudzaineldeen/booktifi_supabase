@@ -129,7 +129,7 @@ export function CustomerForgotPasswordPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to lookup user');
+        throw new Error(data.error || t('auth.failedToFindAccount'));
       }
 
       if (data.found) {
@@ -177,12 +177,12 @@ export function CustomerForgotPasswordPage() {
 
     // Validate that selected method is available
     if (methodToUse === 'email' && !hasEmail) {
-      setError(i18n.language === 'ar' ? 'البريد الإلكتروني غير متوفر' : 'Email is not available');
+      setError(t('auth.emailNotAvailable'));
       setLoading(false);
       return;
     }
     if (methodToUse === 'whatsapp' && !hasPhone) {
-      setError(i18n.language === 'ar' ? 'رقم الهاتف غير متوفر' : 'Phone number is not available');
+      setError(t('auth.phoneNotAvailable'));
       setLoading(false);
       return;
     }
@@ -464,7 +464,7 @@ export function CustomerForgotPasswordPage() {
                   {tenant ? (i18n.language === 'ar' ? tenant.name_ar : tenant.name) : 'Bookati'}
                 </h1>
                 <span className="text-sm text-gray-500 font-medium">
-                  {i18n.language === 'ar' ? 'احجز خدماتك الآن' : 'Book Your Services'}
+                  {t('booking.bookYourServices')}
                 </span>
               </div>
             </div>
@@ -489,7 +489,7 @@ export function CustomerForgotPasswordPage() {
                 }}
               >
                 <Package className="w-4 h-4 mr-2" />
-                {i18n.language === 'ar' ? 'عرض الخدمات' : 'View Services'}
+                {t('service.viewServices')}
               </Button>
               <div className="h-6 w-px bg-gray-300"></div>
               <LanguageToggle />
@@ -519,7 +519,7 @@ export function CustomerForgotPasswordPage() {
                   <Mail className="w-5 h-5" style={{ color: primaryColor }} />
                   <CardTitle className="text-center">
                     {step === 'username' && (t('auth.forgotPassword') || 'Forgot Password')}
-                    {step === 'confirm' && (i18n.language === 'ar' ? 'تأكيد معلومات الاتصال' : 'Confirm Contact Information')}
+                    {step === 'confirm' && t('auth.confirmContactInformation')}
                     {step === 'otp' && (t('auth.enterOTP') || 'Enter OTP Code')}
                     {step === 'password' && (t('auth.resetPassword') || 'Reset Password')}
                     {step === 'success' && (t('auth.passwordChanged') || 'Success')}
@@ -539,18 +539,17 @@ export function CustomerForgotPasswordPage() {
                   <div className="text-center mb-4">
                     <p className="text-sm text-gray-600">
                       {i18n.language === 'ar' 
-                        ? 'أدخل اسم المستخدم أو البريد الإلكتروني أو رقم الهاتف للبحث عن حسابك'
-                        : 'Enter your username, email, or phone number to find your account'}
+                        : t('auth.enterIdentifier')}
                     </p>
                   </div>
                   
                   <Input
                     type="text"
-                    label={i18n.language === 'ar' ? 'اسم المستخدم أو البريد الإلكتروني أو رقم الهاتف' : 'Username, Email, or Phone'}
+                    label={t('auth.usernameEmailOrPhoneLabel')}
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
                     required
-                    placeholder={i18n.language === 'ar' ? 'username أو email@example.com أو +966501234567' : 'username, email@example.com, or +966501234567'}
+                    placeholder={t('auth.usernameEmailOrPhonePlaceholder')}
                     autoFocus
                   />
 
@@ -563,7 +562,7 @@ export function CustomerForgotPasswordPage() {
                       color: 'white'
                     }}
                   >
-                    {i18n.language === 'ar' ? 'البحث' : 'Search'}
+                    {t('auth.search')}
                   </Button>
                 </form>
               )}
@@ -606,7 +605,7 @@ export function CustomerForgotPasswordPage() {
                                 style={method === 'email' ? { color: primaryColor } : {}} />
                               <div className="flex-1">
                                 <div className="font-medium text-gray-900">
-                                  {i18n.language === 'ar' ? 'إرسال إلى البريد الإلكتروني' : 'Send code to your email'}
+                                  {t('auth.sendCodeToEmail')}
                                 </div>
                                 <div className="text-sm text-gray-600 mt-1">
                                   {maskedEmail || 'N/A'}
@@ -642,7 +641,7 @@ export function CustomerForgotPasswordPage() {
                                 style={method === 'whatsapp' ? { color: primaryColor } : {}} />
                               <div className="flex-1">
                                 <div className="font-medium text-gray-900">
-                                  {i18n.language === 'ar' ? 'إرسال إلى رقم الهاتف عبر WhatsApp' : 'Send code to your phone via WhatsApp'}
+                                  {t('auth.sendCodeToWhatsApp')}
                                 </div>
                                 <div className="text-sm text-gray-600 mt-1">
                                   {maskedPhone || 'N/A'}
@@ -661,7 +660,7 @@ export function CustomerForgotPasswordPage() {
                         <p className="text-sm text-red-700">
                           {i18n.language === 'ar' 
                             ? 'لا توجد معلومات اتصال متاحة لهذا الحساب'
-                            : 'No contact information available for this account'}
+                            : t('auth.noContactInformationAvailable')}
                         </p>
                       </div>
                     )}
@@ -676,7 +675,7 @@ export function CustomerForgotPasswordPage() {
                       setError('');
                     }}
                   >
-                    {i18n.language === 'ar' ? 'العودة' : 'Back'}
+                    {t('auth.back')}
                   </Button>
                 </div>
               )}
@@ -687,7 +686,7 @@ export function CustomerForgotPasswordPage() {
                   <p className="text-sm text-gray-600 mb-2">
                     {i18n.language === 'ar' 
                       ? `أدخل رمز التحقق الذي أرسلناه ${method === 'email' ? `إلى ${maskedEmail || 'البريد الإلكتروني'}` : `على ${maskedPhone || 'WhatsApp'}`}`
-                      : `Enter the verification code sent ${method === 'email' ? `to ${maskedEmail || 'your email'}` : `to ${maskedPhone || 'your WhatsApp'}`}`}
+                      : t('auth.enterVerificationCodeSent', { method: method === 'email' ? maskedEmail || t('auth.yourEmail') : maskedPhone || t('auth.yourWhatsApp') })}
                   </p>
                   {import.meta.env.DEV && (
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800 mb-2">
@@ -731,7 +730,7 @@ export function CustomerForgotPasswordPage() {
                       e.currentTarget.style.borderColor = primaryColor;
                     }}
                   >
-                    {i18n.language === 'ar' ? 'تحقق' : t('auth.verify') || 'Verify'}
+                    {t('auth.verify')}
                   </Button>
                   <div className="flex gap-2">
                     <Button
@@ -744,7 +743,7 @@ export function CustomerForgotPasswordPage() {
                         setError('');
                       }}
                     >
-                      {i18n.language === 'ar' ? 'تغيير طريقة الإرسال' : t('auth.changeMethod') || 'Change Delivery Method'}
+                      {t('auth.changeMethod')}
                     </Button>
                     <Button
                       type="button"
@@ -803,7 +802,7 @@ export function CustomerForgotPasswordPage() {
                       <Lock className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
                       <Input
                         type={showPassword ? 'text' : 'password'}
-                        label={i18n.language === 'ar' ? 'تأكيد كلمة المرور (اختياري)' : 'Confirm Password (Optional)'}
+                        label={t('auth.confirmPasswordOptional')}
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         minLength={6}
@@ -840,7 +839,7 @@ export function CustomerForgotPasswordPage() {
                         e.currentTarget.style.borderColor = primaryColor;
                       }}
                     >
-                      {i18n.language === 'ar' ? 'تغيير كلمة المرور' : t('auth.changePassword') || 'Change Password'}
+                      {t('auth.changePassword')}
                     </Button>
                   </form>
                   <div className="relative">
@@ -849,7 +848,7 @@ export function CustomerForgotPasswordPage() {
                     </div>
                     <div className="relative flex justify-center text-sm">
                       <span className="px-2 bg-white text-gray-500">
-                        {i18n.language === 'ar' ? 'أو' : 'OR'}
+                        {t('auth.or')}
                       </span>
                     </div>
                   </div>
@@ -872,7 +871,7 @@ export function CustomerForgotPasswordPage() {
                       e.currentTarget.style.color = primaryColor;
                     }}
                   >
-                    {i18n.language === 'ar' ? 'متابعة بدون تغيير كلمة المرور' : t('auth.continueWithoutChange') || 'Continue Without Changing Password'}
+                    {t('auth.continueWithoutChange')}
                   </Button>
                 </div>
               )}

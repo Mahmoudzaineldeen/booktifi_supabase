@@ -66,7 +66,7 @@ export function LoginPage() {
     // Customers should use the customer-specific login page
     if (userProfile.role === 'customer') {
       console.warn('[LoginPage] Security: Customer attempted to login through admin/employee login page', { email: loginEmail, userId: userProfile.id });
-      setError('Access denied: This login page is for administrators, service providers, and employees only. Customers must use the customer login page.');
+      setError(t('auth.accessDeniedAdminOnly'));
       setLoading(false);
       // Clear any session data that might have been set
       try {
@@ -155,7 +155,7 @@ export function LoginPage() {
           <CardHeader>
             <div className="flex items-center justify-center gap-2">
               <LogIn className="w-5 h-5 text-blue-600" />
-              <CardTitle className="text-center">Sign In</CardTitle>
+              <CardTitle className="text-center">{t('auth.signIn')}</CardTitle>
             </div>
           </CardHeader>
           <CardContent>
@@ -170,11 +170,11 @@ export function LoginPage() {
                 <Mail className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
                 <Input
                   type="text"
-                  label="Email or Username"
+                  label={t('auth.emailOrUsernameLabel')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  placeholder="Enter email or username"
+                  placeholder={t('auth.emailOrUsernamePlaceholder')}
                   autoComplete="email"
                   className="pl-10"
                 />
@@ -184,7 +184,7 @@ export function LoginPage() {
                 <Lock className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
                 <Input
                   type={showPassword ? 'text' : 'password'}
-                  label="Password"
+                  label={t('auth.passwordLabel')}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
@@ -195,7 +195,7 @@ export function LoginPage() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-[38px] text-gray-500 hover:text-gray-700 focus:outline-none focus:text-gray-700 transition-colors z-10"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
                   tabIndex={-1}
                 >
                   {showPassword ? (
@@ -218,18 +218,18 @@ export function LoginPage() {
 
               <Button type="submit" fullWidth loading={loading}>
                 <LogIn className="w-4 h-4 mr-2" />
-                Sign In
+                {t('auth.signIn')}
               </Button>
 
               <div className="text-center text-sm text-gray-600">
-                Don't have an account?{' '}
+                {t('auth.dontHaveAccount')}{' '}
                 <button
                   type="button"
                   onClick={() => navigate('/signup')}
                   className="text-blue-600 hover:text-blue-700 font-medium inline-flex items-center gap-1"
                 >
                   <Rocket className="w-4 h-4" />
-                  Start Free Trial
+                  {t('auth.startFreeTrial')}
                 </button>
               </div>
             </form>

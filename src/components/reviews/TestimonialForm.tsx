@@ -139,14 +139,14 @@ export function TestimonialForm({
     
     // Validation: Rating is required
     if (rating === 0) {
-      setError(t('testimonials.ratingRequired') || 'Please select a rating');
+      setError(t('testimonials.ratingRequired'));
       return;
     }
 
     // Validation: Review is required and cannot be empty
     const trimmedReview = review.trim();
     if (!trimmedReview) {
-      setError(t('testimonials.reviewRequired') || 'Please write a review');
+      setError(t('testimonials.reviewRequired'));
       return;
     }
 
@@ -180,7 +180,7 @@ export function TestimonialForm({
             return file;
           } catch (error) {
             console.error('Error converting HEIC:', error);
-            throw new Error('Failed to convert HEIC file. Please try converting it to JPEG first.');
+            throw new Error(t('testimonials.failedToConvertHEIC'));
           }
         };
 
@@ -199,7 +199,7 @@ export function TestimonialForm({
                 const ctx = canvas.getContext('2d');
                 
                 if (!ctx) {
-                  reject(new Error('Could not get canvas context'));
+                  reject(new Error(t('testimonials.couldNotGetCanvasContext')));
                   return;
                 }
 
@@ -312,7 +312,7 @@ export function TestimonialForm({
       });
 
       if (!response.ok) {
-        let errorMessage = 'Failed to submit testimonial';
+        let errorMessage = t('testimonials.failedToSubmitTestimonial');
         try {
           const data = await response.json();
           errorMessage = data.error || data.message || errorMessage;
@@ -342,7 +342,7 @@ export function TestimonialForm({
     <Modal
       isOpen={true}
       onClose={onClose}
-      title={t('testimonials.writeReview') || 'Write a Review'}
+      title={t('testimonials.writeReview')}
     >
       {success ? (
         <div className="text-center py-8">
@@ -369,7 +369,7 @@ export function TestimonialForm({
           {/* Name field - Auto-filled and non-editable */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('testimonials.name') || 'Name'} <span className="text-red-500">*</span>
+              {t('testimonials.name')} <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -385,7 +385,7 @@ export function TestimonialForm({
           {/* Rating field - Required */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t('testimonials.rating') || 'Rating'} <span className="text-red-500">*</span>
+              {t('testimonials.rating')} <span className="text-red-500">*</span>
             </label>
             <div className="flex gap-1">
               {[1, 2, 3, 4, 5].map((star) => (
@@ -410,7 +410,7 @@ export function TestimonialForm({
             </div>
             {rating === 0 && (
               <p className="mt-1 text-xs text-red-500">
-                {t('testimonials.ratingRequired') || 'Please select a rating'}
+                {t('testimonials.ratingRequired')}
               </p>
             )}
           </div>
@@ -418,7 +418,7 @@ export function TestimonialForm({
           {/* Review field - Required */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t('testimonials.review') || 'Review'} <span className="text-red-500">*</span>
+              {t('testimonials.review')} <span className="text-red-500">*</span>
             </label>
             <textarea
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -438,7 +438,7 @@ export function TestimonialForm({
           {/* Images field - Optional, Multiple */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t('testimonials.images') || 'Images'} <span className="text-gray-500 text-xs">({t('testimonials.optional') || 'Optional'})</span>
+              {t('testimonials.images')} <span className="text-gray-500 text-xs">({t('testimonials.optional')})</span>
             </label>
             <input
               type="file"
@@ -511,7 +511,7 @@ export function TestimonialForm({
               loading={loading}
               disabled={loading || rating === 0 || !review.trim()}
             >
-              {t('testimonials.submit') || 'Submit Review'}
+              {t('testimonials.submit')}
             </Button>
             <Button
               type="button"

@@ -131,7 +131,7 @@ export function CashierPage() {
         console.error('Non-JSON response:', text.substring(0, 200));
         setQrValidationResult({
           success: false,
-          message: i18n.language === 'ar' ? 'خطأ في الاستجابة من الخادم' : 'Invalid server response',
+          message: t('cashier.invalidServerResponse'),
         });
         setQrValidating(false);
         return;
@@ -152,7 +152,7 @@ export function CashierPage() {
         const extractedId = data.extracted_booking_id || data.booking.id;
         setQrValidationResult({
           success: true,
-          message: i18n.language === 'ar' ? 'تم التحقق بنجاح' : 'QR validated successfully',
+          message: t('cashier.qrValidatedSuccessfully'),
           booking: data.booking,
         });
         
@@ -168,7 +168,7 @@ export function CashierPage() {
       console.error('Error validating QR code:', err);
       setQrValidationResult({
         success: false,
-        message: err.message || (i18n.language === 'ar' ? 'فشل التحقق من QR' : 'Failed to validate QR code'),
+        message: err.message || t('cashier.failedToValidateQR'),
       });
     } finally {
       setQrValidating(false);
@@ -215,7 +215,7 @@ export function CashierPage() {
     if (!qrContent) {
       setQrValidationResult({
         success: false,
-        message: i18n.language === 'ar' ? 'يرجى إدخال رمز QR أو معرف الحجز' : 'Please enter QR code or booking ID',
+        message: t('cashier.pleaseEnterQRCodeOrBookingId'),
       });
       return;
     }
@@ -243,7 +243,7 @@ export function CashierPage() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to mark booking as paid');
+        throw new Error(error.error || t('cashier.failedToMarkAsPaid'));
       }
 
       // Refresh booking details
@@ -253,7 +253,7 @@ export function CashierPage() {
 
       alert(i18n.language === 'ar' 
         ? 'تم تحديث حالة الدفع بنجاح' 
-        : 'Payment status updated successfully');
+        : t('cashier.paymentStatusUpdatedSuccessfully'));
     } catch (err: any) {
       console.error('Error updating payment status:', err);
       alert(i18n.language === 'ar' 
@@ -279,7 +279,7 @@ export function CashierPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-xl md:text-2xl font-bold text-gray-900">
-                {i18n.language === 'ar' ? 'مكتب الصراف' : 'Cashier Desk'}
+                {t('cashier.title')}
               </h1>
               <p className="text-xs md:text-sm text-gray-600">
                 {i18n.language === 'ar' ? 'مرحباً، الصراف' : 'Welcome, Cashier'} {i18n.language === 'ar' ? userProfile?.full_name_ar : userProfile?.full_name}
@@ -307,7 +307,7 @@ export function CashierPage() {
             <div className="text-center mb-6">
               <QrCode className="w-16 h-16 text-blue-600 mx-auto mb-4" />
               <h2 className="text-xl font-semibold text-gray-900 mb-2">
-                {i18n.language === 'ar' ? 'مسح رمز QR' : 'Scan QR Code'}
+                {t('cashier.scanQRCode')}
               </h2>
               <p className="text-gray-600">
                 {i18n.language === 'ar' 
@@ -328,7 +328,7 @@ export function CashierPage() {
                 size="lg"
                 variant="primary"
               >
-                {i18n.language === 'ar' ? 'فتح الماسح الضوئي' : 'Open QR Scanner'}
+                {t('cashier.openQRScanner')}
               </Button>
             </div>
 
@@ -339,7 +339,7 @@ export function CashierPage() {
                   type="text"
                   value={qrInputValue}
                   onChange={(e) => setQrInputValue(e.target.value)}
-                  placeholder={i18n.language === 'ar' ? 'أدخل رقم الحجز يدوياً' : 'Enter booking ID manually'}
+                  placeholder={t('cashier.enterBookingIdManually')}
                   className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <Button
@@ -349,7 +349,7 @@ export function CashierPage() {
                 >
                   {qrValidating 
                     ? (i18n.language === 'ar' ? 'جاري التحقق...' : 'Validating...')
-                    : (i18n.language === 'ar' ? 'تحقق' : 'Validate')}
+                    : t('cashier.validate')}
                 </Button>
               </form>
             </div>
@@ -377,7 +377,7 @@ export function CashierPage() {
             <CardContent className="py-6">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-gray-900">
-                  {i18n.language === 'ar' ? 'تفاصيل الحجز' : 'Booking Details'}
+                  {t('cashier.bookingDetails')}
                 </h2>
                 <Button
                   variant="ghost"
@@ -388,7 +388,7 @@ export function CashierPage() {
                     setQrInputValue('');
                   }}
                 >
-                  {i18n.language === 'ar' ? 'إغلاق' : 'Close'}
+                  {t('cashier.close')}
                 </Button>
               </div>
 
@@ -398,14 +398,14 @@ export function CashierPage() {
                   <div className="flex items-center gap-2">
                     <User className="w-5 h-5 text-gray-500" />
                     <div>
-                      <p className="text-xs text-gray-500">{i18n.language === 'ar' ? 'الاسم' : 'Name'}</p>
+                      <p className="text-xs text-gray-500">{t('cashier.name')}</p>
                       <p className="font-medium">{scannedBooking.customer_name}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Phone className="w-5 h-5 text-gray-500" />
                     <div>
-                      <p className="text-xs text-gray-500">{i18n.language === 'ar' ? 'الهاتف' : 'Phone'}</p>
+                      <p className="text-xs text-gray-500">{t('cashier.phone')}</p>
                       <p className="font-medium">{scannedBooking.customer_phone}</p>
                     </div>
                   </div>
@@ -413,7 +413,7 @@ export function CashierPage() {
                     <div className="flex items-center gap-2">
                       <Mail className="w-5 h-5 text-gray-500" />
                       <div>
-                        <p className="text-xs text-gray-500">{i18n.language === 'ar' ? 'البريد الإلكتروني' : 'Email'}</p>
+                        <p className="text-xs text-gray-500">{t('cashier.email')}</p>
                         <p className="font-medium">{scannedBooking.customer_email}</p>
                       </div>
                     </div>
@@ -431,7 +431,7 @@ export function CashierPage() {
 
                 {/* Service Information */}
                 <div className="border-t pt-4">
-                  <p className="text-xs text-gray-500 mb-2">{i18n.language === 'ar' ? 'الخدمة' : 'Service'}</p>
+                  <p className="text-xs text-gray-500 mb-2">{t('cashier.service')}</p>
                   <p className="font-medium">
                     {i18n.language === 'ar' ? scannedBooking.services.name_ar : scannedBooking.services.name}
                   </p>
@@ -462,14 +462,14 @@ export function CashierPage() {
                   {scannedBooking.qr_scanned && (
                     <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 flex items-center gap-1">
                       <CheckCircle className="w-3 h-3" />
-                      {i18n.language === 'ar' ? 'تم المسح' : 'QR Scanned'}
+                      {t('cashier.qrScanned')}
                     </span>
                   )}
                 </div>
 
                 {/* Price */}
                 <div className="border-t pt-4">
-                  <p className="text-xs text-gray-500 mb-1">{i18n.language === 'ar' ? 'السعر الإجمالي' : 'Total Price'}</p>
+                  <p className="text-xs text-gray-500 mb-1">{t('cashier.totalPrice')}</p>
                   <p className="text-2xl font-bold text-gray-900">{formatPrice(scannedBooking.total_price)}</p>
                 </div>
 
@@ -485,7 +485,7 @@ export function CashierPage() {
                     >
                       {updatingPayment 
                         ? (i18n.language === 'ar' ? 'جاري التحديث...' : 'Updating...')
-                        : (i18n.language === 'ar' ? 'تحديد كمدفوع' : 'Mark as Paid')}
+                        : t('cashier.markAsPaid')}
                     </Button>
                   </div>
                 )}
@@ -500,12 +500,12 @@ export function CashierPage() {
             <CardContent className="py-12 text-center">
               <QrCode className="w-16 h-16 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">
-                {i18n.language === 'ar' ? 'لا توجد تفاصيل حجز' : 'No Booking Details'}
+                {t('cashier.noBookingDetails')}
               </h3>
               <p className="text-gray-600">
                 {i18n.language === 'ar' 
                   ? 'امسح رمز QR أو أدخل رقم الحجز لعرض التفاصيل'
-                  : 'Scan a QR code or enter a booking ID to view details'}
+                  : t('cashier.scanQRCodeOrEnterId')}
               </p>
             </CardContent>
           </Card>
@@ -520,7 +520,7 @@ export function CashierPage() {
             setIsQRScannerOpen(false);
             setQrInputValue('');
           }}
-          title={i18n.language === 'ar' ? 'مسح رمز QR' : 'Scan QR Code'}
+          title={t('cashier.scanQRCode')}
         >
           <QRScanner
             onScanSuccess={(result) => {

@@ -37,14 +37,14 @@ class DatabaseClient {
       const timeout = getRequestTimeout(endpoint, isRelativeUrl);
       
       // Build headers - always include Content-Type, conditionally include Authorization
-      const headers: HeadersInit = {
+      const headers: HeadersInit = new Headers({
         'Content-Type': 'application/json',
-        ...options.headers,
-      };
+        ...(options.headers as HeadersInit || {}),
+      });
       
       // Add Authorization header if token exists and is valid
       if (token && token.trim() !== '') {
-        headers['Authorization'] = `Bearer ${token.trim()}`;
+        headers.set('Authorization', `Bearer ${token.trim()}`);
       }
       
       const response = await fetch(url, {
@@ -237,7 +237,10 @@ class DatabaseClient {
       },
       maybeSingle: async () => {
         queryParams.limit = 1;
-        const result = await self.request('/query', {
+        // For tenant queries with landing_page_settings, use longer timeout
+        const isTenantQuery = queryParams.table === 'tenants';
+        const endpoint = isTenantQuery ? '/query?table=tenants' : '/query';
+        const result = await self.request(endpoint, {
           method: 'POST',
           body: JSON.stringify({
             table: queryParams.table,
@@ -251,7 +254,10 @@ class DatabaseClient {
       },
       single: async () => {
         queryParams.limit = 1;
-        const result = await self.request('/query', {
+        // For tenant queries with landing_page_settings, use longer timeout
+        const isTenantQuery = queryParams.table === 'tenants';
+        const endpoint = isTenantQuery ? '/query?table=tenants' : '/query';
+        const result = await self.request(endpoint, {
           method: 'POST',
           body: JSON.stringify({
             table: queryParams.table,
@@ -270,7 +276,10 @@ class DatabaseClient {
       then: async (resolve?: any, reject?: any) => {
         // Use POST for queries to avoid URL encoding issues with complex where clauses
         // This ensures JSON where clauses are sent correctly in the request body
-        const result = await self.request('/query', {
+        // For tenant queries with landing_page_settings, use longer timeout
+        const isTenantQuery = queryParams.table === 'tenants';
+        const endpoint = isTenantQuery ? '/query?table=tenants' : '/query';
+        const result = await self.request(endpoint, {
           method: 'POST',
           body: JSON.stringify({
             table: queryParams.table,

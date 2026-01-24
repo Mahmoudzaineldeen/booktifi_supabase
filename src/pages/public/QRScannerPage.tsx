@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { Card, CardContent } from '../../components/ui/Card';

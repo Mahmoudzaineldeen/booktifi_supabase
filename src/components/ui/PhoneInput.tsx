@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { countryCodes, CountryCode, validatePhoneNumberByCountry } from '../../lib/countryCodes';
 
 export interface PhoneInputProps {
@@ -32,8 +33,11 @@ export function PhoneInput({
   error,
   disabled = false,
   validate = false,
+  onValidationChange,
   language = 'en',
 }: PhoneInputProps) {
+  const { t } = useTranslation();
+  const defaultLabel = label || t('common.phoneNumber');
   const [selectedCountry, setSelectedCountry] = useState<CountryCode>(
     countryCodes.find(c => c.code === defaultCountry) || countryCodes[0]
   );
@@ -210,7 +214,7 @@ export function PhoneInput({
     <div className={className}>
       {label && (
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          {label} {required && <span className="text-red-500">*</span>}
+          {defaultLabel} {required && <span className="text-red-500">*</span>}
         </label>
       )}
       <div className="flex gap-2">
@@ -263,7 +267,7 @@ export function PhoneInput({
                 <div className="overflow-y-auto max-h-64">
                   {filteredCountries.length === 0 ? (
                     <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                      No countries found
+                      {t('common.noCountriesFound')}
                     </div>
                   ) : (
                     filteredCountries.map((country, index) => (

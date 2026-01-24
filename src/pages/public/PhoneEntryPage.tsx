@@ -139,7 +139,7 @@ export function PhoneEntryPage() {
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to send OTP');
+        throw new Error(data.error || t('phoneEntry.failedToSendVerificationCode'));
       }
 
       const data = await response.json();
@@ -166,7 +166,7 @@ export function PhoneEntryPage() {
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Invalid OTP');
+        throw new Error(data.error || t('phoneEntry.invalidVerificationCode'));
       }
 
       return { success: true };
@@ -183,7 +183,7 @@ export function PhoneEntryPage() {
     }
 
     if (!phone || phone.trim() === '') {
-      setPhoneError(i18n.language === 'ar' ? 'يرجى إدخال رقم الهاتف' : 'Please enter your phone number');
+      setPhoneError(t('phoneEntry.pleaseEnterPhone'));
       return;
     }
 
@@ -198,7 +198,7 @@ export function PhoneEntryPage() {
     const countryCode = `+${countryCodeMatch[1]}`;
     const validation = validatePhoneNumberByCountry(cleanPhone, countryCode, i18n.language as 'en' | 'ar');
     if (!validation.valid) {
-      setPhoneError(validation.error || (i18n.language === 'ar' ? 'رقم الهاتف غير صحيح' : 'Invalid phone number format'));
+      setPhoneError(validation.error || t('phoneEntry.invalidPhoneFormat'));
       return;
     }
 
@@ -216,7 +216,7 @@ export function PhoneEntryPage() {
       setResendCooldown(60);
     } catch (error: any) {
       console.error('Error sending OTP:', error);
-      setPhoneError(error.message || (i18n.language === 'ar' ? 'فشل إرسال رمز التحقق' : 'Failed to send verification code'));
+      setPhoneError(error.message || t('phoneEntry.failedToSendVerificationCode'));
     } finally {
       setSendingOtp(false);
     }
@@ -234,7 +234,7 @@ export function PhoneEntryPage() {
       setResendCooldown(60); // Reset cooldown to 60 seconds
     } catch (error: any) {
       console.error('Error resending OTP:', error);
-      setOtpError(error.message || (i18n.language === 'ar' ? 'فشل إعادة إرسال رمز التحقق' : 'Failed to resend verification code'));
+      setOtpError(error.message || t('phoneEntry.failedToResendVerificationCode'));
     } finally {
       setSendingOtp(false);
     }
@@ -247,7 +247,7 @@ export function PhoneEntryPage() {
     }
 
     if (!otpCode || otpCode.trim() === '' || otpCode.length !== 6) {
-      setOtpError(i18n.language === 'ar' ? 'يرجى إدخال رمز التحقق المكون من 6 أرقام' : 'Please enter the 6-digit verification code');
+      setOtpError(t('phoneEntry.pleaseEnter6DigitCode'));
       return;
     }
 
@@ -278,7 +278,7 @@ export function PhoneEntryPage() {
       }
     } catch (error: any) {
       console.error('Error verifying OTP:', error);
-      setOtpError(error.message || (i18n.language === 'ar' ? 'رمز التحقق غير صحيح' : 'Invalid verification code'));
+      setOtpError(error.message || t('phoneEntry.invalidVerificationCode'));
     } finally {
       setVerifyingOtp(false);
     }
@@ -296,7 +296,7 @@ export function PhoneEntryPage() {
     }
 
     if (name.trim().length < 2) {
-      setNameError(i18n.language === 'ar' ? 'الاسم يجب أن يكون على الأقل حرفين' : 'Name must be at least 2 characters');
+      setNameError(t('phoneEntry.nameMustBeAtLeast2Chars'));
       return;
     }
 
@@ -357,12 +357,12 @@ export function PhoneEntryPage() {
                     <Phone className="w-8 h-8 text-blue-600" />
                   </div>
                   <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                    {i18n.language === 'ar' ? 'أدخل رقم الهاتف' : 'Enter Your Phone Number'}
+                    {t('phoneEntry.enterYourPhoneNumber')}
                   </h2>
                   <p className="text-gray-600">
                     {i18n.language === 'ar' 
                       ? 'يرجى إدخال رقم هاتفك للمتابعة إلى صفحة الدفع'
-                      : 'Please enter your phone number to proceed to checkout'}
+                      : t('phoneEntry.pleaseEnterPhoneToProceed')}
                   </p>
                 </div>
 
@@ -371,8 +371,8 @@ export function PhoneEntryPage() {
                     <PhoneInput
                       value={phone}
                       onChange={handlePhoneChange}
-                      label={i18n.language === 'ar' ? 'رقم الهاتف' : 'Phone Number'}
-                      placeholder={i18n.language === 'ar' ? 'أدخل رقم الهاتف' : 'Enter phone number'}
+                      label={t('phoneEntry.phoneNumber')}
+                      placeholder={t('phoneEntry.enterPhoneNumber')}
                       required
                       error={phoneError || undefined}
                       defaultCountry="+966"
@@ -393,8 +393,8 @@ export function PhoneEntryPage() {
                     className="mt-6"
                   >
                     {sendingOtp 
-                      ? (i18n.language === 'ar' ? 'جارٍ الإرسال...' : 'Sending...')
-                      : (i18n.language === 'ar' ? 'إرسال رمز التحقق' : 'Send Verification Code')
+                      ? t('phoneEntry.sending')
+                      : t('phoneEntry.sendVerificationCode')
                     }
                   </Button>
                 </form>
@@ -408,23 +408,20 @@ export function PhoneEntryPage() {
                     <Shield className="w-8 h-8 text-purple-600" />
                   </div>
                   <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                    {i18n.language === 'ar' ? 'أدخل رمز التحقق' : 'Enter Verification Code'}
+                    {t('phoneEntry.enterVerificationCode')}
                   </h2>
                   <p className="text-gray-600">
                     {i18n.language === 'ar' 
-                      ? `تم إرسال رمز التحقق إلى ${phone}. يرجى إدخال الرمز أدناه.`
-                      : `Verification code sent to ${phone}. Please enter the code below.`
+                      : t('phoneEntry.verificationCodeSentTo', { phone })}
                     }
                   </p>
                 </div>
 
                 {import.meta.env.DEV && (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800 mb-4">
-                    <p className="font-medium">⚠️ Development Mode:</p>
+                    <p className="font-medium">{t('phoneEntry.developmentMode')}</p>
                     <p className="text-xs mt-1">
-                      {i18n.language === 'ar' 
-                        ? 'إذا لم تستلم الرمز، تحقق من console الخادم للحصول على رمز OTP.'
-                        : 'If code wasn\'t received, check server console for OTP code.'}
+                      {t('phoneEntry.ifCodeNotReceived')}
                     </p>
                   </div>
                 )}
@@ -472,8 +469,8 @@ export function PhoneEntryPage() {
                       disabled={!otpCode || otpCode.length !== 6 || verifyingOtp}
                     >
                       {verifyingOtp 
-                        ? (i18n.language === 'ar' ? 'جارٍ التحقق...' : 'Verifying...')
-                        : (i18n.language === 'ar' ? 'التحقق' : 'Verify')
+                        ? t('phoneEntry.verifying')
+                        : t('phoneEntry.verify')
                       }
                     </Button>
                   </div>
@@ -491,7 +488,7 @@ export function PhoneEntryPage() {
                         ? (i18n.language === 'ar' 
                             ? `إعادة الإرسال (${resendCooldown}ث)`
                             : `Resend code (${resendCooldown}s)`)
-                        : (i18n.language === 'ar' ? 'إعادة إرسال رمز التحقق' : 'Resend verification code')
+                        : t('phoneEntry.resendVerificationCode')
                       }
                     </button>
                   </div>
@@ -506,7 +503,7 @@ export function PhoneEntryPage() {
                     <User className="w-8 h-8 text-green-600" />
                   </div>
                   <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                    {i18n.language === 'ar' ? 'أدخل اسمك' : 'Enter Your Name'}
+                    {t('phoneEntry.enterYourName')}
                   </h2>
                   <p className="text-gray-600">
                     {i18n.language === 'ar' 
@@ -518,7 +515,7 @@ export function PhoneEntryPage() {
                 <form onSubmit={handleNameSubmit} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {i18n.language === 'ar' ? 'الاسم الكامل' : 'Full Name'}
+                      {t('phoneEntry.fullName')}
                     </label>
                     <Input
                       type="text"
@@ -527,7 +524,7 @@ export function PhoneEntryPage() {
                         setName(e.target.value);
                         setNameError(null);
                       }}
-                      placeholder={i18n.language === 'ar' ? 'أدخل اسمك الكامل' : 'Enter your full name'}
+                      placeholder={t('phoneEntry.enterFullName')}
                       required
                       className={nameError ? 'border-red-500' : ''}
                     />
@@ -540,7 +537,7 @@ export function PhoneEntryPage() {
 
                   <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
                     <p className="font-medium mb-1">
-                      {i18n.language === 'ar' ? 'رقم الهاتف:' : 'Phone Number:'}
+                      {t('phoneEntry.phoneNumber')}:
                     </p>
                     <p>{phone}</p>
                   </div>
@@ -564,7 +561,7 @@ export function PhoneEntryPage() {
                       size="lg"
                       disabled={!name || name.trim().length < 2}
                     >
-                      {i18n.language === 'ar' ? 'المتابعة إلى الدفع' : 'Proceed to Checkout'}
+                      {t('phoneEntry.proceedToCheckout')}
                     </Button>
                   </div>
                 </form>

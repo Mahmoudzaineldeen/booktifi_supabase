@@ -158,7 +158,7 @@ export function ReviewForm({
 
           const ctx = canvas.getContext('2d');
           if (!ctx) {
-            reject(new Error('Could not get canvas context'));
+            reject(new Error(t('testimonials.couldNotGetCanvasContext')));
             return;
           }
 
@@ -182,13 +182,13 @@ export function ReviewForm({
     setError('');
     
     if (rating === 0) {
-      setError(t('testimonials.ratingRequired') || 'Please select a rating');
+      setError(t('testimonials.ratingRequired'));
       return;
     }
 
     const trimmedReview = review.trim();
     if (!trimmedReview) {
-      setError(t('testimonials.reviewRequired') || 'Please write a review');
+      setError(t('testimonials.reviewRequired'));
       return;
     }
 
@@ -216,14 +216,14 @@ export function ReviewForm({
       });
 
       if (!serviceResponse.ok) {
-        throw new Error('Failed to fetch service information');
+        throw new Error(t('testimonials.failedToFetchServiceInfo'));
       }
 
       const serviceData = await serviceResponse.json();
       const tenantId = serviceData.rows?.[0]?.tenant_id;
 
       if (!tenantId) {
-        throw new Error('Service not found');
+        throw new Error(t('testimonials.serviceNotFound'));
       }
 
       const imagesBase64: { base64: string, filename: string }[] = [];
@@ -260,7 +260,7 @@ export function ReviewForm({
         onSuccess();
       }, 1500);
     } catch (err: any) {
-      setError(err.message || 'Failed to submit review');
+      setError(err.message || t('testimonials.failedToSubmitReview'));
     } finally {
       setLoading(false);
     }
@@ -279,7 +279,7 @@ export function ReviewForm({
             <Star className="w-8 h-8 text-green-600 fill-green-600" />
           </div>
           <h3 className="text-xl font-semibold text-gray-900 mb-2">
-            {t('testimonials.reviewSubmitted') || 'Review Submitted!'}
+            {t('testimonials.reviewSubmitted')}
           </h3>
           <p className="text-gray-600">
             {t('testimonials.reviewSubmittedMessage') || 'Thank you for your feedback. Your review has been submitted successfully.'}
@@ -290,7 +290,7 @@ export function ReviewForm({
           {/* User Name (Auto-filled, non-editable) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t('testimonials.name') || 'Name'}
+              {t('testimonials.name')}
             </label>
             <input
               type="text"
@@ -303,7 +303,7 @@ export function ReviewForm({
           {/* Rating */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t('testimonials.rating') || 'Rating'} <span className="text-red-500">*</span>
+              {t('testimonials.rating')} <span className="text-red-500">*</span>
             </label>
             <div className="flex items-center gap-2">
               {[1, 2, 3, 4, 5].map((star) => (
@@ -335,7 +335,7 @@ export function ReviewForm({
           {/* Review Text */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t('testimonials.review') || 'Review'} <span className="text-red-500">*</span>
+              {t('testimonials.review')} <span className="text-red-500">*</span>
             </label>
             <textarea
               value={review}

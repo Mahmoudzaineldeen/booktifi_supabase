@@ -16,10 +16,12 @@ export function QRScanner({
   onScanSuccess,
   onScanError,
   onClose,
-  title = 'Scan QR Code',
+  title,
   showManualInput = true,
   onManualInput,
 }: QRScannerProps) {
+  const { t } = useTranslation();
+  const defaultTitle = title || t('cashier.scanQRCode');
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export function QRScanner({
       try {
         const devices = await Html5Qrcode.getCameras();
         if (devices.length === 0) {
-          throw new Error('No cameras found');
+          throw new Error(t('cashier.noCamerasFound'));
         }
 
         // Use back camera if available, otherwise use first camera
@@ -82,11 +84,11 @@ export function QRScanner({
         console.error('Camera access error:', err);
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
           setCameraPermission('denied');
-          setError('Camera permission denied. Please allow camera access to scan QR codes.');
+          setError(t('cashier.cameraPermissionDenied'));
         } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-          setError('No camera found. Please connect a camera or use manual input.');
+          setError(t('cashier.noCameraFound'));
         } else {
-          setError(err.message || 'Failed to start camera');
+          setError(err.message || t('cashier.failedToStartCamera'));
         }
         setIsScanning(false);
         if (onScanError) {
@@ -95,10 +97,10 @@ export function QRScanner({
       }
     } catch (err: any) {
       console.error('QR scanner initialization error:', err);
-      setError(err.message || 'Failed to initialize QR scanner');
+      setError(err.message || t('cashier.failedToInitializeQRScanner'));
       setIsScanning(false);
       if (onScanError) {
-        onScanError(err.message || 'Failed to initialize QR scanner');
+        onScanError(err.message || t('cashier.failedToInitializeQRScanner'));
       }
     }
   };
@@ -167,7 +169,7 @@ export function QRScanner({
               <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
                 <div className="text-center text-white">
                   <CameraOff className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">Camera not active</p>
+                  <p className="text-sm">{t('cashier.cameraNotActive')}</p>
                 </div>
               </div>
             )}
@@ -183,14 +185,14 @@ export function QRScanner({
           {showManualInput && (
             <form onSubmit={handleManualSubmit} className="space-y-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Or enter booking ID manually:
+                {t('cashier.enterBookingIdManually')}:
               </label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={manualInput}
                   onChange={(e) => setManualInput(e.target.value)}
-                  placeholder="Enter booking ID"
+                  placeholder={t('cashier.enterBookingIdPlaceholder')}
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <Button
@@ -198,7 +200,7 @@ export function QRScanner({
                   disabled={!manualInput.trim()}
                   size="sm"
                 >
-                  Submit
+                  {t('common.submit')}
                 </Button>
               </div>
             </form>
@@ -223,7 +225,7 @@ export function QRScanner({
               variant="primary"
             >
               <Camera className="w-4 h-4 mr-2" />
-              Start Camera
+              {t('cashier.startCamera')}
             </Button>
           )}
           <Button
@@ -234,7 +236,7 @@ export function QRScanner({
             fullWidth
             variant="secondary"
           >
-            Cancel
+            {t('cashier.cancel')}
           </Button>
         </div>
       </div>

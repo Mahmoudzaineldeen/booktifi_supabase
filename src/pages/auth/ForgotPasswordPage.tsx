@@ -53,9 +53,7 @@ export function ForgotPasswordPage() {
     setSearchType(null);
 
     if (!identifier.trim()) {
-      setError(i18n.language === 'ar' 
-        ? 'اسم المستخدم أو البريد الإلكتروني أو رقم الهاتف مطلوب' 
-        : 'Username, email, or phone number is required');
+      setError(t('auth.usernameEmailOrPhoneRequired'));
       setLoading(false);
       return;
     }
@@ -89,15 +87,11 @@ export function ForgotPasswordPage() {
         set_TenantId(data.data._tenantId);
         setStep('confirm');
       } else {
-        setError(i18n.language === 'ar' 
-          ? 'لم نتمكن من العثور على حساب يطابق المدخلات الخاصة بك. يرجى المحاولة مرة أخرى.' 
-          : 'We could not find an account matching your input. Please try again.');
+        setError(t('auth.accountNotFound'));
       }
     } catch (err: any) {
       console.error('Lookup error:', err);
-      setError(err.message || (i18n.language === 'ar' 
-        ? 'فشل في العثور على الحساب. يرجى المحاولة مرة أخرى.' 
-        : 'Failed to find account. Please try again.'));
+      setError(err.message || t('auth.failedToFindAccount'));
     } finally {
       setLoading(false);
     }
@@ -112,12 +106,12 @@ export function ForgotPasswordPage() {
 
     // Validate that selected method is available
     if (methodToUse === 'email' && !hasEmail) {
-      setError(i18n.language === 'ar' ? 'البريد الإلكتروني غير متوفر' : 'Email is not available');
+      setError(t('auth.emailNotAvailable'));
       setLoading(false);
       return;
     }
     if (methodToUse === 'whatsapp' && !hasPhone) {
-      setError(i18n.language === 'ar' ? 'رقم الهاتف غير متوفر' : 'Phone number is not available');
+      setError(t('auth.phoneNotAvailable'));
       setLoading(false);
       return;
     }
@@ -148,7 +142,7 @@ export function ForgotPasswordPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to send OTP');
+        throw new Error(data.error || t('auth.failedToSendOTP'));
       }
 
       if (data.message) {
@@ -197,7 +191,7 @@ export function ForgotPasswordPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Invalid OTP');
+        throw new Error(data.error || t('auth.invalidOTPError'));
       }
 
       // Store reset token and proceed to password reset step
@@ -218,12 +212,12 @@ export function ForgotPasswordPage() {
     // If password fields are filled, validate them
     if (newPassword || confirmPassword) {
       if (newPassword !== confirmPassword) {
-        setError(t('auth.passwordsDoNotMatch') || 'Passwords do not match');
+        setError(t('auth.passwordsDoNotMatch'));
         return;
       }
       
       if (newPassword.length > 0 && newPassword.length < 6) {
-        setError(t('auth.passwordTooShort') || 'Password must be at least 6 characters');
+        setError(t('auth.passwordTooShort'));
         return;
       }
     }
@@ -248,7 +242,7 @@ export function ForgotPasswordPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to reset password');
+        throw new Error(data.error || t('auth.failedToResetPassword'));
       }
 
       setStep('success');
@@ -265,7 +259,7 @@ export function ForgotPasswordPage() {
     
     if (!resetToken) {
       console.error('Reset token is missing');
-      setError('Reset token is missing. Please verify OTP again.');
+      setError(t('auth.resetTokenMissing'));
       setLoading(false);
       return;
     }
@@ -296,17 +290,17 @@ export function ForgotPasswordPage() {
 
       if (!response.ok) {
         console.error('Login with OTP failed:', data);
-        throw new Error(data.error || 'Failed to login');
+        throw new Error(data.error || t('auth.failedToLogin'));
       }
 
       if (!data.user) {
         console.error('No user data in response:', data);
-        throw new Error('No user data received from server');
+        throw new Error(t('auth.noUserDataReceived'));
       }
 
       if (!data.session?.access_token) {
         console.error('No session token in response:', data);
-        throw new Error('No session token received from server');
+        throw new Error(t('auth.noSessionTokenReceived'));
       }
 
       // Store session in localStorage (format expected by AuthContext)
@@ -448,11 +442,11 @@ export function ForgotPasswordPage() {
                 <ArrowLeft className="w-5 h-5 text-gray-600" />
               </button>
               <CardTitle className="flex-1 text-center">
-                {step === 'username' && (t('auth.forgotPassword') || 'Forgot Password')}
-                {step === 'confirm' && (i18n.language === 'ar' ? 'تأكيد معلومات الاتصال' : 'Confirm Contact Information')}
-                {step === 'otp' && (t('auth.enterOTP') || 'Enter OTP Code')}
-                {step === 'password' && (t('auth.resetPassword') || 'Reset Password')}
-                {step === 'success' && (t('auth.passwordChanged') || 'Success')}
+                {step === 'username' && t('auth.forgotPassword')}
+                {step === 'confirm' && t('auth.confirmContactInformation')}
+                {step === 'otp' && t('auth.enterOTP')}
+                {step === 'password' && t('auth.resetPassword')}
+                {step === 'success' && t('auth.passwordChanged')}
               </CardTitle>
             </div>
           </CardHeader>
@@ -466,21 +460,19 @@ export function ForgotPasswordPage() {
             {step === 'username' && (
               <form onSubmit={handleLookupIdentifier} className="space-y-4">
                 <p className="text-sm text-gray-600">
-                  {i18n.language === 'ar' 
-                    ? 'أدخل اسم المستخدم أو البريد الإلكتروني أو رقم الهاتف للعثور على حسابك'
-                    : 'Enter your username, email, or phone number to find your account'}
+                  {t('auth.enterEmailForOTP')}
                 </p>
                 <Input
                   type="text"
-                  label={i18n.language === 'ar' ? 'اسم المستخدم أو البريد الإلكتروني أو رقم الهاتف' : 'Username, Email, or Phone'}
+                  label={t('auth.emailOrUsernameLabel')}
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   required
-                  placeholder={i18n.language === 'ar' ? 'أدخل المعرف الخاص بك' : 'Enter your identifier'}
+                  placeholder={t('auth.enterIdentifier')}
                   autoComplete="username"
                 />
                 <Button type="submit" fullWidth loading={loading}>
-                  {i18n.language === 'ar' ? 'البحث' : 'Search'}
+                  {t('auth.search')}
                 </Button>
               </form>
             )}
@@ -489,15 +481,11 @@ export function ForgotPasswordPage() {
               <div className="space-y-4">
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
                   <p className="text-sm text-blue-800 font-medium text-center">
-                    {i18n.language === 'ar' 
-                      ? 'تم العثور على حسابك.'
-                      : 'We found your account.'}
+                    {t('auth.accountFound')}
                   </p>
                 </div>
                 <p className="text-sm text-gray-600 mb-4">
-                  {i18n.language === 'ar' 
-                    ? 'اختر طريقة استلام رمز التحقق:'
-                    : 'Choose how you want to receive your security code:'}
+                  {t('auth.chooseDeliveryMethod')}
                 </p>
                 <div className="space-y-3">
                   {displayOrder.map((optionType) => {
@@ -520,7 +508,7 @@ export function ForgotPasswordPage() {
                             <Mail className={`w-5 h-5 ${method === 'email' ? 'text-blue-600' : 'text-gray-400'}`} />
                             <div className="flex-1">
                               <div className="font-medium text-gray-900">
-                                {i18n.language === 'ar' ? 'إرسال إلى البريد الإلكتروني' : 'Send code to your email'}
+                                {t('auth.sendCodeToEmail')}
                               </div>
                               <div className="text-sm text-gray-600 mt-1">
                                 {maskedEmail || 'N/A'}
@@ -550,7 +538,7 @@ export function ForgotPasswordPage() {
                             <MessageCircle className={`w-5 h-5 ${method === 'whatsapp' ? 'text-blue-600' : 'text-gray-400'}`} />
                             <div className="flex-1">
                               <div className="font-medium text-gray-900">
-                                {i18n.language === 'ar' ? 'إرسال إلى رقم الهاتف عبر WhatsApp' : 'Send code to your phone via WhatsApp'}
+                                {t('auth.sendCodeToPhone')}
                               </div>
                               <div className="text-sm text-gray-600 mt-1">
                                 {maskedPhone || 'N/A'}
@@ -572,7 +560,7 @@ export function ForgotPasswordPage() {
                     setError('');
                   }}
                 >
-                  {i18n.language === 'ar' ? 'العودة' : 'Back'}
+                  {t('auth.back')}
                 </Button>
               </div>
             )}
@@ -580,28 +568,22 @@ export function ForgotPasswordPage() {
             {step === 'otp' && (
               <form onSubmit={handleVerifyOTP} className="space-y-4">
                 <p className="text-sm text-gray-600 mb-2">
-                  {i18n.language === 'ar' 
-                    ? `أدخل رمز التحقق الذي أرسلناه ${method === 'email' ? `إلى ${maskedEmail || 'البريد الإلكتروني'}` : `على ${maskedPhone || 'WhatsApp'}`}`
-                    : `Enter the verification code sent ${method === 'email' ? `to ${maskedEmail || 'your email'}` : `to ${maskedPhone || 'your WhatsApp'}`}`}
+                  {t('auth.enterVerificationCode')} {method === 'email' ? `${t('auth.toEmail')} ${maskedEmail || t('auth.email')}` : `${t('auth.toWhatsApp')} ${maskedPhone || 'WhatsApp'}`}
                 </p>
                 {import.meta.env.DEV && (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800 mb-2">
-                    <p className="font-medium">⚠️ Development Mode:</p>
+                    <p className="font-medium">{t('auth.developmentMode')}</p>
                     <p className="text-xs mt-1">
-                      {i18n.language === 'ar' 
-                        ? 'إذا لم تستلم البريد، تحقق من console الخادم للحصول على رمز OTP.'
-                        : 'If email wasn\'t received, check server console for OTP code.'}
+                      {t('auth.checkServerConsoleForOTP')}
                     </p>
                     <p className="text-xs mt-1 opacity-75">
-                      {i18n.language === 'ar' 
-                        ? 'SMTP قد لا يكون مُعداً.'
-                        : 'SMTP may not be configured.'}
+                      {t('auth.smtpMayNotBeConfigured')}
                     </p>
                   </div>
                 )}
                 <Input
                   type="text"
-                  label={t('auth.otpCode') || 'OTP Code'}
+                  label={t('auth.otpCode')}
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   required
@@ -614,7 +596,7 @@ export function ForgotPasswordPage() {
                   fullWidth 
                   loading={loading}
                 >
-                  {i18n.language === 'ar' ? 'تحقق' : t('auth.verify') || 'Verify'}
+                  {t('auth.verify')}
                 </Button>
                 <div className="flex gap-2">
                   <Button
@@ -627,7 +609,7 @@ export function ForgotPasswordPage() {
                       setError('');
                     }}
                   >
-                    {i18n.language === 'ar' ? 'تغيير طريقة الإرسال' : t('auth.changeMethod') || 'Change Delivery Method'}
+                    {t('auth.changeDeliveryMethod')}
                   </Button>
                   <Button
                     type="button"
@@ -637,12 +619,10 @@ export function ForgotPasswordPage() {
                     disabled={resendCooldown > 0 || loading}
                   >
                     {loading 
-                      ? (i18n.language === 'ar' ? 'جارٍ الإرسال...' : 'Sending...')
+                      ? t('auth.sending')
                       : resendCooldown > 0
-                      ? (i18n.language === 'ar' 
-                          ? `إعادة الإرسال (${resendCooldown}ث)`
-                          : `Resend (${resendCooldown}s)`)
-                      : (i18n.language === 'ar' ? 'إعادة إرسال' : 'Resend Code')
+                      ? t('auth.resendWithCooldown', { seconds: resendCooldown })
+                      : t('auth.resend')
                     }
                   </Button>
                 </div>
@@ -652,16 +632,14 @@ export function ForgotPasswordPage() {
             {step === 'password' && (
               <div className="space-y-4">
                 <p className="text-sm text-gray-600">
-                  {i18n.language === 'ar' 
-                    ? 'اختر كلمة مرور جديدة أو استمر بدون تغيير'
-                    : t('auth.choosePasswordOrContinue') || 'Choose a new password or continue without changing'}
+                  {t('auth.choosePasswordOrContinue')}
                 </p>
                 <form onSubmit={handleResetPassword} className="space-y-4" noValidate>
                   <div className="relative">
                     <Lock className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
                     <Input
                       type={showPassword ? 'text' : 'password'}
-                      label={i18n.language === 'ar' ? 'كلمة المرور الجديدة (اختياري)' : 'New Password (Optional)'}
+                      label={t('auth.newPasswordOptional')}
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       minLength={6}
@@ -671,7 +649,7 @@ export function ForgotPasswordPage() {
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-[38px] text-gray-500 hover:text-gray-700 focus:outline-none focus:text-gray-700 transition-colors z-10"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
                       tabIndex={-1}
                     >
                       {showPassword ? (
@@ -685,7 +663,7 @@ export function ForgotPasswordPage() {
                     <Lock className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
                     <Input
                       type={showPassword ? 'text' : 'password'}
-                      label={i18n.language === 'ar' ? 'تأكيد كلمة المرور (اختياري)' : 'Confirm Password (Optional)'}
+                      label={t('auth.confirmPasswordOptional')}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       minLength={6}
@@ -695,7 +673,7 @@ export function ForgotPasswordPage() {
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-[38px] text-gray-500 hover:text-gray-700 focus:outline-none focus:text-gray-700 transition-colors z-10"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
                       tabIndex={-1}
                     >
                       {showPassword ? (
@@ -710,7 +688,7 @@ export function ForgotPasswordPage() {
                     fullWidth 
                     loading={loading}
                   >
-                    {i18n.language === 'ar' ? 'تغيير كلمة المرور' : t('auth.changePassword') || 'Change Password'}
+                    {t('auth.changePassword')}
                   </Button>
                 </form>
                 <div className="relative">
@@ -719,7 +697,7 @@ export function ForgotPasswordPage() {
                   </div>
                   <div className="relative flex justify-center text-sm">
                     <span className="px-2 bg-white text-gray-500">
-                      {i18n.language === 'ar' ? 'أو' : 'OR'}
+                      {t('auth.or')}
                     </span>
                   </div>
                 </div>
@@ -730,7 +708,7 @@ export function ForgotPasswordPage() {
                   onClick={handleContinueWithoutChange}
                   loading={loading}
                 >
-                  {i18n.language === 'ar' ? 'متابعة إلى لوحة التحكم' : t('auth.continueToDashboard') || 'Continue to Dashboard'}
+                  {t('auth.continueToDashboard')}
                 </Button>
               </div>
             )}
@@ -739,18 +717,16 @@ export function ForgotPasswordPage() {
               <div className="text-center space-y-4">
                 <CheckCircle className="w-16 h-16 text-green-600 mx-auto" />
                 <h3 className="text-lg font-semibold">
-                  {i18n.language === 'ar' ? 'تم تغيير كلمة المرور بنجاح!' : t('auth.passwordChangedSuccess') || 'Password Changed Successfully!'}
+                  {t('auth.passwordChangedSuccessfully')}
                 </h3>
                 <p className="text-sm text-gray-600">
-                  {i18n.language === 'ar' 
-                    ? 'يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة'
-                    : t('auth.canLoginWithNewPassword') || 'You can now login with your new password'}
+                  {t('auth.canLoginWithNewPassword')}
                 </p>
                 <Button
                   fullWidth
                   onClick={() => navigate('/login')}
                 >
-                  {i18n.language === 'ar' ? 'تسجيل الدخول' : t('auth.goToLogin') || 'Go to Login'}
+                  {t('auth.goToLogin')}
                 </Button>
               </div>
             )}

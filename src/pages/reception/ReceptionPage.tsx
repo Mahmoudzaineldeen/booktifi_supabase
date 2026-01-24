@@ -1065,7 +1065,7 @@ export function ReceptionPage() {
     const fullPhoneNumber = `${countryCode}${bookingForm.customer_phone}`;
 
     if (!selectedTimeSlot) {
-      alert('Please select a time slot');
+      alert(t('reception.slotNotSelected'));
       return;
     }
 
@@ -1076,7 +1076,7 @@ export function ReceptionPage() {
     );
 
     if (slotsAtTime.length === 0) {
-      alert('No available slots at this time');
+      alert(t('reception.noSlotsAvailable'));
       return;
     }
 
@@ -1643,7 +1643,7 @@ export function ReceptionPage() {
     }
 
     if (!userProfile?.tenant_id) return;
-    alert('Please select at least one service and time slot');
+    alert(t('reception.noServicesSelected'));
     return;
 
     const service = services.find(s => s.id === selectedService);
@@ -1679,7 +1679,7 @@ export function ReceptionPage() {
       if (assignmentMode === 'automatic') {
         // Use the selected time slot info
         if (!selectedTimeSlot) {
-          alert('Please select a time slot');
+          alert(t('reception.slotNotSelected'));
           return;
         }
 
@@ -1701,7 +1701,7 @@ export function ReceptionPage() {
         console.log('Slots matching time filter:', slotsAtSelectedTime);
 
         if (slotsAtSelectedTime.length === 0) {
-          alert('No available slots at this time');
+          alert(t('reception.noSlotsAvailable'));
           return;
         }
 
@@ -1715,7 +1715,7 @@ export function ReceptionPage() {
         // Manual mode
         const slot = slots.find(s => s.id === selectedSlot);
         if (!slot) {
-          alert('Selected slot not found');
+          alert(t('reception.selectedSlotNotFound'));
           return;
         }
 
@@ -1824,7 +1824,7 @@ export function ReceptionPage() {
       }
     } catch (err: any) {
       console.error('Error in handleSubmit:', err);
-      alert(`Error: ${err.message || 'Failed to create booking'}`);
+      alert(t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
     }
   }
 
@@ -2030,7 +2030,7 @@ export function ReceptionPage() {
     if (!bookingId) {
       setQrValidationResult({
         success: false,
-        message: i18n.language === 'ar' ? 'يرجى إدخال رقم الحجز' : 'Please enter booking ID',
+        message: t('reception.pleaseEnterBookingId'),
       });
       return;
     }
@@ -2428,7 +2428,7 @@ export function ReceptionPage() {
                       <FileText className="w-5 h-5 text-blue-600" />
                       <div>
                         <h4 className="font-semibold text-blue-900 text-sm">
-                          {i18n.language === 'ar' ? 'الفاتورة' : 'Invoice'}
+                          {t('reception.invoice')}
                         </h4>
                         <p className="text-xs text-blue-700 font-mono mt-1">
                           {booking.zoho_invoice_id}
@@ -2438,12 +2438,12 @@ export function ReceptionPage() {
                     {booking.payment_status === 'paid' || booking.payment_status === 'paid_manual' ? (
                       <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
                         <CheckCircle className="w-3 h-3" />
-                        {i18n.language === 'ar' ? 'مدفوع' : 'Paid'}
+                        {t('status.paid')}
                       </span>
                     ) : (
                       <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
                         <XCircle className="w-3 h-3" />
-                        {i18n.language === 'ar' ? 'غير مدفوع' : 'Unpaid'}
+                        {t('status.unpaid')}
                       </span>
                     )}
                   </div>
@@ -2463,7 +2463,7 @@ export function ReceptionPage() {
                     <Download className="w-4 h-4" />
                     {downloadingInvoice === booking.id 
                       ? (i18n.language === 'ar' ? 'جاري التنزيل...' : 'Downloading...')
-                      : (i18n.language === 'ar' ? 'تنزيل PDF' : 'Download PDF')}
+                      : t('reception.downloadPdf')}
                   </Button>
                 </div>
               ) : (
@@ -2472,7 +2472,7 @@ export function ReceptionPage() {
                     <FileText className="w-4 h-4" />
                     {i18n.language === 'ar' 
                       ? 'لا توجد فاتورة لهذا الحجز' 
-                      : 'No invoice for this booking'}
+                      : t('reception.noInvoiceForBooking')}
                   </p>
                 </div>
               )}
@@ -2568,7 +2568,7 @@ export function ReceptionPage() {
                       icon={<QrCode className="w-3 h-3" />}
                       className="w-full"
                     >
-                      {i18n.language === 'ar' ? 'مسح QR' : 'Scan QR'}
+                      {t('reception.scanQR')}
                     </Button>
                   )}
                   
@@ -2577,7 +2577,7 @@ export function ReceptionPage() {
                     <div className="w-full p-2 bg-green-50 border border-green-200 rounded-lg text-center">
                       <div className="flex items-center justify-center gap-2 text-green-800 text-xs">
                         <CheckCircle className="w-4 h-4" />
-                        <span>{i18n.language === 'ar' ? 'تم مسح QR' : 'QR Scanned'}</span>
+                        <span>{t('reception.qrScanned')}</span>
                       </div>
                       {(booking as any).qr_scanned_at && (
                         <div className="text-xs text-green-600 mt-1">
@@ -2652,8 +2652,8 @@ export function ReceptionPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <h1 className="text-xl md:text-2xl font-bold text-gray-900">{i18n.language === 'ar' ? 'مكتب الاستقبال' : 'Reception Desk'}</h1>
-              <p className="text-xs md:text-sm text-gray-600">{i18n.language === 'ar' ? 'مرحباً، موظف الاستقبال' : 'Welcome, Receptionist'} {i18n.language === 'ar' ? userProfile?.full_name_ar : userProfile?.full_name}</p>
+              <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t('reception.title')}</h1>
+              <p className="text-xs md:text-sm text-gray-600">{t('reception.welcomeReceptionist')} {i18n.language === 'ar' ? userProfile?.full_name_ar : userProfile?.full_name}</p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Button
@@ -2663,7 +2663,7 @@ export function ReceptionPage() {
                 onClick={() => setIsSubscriptionModalOpen(true)}
               >
                 <span className="hidden sm:inline">{t('packages.addSubscription')}</span>
-                <span className="sm:hidden">Add</span>
+                <span className="sm:hidden">{t('common.add')}</span>
               </Button>
               <LanguageToggle />
               <Button
@@ -2732,7 +2732,7 @@ export function ReceptionPage() {
               size="sm"
               variant="secondary"
             >
-              <span className="hidden sm:inline">{i18n.language === 'ar' ? 'مسح QR' : 'Scan QR'}</span>
+              <span className="hidden sm:inline">{t('reception.scanQR')}</span>
               <span className="sm:hidden">QR</span>
             </Button>
           </div>
@@ -2909,7 +2909,7 @@ export function ReceptionPage() {
           setIsModalOpen(false);
           resetForm();
         }}
-        title={showPreview ? 'Booking Preview' : t('reception.createNewBooking')}
+        title={showPreview ? t('reception.bookingPreview') : t('reception.createNewBooking')}
       >
         {showPreview ? (
           <div className="space-y-6">
@@ -2992,7 +2992,7 @@ export function ReceptionPage() {
                         </div>
                       </div>
                       <div className="text-xs text-gray-500">
-                        Mode: {bookingForm.visitor_count === 1 ? 'Single Booking' : bookingForm.booking_option === 'parallel' ? 'Parallel Booking' : 'Consecutive Booking'}
+                        {t('reception.mode')}: {bookingForm.visitor_count === 1 ? t('reception.singleBooking') : bookingForm.booking_option === 'parallel' ? t('reception.parallelBooking') : t('reception.consecutiveBooking')}
                       </div>
                     </div>
                   );
@@ -3038,7 +3038,7 @@ export function ReceptionPage() {
                         </div>
                       </div>
                       <div className="text-sm text-gray-600">
-                        {assignmentMode === 'automatic' ? 'Auto-assigned' : 'Manual assignment'}
+                        {assignmentMode === 'automatic' ? t('reception.autoAssigned') : t('reception.manualAssignment')}
                       </div>
                     </div>
                   ) : (
@@ -3209,10 +3209,10 @@ export function ReceptionPage() {
               required
               disabled={loading}
             >
-              <option value="">{loading ? t('common.loading') + '...' : t('reception.chooseService')}</option>
+                <option value="">{loading ? t('common.loading') + '...' : t('reception.chooseService')}</option>
               {services.length === 0 && !loading ? (
                 <option value="" disabled>
-                  No services available
+                  {t('reception.noServicesAvailable')}
                 </option>
               ) : (
                 services.map((service) => {
@@ -3221,7 +3221,7 @@ export function ReceptionPage() {
                   <option key={service.id} value={service.id}>
                     {i18n.language === 'ar' ? service.name_ar : service.name} - {formatPrice(service.base_price)}
                     {packageCheck.available && ` 🎁 (${packageCheck.remaining} ${t('packages.remaining')})`}
-                    {service.offers && service.offers.length > 0 && ` (${service.offers.length} ${i18n.language === 'ar' ? 'عروض' : 'offers'})`}
+                    {service.offers && service.offers.length > 0 && ` (${service.offers.length} ${t('reception.offers')})`}
                   </option>
                 );
                 })
@@ -3229,12 +3229,12 @@ export function ReceptionPage() {
             </select>
             {services.length === 0 && !loading && (
               <p className="mt-1 text-sm text-amber-600">
-                ⚠️ No services found. Please check that services are active for this tenant.
+                ⚠️ {t('reception.noServicesFound')}
               </p>
             )}
             {loading && (
               <p className="mt-1 text-sm text-blue-600">
-                Loading services...
+                {t('reception.loadingServices')}
               </p>
             )}
           </div>
@@ -3255,11 +3255,11 @@ export function ReceptionPage() {
                     value={selectedOffer}
                     onChange={(e) => setSelectedOffer(e.target.value)}
                   >
-                    <option value="">{i18n.language === 'ar' ? 'السعر الأساسي' : 'Base Price'} ({formatPrice(service?.base_price || 0)})</option>
+                    <option value="">{t('reception.basePrice')} ({formatPrice(service?.base_price || 0)})</option>
                     {availableOffers.map((offer) => (
                       <option key={offer.id} value={offer.id}>
                         {i18n.language === 'ar' ? offer.name_ar || offer.name : offer.name} - {formatPrice(offer.price)}
-                        {offer.discount_percentage && ` (${i18n.language === 'ar' ? 'خصم' : 'Save'} ${offer.discount_percentage}%)`}
+                        {offer.discount_percentage && ` (${t('reception.save')} ${offer.discount_percentage}%)`}
                       </option>
                     ))}
                   </select>
@@ -4201,7 +4201,7 @@ export function ReceptionPage() {
       <Modal
         isOpen={!!selectedBookingForDetails}
         onClose={() => setSelectedBookingForDetails(null)}
-        title="Booking Details"
+        title={t('reception.bookingDetails')}
       >
         {selectedBookingForDetails && (
           <div className="space-y-4">
@@ -4503,7 +4503,7 @@ export function ReceptionPage() {
       {/* QR Code Scanner Modal with Camera */}
       {isQRScannerOpen && (
         <QRScanner
-          title={i18n.language === 'ar' ? 'مسح رمز QR' : 'Scan QR Code'}
+          title={t('reception.scanQR')}
           onScanSuccess={(decodedText) => {
             // QR code contains booking ID
             setQrInputValue(decodedText);
@@ -4538,7 +4538,7 @@ export function ReceptionPage() {
           setQrInputValue('');
           setQrValidationResult(null);
         }}
-        title={i18n.language === 'ar' ? 'مسح رمز QR' : 'Scan QR Code'}
+        title={t('reception.scanQR')}
       >
         <div className="space-y-4">
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

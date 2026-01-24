@@ -622,7 +622,7 @@ export function TenantDashboardContent() {
       {upcomingBookings.length > 0 && (
         <div className="mt-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            {t('dashboard.upcomingBookings') || 'Upcoming Bookings'}
+            {t('dashboard.upcomingBookings')}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {upcomingBookings.map((booking) => {
@@ -661,7 +661,7 @@ export function TenantDashboardContent() {
                         </span>
                         {booking.visitor_count > 1 && (
                           <span className="text-gray-600 ml-2">
-                            ({booking.visitor_count} {t('booking.visitors') || 'visitors'})
+                            ({booking.visitor_count} {t('booking.visitors')})
                           </span>
                         )}
                       </div>
@@ -717,7 +717,7 @@ export function TenantDashboardContent() {
                         </span>
                         {booking.visitor_count > 1 && (
                           <span className="text-gray-500 ml-2">
-                            ({booking.visitor_count} {t('booking.visitors') || 'visitors'})
+                            ({booking.visitor_count} {t('booking.visitors')})
                           </span>
                         )}
                       </div>
@@ -746,7 +746,7 @@ export function TenantDashboardContent() {
                 onClick={() => setCalendarDate(new Date())}
                 className="px-4 py-2 bg-white hover:bg-gray-50 rounded-lg font-medium text-sm transition-colors shadow-sm"
               >
-                Today
+                {t('dashboard.today')}
               </button>
               <button
                 onClick={() => setCalendarDate(addDays(calendarDate, 7))}
@@ -763,7 +763,7 @@ export function TenantDashboardContent() {
           <div className="overflow-x-auto">
             <div className="min-w-[1200px]">
               <div className="grid grid-cols-8 border-b bg-gradient-to-r from-blue-50 to-indigo-50 sticky top-0 z-10">
-                <div className="px-2 py-3 text-xs font-medium text-gray-500 border-r">Time</div>
+                <div className="px-2 py-3 text-xs font-medium text-gray-500 border-r">{t('dashboard.time')}</div>
                 {Array.from({ length: 7 }, (_, i) => {
                   const day = addDays(startOfWeek(calendarDate, { weekStartsOn: 0 }), i);
                   const isToday = isSameDay(day, new Date());

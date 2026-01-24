@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, X } from 'lucide-react';
 import { Button } from './Button';
 
@@ -21,8 +22,8 @@ export function WarningModal({
   title,
   message,
   details,
-  confirmText = 'Confirm',
-  cancelText = 'Cancel',
+  confirmText,
+  cancelText,
   requiresExplicitConfirmation = false,
 }: WarningModalProps) {
   const { t } = useTranslation();
@@ -32,7 +33,8 @@ export function WarningModal({
   if (!isOpen) return null;
 
   const handleConfirm = () => {
-    if (requiresExplicitConfirmation && (!understood || confirmationText.toLowerCase() !== 'confirm')) {
+    const confirmKeyword = i18n.language === 'ar' ? 'تأكيد' : 'confirm';
+    if (requiresExplicitConfirmation && (!understood || confirmationText.toLowerCase() !== confirmKeyword)) {
       return;
     }
     onConfirm();
@@ -70,7 +72,7 @@ export function WarningModal({
           {details && details.length > 0 && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
               <p className="text-sm font-medium text-yellow-800 mb-2">
-                This action will:
+                {t('common.thisActionWill')}:
               </p>
               <ul className="list-disc list-inside space-y-1 text-sm text-yellow-700">
                 {details.map((detail, index) => (
@@ -117,18 +119,18 @@ export function WarningModal({
             variant="secondary"
             onClick={handleClose}
           >
-            {cancelText}
+            {defaultCancelText}
           </Button>
           <Button
             variant="primary"
             onClick={handleConfirm}
             disabled={
               requiresExplicitConfirmation &&
-              (!understood || confirmationText.toLowerCase() !== 'confirm')
+              (!understood || confirmationText.toLowerCase() !== confirmKeyword)
             }
             className="bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-300"
           >
-            {confirmText}
+            {defaultConfirmText}
           </Button>
         </div>
       </div>

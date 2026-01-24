@@ -28,10 +28,11 @@ export function getRequestTimeout(endpoint: string, isRelativeUrl: boolean = fal
     endpoint.includes('/smtp-settings/test') ||
     endpoint.includes('/email-test');
 
-  // Tenant queries may also be slower
+  // Tenant queries may also be slower (including /query endpoints that query tenants table)
   const isTenantQuery = 
     endpoint.includes('/tenants/') || 
-    (endpoint.includes('/query') && endpoint.includes('table=tenants'));
+    endpoint === '/query' ||
+    endpoint.includes('/query?table=tenants'); // /query endpoint is often used for tenant queries
 
   // Base timeout: longer for relative URLs (local dev), shorter for absolute (production)
   const baseTimeout = isRelativeUrl ? 30000 : 10000; // 30s for relative, 10s for absolute
@@ -44,8 +45,8 @@ export function getRequestTimeout(endpoint: string, isRelativeUrl: boolean = fal
     // 60 seconds for SMTP test endpoints (connection test + email send can take up to 50s)
     return 60000;
   } else if (isTenantQuery) {
-    // 60 seconds for tenant queries (can be slow)
-    return baseTimeout * 2;
+    // 45 seconds for tenant queries (handles Railway cold starts and large JSON fields like landing_page_settings)
+    return 45000;
   }
 
   // Default timeout

@@ -218,7 +218,7 @@ export function CheckoutPage() {
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to send OTP');
+        throw new Error(data.error || t('checkout.failedToSendOTP'));
       }
       
       setOtpSent(true);
@@ -230,7 +230,7 @@ export function CheckoutPage() {
         console.log('Phone number was used before');
       }
     } catch (err: any) {
-      setPhoneUniquenessError(err.message || (i18n.language === 'ar' ? 'فشل إرسال رمز التحقق' : 'Failed to send verification code'));
+      setPhoneUniquenessError(err.message || t('checkout.failedToSendOTP'));
     } finally {
       setOtpLoading(false);
     }
@@ -302,7 +302,7 @@ export function CheckoutPage() {
         .maybeSingle();
 
       if (!serviceData) {
-        alert('Service not found');
+        alert(t('checkout.serviceNotFound'));
         navigate(`/${tenantSlug}/book`);
         return;
       }
@@ -556,7 +556,7 @@ export function CheckoutPage() {
       }
     } catch (error) {
       console.error('Error fetching checkout data:', error);
-      alert('Failed to load checkout page');
+      alert(t('checkout.failedToLoadCheckoutPage'));
       navigate(`/${tenantSlug}/book`);
     } finally {
       setLoading(false);
@@ -679,7 +679,7 @@ export function CheckoutPage() {
     e.preventDefault();
     
     if (!service || !slot || !customerInfo.name || !customerInfo.phone) {
-      alert(i18n.language === 'ar' ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill in all required fields');
+      alert(t('checkout.pleaseFillAllRequiredFields'));
       return;
     }
 
@@ -693,13 +693,13 @@ export function CheckoutPage() {
     const phoneValidation = validatePhoneNumber(customerInfo.phone, countryCode);
     if (!phoneValidation.valid) {
       setPhoneError(phoneValidation.error || null);
-      alert(phoneValidation.error || (i18n.language === 'ar' ? 'رقم الهاتف غير صحيح' : 'Invalid phone number'));
+      alert(phoneValidation.error || t('checkout.invalidPhoneNumber'));
       return;
     }
 
     // Ensure at least one adult ticket
     if (adultCount === 0 && childCount === 0) {
-      alert(i18n.language === 'ar' ? 'يرجى اختيار تذكرة واحدة على الأقل' : 'Please select at least one ticket');
+      alert(t('checkout.pleaseSelectAtLeastOneTicket'));
       return;
     }
 
@@ -733,7 +733,7 @@ export function CheckoutPage() {
 
       if (!lockResponse.ok) {
         const errorData = await lockResponse.json();
-        throw new Error(errorData.error || 'Failed to reserve slot');
+        throw new Error(errorData.error || t('checkout.failedToReserveSlot'));
       }
 
       const lockData = await lockResponse.json();
@@ -771,7 +771,7 @@ export function CheckoutPage() {
 
       if (!bookingResponse.ok) {
         const errorData = await bookingResponse.json();
-        throw new Error(errorData.error || 'Failed to create booking');
+        throw new Error(errorData.error || t('checkout.failedToCreateBooking'));
       }
 
       const bookingResult = await bookingResponse.json();
@@ -852,7 +852,7 @@ export function CheckoutPage() {
                   {i18n.language === 'ar' ? tenant.name_ar : tenant.name}
                 </h1>
                 <span className="text-sm text-gray-500 font-medium">
-                  {i18n.language === 'ar' ? 'إتمام الحجز' : 'Complete Your Booking'}
+                  {t('checkout.title')}
                 </span>
               </div>
             </div>
@@ -869,7 +869,7 @@ export function CheckoutPage() {
                 }}
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
-                {i18n.language === 'ar' ? 'رجوع' : 'Back'}
+                {t('checkout.back')}
               </Button>
               <div className="h-6 w-px bg-gray-300"></div>
               <LanguageToggle />
@@ -887,7 +887,7 @@ export function CheckoutPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Calendar className="w-5 h-5" style={{ color: primaryColor }} />
-                  {i18n.language === 'ar' ? 'ملخص الحجز' : 'Booking Summary'}
+                  {t('checkout.bookingSummary')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -935,7 +935,7 @@ export function CheckoutPage() {
                   <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4 text-gray-500" />
                     <div>
-                      <p className="text-xs text-gray-500">{i18n.language === 'ar' ? 'التاريخ' : 'Date'}</p>
+                      <p className="text-xs text-gray-500">{t('checkout.date')}</p>
                       <p className="text-sm font-medium text-gray-900">
                         {format(new Date(bookingData.date), 'EEEE, MMMM d, yyyy')}
                       </p>
@@ -944,7 +944,7 @@ export function CheckoutPage() {
                   <div className="flex items-center gap-2">
                     <Clock className="w-4 h-4 text-gray-500" />
                     <div>
-                      <p className="text-xs text-gray-500">{i18n.language === 'ar' ? 'الوقت' : 'Time'}</p>
+                      <p className="text-xs text-gray-500">{t('checkout.time')}</p>
                       <p className="text-sm font-medium text-gray-900">
                         {slot.start_time} - {slot.end_time}
                       </p>
@@ -960,7 +960,7 @@ export function CheckoutPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <User className="w-5 h-5" style={{ color: primaryColor }} />
-                  {i18n.language === 'ar' ? 'معلومات العميل' : 'Customer Information'}
+                  {t('checkout.customerInformation')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -970,14 +970,14 @@ export function CheckoutPage() {
                     value={customerInfo.name}
                     onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
                     required
-                    placeholder={i18n.language === 'ar' ? 'أدخل اسمك الكامل' : 'Enter your full name'}
+                    placeholder={t('checkout.enterFullName')}
                   />
 
                   {/* Phone Number with OTP Verification for Guests */}
                   {!isLoggedIn && otpStep === 'phone' && (
                     <>
                       <PhoneInput
-                        label={i18n.language === 'ar' ? 'رقم الهاتف' : 'Phone Number'}
+                        label={t('checkout.phoneNumber')}
                         value={customerPhoneFull}
                         onChange={(value) => {
                           setCustomerPhoneFull(value);
@@ -1020,7 +1020,7 @@ export function CheckoutPage() {
                       >
                         {otpLoading 
                           ? (i18n.language === 'ar' ? 'جاري الإرسال...' : 'Sending...')
-                          : (i18n.language === 'ar' ? 'إرسال رمز التحقق' : 'Send Verification Code')
+                          : t('checkout.sendVerificationCode')
                         }
                       </Button>
                     </>
@@ -1040,7 +1040,7 @@ export function CheckoutPage() {
                       
                       <Input
                         type="text"
-                        label={i18n.language === 'ar' ? 'رمز التحقق' : 'Verification Code'}
+                        label={t('checkout.verificationCode')}
                         value={otpCode}
                         onChange={(e) => {
                           const code = e.target.value.replace(/[^\d]/g, '').slice(0, 6);
@@ -1063,7 +1063,7 @@ export function CheckoutPage() {
                           }}
                           fullWidth
                         >
-                          {i18n.language === 'ar' ? 'تغيير الرقم' : 'Change Number'}
+                          {t('checkout.changeNumber')}
                         </Button>
                         <Button
                           type="button"
@@ -1091,13 +1091,13 @@ export function CheckoutPage() {
                               const data = await response.json();
                               
                               if (!response.ok) {
-                                throw new Error(data.error || 'Invalid verification code');
+                                throw new Error(data.error || t('checkout.invalidVerificationCode'));
                               }
                               
                               setOtpStep('verified');
                               setPhoneUniquenessChecked(true);
                             } catch (err: any) {
-                              setPhoneUniquenessError(err.message || (i18n.language === 'ar' ? 'رمز التحقق غير صحيح' : 'Invalid verification code'));
+                              setPhoneUniquenessError(err.message || t('checkout.invalidVerificationCode'));
                             } finally {
                               setOtpLoading(false);
                             }

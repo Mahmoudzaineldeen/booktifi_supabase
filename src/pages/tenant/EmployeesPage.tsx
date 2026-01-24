@@ -157,7 +157,7 @@ export function EmployeesPage() {
       if (editingEmployee) {
         const { data: { session } } = await db.auth.getSession();
         if (!session) {
-          alert('Session expired. Please login again.');
+          alert(t('employee.sessionExpired'));
           return;
         }
 
@@ -194,7 +194,7 @@ export function EmployeesPage() {
         if (!contentType || !contentType.includes('application/json')) {
           const text = await response.text();
           console.error('Non-JSON response:', text.substring(0, 200));
-          alert(`Error updating employee: Server returned ${response.status} ${response.statusText}. Please check the console for details.`);
+          alert(t('employee.errorUpdatingEmployeeServer', { status: response.status, statusText: response.statusText }));
           return;
         }
 
@@ -202,7 +202,7 @@ export function EmployeesPage() {
 
         if (!response.ok) {
           console.error('Update error:', result.error);
-          alert(`Error updating employee: ${result.error || 'Unknown error'}`);
+          alert(t('employee.errorUpdatingEmployee', { error: result.error || t('common.error') }));
           return;
         }
 
@@ -232,7 +232,7 @@ export function EmployeesPage() {
               const { error: insertError } = await db.from('employee_services').insert(assignments);
               if (insertError) {
                 console.error('Error inserting employee_services:', insertError);
-                alert(`Error saving service assignments: ${insertError.message}`);
+                alert(t('employee.errorSavingServiceAssignments', { message: insertError.message }));
                 return;
               }
             }
@@ -240,14 +240,14 @@ export function EmployeesPage() {
         }
 
         if (formData.password) {
-          alert(`Employee updated successfully!\nNew Username: ${formData.username}\nNew Password: ${formData.password}`);
+          alert(t('employee.employeeUpdatedWithCredentials', { username: formData.username, password: formData.password }));
         } else {
-          alert('Employee updated successfully!');
+          alert(t('employee.employeeUpdatedSuccessfully'));
         }
       } else {
         const { data: { session } } = await db.auth.getSession();
         if (!session) {
-          alert('Session expired. Please login again.');
+          alert(t('employee.sessionExpired'));
           return;
         }
 
@@ -278,7 +278,7 @@ export function EmployeesPage() {
         if (!contentType || !contentType.includes('application/json')) {
           const text = await response.text();
           console.error('Non-JSON response:', text);
-          alert(`Error creating employee: Server returned ${response.status} ${response.statusText}`);
+          alert(t('employee.errorCreatingEmployeeServer', { status: response.status, statusText: response.statusText }));
           return;
         }
 
@@ -286,11 +286,11 @@ export function EmployeesPage() {
 
         if (!response.ok) {
           console.error('Creation error:', result.error);
-          alert(`Error creating employee: ${result.error || 'Unknown error'}`);
+          alert(t('employee.errorCreatingEmployee', { error: result.error || t('common.error') }));
           return;
         }
 
-        alert(`Employee created successfully!\nUsername: ${formData.username}\nPassword: ${formData.password}`);
+        alert(t('employee.employeeCreatedSuccessfully', { username: formData.username, password: formData.password }));
       }
 
       setIsModalOpen(false);
@@ -299,7 +299,7 @@ export function EmployeesPage() {
       await fetchEmployees();
     } catch (err: any) {
       console.error('Error saving employee:', err);
-      alert(`Error: ${err.message || 'Unknown error occurred'}`);
+      alert(t('employee.errorOccurred', { message: err.message || t('common.error') }));
     }
   }
 
@@ -373,8 +373,8 @@ export function EmployeesPage() {
     if (!userProfile?.tenant_id) return;
 
     const confirmMessage = currentStatus
-      ? 'Are you sure you want to deactivate this employee? They will not be able to login.'
-      : 'Are you sure you want to activate this employee?';
+      ? t('employee.confirmDeactivate')
+      : t('employee.confirmActivate');
 
     if (!confirm(confirmMessage)) return;
 
@@ -406,7 +406,7 @@ export function EmployeesPage() {
       if (!contentType || !contentType.includes('application/json')) {
         const text = await response.text();
         console.error('Non-JSON response:', text.substring(0, 200));
-        alert(`Error: Server returned ${response.status} ${response.statusText}. Please check the console for details.`);
+        alert(t('employee.errorServerResponse', { status: response.status, statusText: response.statusText }));
         return;
       }
 
@@ -414,15 +414,15 @@ export function EmployeesPage() {
 
       if (!response.ok) {
         console.error('Status update error:', result.error);
-        alert(`Error: ${result.error || 'Unknown error'}`);
+        alert(t('employee.errorUnknown', { error: result.error || t('common.error') }));
         return;
       }
 
       await fetchEmployees();
-      alert(`Employee ${currentStatus ? 'deactivated' : 'activated'} successfully!`);
+      alert(currentStatus ? t('employee.employeeDeactivatedSuccessfully') : t('employee.employeeActivatedSuccessfully'));
     } catch (err: any) {
       console.error('Error toggling employee status:', err);
-      alert(`Error: ${err.message || 'Unknown error occurred'}`);
+      alert(t('employee.errorOccurred', { message: err.message || t('common.error') }));
     }
   }
 
@@ -510,7 +510,7 @@ export function EmployeesPage() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <Input
               type="text"
-              placeholder={i18n.language === 'ar' ? 'ابحث عن موظف...' : 'Search employees...'}
+              placeholder={t('employee.searchEmployees')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"
@@ -524,7 +524,7 @@ export function EmployeesPage() {
               size="sm"
               onClick={() => setSelectedRole('all')}
             >
-              {i18n.language === 'ar' ? 'الكل' : 'All'} ({employees.length})
+              {t('employee.all')} ({employees.length})
             </Button>
             <Button
               variant={selectedRole === 'employee' ? 'primary' : 'secondary'}
@@ -584,12 +584,12 @@ export function EmployeesPage() {
                 <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">
                   {searchQuery || selectedRole !== 'all' 
-                    ? (i18n.language === 'ar' ? 'لا توجد نتائج' : 'No results found')
+                    ? t('employee.noResultsFound')
                     : t('employee.noEmployeesYet')}
                 </h3>
                 <p className="text-gray-600 mb-6">
                   {searchQuery || selectedRole !== 'all'
-                    ? (i18n.language === 'ar' ? 'جرب البحث بكلمات مختلفة أو اختر تصنيف آخر' : 'Try different search terms or select another category')
+                    ? t('employee.tryDifferentSearch')
                     : t('employee.startBuildingTeam')}
                 </p>
                 {!searchQuery && selectedRole === 'all' && (
@@ -672,7 +672,7 @@ export function EmployeesPage() {
                     onClick={() => toggleEmployeeStatus(employee.id, employee.is_active)}
                     icon={employee.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
                   >
-                    {employee.is_active ? 'Deactivate' : 'Activate'}
+                    {employee.is_active ? t('employee.deactivate') : t('employee.activate')}
                   </Button>
                 </div>
               </CardContent>
@@ -689,7 +689,7 @@ export function EmployeesPage() {
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
-            label={`Username ${!editingEmployee ? '*' : ''}`}
+            label={!editingEmployee ? t('employee.usernameRequired') : t('employee.username')}
             value={formData.username}
             onChange={(e) => setFormData({ ...formData, username: e.target.value })}
             required={!editingEmployee}
@@ -700,7 +700,7 @@ export function EmployeesPage() {
 
           <Input
             type="password"
-            label={`Password ${!editingEmployee ? '*' : '(Leave blank to keep current)'}`}
+            label={!editingEmployee ? t('employee.passwordRequired') : t('employee.passwordLeaveBlank')}
             value={formData.password}
             onChange={(e) => setFormData({ ...formData, password: e.target.value })}
             required={!editingEmployee}
@@ -712,7 +712,7 @@ export function EmployeesPage() {
             value={formData.full_name}
             onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
             required
-            placeholder="Full name in English"
+            placeholder={t('employee.fullNameEnglishPlaceholder')}
           />
 
           <Input
@@ -730,7 +730,7 @@ export function EmployeesPage() {
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             disabled={!!editingEmployee}
-            placeholder="email@example.com (optional)"
+            placeholder={t('employee.emailPlaceholder')}
           />
 
           <PhoneInput
@@ -797,7 +797,7 @@ export function EmployeesPage() {
                         <div className="mt-3 ml-6 grid grid-cols-2 gap-3">
                           <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1">
-                              Duration (minutes) *
+                              {t('employee.durationMinutes')}
                             </label>
                             <input
                               type="number"
@@ -818,7 +818,7 @@ export function EmployeesPage() {
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1">
-                              Capacity per Slot *
+                              {t('employee.capacityPerSlot')}
                             </label>
                             <input
                               type="number"
@@ -843,10 +843,10 @@ export function EmployeesPage() {
                       {isServiceSelected && service.capacity_mode === 'service_based' && (
                         <div className="mt-3 ml-6 bg-blue-50 border border-blue-200 rounded-lg p-3">
                           <div className="text-xs text-blue-800">
-                            <div className="font-medium mb-1">Service-Based Capacity</div>
+                            <div className="font-medium mb-1">{t('employee.serviceBasedCapacity')}</div>
                             <div className="space-y-0.5">
-                              <div>Duration: {service.service_duration_minutes} minutes</div>
-                              <div>Capacity: {service.service_capacity_per_slot || 1} per slot</div>
+                              <div>{t('employee.duration')} {service.service_duration_minutes} {t('service.min')}</div>
+                              <div>{t('employee.capacity')} {service.service_capacity_per_slot || 1} {t('employee.perSlot')}</div>
                             </div>
                           </div>
                         </div>
@@ -855,7 +855,7 @@ export function EmployeesPage() {
                       {isServiceSelected && serviceShifts.length > 0 && (
                         <div className="mt-3 ml-6 space-y-2 pl-3 border-l-2 border-gray-200">
                           <div className="text-xs font-medium text-gray-600 mb-2">
-                            Select Shifts:
+                            {t('employee.selectShifts')}
                           </div>
                           {serviceShifts.map((shift) => (
                             <label key={shift.id} className="flex items-start gap-2 cursor-pointer text-xs">
@@ -882,7 +882,7 @@ export function EmployeesPage() {
 
                       {isServiceSelected && serviceShifts.length === 0 && (
                         <div className="mt-2 ml-6 text-xs text-amber-600">
-                          No shifts configured for this service
+                          {t('employee.noShiftsConfigured')}
                         </div>
                       )}
                     </div>

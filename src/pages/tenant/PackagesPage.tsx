@@ -1267,7 +1267,7 @@ export function PackagesPage() {
                   {t('packages.finalPrice') || 'Final Price'}
                   {packageForm.discount_percentage && packageForm.discount_percentage > 0 && (
                     <span className="ml-2 text-green-600 font-semibold">
-                      ({i18n.language === 'ar' ? 'وفر' : 'Save'} {packageForm.discount_percentage}%)
+                      ({t('packages.save')} {packageForm.discount_percentage}%)
                     </span>
                   )}
                 </label>
@@ -1361,7 +1361,7 @@ export function PackagesPage() {
                           )
                           .map(service => (
                       <option key={service.id} value={service.id}>
-                              {i18n.language === 'ar' ? service.name_ar : service.name} - {formatPrice(service.base_price || 0)}
+                              {i18n.language === 'ar' ? service.name_ar : service.name} - {formatPriceString(service.base_price || 0)}
                       </option>
                           ))
                       ) : (

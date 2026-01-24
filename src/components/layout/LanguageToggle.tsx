@@ -22,7 +22,7 @@ export function LanguageToggle() {
     <button
       onClick={toggleLanguage}
       className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-      aria-label="Toggle language"
+      aria-label={currentLang === 'en' ? 'تبديل إلى العربية' : 'Switch to English'}
     >
       <Globe className="w-4 h-4" />
       <span>{currentLang === 'en' ? 'العربية' : 'English'}</span>

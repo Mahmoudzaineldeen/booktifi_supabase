@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { 
   Clock, 
   CreditCard, 
@@ -63,7 +64,8 @@ export function ServiceBadge({
   className = '',
   size = 'md',
 }: ServiceBadgeProps) {
-  const displayLabel = label || defaultLabels[type];
+  const { t } = useTranslation();
+  const displayLabel = label || getDefaultLabel(type, t);
   const displayIcon = icon || badgeIcons[type];
 
   if (!displayLabel) return null;

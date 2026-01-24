@@ -181,7 +181,7 @@ export function ServicesPage() {
       // Check for duplicate service name (case-insensitive, trimmed)
       const serviceName = serviceForm.name.trim();
       if (!serviceName) {
-        alert(i18n.language === 'ar' ? 'يرجى إدخال اسم الخدمة' : 'Please enter a service name');
+        alert(t('service.pleaseEnterServiceName'));
         return;
       }
 
@@ -546,7 +546,7 @@ export function ServicesPage() {
       await fetchCategories();
     } catch (error: any) {
       console.error('Category submit error:', error);
-      alert(`Error: ${error.message || 'Failed to save category'}`);
+      alert(t('service.errorSavingCategory', { message: error.message || t('common.error') }));
     }
   }
 
@@ -653,7 +653,7 @@ export function ServicesPage() {
 
       if (deleteError) {
         // Check if error has a user-friendly message from backend
-        const errorMessage = deleteError.message || deleteError.error || 'Failed to delete service';
+        const errorMessage = deleteError.message || deleteError.error || t('service.errorDeletingService');
         console.error('[Delete Service] Database error:', deleteError);
         alert(`Error deleting service: ${errorMessage}`);
         return;
@@ -723,14 +723,14 @@ export function ServicesPage() {
         .select();
 
       if (deleteError) {
-        alert(`Error deleting category: ${deleteError.message || deleteError.error || 'Failed to delete category'}`);
+        alert(t('service.errorDeletingCategory', { message: deleteError.message || deleteError.error || t('common.error') }));
         return;
       }
 
       if (!deletedCategory || deletedCategory.length === 0) {
         alert(i18n.language === 'ar' 
           ? 'لم يتم العثور على الفئة أو تم حذفها بالفعل'
-          : 'Category not found or already deleted');
+          : t('service.categoryNotFound'));
         await fetchCategories();
         return;
       }
@@ -738,7 +738,7 @@ export function ServicesPage() {
       await fetchServices();
     } catch (error: any) {
       console.error('Delete category error:', error);
-      alert(`Error: ${error.message || 'Failed to delete category'}`);
+      alert(t('service.errorDeletingCategory', { message: error.message || t('common.error') }));
     }
   }
 
@@ -852,7 +852,7 @@ export function ServicesPage() {
     if (!selectedServiceForSchedule || !userProfile?.tenant_id) return;
 
     if (shiftForm.days_of_week.length === 0) {
-      alert('Please select at least one day of the week');
+      alert(t('service.pleaseSelectDayOfWeek'));
       return;
     }
 
@@ -882,7 +882,7 @@ export function ServicesPage() {
           return;
         }
         if (!result.data) {
-          alert('Failed to create shift');
+          alert(t('service.failedToCreateShift'));
           return;
         }
         shiftId = result.data.id;
@@ -898,7 +898,7 @@ export function ServicesPage() {
       }
     } catch (error: any) {
       console.error('Shift submit error:', error);
-      alert(`Error: ${error.message || 'Failed to save shift'}`);
+      alert(t('service.errorSavingShift', { message: error.message || t('common.error') }));
     }
   }
 
@@ -913,14 +913,14 @@ export function ServicesPage() {
         .select();
 
       if (deleteError) {
-        alert(`Error deleting shift: ${deleteError.message || deleteError.error || 'Failed to delete shift'}`);
+        alert(t('service.errorDeletingShift', { message: deleteError.message || deleteError.error || t('common.error') }));
         return;
       }
 
       if (!deletedShift || deletedShift.length === 0) {
         alert(i18n.language === 'ar' 
           ? 'لم يتم العثور على الوردية أو تم حذفها بالفعل'
-          : 'Shift not found or already deleted');
+          : t('service.shiftNotFound'));
         if (selectedServiceForSchedule?.id) {
           await fetchShifts(selectedServiceForSchedule.id);
         }
@@ -931,7 +931,7 @@ export function ServicesPage() {
       }
     } catch (error: any) {
       console.error('Delete shift error:', error);
-      alert(`Error: ${error.message || 'Failed to delete shift'}`);
+      alert(t('service.errorDeletingShift', { message: error.message || t('common.error') }));
     }
   }
 
@@ -953,7 +953,7 @@ export function ServicesPage() {
       if (error) {
         console.error('Slot generation error:', error);
         if (!silent) {
-          alert(`Error: ${error.message || 'Failed to generate slots'}`);
+          alert(t('service.errorGeneratingSlots', { message: error.message || t('common.error') }));
         }
         return;
       }
@@ -965,7 +965,7 @@ export function ServicesPage() {
     } catch (error: any) {
       console.error('Slot generation error:', error);
       if (!silent) {
-        alert(`Error: ${error.message || 'Failed to generate slots'}`);
+        alert(t('service.errorGeneratingSlots', { message: error.message || t('common.error') }));
       }
     }
   }
@@ -1068,7 +1068,7 @@ export function ServicesPage() {
               <CardContent className="py-12 text-center">
                 <Search className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  {i18n.language === 'ar' ? 'لا توجد نتائج' : 'No results found'}
+                  {t('common.noResultsFound')}
                 </h3>
                 <p className="text-gray-600 mb-6">
                   {i18n.language === 'ar' 
@@ -1076,7 +1076,7 @@ export function ServicesPage() {
                     : `No services found matching "${searchQuery}"`}
                 </p>
                 <Button onClick={() => setSearchQuery('')} variant="secondary">
-                  {i18n.language === 'ar' ? 'مسح البحث' : 'Clear Search'}
+                  {t('common.clearSearch')}
                 </Button>
               </CardContent>
             </Card>
@@ -1170,7 +1170,7 @@ export function ServicesPage() {
                         setIsOffersModalOpen(true);
                       }}
                       icon={<Gift className="w-4 h-4" />}
-                      title={t('service.manageOffers') || 'Manage Offers'}
+                      title={t('service.manageOffers')}
                     />
                     <Button
                       variant="danger"
@@ -1202,7 +1202,7 @@ export function ServicesPage() {
             value={serviceForm.name}
             onChange={(e) => setServiceForm({ ...serviceForm, name: e.target.value })}
             required
-            placeholder="Service name in English"
+            placeholder={t('service.serviceNameEnglishPlaceholder')}
           />
 
           <Input
@@ -1223,7 +1223,7 @@ export function ServicesPage() {
               rows={3}
               value={serviceForm.description}
               onChange={(e) => setServiceForm({ ...serviceForm, description: e.target.value })}
-              placeholder="Service description in English"
+              placeholder={t('service.serviceDescriptionEnglishPlaceholder')}
             />
           </div>
 
@@ -1325,7 +1325,7 @@ export function ServicesPage() {
               }}
               required
               min="1"
-              helperText="Fixed duration for all slots"
+              helperText={t('service.fixedDurationForAllSlots')}
             />
             <Input
               type="number"
@@ -1517,7 +1517,7 @@ export function ServicesPage() {
             }}
             required
             min="1"
-            helperText="Fixed number of customers per time slot"
+            helperText={t('service.fixedCustomersPerSlot')}
           />
 
           {/* Multiple Images Upload */}
@@ -1785,7 +1785,7 @@ export function ServicesPage() {
               value={categoryForm.name}
               onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
               required
-              placeholder="Category name in English"
+              placeholder={t('service.categoryNameEnglishPlaceholder')}
             />
 
             <Input
@@ -1841,7 +1841,7 @@ export function ServicesPage() {
                         <span className={`text-xs px-2 py-0.5 rounded ${
                           shift.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                         }`}>
-                          {shift.is_active ? 'Active' : 'Inactive'}
+                          {shift.is_active ? t('service.active') : t('service.inactive')}
                         </span>
                       </div>
                       <div className="text-xs text-gray-600">
@@ -1856,7 +1856,7 @@ export function ServicesPage() {
                         variant="secondary"
                         onClick={() => regenerateSlots(shift.id)}
                         icon={<Clock className="w-3 h-3" />}
-                        title="Regenerate time slots"
+                        title={t('service.regenerateTimeSlots')}
                       />
                       <Button
                         size="sm"
@@ -1875,7 +1875,7 @@ export function ServicesPage() {
                 ))}
               </div>
               <div className="border-t pt-4 mt-4">
-                <h4 className="font-medium mb-3">{editingShift ? 'Edit Shift' : 'Add New Shift'}</h4>
+                <h4 className="font-medium mb-3">{editingShift ? t('service.editShift') : t('service.addNewShift')}</h4>
               </div>
             </div>
           )}
@@ -1883,7 +1883,7 @@ export function ServicesPage() {
           <form onSubmit={handleShiftSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Days of Week *
+                {t('service.daysOfWeek')} *
               </label>
               <div className="grid grid-cols-2 gap-2">
                 {dayNames.map((day, index) => (
@@ -1931,7 +1931,7 @@ export function ServicesPage() {
 
             <div className="flex gap-3 pt-4">
               <Button type="submit" fullWidth disabled={shiftForm.days_of_week.length === 0}>
-                {editingShift ? 'Update Shift' : 'Add Shift'}
+                {editingShift ? t('service.updateShift') : t('service.addShift')}
               </Button>
               {editingShift && (
                 <Button

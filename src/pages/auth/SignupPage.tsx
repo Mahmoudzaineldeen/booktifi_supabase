@@ -31,37 +31,37 @@ export function SignupPage() {
     try {
       // Validate required fields
       if (!businessName || businessName.trim() === '') {
-        setError('Business name (English) is required');
+        setError(t('auth.businessNameEnglishRequired'));
         setLoading(false);
         return;
       }
 
       if (!businessNameAr || businessNameAr.trim() === '') {
-        setError('Business name (Arabic) is required');
+        setError(t('auth.businessNameArabicRequired'));
         setLoading(false);
         return;
       }
 
       if (!fullName || fullName.trim() === '') {
-        setError('Full name is required');
+        setError(t('auth.fullNameRequired'));
         setLoading(false);
         return;
       }
 
       if (!email || email.trim() === '') {
-        setError('Email address is required');
+        setError(t('auth.emailAddressRequired'));
         setLoading(false);
         return;
       }
 
       if (!phone || phone.trim() === '' || phone === '+966') {
-        setError('Phone number is required');
+        setError(t('auth.phoneNumberRequired'));
         setLoading(false);
         return;
       }
 
       if (!password || password.length < 6) {
-        setError('Password must be at least 6 characters');
+        setError(t('auth.passwordMin6Characters'));
         setLoading(false);
         return;
       }
@@ -99,7 +99,7 @@ export function SignupPage() {
 
       // Ensure slug is not empty
       if (!baseSlug || baseSlug.trim() === '') {
-        setError('Business name must contain at least one letter or number');
+        setError(t('auth.businessNameMustContainLetterOrNumber'));
         setLoading(false);
         return;
       }
@@ -126,7 +126,7 @@ export function SignupPage() {
       }
 
       if (slugExists) {
-        setError('Unable to generate unique business URL. Please try a different business name.');
+        setError(t('auth.unableToGenerateUniqueUrl'));
         setLoading(false);
         return;
       }
@@ -182,7 +182,7 @@ export function SignupPage() {
       }
 
       if (!tenant || !tenant.id) {
-        setError('Failed to create tenant. Please try again.');
+        setError(t('auth.failedToCreateTenant'));
         setLoading(false);
         return;
       }
@@ -221,7 +221,7 @@ export function SignupPage() {
         } catch (deleteError) {
           console.error('Failed to delete tenant after auth error:', deleteError);
         }
-        setError(authError.message || 'Failed to create account. Please try again.');
+        setError(authError.message || t('auth.failedToCreateAccount'));
         setLoading(false);
         return;
       }
@@ -243,7 +243,7 @@ export function SignupPage() {
         navigate('/login');
       }, 2000);
     } catch (err: any) {
-      setError(err.message || 'Something went wrong');
+      setError(err.message || t('auth.somethingWentWrong'));
       setLoading(false);
     }
   };
@@ -272,16 +272,16 @@ export function SignupPage() {
             {success ? (
               <div className="space-y-4">
               <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-center">
-                  <p className="font-medium text-lg">✅ Account created successfully!</p>
-                  <p className="text-sm mt-2">Your business has been set up and you can now start managing bookings.</p>
-                  <p className="text-sm mt-1">Redirecting to login page...</p>
+                  <p className="font-medium text-lg">{t('auth.accountCreatedSuccessfully')}</p>
+                  <p className="text-sm mt-2">{t('auth.businessSetupComplete')}</p>
+                  <p className="text-sm mt-1">{t('auth.redirectingToLogin')}</p>
                 </div>
                 <div className="text-center">
                   <Button
                     onClick={() => navigate('/login')}
                     fullWidth
                   >
-                    Go to Login
+                    {t('auth.goToLogin')}
                   </Button>
                 </div>
               </div>
@@ -295,16 +295,16 @@ export function SignupPage() {
 
                 <Input
                   type="text"
-                  label="Business Name (English)"
+                  label={t('auth.businessNameEnglish')}
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
                   required
-                  placeholder="e.g., Premium Salon"
+                  placeholder={t('auth.businessNameEnglishPlaceholder')}
                 />
 
                 <Input
                   type="text"
-                  label="Business Name (Arabic)"
+                  label={t('auth.businessNameArabic')}
                   value={businessNameAr}
                   onChange={(e) => setBusinessNameAr(e.target.value)}
                   required
@@ -314,7 +314,7 @@ export function SignupPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Industry <span className="text-red-500">*</span>
+                    {t('auth.industryRequired')}
                   </label>
                   <select
                     value={industry}
@@ -322,39 +322,39 @@ export function SignupPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     required
                   >
-                    <option value="restaurant">Restaurant</option>
-                    <option value="salon">Salon & Beauty</option>
-                    <option value="clinic">Medical Clinic</option>
-                    <option value="parking">Parking</option>
-                    <option value="venue">Event Venue</option>
-                    <option value="touristic_venue">Touristic Venue</option>
-                    <option value="work_space">Work Space</option>
-                    <option value="technical_services">Technical Services</option>
-                    <option value="other">Other</option>
+                    <option value="restaurant">{t('auth.restaurant')}</option>
+                    <option value="salon">{t('auth.salon')}</option>
+                    <option value="clinic">{t('auth.clinic')}</option>
+                    <option value="parking">{t('auth.parking')}</option>
+                    <option value="venue">{t('auth.venue')}</option>
+                    <option value="touristic_venue">{t('auth.touristicVenue')}</option>
+                    <option value="work_space">{t('auth.workSpace')}</option>
+                    <option value="technical_services">{t('auth.technicalServices')}</option>
+                    <option value="other">{t('auth.other')}</option>
                   </select>
                 </div>
 
                 <Input
                   type="text"
-                  label="Your Full Name"
+                  label={t('auth.yourFullName')}
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   required
-                  placeholder="John Doe"
+                  placeholder={t('auth.fullNamePlaceholder')}
                 />
 
                 <Input
                   type="email"
-                  label="Email Address"
+                  label={t('auth.emailAddress')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   autoComplete="email"
-                  placeholder="your@email.com"
+                  placeholder={t('auth.emailPlaceholder')}
                 />
 
                 <PhoneInput
-                  label="Phone Number"
+                  label={t('auth.phoneNumber')}
                   value={phone}
                   onChange={(value) => setPhone(value)}
                   defaultCountry="+966"
@@ -363,26 +363,26 @@ export function SignupPage() {
 
                 <Input
                   type="password"
-                  label="Password"
+                  label={t('auth.passwordLabel')}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   autoComplete="new-password"
-                  helperText="Minimum 6 characters"
+                  helperText={t('auth.minimum6Characters')}
                 />
 
                 <Button type="submit" fullWidth loading={loading}>
-                  Start Free Trial
+                  {t('auth.startFreeTrial')}
                 </Button>
 
                 <div className="text-center text-sm text-gray-600">
-                  Already have an account?{' '}
+                  {t('auth.alreadyHaveAccount')}{' '}
                   <button
                     type="button"
                     onClick={() => navigate('/login')}
                     className="text-blue-600 hover:text-blue-700 font-medium"
                   >
-                    Sign In
+                    {t('auth.signIn')}
                   </button>
                 </div>
               </form>

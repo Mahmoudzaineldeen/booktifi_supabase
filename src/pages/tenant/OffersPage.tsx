@@ -352,16 +352,16 @@ export function OffersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('offers.title') || 'Service Offers'}</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{t('offers.title')}</h1>
           <p className="text-sm text-gray-600 mt-1">
-            {t('offers.description') || 'Create and manage offers for your services'}
+            {t('offers.description')}
           </p>
         </div>
         <Button
           onClick={() => openCreateOffer()}
           icon={<Plus className="w-4 h-4" />}
         >
-          {t('offers.createOffer') || 'Create Offer'}
+          {t('offers.createOffer')}
         </Button>
       </div>
 
@@ -372,7 +372,7 @@ export function OffersPage() {
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
               <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
-                {t('offers.filterByService') || 'Filter by Service'}:
+                {t('offers.filterByService')}:
               </label>
               <select
                 value={filterServiceId}
@@ -417,7 +417,7 @@ export function OffersPage() {
           <CardContent className="py-12 text-center">
             <Search className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
-              {i18n.language === 'ar' ? 'لا توجد نتائج' : 'No results found'}
+              {t('common.noResultsFound')}
             </h3>
             <p className="text-gray-600 mb-6">
               {i18n.language === 'ar' 
@@ -425,7 +425,7 @@ export function OffersPage() {
                 : `No offers found matching "${searchQuery}"`}
             </p>
             <Button onClick={() => setSearchQuery('')} variant="secondary">
-              {i18n.language === 'ar' ? 'مسح البحث' : 'Clear Search'}
+              {t('common.clearSearch')}
             </Button>
           </CardContent>
         </Card>
@@ -433,7 +433,7 @@ export function OffersPage() {
         <Card>
           <CardContent className="py-12 text-center">
             <Gift className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-500">{t('offers.noOffers') || 'No offers found'}</p>
+            <p className="text-gray-500">{t('offers.noOffers')}</p>
             <Button
               onClick={() => openCreateOffer()}
               className="mt-4"
@@ -457,7 +457,7 @@ export function OffersPage() {
                         {i18n.language === 'ar' ? offer.name_ar || offer.name : offer.name}
                       </CardTitle>
                       <p className="text-sm text-gray-600 mt-1">
-                        {service ? (i18n.language === 'ar' ? service.name_ar : service.name) : 'Unknown Service'}
+                        {service ? (i18n.language === 'ar' ? service.name_ar : service.name) : t('offers.unknownService')}
                       </p>
                     </div>
                     {offer.badge && (
@@ -490,7 +490,7 @@ export function OffersPage() {
 
                     {offer.duration_minutes && (
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600">{t('offers.duration') || 'Duration'}:</span>
+                        <span className="text-gray-600">{t('offers.duration')}:</span>
                         <span className="font-medium">{offer.duration_minutes} {i18n.language === 'ar' ? 'دقيقة' : 'minutes'}</span>
                       </div>
                     )}
@@ -513,7 +513,7 @@ export function OffersPage() {
 
                     <div className="flex items-center justify-between pt-2 border-t">
                       <span className={`text-xs px-2 py-1 rounded ${offer.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                        {offer.is_active ? (t('common.active') || 'Active') : (t('common.inactive') || 'Inactive')}
+                        {offer.is_active ? t('common.active') : t('common.inactive')}
                       </span>
                       <div className="flex gap-2">
                         <Button
@@ -547,7 +547,7 @@ export function OffersPage() {
           setIsOfferModalOpen(false);
           setEditingOffer(null);
         }}
-        title={editingOffer ? (t('offers.editOffer') || 'Edit Offer') : (t('offers.createOffer') || 'Create Offer')}
+        title={editingOffer ? t('offers.editOffer') : t('offers.createOffer')}
         size="lg"
       >
         <form onSubmit={handleOfferSubmit} className="space-y-4">
@@ -580,7 +580,7 @@ export function OffersPage() {
               required
               disabled={!!editingOffer}
             >
-              <option value="">{t('offers.selectService') || 'Select a service'}</option>
+              <option value="">{t('offers.selectService')}</option>
               {services.map(service => (
                 <option key={service.id} value={service.id}>
                   {i18n.language === 'ar' ? service.name_ar : service.name} - {service.base_price} {t('common.sar') || 'SAR'}
@@ -610,7 +610,7 @@ export function OffersPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                {t('offers.name') || 'Name'} (AR)
+                {t('offers.name')} (AR)
               </label>
               <Input
                 value={offerForm.name_ar}
@@ -634,7 +634,7 @@ export function OffersPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                {t('offers.description') || 'Description'} (AR)
+                {t('offers.description')} (AR)
               </label>
               <textarea
                 value={offerForm.description_ar}
@@ -649,7 +649,7 @@ export function OffersPage() {
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                {t('offers.price') || 'Price'} *
+                {t('offers.price')} *
               </label>
               <Input
                 type="number"
@@ -692,7 +692,7 @@ export function OffersPage() {
               {t('offers.durationMinutes') || 'Duration (minutes)'}
               {offerForm.service_id && !editingOffer && (
                 <span className="ml-2 text-xs text-gray-500 font-normal">
-                  ({i18n.language === 'ar' ? 'مأخوذ من الخدمة' : 'From service'})
+                  ({t('offers.fromService')})
                 </span>
               )}
             </label>
@@ -711,12 +711,12 @@ export function OffersPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                {t('offers.badge') || 'Badge'} (EN) - e.g., "Most Popular", "Best Value"
+                {t('offers.badge')} (EN) - {t('offers.badgeEnglishHint')}
               </label>
               <Input
                 value={offerForm.badge}
                 onChange={(e) => setOfferForm({ ...offerForm, badge: e.target.value })}
-                placeholder="Most Popular"
+                placeholder={t('offers.badgeEnglishPlaceholder')}
               />
             </div>
             <div>
@@ -735,7 +735,7 @@ export function OffersPage() {
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-sm font-medium text-gray-700">
-                {t('offers.perks') || 'Perks'} (EN)
+                {t('offers.perks')} (EN)
               </label>
               <Button
                 type="button"
@@ -770,7 +770,7 @@ export function OffersPage() {
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-sm font-medium text-gray-700">
-                {t('offers.perks') || 'Perks'} (AR)
+                {t('offers.perks')} (AR)
               </label>
               <Button
                 type="button"
@@ -829,10 +829,10 @@ export function OffersPage() {
                 setEditingOffer(null);
               }}
             >
-              {t('common.cancel') || 'Cancel'}
+              {t('common.cancel')}
             </Button>
             <Button type="submit">
-              {editingOffer ? (t('common.update') || 'Update') : (t('common.create') || 'Create')}
+              {editingOffer ? t('common.update') : t('common.create')}
             </Button>
           </div>
         </form>

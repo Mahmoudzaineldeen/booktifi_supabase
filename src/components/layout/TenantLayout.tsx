@@ -213,7 +213,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
               onClick={handleLogout}
               icon={<LogOut className="w-4 h-4" />}
             >
-              Logout
+              {t('auth.logout')}
             </Button>
           </div>
         </aside>

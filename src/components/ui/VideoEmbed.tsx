@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface VideoEmbedProps {
   url: string;
@@ -92,7 +93,7 @@ export function VideoEmbed({ url, className = '', aspectRatio = '16:9' }: VideoE
         className="absolute inset-0 w-full h-full rounded-lg"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowFullScreen
-        title="Video embed"
+        title={t('common.videoEmbed')}
         loading="lazy"
         referrerPolicy="no-referrer-when-downgrade"
         style={{ border: 'none' }}

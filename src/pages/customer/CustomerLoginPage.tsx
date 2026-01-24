@@ -67,9 +67,9 @@ export function CustomerLoginPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Tenant not found</h1>
-          <p className="text-gray-600 mb-4">The tenant you're looking for doesn't exist.</p>
-          <Button onClick={() => navigate('/')}>Go Home</Button>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">{t('auth.tenantNotFound')}</h1>
+          <p className="text-gray-600 mb-4">{t('auth.tenantDoesNotExist')}</p>
+          <Button onClick={() => navigate('/')}>{t('auth.goHome')}</Button>
         </div>
       </div>
     );
@@ -107,7 +107,7 @@ export function CustomerLoginPage() {
         navigate(`/${tenantSlug}/customer/dashboard`);
       } else {
         console.warn('[CustomerLoginPage] Security: Non-customer attempted to login through customer login page', { email: loginEmail, role: userProfile.role, userId: userProfile.id });
-        setError('Access denied: This login page is for customers only. Administrators, service providers, and employees must use the admin login page.');
+        setError(t('auth.accessDeniedCustomerOnly'));
         setLoading(false);
         // Clear any session data that might have been set
         try {
@@ -157,7 +157,7 @@ export function CustomerLoginPage() {
                   {tenant ? (i18n.language === 'ar' ? tenant.name_ar : tenant.name) : 'Bookati'}
                 </h1>
                 <span className="text-sm text-gray-500 font-medium">
-                  {i18n.language === 'ar' ? 'احجز خدماتك الآن' : 'Book Your Services'}
+                  {t('auth.bookYourServices')}
                 </span>
               </div>
             </div>
@@ -182,7 +182,7 @@ export function CustomerLoginPage() {
                 }}
               >
                 <Package className="w-4 h-4 mr-2" />
-                {i18n.language === 'ar' ? 'عرض الخدمات' : 'View Services'}
+                  {t('auth.viewServices')}
               </Button>
               <div className="h-6 w-px bg-gray-300"></div>
               <LanguageToggle />
@@ -211,7 +211,7 @@ export function CustomerLoginPage() {
               </Button>
               <div className="flex-1 flex items-center justify-center gap-2">
                 <LogIn className="w-5 h-5" style={{ color: primaryColor }} />
-                <CardTitle className="text-center">Sign In</CardTitle>
+                <CardTitle className="text-center">{t('auth.signIn')}</CardTitle>
               </div>
             </div>
           </CardHeader>
@@ -227,11 +227,11 @@ export function CustomerLoginPage() {
                 <Mail className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
                 <Input
                   type="text"
-                  label="Email or Username"
+                  label={t('auth.emailOrUsernameLabel')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  placeholder="Enter email or username"
+                  placeholder={t('auth.emailOrUsernamePlaceholder')}
                   autoComplete="email"
                   className="pl-10"
                 />
@@ -241,7 +241,7 @@ export function CustomerLoginPage() {
                 <Lock className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
                 <Input
                   type={showPassword ? 'text' : 'password'}
-                  label="Password"
+                  label={t('auth.passwordLabel')}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
@@ -252,7 +252,7 @@ export function CustomerLoginPage() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-[38px] text-gray-500 hover:text-gray-700 focus:outline-none focus:text-gray-700 transition-colors z-10"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
                   tabIndex={-1}
                 >
                   {showPassword ? (
@@ -299,11 +299,11 @@ export function CustomerLoginPage() {
                 }}
               >
                 <LogIn className="w-4 h-4 mr-2" />
-                Sign In
+                {t('auth.signIn')}
               </Button>
 
               <div className="text-center text-sm text-gray-600">
-                Don't have an account?{' '}
+                {t('auth.dontHaveAccount')}{' '}
                 <button
                   type="button"
                   onClick={() => navigate(`/${tenantSlug}/customer/signup`)}
@@ -317,7 +317,7 @@ export function CustomerLoginPage() {
                   }}
                 >
                   <UserPlus className="w-4 h-4" />
-                  Sign Up
+                  {t('auth.signUp')}
                 </button>
               </div>
             </form>

@@ -250,7 +250,7 @@ export function CustomerBillingPage() {
         booking_id: invoice.id,
         zoho_invoice_id: invoice.zoho_invoice_id,
         zoho_invoice_created_at: invoice.zoho_invoice_created_at,
-        service_name: invoice.service_name || 'Unknown Service',
+        service_name: invoice.service_name || t('billing.unknownService'),
         service_name_ar: invoice.service_name_ar || '',
         slot_date: invoice.slot_date || '',
         start_time: invoice.start_time || '',
@@ -339,7 +339,7 @@ export function CustomerBillingPage() {
       
     } catch (error: any) {
       console.error('[CustomerBillingPage] Error downloading invoice:', error);
-      const errorMessage = error.message || 'Unknown error occurred';
+        const errorMessage = error.message || t('common.error');
       alert(i18n.language === 'ar' 
         ? `فشل تنزيل الفاتورة: ${errorMessage}. يرجى المحاولة مرة أخرى.` 
         : `Failed to download invoice: ${errorMessage}. Please try again.`);
@@ -469,7 +469,7 @@ export function CustomerBillingPage() {
               {process.env.NODE_ENV === 'development' && (
                 <div className="mt-4 p-4 bg-gray-100 rounded text-left text-sm">
                   <p className="font-semibold mb-2">Debug Info:</p>
-                  <p>User ID: {userProfile?.id || 'Not available'}</p>
+                  <p>{t('billing.userId')}: {userProfile?.id || t('common.notAvailable')}</p>
                   <p>Has Token: {localStorage.getItem('auth_token') ? 'Yes' : 'No'}</p>
                   <p className="mt-2 text-xs text-gray-600">
                     Check browser console for detailed logs
@@ -522,9 +522,7 @@ export function CustomerBillingPage() {
               
               <div className="flex items-center gap-4">
                 <div className="text-sm text-gray-600">
-                  {i18n.language === 'ar' 
-                    ? `إجمالي: ${pagination.total} ${pagination.total === 1 ? 'فاتورة' : 'فواتير'}`
-                    : `Total: ${pagination.total} ${pagination.total === 1 ? 'Invoice' : 'Invoices'}`}
+                  {pagination.total === 1 ? t('billing.totalInvoices', { count: pagination.total }) : t('billing.totalInvoicesPlural', { count: pagination.total })}
                 </div>
                 <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
                   <input
@@ -543,9 +541,7 @@ export function CustomerBillingPage() {
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <Search className="w-4 h-4" />
                 <span>
-                  {i18n.language === 'ar' 
-                    ? `نتائج البحث عن "${searchQuery}": ${invoices.length} ${invoices.length === 1 ? 'فاتورة' : 'فواتير'}`
-                    : `Search results for "${searchQuery}": ${invoices.length} ${invoices.length === 1 ? 'invoice' : 'invoices'}`}
+                  {invoices.length === 1 ? t('billing.searchResults', { query: searchQuery, count: invoices.length }) : t('billing.searchResultsPlural', { query: searchQuery, count: invoices.length })}
                 </span>
               </div>
             )}
@@ -601,7 +597,7 @@ export function CustomerBillingPage() {
                                 ) : isNewerInDB ? (
                                   <span>⚠️ {t('billing.newerInvoicesInDB', { seconds: Math.round((dbTime - displayedTime) / 1000) })}</span>
                                 ) : (
-                                  <span>ℹ️ {i18n.language === 'ar' ? 'الفاتورة المعروضة أحدث من قاعدة البيانات' : 'Displayed invoice is newer than database'}</span>
+                                  <span>ℹ️ {t('billing.displayedInvoiceNewer')}</span>
                                 )}
                               </div>
                             );
@@ -856,7 +852,7 @@ export function CustomerBillingPage() {
               <div className="text-center py-4 text-gray-500 text-sm">
                 {i18n.language === 'ar' 
                   ? 'تم عرض جميع الفواتير'
-                  : 'All invoices displayed'}
+                  : t('billing.allInvoicesDisplayed')}
               </div>
             )}
           </div>

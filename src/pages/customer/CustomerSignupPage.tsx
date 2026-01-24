@@ -111,7 +111,7 @@ export function CustomerSignupPage() {
 
     // Validate phone if provided
     if (phone && phone.trim() !== '' && phone === '+966') {
-      setError('Please enter a valid phone number');
+      setError(t('auth.pleaseEnterValidPhone'));
       return;
     }
 
@@ -227,7 +227,7 @@ export function CustomerSignupPage() {
                     backgroundImage: `linear-gradient(to right, ${primaryColor}, ${secondaryColor})`
                   }}
                 >
-                  {tenant ? (i18n.language === 'ar' ? tenant.name_ar : tenant.name) : 'Bookati'}
+                  {tenant ? (i18n.language === 'ar' ? tenant.name_ar : tenant.name) : t('common.appName')}
                 </h1>
                 <span className="text-sm text-gray-500 font-medium">
                   {i18n.language === 'ar' ? 'احجز خدماتك الآن' : 'Book Your Services'}
@@ -255,7 +255,7 @@ export function CustomerSignupPage() {
                 }}
               >
                 <Package className="w-4 h-4 mr-2" />
-                {i18n.language === 'ar' ? 'عرض الخدمات' : 'View Services'}
+                {t('service.viewServices')}
               </Button>
               <div className="h-6 w-px bg-gray-300"></div>
               <LanguageToggle />
@@ -300,17 +300,17 @@ export function CustomerSignupPage() {
                 <User className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
                 <Input
                   type="text"
-                  label="Full Name"
+                  label={t('auth.fullName')}
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   required
-                  placeholder="Enter your full name"
+                  placeholder={t('auth.fullNamePlaceholder')}
                   className="pl-10"
                 />
               </div>
 
               <PhoneInput
-                label="Phone Number"
+                label={t('auth.phone')}
                 value={phone}
                 onChange={(value) => setPhone(value)}
                 defaultCountry="+966"
@@ -320,10 +320,10 @@ export function CustomerSignupPage() {
                 <Mail className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
                 <Input
                   type="email"
-                  label="Email (Optional)"
+                  label={t('auth.emailOptional')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="your@email.com"
+                  placeholder={t('auth.emailPlaceholder')}
                   className="pl-10"
                 />
               </div>
@@ -332,10 +332,10 @@ export function CustomerSignupPage() {
                 <User className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
                 <Input
                   type="text"
-                  label="Username (Optional)"
+                  label={t('auth.usernameOptional')}
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="username"
+                  placeholder={t('auth.usernamePlaceholder')}
                   className="pl-10"
                 />
               </div>
@@ -344,11 +344,11 @@ export function CustomerSignupPage() {
                 <Lock className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
                 <Input
                   type="password"
-                  label="Password"
+                  label={t('auth.password')}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  placeholder="At least 6 characters"
+                  placeholder={t('auth.passwordPlaceholder')}
                   autoComplete="new-password"
                   className="pl-10"
                 />
@@ -358,11 +358,11 @@ export function CustomerSignupPage() {
                 <Lock className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
                 <Input
                   type="password"
-                  label="Confirm Password"
+                  label={t('auth.confirmPassword')}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
-                  placeholder="Re-enter password"
+                  placeholder={t('auth.confirmPasswordPlaceholder')}
                   autoComplete="new-password"
                   className="pl-10"
                 />

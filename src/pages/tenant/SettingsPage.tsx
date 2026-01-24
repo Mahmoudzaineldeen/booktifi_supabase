@@ -318,7 +318,7 @@ export function SettingsPage() {
     if (authLoading) {
       setSmtpMessage({ 
         type: 'error', 
-        text: 'Please wait while authentication loads...' 
+        text: t('settings.smtp.pleaseWaitAuthLoading')
       });
       setSmtpLoading(false);
       return;
@@ -333,15 +333,15 @@ export function SettingsPage() {
       });
       setSmtpMessage({ 
         type: 'error', 
-        text: 'Tenant information not available. Please log out and log in again.',
-        hint: 'Your session may have expired. Please refresh the page or log in again.'
+        text: t('settings.smtp.tenantInfoNotAvailable'),
+        hint: t('settings.smtp.sessionExpiredHint')
       });
       setSmtpLoading(false);
       return;
     }
 
     if (!smtpSettings.smtp_user || !smtpSettings.smtp_password) {
-      setSmtpMessage({ type: 'error', text: 'Email and App Password are required' });
+      setSmtpMessage({ type: 'error', text: t('settings.smtp.emailAndAppPasswordRequired') });
       setSmtpLoading(false);
       return;
     }
@@ -380,23 +380,23 @@ export function SettingsPage() {
         if (response.status === 404) {
           throw new Error(
             errorData.error || 
-            'SMTP settings endpoint not found (404). The server may need to be restarted or redeployed with the latest code.'
+            t('settings.smtp.smtpSettingsEndpointNotFound')
           );
         }
         
-        throw new Error(errorData.error || errorData.hint || `Failed to save SMTP settings (${response.status})`);
+        throw new Error(errorData.error || errorData.hint || t('settings.smtp.failedToSaveSmtpSettings'));
       }
 
       const data = await response.json();
-      setSmtpMessage({ type: 'success', text: data.message || 'SMTP settings saved successfully!' });
+      setSmtpMessage({ type: 'success', text: data.message || t('settings.smtp.saved') });
     } catch (err: any) {
       console.error('[SMTP Save] Error:', err);
       setSmtpMessage({ 
         type: 'error', 
-        text: err.message || 'Failed to save SMTP settings',
+        text: err.message || t('settings.smtp.failedToSaveSmtpSettings'),
         hint: err.hint || (err.message?.includes('404') 
-          ? 'The endpoint is not available on the server. Please ensure the backend is deployed with the latest code.'
-          : 'Please check your connection and try again.')
+          ? t('settings.smtp.endpointNotAvailable')
+          : t('common.error'))
       });
     } finally {
       setSmtpLoading(false);
@@ -411,14 +411,14 @@ export function SettingsPage() {
     if (!userProfile?.tenant_id) {
       setSmtpMessage({ 
         type: 'error', 
-        text: 'Tenant not found. Please log out and log in again.' 
+        text: t('settings.smtp.tenantNotFound')
       });
       setSmtpTestLoading(false);
       return;
     }
 
     if (!smtpSettings.smtp_user || !smtpSettings.smtp_password) {
-      setSmtpMessage({ type: 'error', text: 'Please save SMTP settings first' });
+      setSmtpMessage({ type: 'error', text: t('settings.smtp.pleaseSaveSmtpSettingsFirst') });
       setSmtpTestLoading(false);
       return;
     }
@@ -436,7 +436,7 @@ export function SettingsPage() {
       // Show initial message to indicate the test is in progress
       setSmtpMessage({ 
         type: 'success', 
-        text: 'Testing SMTP connection... This may take up to 60 seconds.',
+        text: t('settings.smtp.testingSmtpConnection'),
       });
       
       const response = await fetch(`${API_URL}/tenants/smtp-settings/test`, {
@@ -490,22 +490,22 @@ export function SettingsPage() {
 
       setSmtpMessage({ 
         type: 'success', 
-        text: data.message || `Connection test successful! Test email sent to ${data.testEmail || 'your email'}`,
+        text: data.message || t('settings.smtp.connectionTestSuccessful', { email: data.testEmail || t('common.email') }),
         hint: data.hint
       });
     } catch (err: any) {
       console.error('[SMTP Test] Error:', err);
       
       // Handle different error types
-      let errorMessage = 'SMTP connection test failed';
-      let errorHint = 'Please check your settings and try again.';
+      let errorMessage = t('settings.smtp.connectionTestFailed');
+      let errorHint = t('common.error');
       
       if (err.name === 'AbortError' || err.message?.includes('timeout')) {
-        errorMessage = 'Request timed out after 60 seconds.';
-        errorHint = 'The SMTP server took too long to respond. This may indicate port blocking, firewall issues, or incorrect SMTP settings. For Gmail, make sure you are using an App Password.';
+        errorMessage = t('settings.smtp.requestTimedOut');
+        errorHint = t('settings.smtp.timeoutHint');
       } else if (err.message?.includes('Failed to fetch') || err.message?.includes('ERR_CONNECTION_RESET')) {
-        errorMessage = 'Connection failed or was interrupted.';
-        errorHint = 'The connection to the server was reset. This could be due to: (1) SMTP port being blocked by your hosting provider, (2) Firewall restrictions, (3) Incorrect SMTP credentials. For Gmail, use an App Password from https://myaccount.google.com/apppasswords';
+        errorMessage = t('settings.smtp.connectionFailed');
+        errorHint = t('settings.smtp.connectionFailedHint');
       } else if (err.message) {
         errorMessage = err.message;
         errorHint = err.hint || err.data?.hint || errorHint;
@@ -527,7 +527,7 @@ export function SettingsPage() {
     setWhatsappLoading(true);
 
     if (!tenant?.id) {
-      setWhatsappMessage({ type: 'error', text: 'Tenant not found' });
+      setWhatsappMessage({ type: 'error', text: t('settings.whatsapp.tenantNotFound') });
       setWhatsappLoading(false);
       return;
     }
@@ -537,7 +537,7 @@ export function SettingsPage() {
       if (!whatsappSettings.phone_number_id || !whatsappSettings.access_token) {
         setWhatsappMessage({ 
           type: 'error', 
-          text: 'Phone Number ID and Access Token are required for Meta Cloud API.' 
+          text: t('settings.whatsapp.phoneNumberIdAndTokenRequired')
         });
         setWhatsappLoading(false);
         return;
@@ -546,7 +546,7 @@ export function SettingsPage() {
       if (!whatsappSettings.account_sid || !whatsappSettings.auth_token) {
         setWhatsappMessage({ 
           type: 'error', 
-          text: 'Account SID and Auth Token are required for Twilio.' 
+          text: t('settings.whatsapp.accountSidAndAuthTokenRequired')
         });
         setWhatsappLoading(false);
         return;
@@ -555,7 +555,7 @@ export function SettingsPage() {
       if (!whatsappSettings.api_key) {
         setWhatsappMessage({ 
           type: 'error', 
-          text: 'API Key is required for WATI.' 
+          text: t('settings.whatsapp.apiKeyRequired')
         });
         setWhatsappLoading(false);
         return;
@@ -580,10 +580,10 @@ export function SettingsPage() {
         throw new Error(data.error || 'Failed to save WhatsApp settings');
       }
 
-      setWhatsappMessage({ type: 'success', text: 'WhatsApp settings saved successfully!' });
+      setWhatsappMessage({ type: 'success', text: t('settings.whatsapp.saved') });
     } catch (err: any) {
       console.error('Error saving WhatsApp settings:', err);
-      setWhatsappMessage({ type: 'error', text: err.message || 'Failed to save WhatsApp settings' });
+      setWhatsappMessage({ type: 'error', text: err.message || t('settings.whatsapp.saved') });
     } finally {
       setWhatsappLoading(false);
     }
@@ -594,7 +594,7 @@ export function SettingsPage() {
     setWhatsappTestLoading(true);
 
     if (!tenant?.id) {
-      setWhatsappMessage({ type: 'error', text: 'Tenant not found' });
+      setWhatsappMessage({ type: 'error', text: t('settings.whatsapp.tenantNotFound') });
       setWhatsappTestLoading(false);
       return;
     }
@@ -604,7 +604,7 @@ export function SettingsPage() {
       if (!whatsappSettings.phone_number_id || !whatsappSettings.access_token) {
         setWhatsappMessage({ 
           type: 'error', 
-          text: 'Please fill in Phone Number ID and Access Token fields before testing. These are required for Meta Cloud API.' 
+          text: t('settings.whatsapp.fillPhoneNumberIdAndToken')
         });
         setWhatsappTestLoading(false);
         return;
@@ -613,7 +613,7 @@ export function SettingsPage() {
       if (!whatsappSettings.account_sid || !whatsappSettings.auth_token) {
         setWhatsappMessage({ 
           type: 'error', 
-          text: 'Please fill in Account SID and Auth Token fields before testing. These are required for Twilio.' 
+          text: t('settings.whatsapp.fillAccountSidAndAuthToken')
         });
         setWhatsappTestLoading(false);
         return;
@@ -622,7 +622,7 @@ export function SettingsPage() {
       if (!whatsappSettings.api_key) {
         setWhatsappMessage({ 
           type: 'error', 
-          text: 'Please fill in API Key field before testing. This is required for WATI.' 
+          text: t('settings.whatsapp.fillApiKey')
         });
         setWhatsappTestLoading(false);
         return;
@@ -649,13 +649,13 @@ export function SettingsPage() {
 
       setWhatsappMessage({ 
         type: 'success', 
-        text: `Connection test successful! WhatsApp is configured for ${whatsappSettings.provider}.` 
+        text: t('settings.whatsapp.connectionTestSuccessful', { provider: whatsappSettings.provider })
       });
     } catch (err: any) {
       console.error('WhatsApp test error:', err);
       setWhatsappMessage({ 
         type: 'error', 
-        text: err.message || 'WhatsApp connection test failed. Please check your settings.' 
+        text: err.message || t('settings.whatsapp.connectionTestFailed')
       });
     } finally {
       setWhatsappTestLoading(false);
@@ -668,13 +668,13 @@ export function SettingsPage() {
     setZohoLoading(true);
 
     if (!tenant?.id) {
-      setZohoMessage({ type: 'error', text: 'Tenant not found' });
+      setZohoMessage({ type: 'error', text: t('settings.zoho.tenantNotFound') });
       setZohoLoading(false);
       return;
     }
 
     if (!zohoSettings.client_id || !zohoSettings.client_secret) {
-      setZohoMessage({ type: 'error', text: 'Client ID and Client Secret are required' });
+      setZohoMessage({ type: 'error', text: t('settings.zoho.clientIdAndSecretRequired') });
       setZohoLoading(false);
       return;
     }
@@ -710,13 +710,13 @@ export function SettingsPage() {
         throw new Error(data.error || 'Failed to save Zoho configuration');
       }
 
-      setZohoMessage({ type: 'success', text: 'Zoho configuration saved successfully!' });
+      setZohoMessage({ type: 'success', text: t('settings.zoho.saved') });
       
       // Reload status
       await loadZohoStatus();
     } catch (err: any) {
       console.error('Error saving Zoho settings:', err);
-      setZohoMessage({ type: 'error', text: err.message || 'Failed to save Zoho configuration' });
+      setZohoMessage({ type: 'error', text: err.message || t('settings.zoho.failedToSave') });
     } finally {
       setZohoLoading(false);
     }
@@ -727,7 +727,7 @@ export function SettingsPage() {
     setZohoTestLoading(true);
 
     if (!tenant?.id) {
-      setZohoMessage({ type: 'error', text: 'Tenant not found' });
+      setZohoMessage({ type: 'error', text: t('settings.zoho.tenantNotFound') });
       setZohoTestLoading(false);
       return;
     }
@@ -757,13 +757,13 @@ export function SettingsPage() {
 
       setZohoMessage({ 
         type: 'success', 
-        text: data.message || 'Zoho connection test successful!' 
+        text: data.message || t('settings.zoho.connectionTestSuccessful')
       });
     } catch (err: any) {
       console.error('Zoho test error:', err);
       setZohoMessage({ 
         type: 'error', 
-        text: err.message || 'Zoho connection test failed. Please check your configuration and connect your account.' 
+        text: err.message || t('settings.zoho.connectionTestFailed')
       });
     } finally {
       setZohoTestLoading(false);
@@ -804,7 +804,7 @@ export function SettingsPage() {
       const result = await response.json();
       
       if (result.success) {
-        setZohoMessage({ type: 'success', text: 'Zoho integration disconnected successfully' });
+        setZohoMessage({ type: 'success', text: t('settings.zoho.zohoIntegrationDisconnectedSuccessfully') });
         // Refresh status to reflect disconnection
         setTimeout(() => {
           loadZohoStatus();
@@ -816,7 +816,7 @@ export function SettingsPage() {
       console.error('Error disconnecting Zoho:', error);
       setZohoMessage({ 
         type: 'error', 
-        text: error.message || 'Failed to disconnect Zoho integration' 
+        text: error.message || t('settings.zoho.failedToDisconnect')
       });
     } finally {
       setZohoLoading(false);
@@ -825,17 +825,17 @@ export function SettingsPage() {
 
   async function handleZohoConnect() {
     if (!tenant?.id) {
-      setZohoMessage({ type: 'error', text: 'Tenant not found' });
+      setZohoMessage({ type: 'error', text: t('settings.zoho.tenantNotFound') });
       return;
     }
 
     if (!zohoSettings.client_id || !zohoSettings.client_secret) {
-      setZohoMessage({ type: 'error', text: 'Please save your Zoho credentials first' });
+      setZohoMessage({ type: 'error', text: t('settings.zoho.pleaseSaveCredentials') });
       return;
     }
 
     // Check if backend server is running first
-    setZohoMessage({ type: 'info', text: 'Checking server connection...' });
+    setZohoMessage({ type: 'info', text: t('settings.zoho.checkingServerConnection') });
     
     try {
       const API_URL = getApiUrl();
@@ -966,7 +966,7 @@ export function SettingsPage() {
       if (event.data?.type === 'ZOHO_OAUTH_SUCCESS' && event.data.tenantId === tenant?.id) {
         // OAuth completed successfully, refresh status
         window.removeEventListener('message', messageHandler);
-        setZohoMessage({ type: 'success', text: 'Zoho account connected successfully! Refreshing status...' });
+        setZohoMessage({ type: 'success', text: t('settings.zoho.zohoAccountConnectedSuccessfully') });
         
         // Reload status after a short delay
         setTimeout(() => {
@@ -979,7 +979,7 @@ export function SettingsPage() {
 
     // Check if popup was blocked
     if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-      setZohoMessage({ type: 'error', text: 'Popup was blocked. Please allow popups for this site and try again.' });
+      setZohoMessage({ type: 'error', text: t('settings.zoho.popupBlocked') });
     }
   }
 
@@ -1025,10 +1025,10 @@ export function SettingsPage() {
 
       if (error) throw error;
 
-      alert('Settings saved successfully!');
+      alert(t('settings.settingsSavedSuccessfully'));
     } catch (err) {
       console.error('Error saving settings:', err);
-      alert('Error saving settings. Please try again.');
+      alert(t('settings.errorSavingSettings'));
     } finally {
       setLoading(false);
     }
@@ -1039,13 +1039,13 @@ export function SettingsPage() {
     setPasswordMessage(null);
 
     // Validate passwords
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      setPasswordMessage({ type: 'error', text: 'New passwords do not match' });
+      if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setPasswordMessage({ type: 'error', text: t('settings.security.newPasswordsDoNotMatch') });
       return;
     }
 
     if (passwordData.newPassword.length < 6) {
-      setPasswordMessage({ type: 'error', text: 'Password must be at least 6 characters long' });
+      setPasswordMessage({ type: 'error', text: t('settings.security.passwordMinLength') });
       return;
     }
 
@@ -1060,7 +1060,7 @@ export function SettingsPage() {
       });
 
       if (signInError) {
-        setPasswordMessage({ type: 'error', text: 'Current password is incorrect' });
+        setPasswordMessage({ type: 'error', text: t('settings.security.currentPasswordIncorrect') });
         setPasswordLoading(false);
         return;
       }
@@ -1072,7 +1072,7 @@ export function SettingsPage() {
 
       if (updateError) throw updateError;
 
-      setPasswordMessage({ type: 'success', text: 'Password updated successfully! You will be logged out in 3 seconds...' });
+      setPasswordMessage({ type: 'success', text: t('settings.security.passwordUpdatedSuccessfully') });
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
       // Log out after 3 seconds to ensure new password takes effect
@@ -1082,7 +1082,7 @@ export function SettingsPage() {
       }, 3000);
     } catch (err) {
       console.error('Error updating password:', err);
-      setPasswordMessage({ type: 'error', text: 'Error updating password. Please try again.' });
+      setPasswordMessage({ type: 'error', text: t('settings.security.errorUpdatingPassword') });
     } finally {
       setPasswordLoading(false);
     }
@@ -1141,7 +1141,7 @@ export function SettingsPage() {
                 value={formData.contact_email || ''}
                 onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
                 required
-                placeholder="contact@example.com"
+                placeholder={t('settings.contactEmailPlaceholder')}
               />
 
               <div>
@@ -1374,12 +1374,12 @@ export function SettingsPage() {
                   <Button
                     onClick={async () => {
                       if (!userProfile?.tenant_id) {
-                        setCurrencyMessage({ type: 'error', text: 'Tenant ID not found' });
+                        setCurrencyMessage({ type: 'error', text: t('settings.currency.tenantIdNotFound') });
                         return;
                       }
 
                       if (selectedCurrencyCode === currentCurrencyCode) {
-                        setCurrencyMessage({ type: 'error', text: 'Currency is already set to this value' });
+                        setCurrencyMessage({ type: 'error', text: t('settings.currency.currencyAlreadySet') });
                         return;
                       }
 
@@ -1406,7 +1406,7 @@ export function SettingsPage() {
                         const result = await response.json();
                         setCurrencyMessage({
                           type: 'success',
-                          text: `Currency updated to ${selectedCurrencyCode} successfully`,
+                          text: t('settings.currency.currencyUpdatedTo', { code: selectedCurrencyCode }),
                           warning: result.warning,
                         });
 
@@ -1416,7 +1416,7 @@ export function SettingsPage() {
                         console.error('Error updating currency:', err);
                         setCurrencyMessage({
                           type: 'error',
-                          text: err.message || 'Failed to update currency',
+                          text: err.message || t('settings.currency.updateFailed'),
                         });
                       } finally {
                         setCurrencyLoading(false);
@@ -1471,7 +1471,7 @@ export function SettingsPage() {
                     type="text"
                     value={smtpSettings.smtp_host}
                     onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_host: e.target.value })}
-                    placeholder="smtp.gmail.com"
+                    placeholder={t('settings.smtp.hostPlaceholder')}
                     required
                   />
                   <p className="text-xs text-gray-500">{t('settings.smtp.defaultHost')}</p>
@@ -1485,7 +1485,7 @@ export function SettingsPage() {
                     type="number"
                     value={smtpSettings.smtp_port}
                     onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_port: parseInt(e.target.value) || 587 })}
-                    placeholder="587"
+                    placeholder={t('settings.smtp.portPlaceholder')}
                     required
                   />
                   <p className="text-xs text-gray-500">
@@ -1501,22 +1501,22 @@ export function SettingsPage() {
                     type="email"
                     value={smtpSettings.smtp_user}
                     onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_user: e.target.value })}
-                    placeholder="your-email@gmail.com"
+                    placeholder={t('settings.smtp.userPlaceholder')}
                     required
                   />
-                  <p className="text-xs text-gray-500">{t('settings.smtp.user')}</p>
+                  <p className="text-xs text-gray-500">{t('settings.smtp.userHint')}</p>
                 </div>
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    {t('settings.smtp.password')}
+                    {t('settings.smtp.appPassword')}
                   </label>
                   <div className="relative">
                     <Input
                       type={showSmtpPassword ? 'text' : 'password'}
                       value={smtpSettings.smtp_password}
                       onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_password: e.target.value })}
-                      placeholder="Enter App Password"
+                      placeholder={t('settings.smtp.appPasswordPlaceholder')}
                       required
                     />
                     <button
@@ -1528,17 +1528,17 @@ export function SettingsPage() {
                     </button>
                   </div>
                   <p className="text-xs text-red-600 font-medium">
-                    ⚠️ For Gmail: You MUST use an App Password, not your regular password!
+                    {t('settings.smtp.appPasswordWarning')}
                   </p>
                   <p className="text-xs text-gray-500">
-                    Generate an App Password at{" "}
+                    {t('settings.smtp.generateAppPassword')}{" "}
                     <a 
-                      href="https://myaccount.google.com/apppasswords" 
+                      href={t('settings.smtp.appPasswordLink')} 
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="text-blue-600 hover:underline font-medium"
                     >
-                      https://myaccount.google.com/apppasswords
+                      {t('settings.smtp.appPasswordLink')}
                     </a>
                   </p>
                 </div>
@@ -1573,7 +1573,7 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <MessageCircle className="w-5 h-5" />
-                WhatsApp Business Settings
+                {t('settings.whatsapp.title')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1595,7 +1595,7 @@ export function SettingsPage() {
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Provider
+                    {t('settings.whatsapp.provider')}
                   </label>
                   <select
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1607,7 +1607,7 @@ export function SettingsPage() {
                     <option value="twilio">Twilio</option>
                     <option value="wati">WATI</option>
                   </select>
-                  <p className="text-xs text-gray-500">Choose your WhatsApp Business API provider</p>
+                  <p className="text-xs text-gray-500">{t('settings.whatsapp.providerHint')}</p>
                 </div>
 
                 {/* Meta Cloud API Settings */}
@@ -1615,28 +1615,28 @@ export function SettingsPage() {
                   <>
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">
-                        Phone Number ID <span className="text-red-500">*</span>
+                        {t('settings.whatsapp.phoneNumberIdRequired')}
                       </label>
                       <Input
                         type="text"
                         value={whatsappSettings.phone_number_id}
                         onChange={(e) => setWhatsappSettings({ ...whatsappSettings, phone_number_id: e.target.value })}
-                        placeholder="Your WhatsApp Business Phone Number ID"
+                        placeholder={t('settings.whatsapp.phoneNumberIdPlaceholder')}
                         required
                       />
-                      <p className="text-xs text-gray-500">From Meta Business Manager → WhatsApp → API Setup → Phone Number ID</p>
+                      <p className="text-xs text-gray-500">{t('settings.whatsapp.phoneNumberIdHint')}</p>
                     </div>
 
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">
-                        Access Token <span className="text-red-500">*</span>
+                        {t('settings.whatsapp.accessTokenRequired')}
                       </label>
                       <div className="relative">
                         <Input
                           type={showWhatsappToken ? 'text' : 'password'}
                           value={whatsappSettings.access_token}
                           onChange={(e) => setWhatsappSettings({ ...whatsappSettings, access_token: e.target.value })}
-                          placeholder="Your WhatsApp Business Access Token"
+                          placeholder={t('settings.whatsapp.accessTokenPlaceholder')}
                           required
                         />
                         <button
@@ -1647,7 +1647,7 @@ export function SettingsPage() {
                           {showWhatsappToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
-                      <p className="text-xs text-gray-500">From Meta Business Manager → WhatsApp → API Setup → Access Token</p>
+                      <p className="text-xs text-gray-500">{t('settings.whatsapp.accessTokenHint')}</p>
                     </div>
                   </>
                 )}
@@ -1657,27 +1657,27 @@ export function SettingsPage() {
                   <>
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">
-                        Account SID
+                        {t('settings.whatsapp.accountSidLabel')}
                       </label>
                       <Input
                         type="text"
                         value={whatsappSettings.account_sid}
                         onChange={(e) => setWhatsappSettings({ ...whatsappSettings, account_sid: e.target.value })}
-                        placeholder="Your Twilio Account SID"
+                        placeholder={t('settings.whatsapp.accountSidPlaceholder')}
                         required
                       />
                     </div>
 
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">
-                        Auth Token
+                        {t('settings.whatsapp.authTokenLabel')}
                       </label>
                       <div className="relative">
                         <Input
                           type={showWhatsappToken ? 'text' : 'password'}
                           value={whatsappSettings.auth_token}
                           onChange={(e) => setWhatsappSettings({ ...whatsappSettings, auth_token: e.target.value })}
-                          placeholder="Your Twilio Auth Token"
+                          placeholder={t('settings.whatsapp.authTokenPlaceholder')}
                           required
                         />
                         <button
@@ -1692,15 +1692,15 @@ export function SettingsPage() {
 
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">
-                        From (WhatsApp Number)
+                        {t('settings.whatsapp.fromLabel')}
                       </label>
                       <Input
                         type="text"
                         value={whatsappSettings.from}
                         onChange={(e) => setWhatsappSettings({ ...whatsappSettings, from: e.target.value })}
-                        placeholder="whatsapp:+14155238886"
+                        placeholder={t('settings.whatsapp.fromPlaceholder')}
                       />
-                      <p className="text-xs text-gray-500">Format: whatsapp:+1234567890</p>
+                      <p className="text-xs text-gray-500">{t('settings.whatsapp.fromFormat')}</p>
                     </div>
                   </>
                 )}
@@ -1710,27 +1710,27 @@ export function SettingsPage() {
                   <>
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">
-                        API URL
+                        {t('settings.whatsapp.apiUrlLabel')}
                       </label>
                       <Input
                         type="text"
                         value={whatsappSettings.api_url}
                         onChange={(e) => setWhatsappSettings({ ...whatsappSettings, api_url: e.target.value })}
-                        placeholder="https://api.wati.io"
+                        placeholder={t('settings.whatsapp.apiUrlPlaceholder')}
                       />
-                      <p className="text-xs text-gray-500">Default: https://api.wati.io</p>
+                      <p className="text-xs text-gray-500">{t('settings.whatsapp.apiUrlDefault')}</p>
                     </div>
 
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">
-                        API Key
+                        {t('settings.whatsapp.apiKeyLabel')}
                       </label>
                       <div className="relative">
                         <Input
                           type={showWhatsappToken ? 'text' : 'password'}
                           value={whatsappSettings.api_key}
                           onChange={(e) => setWhatsappSettings({ ...whatsappSettings, api_key: e.target.value })}
-                          placeholder="Your WATI API Key"
+                          placeholder={t('settings.whatsapp.apiKeyPlaceholder')}
                           required
                         />
                         <button
@@ -1802,24 +1802,24 @@ export function SettingsPage() {
                 {/* Connection Status */}
                 {zohoStatus && (
                   <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Connection Status</h3>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-2">{t('settings.zoho.connectionStatus')}</h3>
                     <div className="space-y-1 text-sm">
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-600">Configuration:</span>
+                        <span className="text-gray-600">{t('settings.zoho.configuration')}:</span>
                         {zohoStatus.has_config ? (
-                          <span className="text-green-600 font-medium">✓ Saved</span>
+                          <span className="text-green-600 font-medium">{t('settings.zoho.savedStatus')}</span>
                         ) : (
-                          <span className="text-gray-400">Not configured</span>
+                          <span className="text-gray-400">{t('settings.zoho.notConfigured')}</span>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-600">Zoho Account:</span>
+                        <span className="text-gray-600">{t('settings.zoho.zohoAccount')}:</span>
                         {zohoStatus.connection_status === 'connected' ? (
-                          <span className="text-green-600 font-medium">✓ Connected</span>
+                          <span className="text-green-600 font-medium">{t('settings.zoho.connectedStatus')}</span>
                         ) : zohoStatus.connection_status === 'expired' ? (
-                          <span className="text-yellow-600 font-medium">⚠ Expired</span>
+                          <span className="text-yellow-600 font-medium">{t('settings.zoho.expiredStatus')}</span>
                         ) : (
-                          <span className="text-gray-400">Not connected</span>
+                          <span className="text-gray-400">{t('settings.zoho.notConnectedStatus')}</span>
                         )}
                       </div>
                       {zohoStatus.token_expires_at && (
@@ -1829,15 +1829,15 @@ export function SettingsPage() {
                             : 'text-gray-500'
                         }`}>
                           {zohoStatus.connection_status === 'expired' ? (
-                            <>Token expired: {new Date(zohoStatus.token_expires_at).toLocaleString()}</>
+                            <>{t('settings.zoho.tokenExpired')} {new Date(zohoStatus.token_expires_at).toLocaleString()}</>
                           ) : (
-                            <>Token expires: {new Date(zohoStatus.token_expires_at).toLocaleString()}</>
+                            <>{t('settings.zoho.tokenExpires')} {new Date(zohoStatus.token_expires_at).toLocaleString()}</>
                           )}
                         </div>
                       )}
                       {zohoStatus.connection_status === 'expired' && (
                         <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                          <strong>Token Expired:</strong> Your Zoho access token has expired. Click "Reconnect to Zoho" to refresh your connection.
+                          <strong>{t('settings.zoho.tokenExpired')}:</strong> {t('settings.zoho.tokenExpiredMessage')}
                         </div>
                       )}
                     </div>
@@ -1845,42 +1845,42 @@ export function SettingsPage() {
                 )}
 
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-blue-900 mb-2">📋 Setup Instructions</h4>
+                  <h4 className="text-sm font-semibold text-blue-900 mb-2">{t('settings.zoho.setupInstructions')}</h4>
                   <ol className="text-xs text-blue-800 space-y-1 list-decimal list-inside">
-                    <li>Go to <a href="https://api-console.zoho.com/" target="_blank" rel="noopener noreferrer" className="underline">Zoho Developer Console</a></li>
-                    <li>Create a "Server-based Application"</li>
-                    <li><strong>IMPORTANT:</strong> Set Redirect URI in Zoho Console to exactly: <code className="bg-blue-100 px-1 rounded font-mono">{zohoSettings.redirect_uri || `${window.location.origin}/api/zoho/callback`}</code></li>
-                    <li>Copy Client ID and Client Secret from Zoho</li>
-                    <li><strong>VERIFY:</strong> The Client ID in Zoho matches the one you enter below (this is critical!)</li>
-                    <li>Enter the <strong>exact same Redirect URI</strong> in the field below</li>
-                    <li>Save credentials, then click "Connect to Zoho"</li>
+                    <li>{t('settings.zoho.setupStep1')} <a href="https://api-console.zoho.com/" target="_blank" rel="noopener noreferrer" className="underline">Zoho Developer Console</a></li>
+                    <li>{t('settings.zoho.setupStep2')}</li>
+                    <li><strong>{t('common.info')}:</strong> {t('settings.zoho.setupStep3')} <code className="bg-blue-100 px-1 rounded font-mono">{zohoSettings.redirect_uri || `${window.location.origin}/api/zoho/callback`}</code></li>
+                    <li>{t('settings.zoho.setupStep4')}</li>
+                    <li><strong>{t('common.info')}:</strong> {t('settings.zoho.setupStep5')}</li>
+                    <li>{t('settings.zoho.setupStep6')}</li>
+                    <li>{t('settings.zoho.setupStep7')}</li>
                   </ol>
                 </div>
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Client ID
+                    {t('settings.zoho.clientId')}
                   </label>
                   <Input
                     type="text"
                     value={zohoSettings.client_id}
                     onChange={(e) => setZohoSettings({ ...zohoSettings, client_id: e.target.value })}
-                    placeholder="1000.XXXXXXXXXXXXX"
+                    placeholder={t('settings.zoho.clientIdPlaceholder')}
                     required
                   />
-                  <p className="text-xs text-gray-500">From Zoho Developer Console → Your App → Client ID</p>
+                  <p className="text-xs text-gray-500">{t('settings.zoho.clientIdHint')}</p>
                 </div>
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Client Secret
+                    {t('settings.zoho.clientSecret')}
                   </label>
                   <div className="relative">
                     <Input
                       type={showZohoSecret ? 'text' : 'password'}
                       value={zohoSettings.client_secret}
                       onChange={(e) => setZohoSettings({ ...zohoSettings, client_secret: e.target.value })}
-                      placeholder="Enter your Client Secret"
+                      placeholder={t('settings.zoho.clientSecretPlaceholder')}
                       required
                     />
                     <button
@@ -1891,23 +1891,23 @@ export function SettingsPage() {
                       {showZohoSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  <p className="text-xs text-gray-500">From Zoho Developer Console → Your App → Client Secret</p>
+                  <p className="text-xs text-gray-500">{t('settings.zoho.clientSecretHint')}</p>
                 </div>
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Redirect URI <span className="text-red-500">*</span>
+                    {t('settings.zoho.redirectUriRequired')}
                   </label>
                   <Input
                     type="text"
                     value={zohoSettings.redirect_uri}
                     onChange={(e) => setZohoSettings({ ...zohoSettings, redirect_uri: e.target.value })}
-                    placeholder={`${window.location.origin}/api/zoho/callback`}
+                    placeholder={t('settings.zoho.redirectUriPlaceholder', { origin: window.location.origin })}
                     required
                   />
                   <p className="text-xs text-gray-500">
-                    <strong>Must match exactly</strong> what you configured in Zoho Developer Console. 
-                    Default: <code className="bg-gray-100 px-1 rounded font-mono">{window.location.origin}/api/zoho/callback</code>
+                    <strong>{t('settings.zoho.redirectUriMustMatch')}</strong>
+                    {t('settings.zoho.redirectUriDefault')} <code className="bg-gray-100 px-1 rounded font-mono">{window.location.origin}/api/zoho/callback</code>
                   </p>
                   <button
                     type="button"
@@ -1917,35 +1917,35 @@ export function SettingsPage() {
                     }}
                     className="text-xs text-blue-600 hover:text-blue-800 underline"
                   >
-                    Use default: {window.location.origin}/api/zoho/callback
+                    {t('settings.zoho.useDefault')} {window.location.origin}/api/zoho/callback
                   </button>
                   <div className="mt-2 p-2 bg-gray-100 rounded border border-gray-300">
-                    <p className="text-xs font-semibold text-gray-700 mb-1">Redirect URI that will be used:</p>
+                    <p className="text-xs font-semibold text-gray-700 mb-1">{t('settings.zoho.redirectUriThatWillBeUsed')}</p>
                     <code className="text-xs font-mono text-gray-800 break-all">
                       {zohoSettings.redirect_uri || `${window.location.origin}/api/zoho/callback`}
                     </code>
                     <p className="text-xs text-gray-600 mt-1">
-                      ⚠️ Copy this EXACT URI and add it to Zoho Developer Console → Authorized Redirect URIs
+                      {t('settings.zoho.copyExactUri')}
                     </p>
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Region
+                    {t('settings.zoho.regionLabel')}
                   </label>
                   <select
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     value={zohoSettings.region}
                     onChange={(e) => setZohoSettings({ ...zohoSettings, region: e.target.value })}
                   >
-                    <option value="com">United States (com)</option>
-                    <option value="eu">Europe (eu)</option>
-                    <option value="in">India (in)</option>
-                    <option value="au">Australia (au)</option>
-                    <option value="jp">Japan (jp)</option>
+                    <option value="com">{t('settings.zoho.regionCom')}</option>
+                    <option value="eu">{t('settings.zoho.regionEu')}</option>
+                    <option value="in">{t('settings.zoho.regionIn')}</option>
+                    <option value="au">{t('settings.zoho.regionAu')}</option>
+                    <option value="jp">{t('settings.zoho.regionJp')}</option>
                   </select>
-                  <p className="text-xs text-gray-500">Select your Zoho region based on your account location</p>
+                  <p className="text-xs text-gray-500">{t('settings.zoho.regionHint')}</p>
                 </div>
 
                 <div className="flex gap-3 pt-2">
@@ -1967,8 +1967,8 @@ export function SettingsPage() {
                     disabled={!zohoSettings.client_id || !zohoSettings.client_secret}
                   >
                     {zohoStatus?.connection_status === 'expired' || zohoStatus?.connection_status === 'not_connected' 
-                      ? 'Reconnect to Zoho' 
-                      : 'Connect to Zoho'}
+                      ? t('settings.zoho.reconnect')
+                      : t('settings.zoho.connect')}
                   </Button>
                   <Button
                     type="button"
@@ -1977,7 +1977,7 @@ export function SettingsPage() {
                     variant="secondary"
                     icon={<CheckCircle className="w-4 h-4" />}
                   >
-                    Test Connection
+                    {t('settings.zoho.testConnection')}
                   </Button>
                   <Button
                     type="button"

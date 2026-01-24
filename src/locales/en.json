@@ -23,7 +23,10 @@
     "update": "Update",
     "active": "Active",
     "inactive": "Inactive",
-    "sar": "SAR"
+    "sar": "SAR",
+    "phoneNumber": "Phone Number",
+    "searchCountry": "Search country...",
+    "noCountriesFound": "No countries found"
   },
   "auth": {
     "login": "Login",
