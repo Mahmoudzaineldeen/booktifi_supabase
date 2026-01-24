@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -15,6 +16,7 @@ export function BookingSuccessPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { userProfile } = useAuth();
+  const { formatPrice } = useCurrency();
 
   const [tenant, setTenant] = useState<any>(null);
   const [booking, setBooking] = useState<any>(null);
@@ -234,7 +236,7 @@ export function BookingSuccessPage() {
                     {i18n.language === 'ar' ? 'المبلغ الإجمالي' : 'Total Amount'}
                   </p>
                   <p className="font-semibold text-gray-900">
-                    {parseFloat(booking.total_price?.toString() || '0').toFixed(2)} {t('service.currency') || 'SAR'}
+                    {formatPrice(parseFloat(booking.total_price?.toString() || '0'))}
                   </p>
                 </div>
               </div>

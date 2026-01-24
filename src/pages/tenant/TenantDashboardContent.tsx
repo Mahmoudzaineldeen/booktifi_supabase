@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -27,6 +28,7 @@ export function TenantDashboardContent() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { userProfile, tenant } = useAuth();
+  const { formatPrice } = useCurrency();
   const { features } = useTenantFeatures(tenant?.id);
   const [timeRange, setTimeRange] = useState<TimeRange>('today');
   const [customStartDate, setCustomStartDate] = useState('');
@@ -562,7 +564,7 @@ export function TenantDashboardContent() {
 
         <StatCard
           title={t('dashboard.totalRevenue')}
-          value={`${stats.totalRevenue.toFixed(2)} ${t('service.currency')}`}
+          value={formatPrice(stats.totalRevenue)}
           icon={DollarSign}
           iconColor="text-green-600"
           iconBgColor="bg-green-100"
@@ -578,7 +580,7 @@ export function TenantDashboardContent() {
 
         <StatCard
           title={t('dashboard.averageBookingValue')}
-          value={`${stats.averageBookingValue.toFixed(2)} ${t('service.currency')}`}
+          value={formatPrice(stats.averageBookingValue)}
           icon={TrendingUp}
           iconColor="text-orange-600"
           iconBgColor="bg-orange-100"
@@ -655,7 +657,7 @@ export function TenantDashboardContent() {
                       )}
                       <div className="pt-2 border-t text-sm">
                         <span className="font-medium text-gray-900">
-                          {parseFloat(booking.total_price?.toString() || '0').toFixed(2)} {t('service.currency')}
+                          {formatPrice(parseFloat(booking.total_price?.toString() || '0'))}
                         </span>
                         {booking.visitor_count > 1 && (
                           <span className="text-gray-600 ml-2">
@@ -711,7 +713,7 @@ export function TenantDashboardContent() {
                       )}
                       <div className="pt-2 border-t text-sm">
                         <span className="font-medium text-gray-700">
-                          {parseFloat(booking.total_price?.toString() || '0').toFixed(2)} {t('service.currency')}
+                          {formatPrice(parseFloat(booking.total_price?.toString() || '0'))}
                         </span>
                         {booking.visitor_count > 1 && (
                           <span className="text-gray-500 ml-2">

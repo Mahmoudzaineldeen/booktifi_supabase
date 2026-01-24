@@ -1761,12 +1761,12 @@ export function PublicBookingPage() {
                                       return (
                                         <>
                                           <span className="text-2xl font-bold mb-1" style={{ color: primaryColor }}>
-                                            {basePrice} {t('service.currency')}
+                                            {formatPrice(basePrice)}
                                           </span>
                                           <div className="flex items-center gap-2">
                                             {hasOriginalPrice && (
                                               <span className="text-sm text-gray-500 line-through">
-                                                {originalPrice} {t('service.currency')}
+                                                {formatPrice(originalPrice)}
                                               </span>
                                             )}
                                             {finalDiscountPercentage && finalDiscountPercentage > 0 && (
@@ -1780,7 +1780,7 @@ export function PublicBookingPage() {
                                     } else {
                                       return (
                                         <span className="text-2xl font-bold" style={{ color: primaryColor }}>
-                                          {basePrice} {t('service.currency')}
+                                          {formatPrice(basePrice)}
                                         </span>
                                       );
                                     }
@@ -2233,7 +2233,7 @@ export function PublicBookingPage() {
                         {i18n.language === 'ar' ? service.name_ar : service.name}
                       </h3>
                       <div className="text-lg font-bold" style={{ color: primaryColor }}>
-                        {service.base_price} {t('service.currency')}
+                        {formatPrice(service.base_price)}
                       </div>
                     </div>
                   </div>
@@ -2392,7 +2392,7 @@ export function PublicBookingPage() {
                     {i18n.language === 'ar' ? selectedService.name_ar : selectedService.name}
                   </h3>
                   <p className="text-sm text-gray-600">
-                    {selectedService.duration_minutes} {t('booking.minutes')} • {selectedService.base_price} {t('service.currency')}
+                    {selectedService.duration_minutes} {t('booking.minutes')} • {formatPrice(selectedService.base_price)}
                   </p>
                 </div>
               </div>
@@ -2599,7 +2599,7 @@ export function PublicBookingPage() {
               <div className="flex items-center justify-between">
                 <span className="font-medium text-blue-900">Total Price:</span>
                 <span className="text-2xl font-bold text-blue-900">
-                  {selectedService.base_price * bookingForm.visitor_count} {t('service.currency')}
+                  {formatPrice(selectedService.base_price * bookingForm.visitor_count)}
                 </span>
               </div>
             </div>

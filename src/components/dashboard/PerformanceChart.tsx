@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { useCurrency } from '../../contexts/CurrencyContext';
 
 interface ChartData {
   label: string;
@@ -16,6 +17,7 @@ interface PerformanceChartProps {
 
 export function PerformanceChart({ title, data, metric }: PerformanceChartProps) {
   const { t, i18n } = useTranslation();
+  const { formatPrice } = useCurrency();
   const isRTL = i18n.language === 'ar';
 
   const maxValue = Math.max(...data.map((item) => (metric === 'bookings' ? item.value : item.revenue)), 1);
@@ -41,12 +43,12 @@ export function PerformanceChart({ title, data, metric }: PerformanceChartProps)
                     <span className="text-blue-700 font-bold">
                       {metric === 'bookings'
                         ? `${item.value} ${t('dashboard.bookings').toLowerCase()}`
-                        : `${item.revenue.toFixed(2)} ${t('service.currency')}`
+                        : formatPrice(item.revenue)
                       }
                     </span>
                     {metric === 'bookings' && item.revenue > 0 && (
                       <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                        {item.revenue.toFixed(2)} {t('service.currency')}
+                        {formatPrice(item.revenue)}
                       </span>
                     )}
                   </div>
