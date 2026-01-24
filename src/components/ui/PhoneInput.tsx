@@ -36,8 +36,10 @@ export function PhoneInput({
   onValidationChange,
   language = 'en',
 }: PhoneInputProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const defaultLabel = label || t('common.phoneNumber');
+  const currentLanguage = language === 'ar' || i18n.language === 'ar' ? 'ar' : 'en';
+  const isRTL = currentLanguage === 'ar';
   const [selectedCountry, setSelectedCountry] = useState<CountryCode>(
     countryCodes.find(c => c.code === defaultCountry) || countryCodes[0]
   );
@@ -154,12 +156,27 @@ export function PhoneInput({
     };
   }, [isDropdownOpen]);
 
+  // Get translated country name
+  const getCountryName = (country: CountryCode): string => {
+    if (currentLanguage === 'ar') {
+      const translationKey = `countries.${country.code.replace('+', '')}`;
+      const translated = t(translationKey);
+      // If translation exists and is not the key itself, use it
+      if (translated && translated !== translationKey) {
+        return translated;
+      }
+    }
+    return country.name;
+  };
+
   // Filter countries based on search
   const filteredCountries = countryCodes.filter(country => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
+    const countryName = getCountryName(country).toLowerCase();
     return (
-      country.name.toLowerCase().includes(query) ||
+      countryName.includes(query) ||
+      country.name.toLowerCase().includes(query) || // Also search English name
       country.code.includes(query) ||
       country.flag.includes(query)
     );
@@ -224,13 +241,14 @@ export function PhoneInput({
             type="button"
             onClick={() => !disabled && setIsDropdownOpen(!isDropdownOpen)}
             disabled={disabled}
+            dir={isRTL ? 'rtl' : 'ltr'}
             className={`w-32 px-3 py-2 border ${
               error ? 'border-red-500' : 'border-gray-300'
             } rounded-lg bg-white hover:bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm flex items-center justify-between gap-2 ${
               disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-            }`}
+            } ${isRTL ? 'flex-row-reverse' : ''}`}
           >
-            <span className="flex items-center gap-1.5">
+            <span className={`flex items-center gap-1.5 ${isRTL ? 'flex-row-reverse' : ''}`}>
               <span className="text-lg">{selectedCountry.flag}</span>
               <span className="font-medium text-gray-700">{selectedCountry.code}</span>
             </span>
@@ -247,18 +265,22 @@ export function PhoneInput({
                 className="fixed inset-0 z-10" 
                 onClick={() => setIsDropdownOpen(false)}
               />
-              <div className="absolute top-full left-0 mt-1 w-80 max-h-80 overflow-hidden bg-white border border-gray-300 rounded-lg shadow-lg z-20 flex flex-col">
+              <div 
+                className={`absolute top-full ${isRTL ? 'right-0' : 'left-0'} mt-1 w-80 max-h-80 overflow-hidden bg-white border border-gray-300 rounded-lg shadow-lg z-20 flex flex-col`}
+                dir={isRTL ? 'rtl' : 'ltr'}
+              >
                 {/* Search Bar */}
                 <div className="sticky top-0 bg-white border-b border-gray-200 p-2">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <Search className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400`} />
                     <input
                       ref={searchInputRef}
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search country..."
-                      className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      placeholder={t('common.searchCountry')}
+                      dir={isRTL ? 'rtl' : 'ltr'}
+                      className={`w-full ${isRTL ? 'pr-10 pl-3' : 'pl-10 pr-3'} py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm`}
                     />
                   </div>
                 </div>
@@ -266,7 +288,7 @@ export function PhoneInput({
                 {/* Country List */}
                 <div className="overflow-y-auto max-h-64">
                   {filteredCountries.length === 0 ? (
-                    <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                    <div className={`px-4 py-3 text-sm text-gray-500 text-center ${isRTL ? 'text-right' : 'text-left'}`}>
                       {t('common.noCountriesFound')}
                     </div>
                   ) : (
@@ -275,12 +297,15 @@ export function PhoneInput({
                         key={`${country.code}-${country.name}-${index}`}
                         type="button"
                         onClick={() => handleCountrySelect(country)}
-                        className={`w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center gap-3 text-sm ${
+                        className={`w-full px-4 py-2 ${isRTL ? 'text-right' : 'text-left'} hover:bg-gray-50 flex items-center gap-3 text-sm ${
                           selectedCountry.code === country.code ? 'bg-blue-50' : ''
                         }`}
+                        dir={isRTL ? 'rtl' : 'ltr'}
                       >
                         <span className="text-lg">{country.flag}</span>
-                        <span className="font-medium text-gray-700 flex-1">{country.name}</span>
+                        <span className={`font-medium text-gray-700 flex-1 ${isRTL ? 'text-right' : 'text-left'}`}>
+                          {getCountryName(country)}
+                        </span>
                         <span className="text-gray-500 text-sm">{country.code}</span>
                       </button>
                     ))

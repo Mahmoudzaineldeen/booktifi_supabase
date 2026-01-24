@@ -970,6 +970,42 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
           console.log(`[Booking Creation] 📋 Flow: Booking Confirmed → Create Invoice → Send via Email/WhatsApp`);
           console.log(`[Booking Creation]    Customer Email: ${customer_email || 'NOT PROVIDED'}`);
           console.log(`[Booking Creation]    Customer Phone: ${normalizedPhone || customer_phone || 'NOT PROVIDED'}`);
+          
+          // Check if Zoho is configured for this tenant before attempting invoice creation
+          const { data: zohoConfig } = await supabase
+            .from('tenant_zoho_configs')
+            .select('id, is_active')
+            .eq('tenant_id', tenant_id)
+            .eq('is_active', true)
+            .single();
+          
+          const { data: zohoToken } = await supabase
+            .from('zoho_tokens')
+            .select('id, expires_at')
+            .eq('tenant_id', tenant_id)
+            .single();
+          
+          if (!zohoConfig || !zohoToken) {
+            console.warn(`[Booking Creation] ⚠️ Zoho Invoice not configured for tenant ${tenant_id}`);
+            console.warn(`[Booking Creation]    Config exists: ${!!zohoConfig}, Token exists: ${!!zohoToken}`);
+            console.warn(`[Booking Creation]    Invoice creation skipped. Please configure Zoho Invoice in Settings → Zoho Integration`);
+            console.warn(`[Booking Creation]    Steps: 1) Add Zoho credentials, 2) Complete OAuth flow, 3) Verify connection`);
+            return; // Exit early if Zoho is not configured
+          }
+          
+          // Check if token is expired
+          if (zohoToken.expires_at) {
+            const expiresAt = new Date(zohoToken.expires_at);
+            const now = new Date();
+            if (expiresAt <= now) {
+              console.warn(`[Booking Creation] ⚠️ Zoho token expired for tenant ${tenant_id}`);
+              console.warn(`[Booking Creation]    Token expired at: ${expiresAt.toISOString()}`);
+              console.warn(`[Booking Creation]    Invoice creation skipped. Please refresh Zoho connection in Settings`);
+              return; // Exit early if token is expired
+            }
+          }
+          
+          console.log(`[Booking Creation] ✅ Zoho is configured and connected for tenant ${tenant_id}`);
           const { zohoService } = await import('../services/zohoService.js');
 
           // Follow the exact invoice flow:
@@ -988,8 +1024,16 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
             console.error(`[Booking Creation]    Note: Ticket will still be sent even if invoice creation fails.`);
           }
         } catch (invoiceError: any) {
-          console.error(`[Booking Creation] ⚠️ Error creating invoice (non-blocking):`, invoiceError.message);
-          console.error(`[Booking Creation]    Error stack:`, invoiceError.stack);
+          // Check if error is about missing Zoho configuration
+          if (invoiceError.message?.includes('No Zoho token found') || 
+              invoiceError.message?.includes('Zoho credentials not configured') ||
+              invoiceError.message?.includes('Please complete OAuth flow')) {
+            console.warn(`[Booking Creation] ⚠️ Zoho Invoice not configured: ${invoiceError.message}`);
+            console.warn(`[Booking Creation]    Invoice creation skipped. Please configure Zoho Invoice in Settings → Zoho Integration`);
+          } else {
+            console.error(`[Booking Creation] ⚠️ Error creating invoice (non-blocking):`, invoiceError.message);
+            console.error(`[Booking Creation]    Error stack:`, invoiceError.stack);
+          }
           // Don't fail booking if invoice creation fails
         }
       }).catch((error) => {

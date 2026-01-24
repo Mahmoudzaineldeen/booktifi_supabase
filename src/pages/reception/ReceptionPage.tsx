@@ -4754,7 +4754,7 @@ export function ReceptionPage() {
               >
                 {countryCodes.map((country, index) => (
                   <option key={`${country.code}-${country.name}-${index}`} value={country.code}>
-                    {country.flag} {country.code}
+                    {country.code}
                   </option>
                 ))}
               </select>

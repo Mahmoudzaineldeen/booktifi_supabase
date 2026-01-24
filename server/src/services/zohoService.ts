@@ -457,18 +457,52 @@ class ZohoService {
     // Zoho Invoice requires customer_id, not customer_name/customer_email
     const payload: any = {
       customer_id: customerId, // REQUIRED: Zoho Invoice requires customer_id
-      line_items: invoiceData.line_items.map(item => ({
-        name: item.name,
-        description: item.description || '',
-        rate: item.rate,
-        quantity: item.quantity,
-        unit: item.unit || 'ticket',
-      })),
+      line_items: invoiceData.line_items.map(item => {
+        // CRITICAL: Validate and sanitize line item data
+        const itemName = (item.name || 'Item').trim();
+        const itemDescription = (item.description || '').trim();
+        const itemRate = typeof item.rate === 'number' ? item.rate : parseFloat(String(item.rate || 0));
+        const itemQuantity = typeof item.quantity === 'number' ? item.quantity : parseFloat(String(item.quantity || 1));
+        const itemUnit = (item.unit || 'ticket').trim();
+        
+        // Validate rate and quantity
+        if (isNaN(itemRate) || itemRate < 0) {
+          console.error(`[ZohoService] ❌ Invalid rate: ${item.rate}, using 0`);
+        }
+        if (isNaN(itemQuantity) || itemQuantity < 0) {
+          console.error(`[ZohoService] ❌ Invalid quantity: ${item.quantity}, using 1`);
+        }
+        
+        return {
+          name: itemName,
+          description: itemDescription,
+          rate: Math.max(0, itemRate),
+          quantity: Math.max(1, itemQuantity),
+          unit: itemUnit,
+        };
+      }),
       date: invoiceData.date,
       due_date: invoiceData.due_date || invoiceData.date,
       currency_code: invoiceData.currency_code || 'SAR',
       status: 'sent', // CRITICAL: Set status to 'sent' so invoice can be emailed (not 'draft')
     };
+    
+    // CRITICAL: Validate currency_code before sending to Zoho
+    if (!payload.currency_code || payload.currency_code.trim().length === 0) {
+      console.error(`[ZohoService] ❌ CRITICAL: currency_code is empty in payload, using SAR as fallback`);
+      payload.currency_code = 'SAR';
+    } else {
+      payload.currency_code = payload.currency_code.trim().toUpperCase();
+    }
+    
+    // Validate currency code format (must be 3 uppercase letters)
+    const currencyCodeRegex = /^[A-Z]{3}$/;
+    if (!currencyCodeRegex.test(payload.currency_code)) {
+      console.error(`[ZohoService] ❌ CRITICAL: Invalid currency_code format: "${payload.currency_code}", using SAR as fallback`);
+      payload.currency_code = 'SAR';
+    }
+    
+    console.log(`[ZohoService] 📋 Invoice payload prepared with currency: ${payload.currency_code}`);
     
     // Add notes if provided
     if (invoiceData.notes) {
@@ -476,7 +510,17 @@ class ZohoService {
     }
     
     // Log payload for debugging (remove sensitive data in production)
-    console.log('[ZohoService] Invoice payload:', JSON.stringify({ ...payload, customer_email: '***' }, null, 2));
+    console.log('[ZohoService] 📋 Final invoice payload:');
+    console.log(`   Customer ID: ${payload.customer_id}`);
+    console.log(`   Currency: ${payload.currency_code}`);
+    console.log(`   Date: ${payload.date}`);
+    console.log(`   Due Date: ${payload.due_date}`);
+    console.log(`   Status: ${payload.status}`);
+    console.log(`   Line Items: ${payload.line_items.length}`);
+    payload.line_items.forEach((item: any, index: number) => {
+      console.log(`     ${index + 1}. ${item.name} - ${item.rate} x ${item.quantity} = ${item.rate * item.quantity} ${payload.currency_code}`);
+    });
+    console.log(`   Total: ${payload.line_items.reduce((sum: number, item: any) => sum + (item.rate * item.quantity), 0)} ${payload.currency_code}`);
     console.log('[ZohoService] ⚠️  Creating invoice with status: "sent" (not draft) - this allows email sending');
 
     try {
@@ -891,72 +935,150 @@ class ZohoService {
    * Map booking data to Zoho invoice format
    */
   async mapBookingToInvoice(bookingId: string): Promise<ZohoInvoiceData> {
+    console.log(`[ZohoService] 🔍 Mapping booking ${bookingId} to invoice data...`);
+    
     // Fetch booking with related data (including offer if present)
-    const { data: bookings, error: bookingError } = await supabase
-      .from('bookings')
-      .select(`
-        *,
-        services (
-          name,
-          name_ar,
-          description,
-          description_ar,
-          base_price,
-          child_price
-        ),
-        slots (
-          start_time,
-          end_time,
-          slot_date
-        ),
-        tenants (
-          name,
-          name_ar,
-          currency_code
-        ),
-        service_offers (
-          price,
-          name,
-          name_ar
-        )
-      `)
-      .eq('id', bookingId)
-      .single();
+    let bookings: any = null;
+    let bookingError: any = null;
+    
+    try {
+      const result = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          services (
+            name,
+            name_ar,
+            description,
+            description_ar,
+            base_price,
+            child_price
+          ),
+          slots (
+            start_time,
+            end_time,
+            slot_date
+          ),
+          tenants (
+            name,
+            name_ar,
+            currency_code
+          ),
+          service_offers (
+            price,
+            name,
+            name_ar
+          )
+        `)
+        .eq('id', bookingId)
+        .single();
 
-    if (bookingError || !bookings) {
-      throw new Error(`Booking ${bookingId} not found`);
+      bookings = result.data;
+      bookingError = result.error;
+      
+      if (bookingError) {
+        console.error(`[ZohoService] ❌ Error fetching booking: ${bookingError.message}`);
+        console.error(`[ZohoService]    Error code: ${bookingError.code}`);
+        console.error(`[ZohoService]    Error details: ${JSON.stringify(bookingError)}`);
+      }
+    } catch (queryError: any) {
+      console.error(`[ZohoService] ❌ Exception fetching booking: ${queryError.message}`);
+      console.error(`[ZohoService]    Stack: ${queryError.stack}`);
+      bookingError = queryError;
     }
 
+    if (bookingError || !bookings) {
+      const errorMsg = `Booking ${bookingId} not found or query failed: ${bookingError?.message || 'Unknown error'}`;
+      console.error(`[ZohoService] ❌ ${errorMsg}`);
+      throw new Error(errorMsg);
+    }
+    
+    console.log(`[ZohoService] ✅ Booking fetched successfully`);
+    console.log(`[ZohoService]    Customer: ${bookings.customer_name}`);
+    console.log(`[ZohoService]    Tenant Currency: ${bookings.tenants?.currency_code || 'NOT FOUND (will use SAR)'}`);
+
+    // Get tenant currency - try from relation first, then fallback to direct query
+    let tenantCurrencyCode = bookings.tenants?.currency_code;
+    
+    if (!tenantCurrencyCode && bookings.tenant_id) {
+      console.log(`[ZohoService] ⚠️ Currency not found in relation, fetching directly from tenant...`);
+      try {
+        const { data: tenantData, error: tenantError } = await supabase
+          .from('tenants')
+          .select('currency_code')
+          .eq('id', bookings.tenant_id)
+          .maybeSingle();
+        
+        if (!tenantError && tenantData?.currency_code) {
+          tenantCurrencyCode = tenantData.currency_code;
+          console.log(`[ZohoService] ✅ Currency fetched directly: ${tenantCurrencyCode}`);
+        } else {
+          console.warn(`[ZohoService] ⚠️ Could not fetch currency directly: ${tenantError?.message || 'No data'}`);
+        }
+      } catch (tenantQueryError: any) {
+        console.error(`[ZohoService] ❌ Error fetching tenant currency: ${tenantQueryError.message}`);
+      }
+    }
+    
+    // Final fallback to SAR if still not found
+    if (!tenantCurrencyCode) {
+      console.warn(`[ZohoService] ⚠️ No currency found, using default: SAR`);
+      tenantCurrencyCode = 'SAR';
+    }
+    
     const booking = {
       ...bookings,
-      service_name: bookings.services.name,
-      service_name_ar: bookings.services.name_ar,
-      service_description: bookings.services.description,
-      service_description_ar: bookings.services.description_ar,
-      base_price: bookings.services.base_price,
-      child_price: bookings.services.child_price,
-      start_time: bookings.slots.start_time,
-      end_time: bookings.slots.end_time,
-      slot_date: bookings.slots.slot_date,
-      tenant_name: bookings.tenants.name,
-      tenant_name_ar: bookings.tenants.name_ar,
-      tenant_currency_code: bookings.tenants.currency_code || 'SAR',
+      service_name: bookings.services?.name || 'Unknown Service',
+      service_name_ar: bookings.services?.name_ar || '',
+      service_description: bookings.services?.description || '',
+      service_description_ar: bookings.services?.description_ar || '',
+      base_price: bookings.services?.base_price || 0,
+      child_price: bookings.services?.child_price || 0,
+      start_time: bookings.slots?.start_time,
+      end_time: bookings.slots?.end_time,
+      slot_date: bookings.slots?.slot_date,
+      tenant_name: bookings.tenants?.name || 'Unknown Tenant',
+      tenant_name_ar: bookings.tenants?.name_ar || '',
+      tenant_currency_code: tenantCurrencyCode,
       offer_price: bookings.service_offers?.price,
       offer_name: bookings.service_offers?.name,
       offer_name_ar: bookings.service_offers?.name_ar,
     };
+    
+    console.log(`[ZohoService] ✅ Booking data prepared`);
+    console.log(`[ZohoService]    Tenant Currency: ${booking.tenant_currency_code}`);
+    console.log(`[ZohoService]    Service: ${booking.service_name}`);
+    console.log(`[ZohoService]    Base Price: ${booking.base_price}`);
       // Default to English for invoice language
       // You can add language detection logic here if needed
       const language = 'en';
 
       // Determine service name based on language
-      const serviceName = language === 'ar' && booking.service_name_ar
+      // CRITICAL: Ensure service name is never null/undefined/empty
+      let serviceName = language === 'ar' && booking.service_name_ar
         ? booking.service_name_ar
         : booking.service_name;
+      
+      if (!serviceName || serviceName.trim().length === 0) {
+        console.warn(`[ZohoService] ⚠️ Service name is empty, using fallback`);
+        serviceName = 'Service'; // Fallback name
+      }
+      serviceName = serviceName.trim();
 
-      const serviceDescription = language === 'ar' && booking.service_description_ar
+      let serviceDescription = language === 'ar' && booking.service_description_ar
         ? booking.service_description_ar
         : booking.service_description;
+      
+      // Description can be empty, but ensure it's at least an empty string
+      if (!serviceDescription) {
+        serviceDescription = '';
+      }
+      serviceDescription = serviceDescription.trim();
+      
+      console.log(`[ZohoService] 📋 Service details:`);
+      console.log(`   Name: ${serviceName}`);
+      console.log(`   Description length: ${serviceDescription.length}`);
+      console.log(`   Language: ${language}`);
 
       // Build line items
       const lineItems: ZohoInvoiceData['line_items'] = [];
@@ -1078,6 +1200,29 @@ class ZohoService {
         notes: booking.notes || `Booking ID: ${booking.id}`,
         custom_fields: customFields,
       };
+      
+      // CRITICAL: Validate currency_code before returning
+      const finalCurrencyCode = invoiceData.currency_code || 'SAR';
+      if (!finalCurrencyCode || finalCurrencyCode.trim().length === 0) {
+        console.error(`[ZohoService] ❌ CRITICAL: currency_code is empty or null, using SAR as fallback`);
+        invoiceData.currency_code = 'SAR';
+      } else {
+        invoiceData.currency_code = finalCurrencyCode.trim().toUpperCase();
+      }
+      
+      // Validate currency code format (must be 3 uppercase letters)
+      const currencyCodeRegex = /^[A-Z]{3}$/;
+      if (!currencyCodeRegex.test(invoiceData.currency_code)) {
+        console.error(`[ZohoService] ❌ CRITICAL: Invalid currency_code format: "${invoiceData.currency_code}", using SAR as fallback`);
+        invoiceData.currency_code = 'SAR';
+      }
+      
+      console.log(`[ZohoService] ✅ Invoice data mapped successfully`);
+      console.log(`[ZohoService]    Currency: ${invoiceData.currency_code}`);
+      console.log(`[ZohoService]    Line items: ${invoiceData.line_items.length}`);
+      console.log(`[ZohoService]    Total amount: ${invoiceData.line_items.reduce((sum, item) => sum + (item.rate * item.quantity), 0)} ${invoiceData.currency_code}`);
+      
+      return invoiceData;
   }
 
   /**
@@ -1134,6 +1279,47 @@ class ZohoService {
       if (!tenantId) {
         throw new Error(`Booking group ${bookingGroupId} has no tenant_id`);
       }
+
+      // CRITICAL: Check if Zoho is configured for this tenant BEFORE attempting invoice creation
+      const { data: zohoConfig } = await supabase
+        .from('tenant_zoho_configs')
+        .select('id, is_active')
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true)
+        .single();
+      
+      const { data: zohoToken } = await supabase
+        .from('zoho_tokens')
+        .select('id, expires_at')
+        .eq('tenant_id', tenantId)
+        .single();
+      
+      if (!zohoConfig || !zohoToken) {
+        const errorMsg = `Zoho Invoice not configured for tenant ${tenantId}. Config: ${!!zohoConfig}, Token: ${!!zohoToken}. Please configure Zoho Invoice in Settings → Zoho Integration`;
+        console.error(`[ZohoService] ❌ ${errorMsg}`);
+        return {
+          invoiceId: '',
+          success: false,
+          error: errorMsg
+        };
+      }
+      
+      // Check if token is expired
+      if (zohoToken.expires_at) {
+        const expiresAt = new Date(zohoToken.expires_at);
+        const now = new Date();
+        if (expiresAt <= now) {
+          const errorMsg = `Zoho token expired for tenant ${tenantId}. Please refresh Zoho connection in Settings`;
+          console.error(`[ZohoService] ❌ ${errorMsg}`);
+          return {
+            invoiceId: '',
+            success: false,
+            error: errorMsg
+          };
+        }
+      }
+      
+      console.log(`[ZohoService] ✅ Zoho is configured and connected for tenant ${tenantId}`);
 
       // CRITICAL: Idempotency check - prevent duplicate invoices
       // Check if invoice already exists for this booking group
@@ -1239,7 +1425,7 @@ class ZohoService {
 
       if (customerEmail) {
         try {
-          await this.sendInvoiceViaEmail(tenantId, invoiceId, customerEmail);
+          await this.sendInvoiceEmail(tenantId, invoiceId, customerEmail);
           console.log(`[ZohoService] ✅ Invoice sent via email`);
         } catch (emailError: any) {
           console.error(`[ZohoService] ⚠️ Email delivery failed:`, emailError.message);
@@ -1274,26 +1460,156 @@ class ZohoService {
    */
   async generateReceipt(bookingId: string): Promise<{ invoiceId: string; success: boolean; error?: string }> {
     try {
-      // Check if invoice already exists - also get customer_email directly from booking
-      const { data: bookings, error: bookingError } = await supabase
-        .from('bookings')
-        .select('zoho_invoice_id, tenant_id, customer_email, customer_phone, customer_name')
-        .eq('id', bookingId)
-        .single();
-
-      if (bookingError || !bookings) {
-        throw new Error(`Booking ${bookingId} not found`);
+      // CRITICAL: The booking was just created via RPC, and there might be a slight delay
+      // before it's visible in queries. Retry with exponential backoff.
+      let booking: any = null;
+      let retryCount = 0;
+      const maxRetries = 5;
+      const baseDelay = 500; // 500ms base delay
+      
+      console.log(`[ZohoService] 🔍 Looking up booking ${bookingId}...`);
+      
+      while (!booking && retryCount < maxRetries) {
+        if (retryCount > 0) {
+          const delay = baseDelay * Math.pow(2, retryCount - 1); // Exponential backoff: 500ms, 1s, 2s, 4s
+          console.log(`[ZohoService] ⏳ Waiting ${delay}ms before retry ${retryCount}/${maxRetries}...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
+        // Query booking - use maybeSingle to avoid throwing error if not found
+        const { data: bookingData, error: bookingError } = await supabase
+          .from('bookings')
+          .select('zoho_invoice_id, tenant_id, customer_email, customer_phone, customer_name')
+          .eq('id', bookingId)
+          .maybeSingle(); // Use maybeSingle to avoid throwing error if not found
+        
+        if (bookingData && !bookingError) {
+          booking = bookingData;
+          console.log(`[ZohoService] ✅ Booking found after ${retryCount} attempt(s)`);
+        } else {
+          retryCount++;
+          if (retryCount < maxRetries) {
+            console.warn(`[ZohoService] ⚠️ Booking ${bookingId} not found yet (attempt ${retryCount}/${maxRetries}), retrying...`);
+            if (bookingError) {
+              console.warn(`[ZohoService]    Error: ${bookingError.message}`);
+            }
+          } else {
+            const errorMsg = `Booking ${bookingId} not found after ${maxRetries} attempts. The booking may not have been created successfully or there is a database replication delay.`;
+            console.error(`[ZohoService] ❌ ${errorMsg}`);
+            return {
+              invoiceId: '',
+              success: false,
+              error: errorMsg
+            };
+          }
+        }
       }
-
-      const booking = bookings;
 
       // Validate tenant_id
       if (!booking.tenant_id) {
         throw new Error(`Booking ${bookingId} has no tenant_id`);
       }
 
+      // ============================================================================
+      // PRECONDITION VERIFICATION (CRITICAL - Must pass before invoice creation)
+      // ============================================================================
+      console.log(`[ZohoService] 🔒 Verifying preconditions for invoice creation...`);
+      
+      // Precondition 1: Zoho Configuration
+      const { data: zohoConfig } = await supabase
+        .from('tenant_zoho_configs')
+        .select('id, is_active, client_id, redirect_uri')
+        .eq('tenant_id', booking.tenant_id)
+        .eq('is_active', true)
+        .maybeSingle();
+      
+      if (!zohoConfig) {
+        const errorMsg = `Zoho Invoice not configured for tenant ${booking.tenant_id}. Please configure Zoho Invoice in Settings → Zoho Integration (add client_id, client_secret, redirect_uri)`;
+        console.error(`[ZohoService] ❌ PRECONDITION FAILED: ${errorMsg}`);
+        return {
+          invoiceId: '',
+          success: false,
+          error: errorMsg
+        };
+      }
+      
+      if (!zohoConfig.client_id || !zohoConfig.redirect_uri) {
+        const errorMsg = `Zoho configuration incomplete for tenant ${booking.tenant_id}. Missing: ${!zohoConfig.client_id ? 'client_id' : ''} ${!zohoConfig.redirect_uri ? 'redirect_uri' : ''}. Please complete Zoho setup in Settings`;
+        console.error(`[ZohoService] ❌ PRECONDITION FAILED: ${errorMsg}`);
+        return {
+          invoiceId: '',
+          success: false,
+          error: errorMsg
+        };
+      }
+      
+      console.log(`[ZohoService] ✅ Precondition 1: Zoho configuration exists and is active`);
+      
+      // Precondition 2: Zoho OAuth Tokens
+      const { data: zohoToken } = await supabase
+        .from('zoho_tokens')
+        .select('id, expires_at, access_token')
+        .eq('tenant_id', booking.tenant_id)
+        .maybeSingle();
+      
+      if (!zohoToken) {
+        const errorMsg = `Zoho OAuth tokens not found for tenant ${booking.tenant_id}. Please complete OAuth flow in Settings → Zoho Integration → Connect Zoho`;
+        console.error(`[ZohoService] ❌ PRECONDITION FAILED: ${errorMsg}`);
+        return {
+          invoiceId: '',
+          success: false,
+          error: errorMsg
+        };
+      }
+      
+      // Precondition 3: Token Expiration Check
+      if (zohoToken.expires_at) {
+        const expiresAt = new Date(zohoToken.expires_at);
+        const now = new Date();
+        const bufferMinutes = 5; // 5 minute buffer
+        const expiresAtWithBuffer = new Date(expiresAt.getTime() - (bufferMinutes * 60 * 1000));
+        
+        if (expiresAtWithBuffer <= now) {
+          const errorMsg = `Zoho connection expired for tenant ${booking.tenant_id}. Token expired at: ${expiresAt.toISOString()}. Please reconnect Zoho in Settings → Zoho Integration`;
+          console.error(`[ZohoService] ❌ PRECONDITION FAILED: ${errorMsg}`);
+          return {
+            invoiceId: '',
+            success: false,
+            error: errorMsg
+          };
+        }
+      }
+      
+      console.log(`[ZohoService] ✅ Precondition 2: Zoho OAuth tokens exist and are valid`);
+      
+      // Precondition 4: Customer Contact (at least email OR phone)
+      const hasEmail = booking.customer_email && booking.customer_email.trim().length > 0;
+      const hasPhone = booking.customer_phone && booking.customer_phone.trim().length > 0;
+      
+      if (!hasEmail && !hasPhone) {
+        // Invoice can still be created, but delivery will be skipped
+        console.warn(`[ZohoService] ⚠️ Precondition 4: No customer contact (email or phone) - invoice will be created but NOT sent`);
+      } else {
+        console.log(`[ZohoService] ✅ Precondition 4: Customer contact available (email: ${hasEmail}, phone: ${hasPhone})`);
+      }
+      
+      console.log(`[ZohoService] ✅ All preconditions verified - proceeding with invoice creation`);
+
       // Map booking to invoice data (needed for delivery even if invoice exists)
-      const invoiceData = await this.mapBookingToInvoice(bookingId);
+      let invoiceData: ZohoInvoiceData;
+      try {
+        invoiceData = await this.mapBookingToInvoice(bookingId);
+        console.log(`[ZohoService] ✅ Booking mapped to invoice data successfully`);
+      } catch (mapError: any) {
+        const errorMsg = `Failed to map booking to invoice data: ${mapError.message || 'Unknown error'}`;
+        console.error(`[ZohoService] ❌ ${errorMsg}`);
+        console.error(`[ZohoService]    Stack: ${mapError.stack}`);
+        return {
+          invoiceId: '',
+          success: false,
+          error: errorMsg
+        };
+      }
       
       // IMPORTANT: Ensure we use email directly from booking if mapBookingToInvoice didn't get it
       // This ensures email is always used if available in the database
@@ -1318,11 +1634,30 @@ class ZohoService {
 
       let invoiceId: string;
 
-      // Check if invoice already exists
+      // ============================================================================
+      // DUPLICATE PREVENTION: Check if invoice already exists
+      // ============================================================================
       if (booking.zoho_invoice_id) {
-        console.log(`[ZohoService] Invoice already exists for booking ${bookingId}: ${booking.zoho_invoice_id}`);
+        console.log(`[ZohoService] ⚠️ DUPLICATE PREVENTION: Invoice already exists for booking ${bookingId}`);
+        console.log(`[ZohoService]    Existing Invoice ID: ${booking.zoho_invoice_id}`);
+        console.log(`[ZohoService]    Skipping invoice creation to prevent duplicates`);
         invoiceId = booking.zoho_invoice_id;
-        console.log(`[ZohoService] ⚠️ Invoice exists, but will attempt to send via email/WhatsApp if not already sent`);
+        
+        // Verify the existing invoice still exists in Zoho
+        try {
+          const existingInvoiceCheck = await this.getInvoice(booking.tenant_id, invoiceId);
+          if (existingInvoiceCheck.invoice) {
+            console.log(`[ZohoService] ✅ Existing invoice verified in Zoho`);
+            console.log(`[ZohoService]    Invoice Number: ${existingInvoiceCheck.invoice.invoice_number || 'N/A'}`);
+            console.log(`[ZohoService]    Invoice Status: ${existingInvoiceCheck.invoice.status || 'N/A'}`);
+          } else {
+            console.warn(`[ZohoService] ⚠️ Existing invoice ${invoiceId} not found in Zoho - may have been deleted`);
+          }
+        } catch (checkError: any) {
+          console.warn(`[ZohoService] ⚠️ Could not verify existing invoice: ${checkError.message}`);
+        }
+        
+        console.log(`[ZohoService]    Will attempt to send via email/WhatsApp if not already sent`);
       } else {
         // Email is optional - validate format only if provided
         if (invoiceData.customer_email) {
@@ -1332,19 +1667,84 @@ class ZohoService {
           }
         }
 
-        // Step 1: Create invoice in Zoho Invoice
+        // ============================================================================
+        // STEP 1: Create Invoice in Zoho Invoice API
+        // ============================================================================
         console.log(`[ZohoService] 📋 Step 1: Creating invoice in Zoho Invoice for booking ${bookingId}...`);
-        const invoiceResponse = await this.createInvoice(booking.tenant_id, invoiceData);
+        console.log(`[ZohoService]    Customer: ${invoiceData.customer_name}`);
+        console.log(`[ZohoService]    Amount: ${invoiceData.line_items.reduce((sum, item) => sum + (item.rate * item.quantity), 0)} ${invoiceData.currency_code}`);
+        console.log(`[ZohoService]    Line items: ${invoiceData.line_items.length}`);
+        
+        let invoiceResponse: ZohoInvoiceResponse;
+        try {
+          invoiceResponse = await this.createInvoice(booking.tenant_id, invoiceData);
+        } catch (createError: any) {
+          // CRITICAL: If Zoho API fails, log error but don't fail booking
+          const errorMsg = `Failed to create invoice in Zoho: ${createError.message || 'Unknown error'}`;
+          console.error(`[ZohoService] ❌ Step 1 FAILED: ${errorMsg}`);
+          
+          // Log failure to zoho_invoice_logs
+          await supabase
+            .from('zoho_invoice_logs')
+            .insert({
+              booking_id: bookingId,
+              tenant_id: booking.tenant_id,
+              zoho_invoice_id: null,
+              status: 'failed',
+              request_payload: JSON.stringify(invoiceData),
+              response_payload: JSON.stringify({ error: createError.message, stack: createError.stack }),
+            });
+          
+          return {
+            invoiceId: '',
+            success: false,
+            error: errorMsg
+          };
+        }
 
+        // Verify Zoho response structure
         if (!invoiceResponse.invoice || !invoiceResponse.invoice.invoice_id) {
-          throw new Error(`Failed to create invoice: ${invoiceResponse.message || 'Unknown error'}`);
+          const errorMsg = `Invalid Zoho response: ${invoiceResponse.message || 'No invoice_id in response'}`;
+          console.error(`[ZohoService] ❌ Step 1 FAILED: ${errorMsg}`);
+          console.error(`[ZohoService]    Response: ${JSON.stringify(invoiceResponse, null, 2)}`);
+          
+          // Log failure
+          await supabase
+            .from('zoho_invoice_logs')
+            .insert({
+              booking_id: bookingId,
+              tenant_id: booking.tenant_id,
+              zoho_invoice_id: null,
+              status: 'failed',
+              request_payload: JSON.stringify(invoiceData),
+              response_payload: JSON.stringify(invoiceResponse),
+            });
+          
+          return {
+            invoiceId: '',
+            success: false,
+            error: errorMsg
+          };
         }
 
         invoiceId = invoiceResponse.invoice.invoice_id;
-        console.log(`[ZohoService] ✅ Step 1 Complete: Invoice created in Zoho Invoice (ID: ${invoiceId})`);
+        const invoiceNumber = invoiceResponse.invoice.invoice_number || '';
+        const invoiceStatus = invoiceResponse.invoice.status || 'sent';
+        
+        console.log(`[ZohoService] ✅ Step 1 Complete: Invoice created in Zoho`);
+        console.log(`[ZohoService]    Invoice ID: ${invoiceId}`);
+        console.log(`[ZohoService]    Invoice Number: ${invoiceNumber || 'N/A'}`);
+        console.log(`[ZohoService]    Invoice Status: ${invoiceStatus}`);
 
-        // Update booking with invoice ID - CRITICAL: This must succeed
-        console.log(`[ZohoService] 💾 Saving invoice to database for booking ${bookingId}...`);
+        // ============================================================================
+        // STEP 2: Persist Invoice Data to Database
+        // ============================================================================
+        console.log(`[ZohoService] 💾 Step 2: Saving invoice data to database for booking ${bookingId}...`);
+        
+        // Build invoice URL (Zoho Invoice web URL format)
+        const region = await zohoCredentials.getRegionForTenant(booking.tenant_id).catch(() => 'com');
+        const invoiceUrl = `https://invoice.zoho.${region}/#/invoices/${invoiceId}`;
+        
         const { data: updatedBooking, error: updateError } = await supabase
           .from('bookings')
           .update({
@@ -1357,19 +1757,57 @@ class ZohoService {
           .single();
 
         if (updateError || !updatedBooking) {
-          throw new Error(`Failed to update booking ${bookingId} with invoice ID ${invoiceId} - booking not found`);
+          // CRITICAL: Invoice was created in Zoho but failed to save to DB
+          // This is a serious issue - invoice exists in Zoho but not linked to booking
+          const errorMsg = `CRITICAL: Invoice ${invoiceId} created in Zoho but failed to save to database. Booking: ${bookingId}, Error: ${updateError?.message || 'Booking not found'}`;
+          console.error(`[ZohoService] ❌ Step 2 FAILED: ${errorMsg}`);
+          console.error(`[ZohoService]    ⚠️  MANUAL ACTION REQUIRED: Link invoice ${invoiceId} to booking ${bookingId}`);
+          
+          // Log critical error
+          await supabase
+            .from('zoho_invoice_logs')
+            .insert({
+              booking_id: bookingId,
+              tenant_id: booking.tenant_id,
+              zoho_invoice_id: invoiceId,
+              status: 'partial_success', // Invoice created but not linked
+              request_payload: JSON.stringify(invoiceData),
+              response_payload: JSON.stringify({ 
+                invoice_id: invoiceId,
+                invoice_number: invoiceNumber,
+                status: invoiceStatus,
+                db_error: updateError?.message 
+              }),
+            });
+          
+          return {
+            invoiceId: invoiceId, // Return invoice ID even though DB update failed
+            success: false,
+            error: errorMsg
+          };
         }
 
         if (updatedBooking.zoho_invoice_id !== invoiceId) {
-          throw new Error(`Invoice ID mismatch: expected ${invoiceId}, got ${updatedBooking.zoho_invoice_id}`);
+          const errorMsg = `Invoice ID mismatch: expected ${invoiceId}, got ${updatedBooking.zoho_invoice_id}`;
+          console.error(`[ZohoService] ❌ Step 2 FAILED: ${errorMsg}`);
+          return {
+            invoiceId: invoiceId,
+            success: false,
+            error: errorMsg
+          };
         }
 
-        console.log(`[ZohoService] ✅ Invoice saved to database successfully`);
+        console.log(`[ZohoService] ✅ Step 2 Complete: Invoice data saved to database`);
         console.log(`[ZohoService]    Booking ID: ${updatedBooking.id}`);
         console.log(`[ZohoService]    Invoice ID: ${updatedBooking.zoho_invoice_id}`);
+        console.log(`[ZohoService]    Invoice Number: ${invoiceNumber || 'N/A'}`);
+        console.log(`[ZohoService]    Invoice URL: ${invoiceUrl}`);
+        console.log(`[ZohoService]    Invoice Status: ${invoiceStatus}`);
         console.log(`[ZohoService]    Invoice Created At: ${updatedBooking.zoho_invoice_created_at}`);
 
-        // Log success
+        // ============================================================================
+        // STEP 3: Log Success to zoho_invoice_logs
+        // ============================================================================
         await supabase
           .from('zoho_invoice_logs')
           .insert({
@@ -1378,11 +1816,37 @@ class ZohoService {
             zoho_invoice_id: invoiceId,
             status: 'success',
             request_payload: JSON.stringify(invoiceData),
-            response_payload: JSON.stringify(invoiceResponse),
+            response_payload: JSON.stringify({
+              invoice_id: invoiceId,
+              invoice_number: invoiceNumber,
+              status: invoiceStatus,
+              invoice_url: invoiceUrl,
+              ...invoiceResponse
+            }),
           });
-        console.log(`[ZohoService] ✅ Invoice creation logged to zoho_invoice_logs`);
+        console.log(`[ZohoService] ✅ Step 3 Complete: Invoice creation logged to zoho_invoice_logs`);
       }
 
+      // ============================================================================
+      // STEP 4: Verify Invoice Exists in Zoho (Post-Creation Verification)
+      // ============================================================================
+      console.log(`[ZohoService] 🔍 Step 4: Verifying invoice exists in Zoho...`);
+      try {
+        const verificationResult = await this.getInvoice(booking.tenant_id, invoiceId);
+        if (verificationResult.invoice) {
+          console.log(`[ZohoService] ✅ Step 4 Complete: Invoice verified in Zoho`);
+          console.log(`[ZohoService]    Invoice Number: ${verificationResult.invoice.invoice_number || 'N/A'}`);
+          console.log(`[ZohoService]    Invoice Status: ${verificationResult.invoice.status || 'N/A'}`);
+          console.log(`[ZohoService]    Invoice Amount: ${verificationResult.invoice.total || 'N/A'}`);
+          console.log(`[ZohoService]    Invoice Currency: ${verificationResult.invoice.currency_code || 'N/A'}`);
+        } else {
+          console.warn(`[ZohoService] ⚠️ Step 4: Invoice verification failed: ${verificationResult.error || 'Unknown error'}`);
+          console.warn(`[ZohoService]    Invoice may still be processing in Zoho. This is non-critical.`);
+        }
+      } catch (verifyError: any) {
+        console.warn(`[ZohoService] ⚠️ Step 4: Invoice verification error (non-critical): ${verifyError.message}`);
+      }
+      
       console.log(`[ZohoService] ✅ Invoice ${invoiceId} saved successfully`);
       console.log(`[ZohoService] ⚠️  Email/WhatsApp errors will NOT affect invoice save from this point`);
 
@@ -1523,35 +1987,58 @@ class ZohoService {
         console.log(`[ZohoService]    This means invoice was created but NOT sent to customer!`);
       }
 
-      // Verify invoice was saved
+      // ============================================================================
+      // STEP 5: Final Verification & Validation
+      // ============================================================================
+      console.log(`[ZohoService] 🔍 Step 5: Final verification of invoice linking...`);
       try {
         const { data: verifyBooking, error: verifyError } = await supabase
           .from('bookings')
-          .select('zoho_invoice_id, zoho_invoice_created_at')
+          .select('zoho_invoice_id, zoho_invoice_created_at, customer_name, total_price')
           .eq('id', bookingId)
-          .single();
+          .maybeSingle();
 
         if (!verifyError && verifyBooking && verifyBooking.zoho_invoice_id === invoiceId) {
-          console.log(`[ZohoService] ✅ Verification: Invoice ${invoiceId} confirmed in database`);
+          console.log(`[ZohoService] ✅ Step 5 Complete: Invoice linking verified`);
+          console.log(`[ZohoService]    Booking ID: ${verifyBooking.id}`);
+          console.log(`[ZohoService]    Invoice ID: ${verifyBooking.zoho_invoice_id}`);
           console.log(`[ZohoService]    Invoice Created At: ${verifyBooking.zoho_invoice_created_at}`);
+          console.log(`[ZohoService]    Customer: ${verifyBooking.customer_name}`);
+          console.log(`[ZohoService]    Amount: ${verifyBooking.total_price}`);
         } else {
-          console.error(`[ZohoService] ❌ Verification FAILED: Invoice ${invoiceId} not found in database!`);
+          console.error(`[ZohoService] ❌ Step 5 FAILED: Invoice ${invoiceId} not found in database!`);
+          console.error(`[ZohoService]    Error: ${verifyError?.message || 'Booking not found'}`);
           console.error(`[ZohoService]    Found: ${JSON.stringify(verifyBooking || {})}`);
         }
-      } catch (verifyError) {
-        console.error(`[ZohoService] ⚠️  Verification query failed: ${verifyError}`);
+      } catch (verifyError: any) {
+        console.error(`[ZohoService] ⚠️ Step 5: Verification error: ${verifyError.message}`);
       }
 
-      console.log(`[ZohoService] Receipt generated successfully for booking ${bookingId}, invoice: ${invoiceId}`);
+      console.log(`[ZohoService] ========================================`);
+      console.log(`[ZohoService] ✅ RECEIPT GENERATION COMPLETE`);
+      console.log(`[ZohoService] ========================================`);
+      console.log(`[ZohoService]    Booking ID: ${bookingId}`);
+      console.log(`[ZohoService]    Invoice ID: ${invoiceId}`);
+      console.log(`[ZohoService]    Status: SUCCESS`);
+      console.log(`[ZohoService] ========================================`);
+      
       return { invoiceId, success: true };
     } catch (error: any) {
-      // Log failure
+      // ============================================================================
+      // ERROR HANDLING: Log failure and return structured error
+      // ============================================================================
+      console.error(`[ZohoService] ❌ CRITICAL ERROR: Failed to generate receipt for booking ${bookingId}`);
+      console.error(`[ZohoService]    Error: ${error.message}`);
+      console.error(`[ZohoService]    Error Type: ${error.constructor.name}`);
+      console.error(`[ZohoService]    Stack: ${error.stack}`);
+      
+      // Log failure to zoho_invoice_logs
       try {
         const { data: bookingCheck, error: checkError } = await supabase
           .from('bookings')
-          .select('tenant_id')
+          .select('tenant_id, zoho_invoice_id')
           .eq('id', bookingId)
-          .single();
+          .maybeSingle();
 
         if (!checkError && bookingCheck) {
           await supabase
@@ -1559,17 +2046,32 @@ class ZohoService {
             .insert({
               booking_id: bookingId,
               tenant_id: bookingCheck.tenant_id,
+              zoho_invoice_id: bookingCheck.zoho_invoice_id || null,
               status: 'failed',
               error_message: error.message,
-              request_payload: JSON.stringify({ bookingId }),
+              request_payload: JSON.stringify({ 
+                bookingId,
+                error_type: error.constructor.name,
+                error_stack: error.stack 
+              }),
+              response_payload: JSON.stringify({ 
+                error: error.message,
+                timestamp: new Date().toISOString()
+              }),
             });
+          console.log(`[ZohoService] ✅ Error logged to zoho_invoice_logs`);
         }
-      } catch (logError) {
-        console.error('[ZohoService] Failed to log error:', logError);
+      } catch (logError: any) {
+        console.error(`[ZohoService] ⚠️ Failed to log error: ${logError.message}`);
       }
 
-      console.error(`[ZohoService] Failed to generate receipt for booking ${bookingId}:`, error.message);
-      return { invoiceId: '', success: false, error: error.message };
+      // Return structured error response
+      const errorMessage = error.message || 'Unknown error during invoice generation';
+      return { 
+        invoiceId: '', 
+        success: false, 
+        error: errorMessage 
+      };
     }
   }
 
