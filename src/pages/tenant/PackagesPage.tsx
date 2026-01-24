@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
+import { getApiUrl } from '../../lib/apiUrl';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
@@ -358,76 +359,113 @@ export function PackagesPage() {
           quantity: 1 // Always 1
         }));
 
-        const { error: servicesError } = await db
+        // Validate service IDs before insertion (for update)
+        const serviceIds = packageServices.map(ps => ps.service_id);
+        const { data: validServices, error: validationError } = await db
+          .from('services')
+          .select('id, tenant_id')
+          .in('id', serviceIds)
+          .eq('tenant_id', userProfile.tenant_id);
+
+        if (validationError) {
+          console.error('Error validating services:', validationError);
+          alert(i18n.language === 'ar' 
+            ? `فشل في التحقق من الخدمات: ${validationError.message || 'خطأ غير معروف'}` 
+            : `Failed to validate services: ${validationError.message || 'Unknown error'}`);
+          fetchPackages();
+          return;
+        }
+
+        const validServiceIds = new Set(validServices?.map(s => s.id) || []);
+        const invalidServices = serviceIds.filter(id => !validServiceIds.has(id));
+        
+        if (invalidServices.length > 0) {
+          console.error('Invalid service IDs:', invalidServices);
+          alert(i18n.language === 'ar' 
+            ? `بعض الخدمات المحددة غير موجودة أو لا تنتمي إلى المستأجر` 
+            : `Some selected services do not exist or do not belong to your tenant`);
+          fetchPackages();
+          return;
+        }
+
+        const { data: insertedServices, error: servicesError } = await db
           .from('package_services')
           .insert(packageServices)
-          .then();
+          .select();
 
         if (servicesError) {
           console.error('Error inserting package services:', servicesError);
+          const errorMessage = servicesError.message || servicesError.error || servicesError.code || 'Unknown error';
           alert(i18n.language === 'ar' 
-            ? `تم تحديث الحزمة لكن حدث خطأ في إضافة الخدمات: ${servicesError.message}` 
-            : `Package updated but error adding services: ${servicesError.message}`);
+            ? `تم تحديث الحزمة لكن حدث خطأ في إضافة الخدمات: ${errorMessage}` 
+            : `Package updated but error adding services: ${errorMessage}`);
           // Refresh to show current state
+          fetchPackages();
+          return;
+        }
+
+        if (!insertedServices || insertedServices.length === 0) {
+          console.error('CRITICAL: No services were inserted despite no error!');
+          alert(i18n.language === 'ar' 
+            ? `تم تحديث الحزمة لكن فشل إضافة الخدمات` 
+            : `Package updated but failed to add services`);
           fetchPackages();
           return;
         }
 
         console.log('Package updated successfully');
     } else {
-        // Create new package
-        console.log('Creating new package with payload:', packagePayload);
-        const { data: newPackage, error: insertError } = await db
-        .from('service_packages')
-        .insert(packagePayload)
-        .select()
-        .single();
-
-        if (insertError) {
-          console.error('Error creating package:', insertError);
-          alert(i18n.language === 'ar' 
-            ? `خطأ في إنشاء الحزمة: ${insertError.message}` 
-            : `Error creating package: ${insertError.message}`);
-          return;
-        }
-
-        if (!newPackage || !newPackage.id) {
-          console.error('Package creation returned no data or missing ID');
-          alert(i18n.language === 'ar' ? 'حدث خطأ في إنشاء الحزمة' : 'Error creating package');
-          return;
-        }
-
-        console.log('Package created successfully:', newPackage);
+        // Create new package using backend API for atomic transaction
+        console.log('Creating new package via API with payload:', packagePayload);
         
-        // Insert package services
-        const packageServices = packageForm.selectedServices.map(s => ({
-          package_id: newPackage.id,
-          service_id: s.service_id.trim(),
-          quantity: 1 // Always 1
-        }));
+        const API_URL = getApiUrl();
+        const token = localStorage.getItem('auth_token');
         
-        console.log('Inserting package services:', packageServices);
-        const { error: servicesError } = await db
-          .from('package_services')
-          .insert(packageServices)
-          .then();
+        // Extract service IDs from selected services
+        const serviceIds = packageForm.selectedServices.map(s => s.service_id.trim());
         
-        if (servicesError) {
-          console.error('Error inserting package services:', servicesError);
+        try {
+          const response = await fetch(`${API_URL}/packages`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              ...packagePayload,
+              service_ids: serviceIds,
+            }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+            const errorMessage = errorData.error || errorData.details || `HTTP ${response.status}`;
+            console.error('Error creating package via API:', errorData);
+            alert(i18n.language === 'ar' 
+              ? `خطأ في إنشاء الحزمة: ${errorMessage}` 
+              : `Error creating package: ${errorMessage}`);
+            return;
+          }
+
+          const result = await response.json();
+          console.log('Package created successfully via API:', result);
           
-          // Try to delete the package if services insertion failed
-          await db
-            .from('service_packages')
-            .delete()
-            .eq('id', newPackage.id);
-          
+          if (!result.success || !result.package) {
+            console.error('API returned success=false or missing package data:', result);
+            alert(i18n.language === 'ar' 
+              ? 'حدث خطأ في إنشاء الحزمة' 
+              : 'Error creating package');
+            return;
+          }
+
+          console.log(`✅ Package created with ${result.services_count || 0} service(s)`);
+        } catch (fetchError: any) {
+          console.error('Network error creating package:', fetchError);
           alert(i18n.language === 'ar' 
-            ? `فشل في إضافة الخدمات للحزمة. تم إلغاء إنشاء الحزمة: ${servicesError.message}` 
-            : `Failed to add services to package. Package creation cancelled: ${servicesError.message}`);
+            ? `خطأ في الاتصال: ${fetchError.message || 'خطأ غير معروف'}` 
+            : `Connection error: ${fetchError.message || 'Unknown error'}`);
           return;
         }
-
-        console.log('Package services inserted successfully');
       }
 
       // Success - close modal and refresh

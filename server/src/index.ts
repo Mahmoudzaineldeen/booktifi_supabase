@@ -13,6 +13,7 @@ import { bookingRoutes } from './routes/bookings';
 import { tenantRoutes } from './routes/tenants';
 import { employeeRoutes } from './routes/employees';
 import { zohoRoutes } from './routes/zoho';
+import { packageRoutes } from './routes/packages';
 import { startLockCleanup } from './jobs/cleanupLocks';
 import { startZohoReceiptWorker } from './jobs/zohoReceiptWorker';
 import { zohoCredentials } from './config/zohoCredentials';
@@ -78,6 +79,7 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/zoho', zohoRoutes);
+app.use('/api/packages', packageRoutes);
 app.use('/api', queryRoutes);
 
 // Error handler with logging
