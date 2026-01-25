@@ -737,7 +737,8 @@
     "allSlotsSelected": "تم تحديد جميع الفترات المطلوبة",
     "moreSlotsRequired": "مطلوب {{count}} فترة إضافية",
     "sameEmployeeRequired": "يرجى اختيار فترات من نفس الموظف",
-    "consecutiveSlotsRequired": "يرجى اختيار فترات زمنية متتالية"
+    "consecutiveSlotsRequired": "يرجى اختيار فترات زمنية متتالية",
+    "editBooking": "تعديل الحجز"
   },
   "cashier": {
     "title": "مكتب الصراف",

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { safeTranslateStatus } from '../../lib/safeTranslation';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -789,7 +790,7 @@ export function BookingsPage() {
                       booking.status === 'cancelled' ? 'bg-red-100 text-red-800' :
                       'bg-gray-100 text-gray-800'
                     }`}>
-                      {t(`booking.${booking.status}`)}
+                      {safeTranslateStatus(t, booking.status, 'booking')}
                     </span>
                   </div>
                 </CardContent>

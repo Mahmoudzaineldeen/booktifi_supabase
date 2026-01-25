@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
+import { safeTranslateStatus } from '../../lib/safeTranslation';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -510,7 +511,11 @@ export function TenantDashboardContent() {
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">
-            {t('dashboard.welcome')}, {userProfile?.full_name}!
+            {t('dashboard.welcomeBack', {
+              name: i18n.language === 'ar' 
+                ? (userProfile?.full_name_ar || userProfile?.full_name || '')
+                : (userProfile?.full_name || '')
+            })}
           </h1>
           <p className="text-sm md:text-base text-gray-600">{t('dashboard.subtitle')}</p>
         </div>
@@ -642,7 +647,7 @@ export function TenantDashboardContent() {
                           booking.status === 'checked_in' ? 'bg-blue-100 text-blue-800' :
                           'bg-yellow-100 text-yellow-800'
                         }`}>
-                          {t(`status.${booking.status}`) || t(`booking.${booking.status}`) || booking.status}
+                          {safeTranslateStatus(t, booking.status, 'booking')}
                         </span>
                       </div>
                       <p className="text-sm text-gray-600">{serviceName}</p>
@@ -698,7 +703,7 @@ export function TenantDashboardContent() {
                           booking.status === 'cancelled' ? 'bg-red-100 text-red-800' :
                           'bg-gray-100 text-gray-800'
                         }`}>
-                          {t(`status.${booking.status}`) || t(`booking.${booking.status}`) || booking.status}
+                          {safeTranslateStatus(t, booking.status, 'booking')}
                         </span>
                       </div>
                       <p className="text-sm text-gray-600">{serviceName}</p>

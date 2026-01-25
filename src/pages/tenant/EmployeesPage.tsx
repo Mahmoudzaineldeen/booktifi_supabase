@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { safeTranslateNested } from '../../lib/safeTranslation';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -636,7 +637,7 @@ export function EmployeesPage() {
                   )}
                   <div className="mt-2">
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 capitalize">
-                      {t(`employee.roles.${employee.role}`)}
+                      {safeTranslateNested(t, 'employee.roles', employee.role, employee.role)}
                     </span>
                   </div>
                   {employee.role === 'employee' && employee.employee_services && employee.employee_services.length > 0 && (

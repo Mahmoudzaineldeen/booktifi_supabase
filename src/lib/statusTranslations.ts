@@ -1,27 +1,17 @@
 /**
  * Helper functions for translating status values
+ * 
+ * IMPORTANT: These functions use safeTranslate to ensure translation keys
+ * NEVER appear in the UI. If a translation is missing, a human-readable
+ * fallback is returned.
  */
 
+import { safeTranslateStatus } from './safeTranslation';
+
 export function translateBookingStatus(status: string, t: (key: string) => string): string {
-  const statusMap: Record<string, string> = {
-    'pending': t('status.pending'),
-    'confirmed': t('status.confirmed'),
-    'checked_in': t('status.checked_in'),
-    'completed': t('status.completed'),
-    'cancelled': t('status.cancelled'),
-  };
-  
-  return statusMap[status] || status;
+  return safeTranslateStatus(t, status, 'booking');
 }
 
 export function translatePaymentStatus(status: string, t: (key: string) => string): string {
-  const statusMap: Record<string, string> = {
-    'unpaid': t('status.unpaid'),
-    'paid': t('status.paid'),
-    'paid_manual': t('status.paid_manual'),
-    'awaiting_payment': t('status.awaiting_payment'),
-    'refunded': t('status.refunded'),
-  };
-  
-  return statusMap[status] || status;
+  return safeTranslateStatus(t, status, 'payment');
 }

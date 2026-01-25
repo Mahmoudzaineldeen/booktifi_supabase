@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
+import { safeTranslateNested } from '../../lib/safeTranslation';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -511,7 +512,7 @@ export function SolutionOwnerDashboard() {
                           {tenant.name_ar && <div className="text-xs text-gray-500">{i18n.language === 'ar' ? tenant.name : tenant.name_ar}</div>}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 capitalize">
-                          {t(`admin.industries.${tenant.industry}`)}
+                          {safeTranslateNested(t, 'admin.industries', tenant.industry, tenant.industry)}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600">
                           {tenant.contact_email || tenant.contact_phone || '-'}

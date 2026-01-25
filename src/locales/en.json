@@ -367,6 +367,7 @@
     "moreSlotsRequired": "{{count}} more slot(s) required",
     "sameEmployeeRequired": "Please select slots from the same employee",
     "consecutiveSlotsRequired": "Please select consecutive time slots",
+    "editBooking": "Edit Booking",
     "searchBookings": "Search by phone, name, date, service, or booking ID...",
     "searchResults": "results found",
     "noSearchResults": "No results found",

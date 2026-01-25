@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
+import { safeTranslateStatus } from '../../lib/safeTranslation';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -446,7 +447,7 @@ export function CashierPage() {
                     scannedBooking.status === 'completed' ? 'bg-blue-100 text-blue-800' :
                     'bg-gray-100 text-gray-800'
                   }`}>
-                    {t(`status.${scannedBooking.status}`) || t(`booking.${scannedBooking.status}`) || scannedBooking.status}
+                    {safeTranslateStatus(t, scannedBooking.status, 'booking')}
                   </span>
                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                     scannedBooking.payment_status === 'paid' || scannedBooking.payment_status === 'paid_manual' 
@@ -457,7 +458,7 @@ export function CashierPage() {
                       ? 'bg-amber-100 text-amber-800' :
                     'bg-gray-100 text-gray-800'
                   }`}>
-                    {t(`status.${scannedBooking.payment_status}`) || t(`booking.${scannedBooking.payment_status}`) || scannedBooking.payment_status}
+                    {safeTranslateStatus(t, scannedBooking.payment_status || 'unpaid', 'payment')}
                   </span>
                   {scannedBooking.qr_scanned && (
                     <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 flex items-center gap-1">

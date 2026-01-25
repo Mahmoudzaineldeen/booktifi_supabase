@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
+import { safeTranslateStatus, safeTranslate } from '../../lib/safeTranslation';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -2238,6 +2239,13 @@ export function ReceptionPage() {
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
 
+      console.log('[ReceptionPage] ========================================');
+      console.log('[ReceptionPage] Updating booking time...');
+      console.log('[ReceptionPage]   Booking ID:', editingBookingTime.id);
+      console.log('[ReceptionPage]   New Slot ID:', selectedNewSlotId);
+      console.log('[ReceptionPage]   API URL:', API_URL);
+      console.log('[ReceptionPage] ========================================');
+
       const response = await fetch(`${API_URL}/bookings/${editingBookingTime.id}/time`, {
         method: 'PATCH',
         headers: {
@@ -2247,19 +2255,33 @@ export function ReceptionPage() {
         body: JSON.stringify({ slot_id: selectedNewSlotId }),
       });
 
+      console.log('[ReceptionPage] Response status:', response.status);
+      console.log('[ReceptionPage] Response ok:', response.ok);
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || t('bookings.failedToUpdateBookingTime', { message: t('common.error') }));
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('[ReceptionPage] ❌ Error response:', errorData);
+        throw new Error(errorData.error || t('bookings.failedToUpdateBookingTime', { message: t('common.error') }));
       }
 
-      await fetchBookings();
+      const result = await response.json().catch(() => ({}));
+      console.log('[ReceptionPage] ✅ Success response:', result);
+
+      // Close modal first
       setEditingBookingTime(null);
       setSelectedNewSlotId('');
       setAvailableTimeSlots([]);
+
+      // Refresh bookings with a small delay to ensure backend has updated
+      console.log('[ReceptionPage] Refreshing bookings...');
+      setTimeout(async () => {
+        await fetchBookings();
+        console.log('[ReceptionPage] ✅ Bookings refreshed');
+      }, 500);
       
       alert(t('bookings.bookingTimeUpdatedSuccessfully') || 'Booking time updated successfully!');
     } catch (error: any) {
-      console.error('Error updating booking time:', error);
+      console.error('[ReceptionPage] ❌ Error updating booking time:', error);
       alert(t('bookings.failedToUpdateBookingTime', { message: error.message }) || `Error: ${error.message}`);
     } finally {
       setUpdatingBookingTime(false);
@@ -2922,7 +2944,7 @@ export function ReceptionPage() {
                   booking.status === 'completed' ? 'bg-blue-100 text-blue-800' :
                   'bg-gray-100 text-gray-800'
                 }`}>
-                  {t(`status.${booking.status}`) || t(`booking.${booking.status}`) || booking.status}
+                  {safeTranslateStatus(t, booking.status, 'booking')}
                 </span>
                 <span className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
                   booking.payment_status === 'paid' || booking.payment_status === 'paid_manual' ? 'bg-emerald-100 text-emerald-800' :
@@ -2931,7 +2953,7 @@ export function ReceptionPage() {
                   booking.payment_status === 'refunded' ? 'bg-purple-100 text-purple-800' :
                   'bg-gray-100 text-gray-800'
                 }`}>
-                  {t(`status.${booking.payment_status}`) || t(`booking.${booking.payment_status}`) || booking.payment_status}
+                  {safeTranslateStatus(t, booking.payment_status || 'unpaid', 'payment')}
                 </span>
               </div>
               {booking.status !== 'cancelled' && (
@@ -5016,7 +5038,7 @@ export function ReceptionPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-md">
             <CardContent className="p-6">
-              <h2 className="text-xl font-bold mb-4">{t('billing.editBooking') || t('reception.editBooking') || 'Edit Booking'}</h2>
+              <h2 className="text-xl font-bold mb-4">{t('reception.editBooking')}</h2>
               
               <div className="space-y-4">
                 <div>
