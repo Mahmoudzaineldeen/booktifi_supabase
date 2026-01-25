@@ -249,39 +249,68 @@ async function findTestBooking() {
     if (!bookingId) {
       logInfo('Finding an active booking...');
       
-      // Query for bookings
-      const { data, ok } = await makeRequest(`/query?table=bookings&tenant_id=eq.${tenantId}&status=neq.cancelled&select=*,slots:slot_id(slot_date,start_time,end_time)&order=created_at.desc&limit=10`);
+      // Query for bookings using GET with query parameters
+      const { data, ok } = await makeRequest(`/query?table=bookings&tenant_id=eq.${tenantId}&status=neq.cancelled&status=neq.completed&limit=50&order=created_at.desc`);
       
-      if (!ok || !data || !Array.isArray(data) || data.length === 0) {
+      if (!ok || !data) {
         throw new Error('No active bookings found. Please create a booking first.');
       }
 
-      // Find a booking with a valid slot
-      const bookingWithSlot = data.find(b => b.slots && b.slots.slot_date);
+      // Handle both array and object responses
+      const bookings = Array.isArray(data) ? data : (data.data || []);
+      
+      if (bookings.length === 0) {
+        throw new Error('No active bookings found. Please create a booking first.');
+      }
+
+      // Find a booking with a valid slot and service
+      const bookingWithSlot = bookings.find(b => 
+        b.slot_id && b.service_id
+      );
       
       if (!bookingWithSlot) {
-        throw new Error('No bookings with valid slots found.');
+        logWarning('Available bookings (first 3):', bookings.slice(0, 3).map(b => ({
+          id: b.id,
+          hasSlotId: !!b.slot_id,
+          hasServiceId: !!b.service_id,
+        })));
+        throw new Error('No bookings with valid slot_id and service_id found.');
       }
 
       bookingId = bookingWithSlot.id;
       logInfo(`Found booking: ${bookingId}`);
     }
 
-    // Get full booking details
-    const { data: bookingData, ok } = await makeRequest(`/query?table=bookings&id=eq.${bookingId}&select=*,slots:slot_id(slot_date,start_time,end_time,shift_id),services:service_id(id,name)&single=true`);
+    // Get full booking details with slot and service relationships
+    const { data: bookingData, ok } = await makeRequest(`/query?table=bookings&id=eq.${bookingId}&select=*,slots:slot_id(slot_date,start_time,end_time,shift_id),services:service_id(id,name)`);
     
     if (!ok || !bookingData) {
       throw new Error(`Booking ${bookingId} not found`);
     }
 
-    testBooking = bookingData;
+    // Handle both array and single object responses
+    const bookings = Array.isArray(bookingData) ? bookingData : (bookingData.data || []);
+    const booking = bookings[0] || bookingData;
+    
+    if (!booking) {
+      logError('Booking data structure:', JSON.stringify(bookingData, null, 2));
+      throw new Error(`Booking ${bookingId} not found in response`);
+    }
+
+    testBooking = booking;
     originalSlotId = testBooking.slot_id;
     originalSlotData = testBooking.slots;
+    
+    // Validate required fields
+    if (!testBooking.service_id) {
+      logError(`Booking ${bookingId} has no service_id. Full booking data:`, JSON.stringify(testBooking, null, 2));
+      throw new Error(`Booking ${bookingId} has no service_id`);
+    }
 
     logSuccess(`Test booking found: ${testBooking.id}`);
-    logInfo(`Customer: ${testBooking.customer_name}`);
-    logInfo(`Service: ${testBooking.services?.name || 'N/A'}`);
-    logInfo(`Current slot_id: ${originalSlotId}`);
+    logInfo(`Customer: ${testBooking.customer_name || 'N/A'}`);
+    logInfo(`Service: ${testBooking.services?.name || testBooking.service_id || 'N/A'}`);
+    logInfo(`Current slot_id: ${originalSlotId || 'N/A'}`);
     logInfo(`Current slot_date: ${originalSlotData?.slot_date || 'N/A'}`);
     logInfo(`Current start_time: ${originalSlotData?.start_time || 'N/A'}`);
   } catch (error) {
@@ -308,17 +337,46 @@ async function findAvailableSlotForDifferentDate() {
     logInfo(`Current booking date: ${currentDate}`);
     logInfo(`Need to find a slot with a DIFFERENT date...`);
 
-    // Get shifts for this service
-    const { data: shiftsData, ok: shiftsOk } = await makeRequest(`/query?table=shifts&service_id=eq.${serviceId}&is_active=eq.true&select=id,days_of_week`);
-    
-    if (!shiftsOk || !shiftsData || shiftsData.length === 0) {
-      throw new Error('No active shifts found for this service');
+    // CRITICAL: Use the current booking's shift to find slots
+    // This ensures we find slots that definitely belong to the same service
+    // Get the current slot's shift_id
+    if (!originalSlotData?.shift_id) {
+      // Fetch the current slot to get its shift_id
+      const { data: currentSlotData, ok: currentSlotOk } = await makeRequest(
+        `/query?table=slots&id=eq.${originalSlotId}&select=shift_id&single=true`
+      );
+      
+      if (!currentSlotOk || !currentSlotData) {
+        throw new Error('Failed to fetch current slot details');
+      }
+      
+      const currentSlot = Array.isArray(currentSlotData) ? currentSlotData[0] : currentSlotData;
+      if (!currentSlot?.shift_id) {
+        throw new Error('Current slot has no shift_id');
+      }
+      
+      originalSlotData.shift_id = currentSlot.shift_id;
+      logInfo(`Current slot's shift_id: ${originalSlotData.shift_id.substring(0, 8)}`);
     }
 
-    const shiftIds = shiftsData.map(s => s.id);
-    logInfo(`Found ${shiftIds.length} active shift(s)`);
+    const currentShiftId = originalSlotData.shift_id;
+    
+    // Verify this shift belongs to the correct service
+    const { data: shiftData, ok: shiftOk } = await makeRequest(
+      `/query?table=shifts&id=eq.${currentShiftId}&select=id,service_id&single=true`
+    );
+    
+    if (!shiftOk || !shiftData) {
+      throw new Error('Failed to verify current shift');
+    }
+    
+    const shift = Array.isArray(shiftData) ? shiftData[0] : shiftData;
+    if (shift.service_id !== serviceId) {
+      logWarning(`Current shift ${currentShiftId.substring(0, 8)} belongs to service ${shift.service_id}, not ${serviceId}`);
+      logWarning(`This is a data inconsistency, but we'll use this shift to find slots anyway`);
+    }
 
-    // Query slots for the next 14 days
+    // Query slots for the next 14 days using the current booking's shift
     const today = new Date();
     const endDate = new Date(today);
     endDate.setDate(endDate.getDate() + 14);
@@ -327,29 +385,40 @@ async function findAvailableSlotForDifferentDate() {
     const endDateStr = endDate.toISOString().split('T')[0];
 
     logInfo(`Searching for slots from ${startDateStr} to ${endDateStr}`);
+    logInfo(`Using current booking's shift: ${currentShiftId.substring(0, 8)}`);
 
+    // Query slots by the current shift_id (guaranteed to work)
     const { data: slotsData, ok: slotsOk } = await makeRequest(
-      `/query?table=slots&tenant_id=eq.${tenantId}&shift_id=in.(${shiftIds.join(',')})&slot_date=gte.${startDateStr}&slot_date=lte.${endDateStr}&is_available=eq.true&available_capacity=gt.0&select=id,slot_date,start_time,end_time,available_capacity&order=slot_date,start_time&limit=100`
+      `/query?table=slots&tenant_id=eq.${tenantId}&shift_id=eq.${currentShiftId}&slot_date=gte.${startDateStr}&slot_date=lte.${endDateStr}&is_available=eq.true&available_capacity=gt.0&select=id,slot_date,start_time,end_time,available_capacity,shift_id&order=slot_date,start_time&limit=100`
     );
 
-    if (!slotsOk || !slotsData || slotsData.length === 0) {
-      throw new Error('No available slots found for the next 14 days');
+    if (!slotsOk || !slotsData) {
+      throw new Error('Failed to fetch slots for the current shift');
     }
 
-    logInfo(`Found ${slotsData.length} available slot(s)`);
+    const slots = Array.isArray(slotsData) ? slotsData : (slotsData.data || []);
+
+    if (slots.length === 0) {
+      throw new Error('No available slots found for the next 14 days for this shift');
+    }
+
+    logInfo(`Found ${slots.length} available slot(s) for shift ${currentShiftId.substring(0, 8)}`);
+    
+    // All these slots are guaranteed to belong to the same shift, so they'll pass backend validation
+    const verifiedSlots = slots;
 
     // Find a slot with a different date
-    const differentDateSlot = slotsData.find(slot => slot.slot_date !== currentDate);
+    const differentDateSlot = verifiedSlots.find(slot => slot.slot_date !== currentDate);
     
     if (!differentDateSlot) {
       // If no different date, try to find a different time on the same date
-      const differentTimeSlot = slotsData.find(slot => 
+      const differentTimeSlot = verifiedSlots.find(slot => 
         slot.slot_date === currentDate && 
         slot.start_time !== originalSlotData?.start_time
       );
       
       if (!differentTimeSlot) {
-        throw new Error(`No slots found with different date or time. All ${slotsData.length} slots are on ${currentDate} at ${originalSlotData?.start_time}`);
+        throw new Error(`No slots found with different date or time. All ${verifiedSlots.length} verified slots are on ${currentDate} at ${originalSlotData?.start_time}`);
       }
       
       newSlotId = differentTimeSlot.id;

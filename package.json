@@ -25,7 +25,8 @@
     "test:tenant-change-date": "node tests/test-tenant-provider-change-date.js",
     "test:invoice-diagnostic": "node tests/test-invoice-diagnostic.js",
     "test:zoho-token-refresh": "node tests/test-zoho-token-auto-refresh.js",
-    "test:booking-date-update": "node tests/test-booking-date-update-comprehensive.js"
+    "test:booking-date-update": "node tests/test-booking-date-update-comprehensive.js",
+    "test:booking-date-update-simple": "node tests/test-booking-date-update-simple.js"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
