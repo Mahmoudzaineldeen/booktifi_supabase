@@ -28,20 +28,50 @@ export function QRScanner({
   const [error, setError] = useState<string | null>(null);
   const [cameraPermission, setCameraPermission] = useState<'prompt' | 'granted' | 'denied'>('prompt');
   const [manualInput, setManualInput] = useState('');
+  const [isScannerInitialized, setIsScannerInitialized] = useState(false);
   const videoElementId = 'qr-scanner-video';
 
+  // Auto-start scanner when component mounts (with DOM check)
   useEffect(() => {
-    startScanning();
+    // Wait for DOM to be ready before starting
+    const timer = setTimeout(() => {
+      const element = document.getElementById(videoElementId);
+      if (element && !scannerRef.current) {
+        startScanning();
+      }
+    }, 100); // Small delay to ensure DOM is ready
+
     return () => {
+      clearTimeout(timer);
       stopScanning();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on mount - startScanning is stable
 
   const startScanning = async () => {
+    // Check if DOM element exists before starting
+    const element = document.getElementById(videoElementId);
+    if (!element) {
+      const errorMsg = 'Scanner element not found. Please try again.';
+      setError(errorMsg);
+      setIsScanning(false);
+      if (onScanError) {
+        onScanError(errorMsg);
+      }
+      return;
+    }
+
+    // Check if scanner is already running
+    if (scannerRef.current && isScanning) {
+      console.log('Scanner is already running');
+      return;
+    }
+
     try {
       setError(null);
       setIsScanning(true);
 
+      // Create new scanner instance
       const html5QrCode = new Html5Qrcode(videoElementId);
       scannerRef.current = html5QrCode;
 
@@ -81,8 +111,12 @@ export function QRScanner({
         );
 
         setCameraPermission('granted');
+        setIsScannerInitialized(true);
       } catch (err: any) {
         console.error('Camera access error:', err);
+        // Clean up scanner instance on error
+        scannerRef.current = null;
+        
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
           setCameraPermission('denied');
           setError(t('cashier.cameraPermissionDenied'));
@@ -98,6 +132,7 @@ export function QRScanner({
       }
     } catch (err: any) {
       console.error('QR scanner initialization error:', err);
+      scannerRef.current = null;
       setError(err.message || t('cashier.failedToInitializeQRScanner'));
       setIsScanning(false);
       if (onScanError) {
@@ -107,18 +142,30 @@ export function QRScanner({
   };
 
   const stopScanning = () => {
-    if (scannerRef.current) {
+    if (scannerRef.current && isScannerInitialized) {
       scannerRef.current
         .stop()
         .then(() => {
           scannerRef.current = null;
           setIsScanning(false);
+          setIsScannerInitialized(false);
         })
-        .catch((err) => {
-          console.error('Error stopping scanner:', err);
+        .catch((err: any) => {
+          // Ignore "scanner is not running" errors - it's already stopped
+          if (err.message && err.message.includes('not running')) {
+            console.log('Scanner already stopped');
+          } else {
+            console.error('Error stopping scanner:', err);
+          }
           scannerRef.current = null;
           setIsScanning(false);
+          setIsScannerInitialized(false);
         });
+    } else {
+      // Scanner was never initialized or already cleaned up
+      scannerRef.current = null;
+      setIsScanning(false);
+      setIsScannerInitialized(false);
     }
   };
 
