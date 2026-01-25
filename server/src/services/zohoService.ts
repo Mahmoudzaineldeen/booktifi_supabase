@@ -991,7 +991,7 @@ class ZohoService {
             name_ar,
             description,
             description_ar,
-            base_price,
+            base_price
           ),
           slots (
             start_time,
@@ -1280,7 +1280,7 @@ class ZohoService {
             name_ar,
             description,
             description_ar,
-            base_price,
+            base_price
           ),
           slots (
             start_time,

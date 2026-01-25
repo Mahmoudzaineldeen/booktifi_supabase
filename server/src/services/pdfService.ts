@@ -272,7 +272,7 @@ export async function generateBookingTicketPDF(
           services (
             name,
             name_ar,
-            base_price,
+            base_price
           ),
           tenants (
             name,
@@ -1251,7 +1251,7 @@ export async function generateBulkBookingTicketPDFBase64(
         services (
           name,
           name_ar,
-          base_price,
+          base_price
         ),
         slots (
           slot_date,
