@@ -1590,7 +1590,7 @@ router.post('/validate-qr', authenticate, async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // Check user role - TASK 5: Only cashiers can scan QR codes
+    // Check user role - Allow cashiers, receptionists, and tenant admins to scan QR codes
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('role, tenant_id')
@@ -1601,12 +1601,13 @@ router.post('/validate-qr', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // TASK 5: Strict role enforcement - Only cashiers can scan QR codes
-    if (userData.role !== 'cashier') {
+    // Allow cashiers, receptionists, and tenant admins to scan QR codes
+    const allowedRoles = ['cashier', 'receptionist', 'tenant_admin'];
+    if (!allowedRoles.includes(userData.role)) {
       return res.status(403).json({ 
-        error: 'Access denied. Only cashiers can scan QR codes.',
+        error: 'Access denied. Only cashiers, receptionists, and tenant admins can scan QR codes.',
         userRole: userData.role,
-        hint: 'Receptionists and tenant owners cannot scan QR codes. Please use a cashier account.'
+        hint: 'You must be logged in as a cashier, receptionist, or tenant admin to scan QR codes.'
       });
     }
 
@@ -2218,7 +2219,7 @@ router.patch('/:id', authenticateReceptionistOrTenantAdmin, async (req, res) => 
     }
 
     // TASK 8: Prepare update payload (only allow specific fields)
-    // TASK 5: Only tenant_admin can change slot_id (reschedule), receptionist cannot
+    // Receptionist and tenant_admin can edit all booking fields including rescheduling (slot_id)
     const allowedFields = [
       'customer_name',
       'customer_phone',
@@ -2230,12 +2231,8 @@ router.patch('/:id', authenticateReceptionistOrTenantAdmin, async (req, res) => 
       'status',
       'notes',
       'employee_id',
+      'slot_id', // Receptionists and tenant admins can reschedule bookings
     ];
-    
-    // TASK 2: Receptionist and tenant_admin can reschedule bookings (change slot_id)
-    if ((req.user!.role === 'tenant_admin' || req.user!.role === 'receptionist') && 'slot_id' in updateData) {
-      allowedFields.push('slot_id');
-    }
 
     const updatePayload: any = {
       updated_at: new Date().toISOString(),
@@ -2558,9 +2555,9 @@ router.patch('/:id', authenticateReceptionistOrTenantAdmin, async (req, res) => 
 });
 
 // ============================================================================
-// Edit Booking Time (Tenant Provider Only - Atomic Transaction)
+// Edit Booking Time (Receptionist and Tenant Provider - Atomic Transaction)
 // ============================================================================
-// CRITICAL: Only tenant_admin can edit booking time
+// Receptionists and tenant admins can edit booking time
 // This endpoint uses the atomic edit_booking_time function which:
 // 1. Validates new slot availability
 // 2. Releases old slot capacity
@@ -2569,7 +2566,7 @@ router.patch('/:id', authenticateReceptionistOrTenantAdmin, async (req, res) => 
 // 5. Updates booking with new slot
 // 6. All in one atomic transaction
 // ============================================================================
-router.patch('/:id/time', authenticateTenantAdminOnly, async (req, res) => {
+router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res) => {
   try {
     const bookingId = req.params.id;
     const userId = req.user!.id;
