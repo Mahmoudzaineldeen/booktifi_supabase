@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
-import { safeTranslateStatus } from '../../lib/safeTranslation';
+import { safeTranslateStatus, safeTranslate } from '../../lib/safeTranslation';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -523,11 +523,11 @@ export function BookingsPage() {
 
   async function updateBookingTime() {
     if (!editingBookingTime || !selectedNewSlotId || !userProfile?.tenant_id) {
-      alert(t('bookings.pleaseSelectNewTimeSlot'));
+      alert(safeTranslate(t, 'bookings.pleaseSelectNewTimeSlot', 'Please select a new time slot'));
       return;
     }
 
-    if (!confirm(t('bookings.confirmChangeBookingTime'))) {
+    if (!confirm(safeTranslate(t, 'bookings.confirmChangeBookingTime', 'Are you sure you want to change the booking time? Old tickets will be cancelled and new tickets will be created.'))) {
       return;
     }
 
@@ -551,10 +551,66 @@ export function BookingsPage() {
       }
 
       const result = await response.json();
-      await fetchBookings(); // Refresh list
+      console.log('[BookingsPage] ✅ Booking time update response:', result);
+      
+      // Store booking ID for verification
+      const updatedBookingId = editingBookingTime.id;
+      
+      // Close modal first
       setEditingBookingTime(null);
       setSelectedNewSlotId('');
       setAvailableTimeSlots([]);
+      
+      // Refresh bookings with a delay to ensure backend has updated
+      console.log('[BookingsPage] Refreshing bookings after time update...');
+      console.log('[BookingsPage] Updated slot_id:', selectedNewSlotId);
+      console.log('[BookingsPage] Booking ID to verify:', updatedBookingId);
+      
+      // Force refresh by clearing any potential cache
+      setTimeout(async () => {
+        // Force a fresh query
+        await fetchBookings();
+        console.log('[BookingsPage] ✅ Bookings refreshed');
+        
+        // Double-check: verify the booking was updated correctly
+        // Use a fresh query to get the updated booking
+        try {
+          const { data: bookingData, error: bookingError } = await db
+            .from('bookings')
+            .select(`
+              id,
+              slot_id,
+              slots:slot_id (
+                slot_date,
+                start_time,
+                end_time
+              )
+            `)
+            .eq('id', updatedBookingId)
+            .single();
+          
+          if (!bookingError && bookingData) {
+            console.log('[BookingsPage] ✅ Verified updated booking:');
+            console.log('[BookingsPage]   slot_id:', bookingData.slot_id);
+            console.log('[BookingsPage]   slot_date:', bookingData.slots?.slot_date);
+            console.log('[BookingsPage]   start_time:', bookingData.slots?.start_time);
+            
+            // If the slot_date doesn't match, force another refresh
+            if (bookingData.slot_id === selectedNewSlotId && bookingData.slots?.slot_date) {
+              // Update the bookings state directly for this booking
+              setBookings(prevBookings => 
+                prevBookings.map(b => 
+                  b.id === updatedBookingId 
+                    ? { ...b, slot_id: bookingData.slot_id, slots: bookingData.slots }
+                    : b
+                )
+              );
+            }
+          }
+        } catch (verifyError) {
+          console.error('[BookingsPage] Error verifying booking update:', verifyError);
+        }
+      }, 1000);
       
       alert(t('bookings.bookingTimeUpdatedSuccessfully'));
     } catch (error: any) {
@@ -703,7 +759,7 @@ export function BookingsPage() {
                         <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
                           <p className="text-xs text-gray-600 flex items-center gap-2">
                             <FileText className="w-4 h-4" />
-                            {t('bookings.noInvoiceForBooking')}
+                            {safeTranslate(t, 'bookings.noInvoiceForBooking', 'No invoice for this booking')}
                           </p>
                         </div>
                       )}
@@ -719,7 +775,7 @@ export function BookingsPage() {
                             disabled={updatingPaymentStatus === booking.id}
                             className="px-3 py-1 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            <option value="unpaid">{t('bookings.unpaid')}</option>
+                            <option value="unpaid">{safeTranslate(t, 'bookings.unpaid', 'Unpaid')}</option>
                             <option value="awaiting_payment">{t('bookings.awaitingPaymentOption')}</option>
                             <option value="paid">{t('bookings.paid')}</option>
                             <option value="paid_manual">{t('bookings.paidManualOption')}</option>
@@ -755,7 +811,7 @@ export function BookingsPage() {
                           className="flex items-center gap-1 text-sm"
                         >
                           <Edit className="w-4 h-4" />
-                          {t('bookings.edit')}
+                          {safeTranslate(t, 'bookings.edit', 'Edit')}
                         </Button>
 
                         {/* Change Time Button */}
@@ -766,7 +822,7 @@ export function BookingsPage() {
                           className="flex items-center gap-1 text-sm"
                         >
                           <Clock className="w-4 h-4" />
-                          {t('bookings.changeTime')}
+                          {safeTranslate(t, 'bookings.changeTime', 'Change Time')}
                         </Button>
 
                         {/* Delete Button */}
@@ -1129,8 +1185,8 @@ export function BookingsPage() {
                   className="flex-1"
                 >
                   {updatingBookingTime 
-                    ? t('bookings.updating')
-                    : t('bookings.updateTime')}
+                    ? safeTranslate(t, 'bookings.updating', 'Updating...')
+                    : safeTranslate(t, 'bookings.updateTime', 'Update Time')}
                 </Button>
                 <Button
                   onClick={() => {

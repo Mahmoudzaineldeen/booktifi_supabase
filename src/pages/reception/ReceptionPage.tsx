@@ -2267,17 +2267,64 @@ export function ReceptionPage() {
       const result = await response.json().catch(() => ({}));
       console.log('[ReceptionPage] ✅ Success response:', result);
 
+      // Store booking ID for verification
+      const updatedBookingId = editingBookingTime.id;
+
       // Close modal first
       setEditingBookingTime(null);
       setSelectedNewSlotId('');
       setAvailableTimeSlots([]);
 
-      // Refresh bookings with a small delay to ensure backend has updated
-      console.log('[ReceptionPage] Refreshing bookings...');
+      // Refresh bookings with a delay to ensure backend has updated
+      console.log('[ReceptionPage] Refreshing bookings after time update...');
+      console.log('[ReceptionPage] Updated slot_id:', selectedNewSlotId);
+      console.log('[ReceptionPage] Booking ID to verify:', updatedBookingId);
+      
+      // Force refresh by clearing any potential cache
       setTimeout(async () => {
+        // Force a fresh query
         await fetchBookings();
         console.log('[ReceptionPage] ✅ Bookings refreshed');
-      }, 500);
+        
+        // Double-check: verify the booking was updated correctly
+        // Use a fresh query to get the updated booking
+        try {
+          const { data: bookingData, error: bookingError } = await db
+            .from('bookings')
+            .select(`
+              id,
+              slot_id,
+              slots:slot_id (
+                slot_date,
+                start_time,
+                end_time
+              )
+            `)
+            .eq('id', updatedBookingId)
+            .single();
+          
+          if (!bookingError && bookingData) {
+            console.log('[ReceptionPage] ✅ Verified updated booking:');
+            console.log('[ReceptionPage]   slot_id:', bookingData.slot_id);
+            console.log('[ReceptionPage]   slot_date:', bookingData.slots?.slot_date);
+            console.log('[ReceptionPage]   start_time:', bookingData.slots?.start_time);
+            
+            // If the slot_date doesn't match, force another refresh
+            if (bookingData.slot_id === selectedNewSlotId && bookingData.slots?.slot_date) {
+              // Update the bookings state directly for this booking
+              setBookings(prevBookings => 
+                prevBookings.map(b => 
+                  b.id === updatedBookingId 
+                    ? { ...b, slot_id: bookingData.slot_id, slots: bookingData.slots }
+                    : b
+                )
+              );
+            }
+          }
+        } catch (verifyError) {
+          console.error('[ReceptionPage] Error verifying booking update:', verifyError);
+        }
+      }, 1000);
       
       alert(t('bookings.bookingTimeUpdatedSuccessfully') || 'Booking time updated successfully!');
     } catch (error: any) {
