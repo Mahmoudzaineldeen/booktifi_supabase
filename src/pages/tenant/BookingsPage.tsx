@@ -1,16 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { safeTranslateStatus, safeTranslate } from '../../lib/safeTranslation';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { fetchAvailableSlots, Slot } from '../../lib/bookingAvailability';
+import { Input } from '../../components/ui/Input';
 
 interface Booking {
   id: string;
@@ -56,6 +57,16 @@ export function BookingsPage() {
   const [deletingBooking, setDeletingBooking] = useState<string | null>(null);
   const [updatingPaymentStatus, setUpdatingPaymentStatus] = useState<string | null>(null);
   const [zohoSyncStatus, setZohoSyncStatus] = useState<Record<string, { success: boolean; error?: string }>>({});
+  
+  // Search state
+  const [searchType, setSearchType] = useState<SearchType>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchDate, setSearchDate] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<Booking[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [searchValidationError, setSearchValidationError] = useState<string>('');
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     fetchBookings();
@@ -124,7 +135,7 @@ export function BookingsPage() {
 
   function getBookingsForDate(date: Date) {
     const dateStr = format(date, 'yyyy-MM-dd');
-    return bookings.filter(booking => {
+    return displayBookings.filter(booking => {
       const bookingDate = booking.slots?.slot_date;
       return bookingDate === dateStr;
     });
@@ -797,6 +808,184 @@ export function BookingsPage() {
     }
   }
 
+  // Validate search input based on search type
+  function validateSearchInput(type: SearchType, value: string): { valid: boolean; error?: string } {
+    if (!type) {
+      return { valid: false, error: t('reception.selectSearchType') || 'Please select a search type first' };
+    }
+
+    if (!value || value.trim().length === 0) {
+      return { valid: false, error: t('reception.enterSearchValue') || 'Please enter a search value' };
+    }
+
+    switch (type) {
+      case 'phone':
+        const phoneDigits = value.replace(/\D/g, '');
+        if (phoneDigits.length < 5) {
+          return { valid: false, error: t('reception.phoneMinLength') || 'Phone number must be at least 5 digits' };
+        }
+        break;
+      case 'booking_id':
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(value.trim())) {
+          return { valid: false, error: t('reception.invalidBookingId') || 'Invalid booking ID format' };
+        }
+        break;
+      case 'customer_name':
+        if (value.trim().length < 2) {
+          return { valid: false, error: t('reception.nameMinLength') || 'Name must be at least 2 characters' };
+        }
+        break;
+      case 'service_name':
+        if (value.trim().length < 2) {
+          return { valid: false, error: t('reception.serviceMinLength') || 'Service name must be at least 2 characters' };
+        }
+        break;
+      case 'date':
+        if (!value) {
+          return { valid: false, error: t('reception.selectDate') || 'Please select a date' };
+        }
+        break;
+    }
+
+    return { valid: true };
+  }
+
+  // Search bookings function
+  async function searchBookings(type: SearchType, value: string) {
+    if (!userProfile?.tenant_id || !type || !value) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+
+    const validation = validateSearchInput(type, value);
+    if (!validation.valid) {
+      setSearchValidationError(validation.error || '');
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+
+    setSearchValidationError('');
+    setIsSearching(true);
+    try {
+      const API_URL = getApiUrl();
+      const session = await db.auth.getSession();
+      
+      const params = new URLSearchParams();
+      params.append(type, value.trim());
+      params.append('limit', '50');
+
+      const response = await fetch(`${API_URL}/bookings/search?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.data.session?.access_token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Search failed');
+      }
+
+      const result = await response.json();
+      
+      const transformedBookings = (result.bookings || []).map((b: any) => ({
+        id: b.id,
+        customer_name: b.customer_name,
+        customer_phone: b.customer_phone,
+        customer_email: b.customer_email,
+        visitor_count: b.visitor_count,
+        total_price: b.total_price,
+        status: b.status,
+        payment_status: b.payment_status,
+        created_at: b.created_at,
+        zoho_invoice_id: b.zoho_invoice_id,
+        zoho_invoice_created_at: b.zoho_invoice_created_at,
+        service_id: b.service_id,
+        slot_id: b.slot_id,
+        services: b.services || { name: '', name_ar: '' },
+        slots: b.slots || { slot_date: '', start_time: '', end_time: '' }
+      }));
+
+      setSearchResults(transformedBookings);
+      setShowSearchResults(true);
+    } catch (error: any) {
+      console.error('Search error:', error);
+      setSearchValidationError(error.message || t('reception.searchError') || 'Search failed');
+      setSearchResults([]);
+      setShowSearchResults(false);
+    } finally {
+      setIsSearching(false);
+    }
+  }
+
+  // Handle search type change
+  const handleSearchTypeChange = (type: SearchType) => {
+    setSearchType(type);
+    setSearchQuery('');
+    setSearchDate('');
+    setSearchResults([]);
+    setShowSearchResults(false);
+    setSearchValidationError('');
+  };
+
+  // Handle search input change
+  const handleSearchInputChange = (value: string) => {
+    if (searchType === 'phone') {
+      const digitsOnly = value.replace(/\D/g, '');
+      setSearchQuery(digitsOnly);
+    } else if (searchType === 'booking_id') {
+      setSearchQuery(value);
+    } else {
+      setSearchQuery(value);
+    }
+    setSearchValidationError('');
+  };
+
+  // Handle date change
+  const handleDateChange = (date: string) => {
+    setSearchDate(date);
+    setSearchValidationError('');
+    if (date && searchType === 'date') {
+      searchBookings('date', date);
+    } else if (!date) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+    }
+  };
+
+  // Debounced search handler for text inputs
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (searchType && searchType !== 'date' && searchType !== '' && searchQuery.trim().length > 0) {
+      const validation = validateSearchInput(searchType, searchQuery);
+      if (validation.valid) {
+        searchTimeoutRef.current = setTimeout(() => {
+          searchBookings(searchType, searchQuery);
+        }, 300);
+      }
+    } else if (searchType === '' || (searchType !== 'date' && searchQuery.trim().length === 0)) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      setSearchValidationError('');
+    }
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery, searchType]);
+
+  // Determine which bookings to display
+  const displayBookings = showSearchResults ? searchResults : bookings;
+
   if (loading) {
     return (
       <div className="p-4 md:p-8">
@@ -819,23 +1008,47 @@ export function BookingsPage() {
         </div>
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
           <button
-            onClick={() => setViewMode('list')}
+            onClick={() => {
+              setViewMode('list');
+              if (showSearchResults) {
+                setSearchQuery('');
+                setSearchDate('');
+                setSearchType('');
+                setShowSearchResults(false);
+                setSearchResults([]);
+                setSearchValidationError('');
+              }
+            }}
             className={`px-4 py-2 rounded-md font-medium transition-colors ${
               viewMode === 'list'
                 ? 'bg-white text-blue-600 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
+            disabled={showSearchResults && viewMode === 'list'}
           >
             <List className="w-4 h-4 inline-block mr-2" />
             List View
           </button>
           <button
-            onClick={() => setViewMode('calendar')}
+            onClick={() => {
+              if (showSearchResults) {
+                // Clear search when switching to calendar
+                setSearchQuery('');
+                setSearchDate('');
+                setSearchType('');
+                setShowSearchResults(false);
+                setSearchResults([]);
+                setSearchValidationError('');
+              }
+              setViewMode('calendar');
+            }}
             className={`px-4 py-2 rounded-md font-medium transition-colors ${
               viewMode === 'calendar'
                 ? 'bg-white text-blue-600 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
-            }`}
+            } ${showSearchResults ? 'opacity-50 cursor-not-allowed' : ''}`}
+            disabled={showSearchResults}
+            title={showSearchResults ? 'Clear search to use calendar view' : ''}
           >
             <Calendar className="w-4 h-4 inline-block mr-2" />
             Calendar View
@@ -843,21 +1056,138 @@ export function BookingsPage() {
         </div>
       </div>
 
+      {/* Search Bar with Type Selector - Only show in list view */}
+      {viewMode === 'list' && (
+      <div className="mb-6 space-y-3">
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Search Type Selector */}
+          <div className="w-full sm:w-64">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {t('reception.searchType') || 'Search By'}
+            </label>
+            <select
+              value={searchType}
+              onChange={(e) => handleSearchTypeChange(e.target.value as SearchType)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            >
+              <option value="">{t('reception.selectSearchType') || 'Select search type...'}</option>
+              <option value="phone">{t('reception.searchByPhone') || 'Customer Phone Number'}</option>
+              <option value="customer_name">{t('reception.searchByName') || 'Customer Name'}</option>
+              <option value="date">{t('reception.searchByDate') || 'Booking Date'}</option>
+              <option value="service_name">{t('reception.searchByService') || 'Service Name'}</option>
+              <option value="booking_id">{t('reception.searchByBookingId') || 'Booking ID'}</option>
+            </select>
+          </div>
+
+          {/* Search Input (conditional based on type) */}
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {searchType === 'date' 
+                ? (t('reception.selectDate') || 'Select Date')
+                : (t('reception.searchValue') || 'Search Value')}
+            </label>
+            {searchType === 'date' ? (
+              <Input
+                type="date"
+                value={searchDate}
+                onChange={(e) => handleDateChange(e.target.value)}
+                className={`w-full ${!searchType ? 'opacity-50 cursor-not-allowed' : ''}`}
+                disabled={!searchType || searchType !== 'date'}
+              />
+            ) : (
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => handleSearchInputChange(e.target.value)}
+                  placeholder={
+                    searchType === 'phone' 
+                      ? (t('reception.phonePlaceholder') || 'Enter phone number...')
+                      : searchType === 'booking_id'
+                      ? (t('reception.bookingIdPlaceholder') || 'Enter booking ID (UUID)...')
+                      : searchType === 'customer_name'
+                      ? (t('reception.namePlaceholder') || 'Enter customer name...')
+                      : searchType === 'service_name'
+                      ? (t('reception.servicePlaceholder') || 'Enter service name...')
+                      : (t('reception.selectSearchTypeFirst') || 'Select search type first...')
+                  }
+                  className={`pl-10 pr-10 ${!searchType ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={!searchType}
+                />
+                {(searchQuery || searchDate) && (
+                  <button
+                    onClick={() => {
+                      setSearchQuery('');
+                      setSearchDate('');
+                      setSearchType('');
+                      setShowSearchResults(false);
+                      setSearchResults([]);
+                      setSearchValidationError('');
+                    }}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    title={t('common.clear') || 'Clear'}
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Validation Error */}
+        {searchValidationError && (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">
+            {searchValidationError}
+          </div>
+        )}
+
+        {/* Search Status */}
+        {isSearching && (
+          <p className="text-sm text-gray-500">{t('common.loading')}...</p>
+        )}
+        {showSearchResults && !isSearching && searchType && (
+          <div className="flex items-center justify-between text-sm">
+            <p className="text-gray-600">
+              <span className="font-medium">{t('reception.searchingBy') || 'Searching by'}: </span>
+              <span>
+                {searchType === 'phone' && (t('reception.searchByPhone') || 'Phone Number')}
+                {searchType === 'customer_name' && (t('reception.searchByName') || 'Customer Name')}
+                {searchType === 'date' && (t('reception.searchByDate') || 'Booking Date')}
+                {searchType === 'service_name' && (t('reception.searchByService') || 'Service Name')}
+                {searchType === 'booking_id' && (t('reception.searchByBookingId') || 'Booking ID')}
+              </span>
+            </p>
+            <p className="text-gray-600">
+              {searchResults.length > 0 
+                ? `${searchResults.length} ${t('reception.searchResults') || 'results found'}`
+                : t('reception.noSearchResults') || 'No results found'}
+            </p>
+          </div>
+        )}
+      </div>
+      )}
+
       {viewMode === 'list' ? (
-        bookings.length === 0 ? (
+        displayBookings.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
               <div className="flex items-center justify-center gap-2 mb-2">
                 <Calendar className="w-5 h-5 text-gray-400" />
-                <h3 className="text-lg font-medium text-gray-900">{t('bookings.noBookingsYet')}</h3>
+                <h3 className="text-lg font-medium text-gray-900">
+                {showSearchResults 
+                  ? t('reception.noSearchResults') || 'No results found'
+                  : t('bookings.noBookingsYet')}
+              </h3>
               </div>
               <p className="text-gray-600">{t('bookings.bookingsWillAppear')}</p>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-4">
-            {bookings.map((booking) => (
+            {displayBookings.map((booking) => (
               <Card key={booking.id} className="hover:shadow-lg transition-shadow">
                 <CardContent className="py-4">
                   <div className="flex items-start justify-between gap-4">

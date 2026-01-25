@@ -2546,7 +2546,26 @@ export function ReceptionPage() {
         }
       }, 1500);
       
-      alert(t('bookings.bookingTimeUpdatedSuccessfully') || 'Booking time updated successfully!');
+      // Show a clear, informative success message
+      let successMessage = '';
+      
+      if (result.message) {
+        // Use the backend message which is already comprehensive
+        successMessage = result.message;
+      } else {
+        // Fallback to translation or default
+        successMessage = t('bookings.bookingTimeUpdatedSuccessfully') || 'Booking time updated successfully!';
+        
+        // Add details if available
+        if (result.tickets_invalidated) {
+          successMessage += '\n\n' + (t('bookings.oldTicketsInvalidated') || 'Old tickets have been invalidated.');
+        }
+        if (result.new_ticket_generated) {
+          successMessage += '\n' + (t('bookings.newTicketSent') || 'A new ticket has been sent to the customer.');
+        }
+      }
+      
+      alert(successMessage);
     } catch (error: any) {
       console.error('[ReceptionPage] ❌ Error updating booking time:', error);
       alert(t('bookings.failedToUpdateBookingTime', { message: error.message }) || `Error: ${error.message}`);
