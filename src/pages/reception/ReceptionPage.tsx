@@ -2142,42 +2142,50 @@ export function ReceptionPage() {
     setEditingBookingTime(booking);
     // Set initial date to current booking date
     // FIX: Parse date string directly to avoid timezone issues with parseISO
+    let initialDate: Date;
     if (booking.slots?.slot_date) {
       const [year, month, day] = booking.slots.slot_date.split('-').map(Number);
-      const parsedDate = new Date(year, month - 1, day);
-      setEditingTimeDate(parsedDate);
+      initialDate = new Date(year, month - 1, day);
+      setEditingTimeDate(initialDate);
       console.log('[ReceptionPage] Edit time click - date set:', {
         slotDate: booking.slots.slot_date,
-        parsedDate,
-        dayOfWeek: parsedDate.getDay(),
-        dayName: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][parsedDate.getDay()]
+        parsedDate: initialDate,
+        dayOfWeek: initialDate.getDay(),
+        dayName: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][initialDate.getDay()]
       });
     } else {
-      setEditingTimeDate(new Date());
+      initialDate = new Date();
+      setEditingTimeDate(initialDate);
     }
     setSelectedNewSlotId('');
-    await fetchTimeSlotsForEdit((booking as any).service_id, userProfile.tenant_id);
+    // Pass date directly to avoid race condition with state update
+    await fetchTimeSlotsForEdit((booking as any).service_id, userProfile.tenant_id, initialDate);
   }
 
   // Fetch time slots for editing (same as tenant provider)
-  async function fetchTimeSlotsForEdit(serviceId: string, tenantId: string) {
-    if (!editingTimeDate) return;
+  async function fetchTimeSlotsForEdit(serviceId: string, tenantId: string, date?: Date) {
+    // Use provided date or fall back to state
+    const targetDate = date || editingTimeDate;
+    if (!targetDate) {
+      console.warn('[ReceptionPage] No date provided for slot fetching');
+      return;
+    }
 
     setLoadingTimeSlots(true);
     try {
       console.log('[ReceptionPage] ========================================');
       console.log('[ReceptionPage] Fetching available slots for booking time edit...');
       console.log('   Service ID:', serviceId);
-      console.log('   Date object:', editingTimeDate);
-      console.log('   Date string:', format(editingTimeDate, 'yyyy-MM-dd'));
-      console.log('   Day of week:', editingTimeDate.getDay(), ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][editingTimeDate.getDay()]);
+      console.log('   Date object:', targetDate);
+      console.log('   Date string:', format(targetDate, 'yyyy-MM-dd'));
+      console.log('   Day of week:', targetDate.getDay(), ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][targetDate.getDay()]);
       console.log('   Tenant ID:', tenantId);
       console.log('[ReceptionPage] ========================================');
       
       const result = await fetchAvailableSlotsUtil({
         tenantId,
         serviceId,
-        date: editingTimeDate,
+        date: targetDate,
         includePastSlots: true,  // Allow rescheduling to any slot (past or future)
         includeLockedSlots: false, // Still exclude locked slots
         includeZeroCapacity: false, // Still exclude fully booked slots
@@ -2202,6 +2210,30 @@ export function ReceptionPage() {
         console.warn('   - All slots are fully booked');
         console.warn('   - Day of week does not match shift schedule');
         console.warn('   CHECK THE LOGS ABOVE FOR DETAILS');
+        
+        // If we have shifts but no slots, try fetching with includeZeroCapacity to see if slots exist but are fully booked
+        if (result.shifts.length > 0) {
+          console.log('[ReceptionPage] Trying to fetch slots with includeZeroCapacity=true to check if slots exist but are fully booked...');
+          try {
+            const resultWithZero = await fetchAvailableSlotsUtil({
+              tenantId,
+              serviceId,
+              date: targetDate,
+              includePastSlots: true,
+              includeLockedSlots: false,
+              includeZeroCapacity: true, // Include fully booked slots
+            });
+            
+            if (resultWithZero.slots.length > 0) {
+              console.warn(`[ReceptionPage] ⚠️  Found ${resultWithZero.slots.length} slots but all are fully booked (available_capacity = 0)`);
+              console.warn('[ReceptionPage]    These slots exist but cannot be selected because they have no available capacity');
+            } else {
+              console.warn('[ReceptionPage] ⚠️  No slots exist for this date at all');
+            }
+          } catch (diagError) {
+            console.error('[ReceptionPage] Error in diagnostic query:', diagError);
+          }
+        }
       }
 
       setAvailableTimeSlots(result.slots);
@@ -2219,7 +2251,8 @@ export function ReceptionPage() {
     setEditingTimeDate(newDate);
     setSelectedNewSlotId('');
     if (editingBookingTime && userProfile?.tenant_id) {
-      await fetchTimeSlotsForEdit((editingBookingTime as any).service_id, userProfile.tenant_id);
+      // Pass date directly to avoid race condition
+      await fetchTimeSlotsForEdit((editingBookingTime as any).service_id, userProfile.tenant_id, newDate);
     }
   }
 
@@ -5417,7 +5450,7 @@ export function ReceptionPage() {
                       const newDate = parseISO(e.target.value);
                       handleTimeDateChange(newDate);
                     }}
-                    min={format(new Date(), 'yyyy-MM-dd')}
+                    // Allow past dates for rescheduling (includePastSlots is true)
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </div>
