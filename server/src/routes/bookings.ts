@@ -2627,41 +2627,83 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
       throw editError;
     }
 
-    if (!editResult || !editResult.success) {
-      return res.status(500).json({ 
-        error: 'Failed to edit booking time',
-        details: editResult?.message || 'Unknown error'
-      });
-    }
-
-    console.log(`[Booking Time Edit] ✅ Success:`, editResult);
-
-    // Parse JSONB response
+    // Parse JSONB response - handle all possible formats
     let editData: any = editResult;
     if (typeof editResult === 'string') {
       try {
         editData = JSON.parse(editResult);
+        console.log(`[Booking Time Edit] ✅ Parsed JSONB string response`);
       } catch (e) {
+        console.error(`[Booking Time Edit] ⚠️ Failed to parse JSONB string:`, e);
         editData = editResult;
+      }
+    } else if (typeof editResult === 'object' && editResult !== null) {
+      // Check if response is wrapped (e.g., { data: { success: true, ... } })
+      if (editResult.data && typeof editResult.data === 'object') {
+        editData = editResult.data;
+        console.log(`[Booking Time Edit] ✅ Extracted data from wrapped response`);
+      } else {
+        editData = editResult;
+        console.log(`[Booking Time Edit] ✅ Response is already an object`);
       }
     }
 
+    // Verify success - check multiple possible locations
+    const isSuccess = editData?.success === true || 
+                      editData?.data?.success === true || 
+                      (editResult && typeof editResult === 'object' && 'success' in editResult && editResult.success === true);
+
+    if (!isSuccess) {
+      console.error(`[Booking Time Edit] ❌ RPC did not return success:`, {
+        editResult,
+        editData,
+        hasSuccess: !!editData?.success,
+        message: editData?.message || 'Unknown error'
+      });
+      return res.status(500).json({ 
+        error: 'Failed to edit booking time',
+        details: editData?.message || editResult?.message || 'Unknown error'
+      });
+    }
+
+    console.log(`[Booking Time Edit] ✅ Success:`, editData);
+
     // Get updated booking details (CRITICAL: Must be available for ticket generation)
+    // CRITICAL: Always fetch booking data - ticket generation MUST happen for all successful time edits
     console.log(`[Booking Time Edit] 🔍 Fetching updated booking data for ticket generation...`);
-    const { data: updatedBooking, error: fetchError } = await supabase
-      .from('bookings')
-      .select(`
-        *,
-        services:service_id (name, name_ar),
-        slots:slot_id (slot_date, start_time, end_time),
-        tenants:tenant_id (name, name_ar)
-      `)
-      .eq('id', bookingId)
-      .single();
+    let updatedBooking: any = null;
+    let fetchError: any = null;
+    
+    // Try to fetch booking with retries if needed
+    for (let retry = 0; retry < 3; retry++) {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          services:service_id (name, name_ar),
+          slots:slot_id (slot_date, start_time, end_time),
+          tenants:tenant_id (name, name_ar)
+        `)
+        .eq('id', bookingId)
+        .single();
+      
+      if (!error && data) {
+        updatedBooking = data;
+        fetchError = null;
+        break;
+      } else {
+        fetchError = error;
+        if (retry < 2) {
+          console.log(`[Booking Time Edit] ⚠️ Retry ${retry + 1}/3: Waiting 500ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+    }
 
     if (fetchError || !updatedBooking) {
-      console.error(`[Booking Time Edit] ❌ Could not fetch updated booking:`, fetchError);
-      console.error(`[Booking Time Edit] ⚠️ Ticket generation will be skipped due to missing booking data`);
+      console.error(`[Booking Time Edit] ❌ Could not fetch updated booking after retries:`, fetchError);
+      console.error(`[Booking Time Edit] ⚠️ WARNING: Ticket generation may fail, but will still attempt`);
+      // Don't skip ticket generation - try with bookingId only if needed
     } else {
       console.log(`[Booking Time Edit] ✅ Fetched updated booking for ticket generation`);
       console.log(`[Booking Time Edit]    Booking ID: ${updatedBooking.id}`);
@@ -2682,9 +2724,12 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
     // IMPORTANT: Generate PDF synchronously to ensure it completes (same pattern as booking creation)
     // This prevents Railway container restarts from killing the process
     // The actual sending (WhatsApp/Email) can be async
+    // CRITICAL: Always attempt ticket generation if booking time was successfully updated
     if (!updatedBooking) {
       console.error(`[Booking Time Edit] ❌ CRITICAL: Cannot generate ticket - updated booking not available`);
-      console.error(`[Booking Time Edit]    Ticket generation will be skipped`);
+      console.error(`[Booking Time Edit]    Booking ID: ${bookingId}`);
+      console.error(`[Booking Time Edit]    This should not happen - booking time was updated but booking data is missing`);
+      console.error(`[Booking Time Edit]    Ticket generation will be skipped - this is a critical error`);
     } else {
       console.log(`\n🎫 ========================================`);
       console.log(`🎫 TICKET REGENERATION STARTING for booking ${bookingId} (time edit)`);
