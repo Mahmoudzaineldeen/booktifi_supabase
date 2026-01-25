@@ -556,6 +556,39 @@ export function BookingsPage() {
       // Store booking ID for verification
       const updatedBookingId = editingBookingTime.id;
       
+      // Store the selected slot ID before clearing state
+      const newSlotIdToVerify = selectedNewSlotId;
+      
+      // If the backend returned the updated booking, use it directly
+      let backendBookingData: any = null;
+      if (result.booking && result.booking.slots) {
+        backendBookingData = {
+          slot_id: result.booking.slot_id,
+          slots: result.booking.slots
+        };
+        console.log('[BookingsPage] ✅ Got updated booking from backend response:');
+        console.log('[BookingsPage]   slot_id:', backendBookingData.slot_id);
+        console.log('[BookingsPage]   slot_date:', backendBookingData.slots?.slot_date);
+        console.log('[BookingsPage]   start_time:', backendBookingData.slots?.start_time);
+        
+        // Immediately update the state with backend data
+        setBookings(prevBookings => 
+          prevBookings.map(b => {
+            if (b.id === updatedBookingId) {
+              console.log('[BookingsPage] 🔄 Immediately updating booking state from backend response...');
+              console.log('[BookingsPage]     Old slot_date:', b.slots?.slot_date);
+              console.log('[BookingsPage]     New slot_date:', backendBookingData.slots?.slot_date);
+              return { 
+                ...b, 
+                slot_id: backendBookingData.slot_id, 
+                slots: backendBookingData.slots 
+              };
+            }
+            return b;
+          })
+        );
+      }
+      
       // Close modal first
       setEditingBookingTime(null);
       setSelectedNewSlotId('');
@@ -563,54 +596,87 @@ export function BookingsPage() {
       
       // Refresh bookings with a delay to ensure backend has updated
       console.log('[BookingsPage] Refreshing bookings after time update...');
-      console.log('[BookingsPage] Updated slot_id:', selectedNewSlotId);
+      console.log('[BookingsPage] Updated slot_id:', newSlotIdToVerify);
       console.log('[BookingsPage] Booking ID to verify:', updatedBookingId);
       
       // Force refresh by clearing any potential cache
       setTimeout(async () => {
-        // Force a fresh query
+        // First, verify the booking was updated correctly with multiple attempts
+        let bookingData: any = null;
+        let attempts = 0;
+        const maxAttempts = 3;
+        
+        while (attempts < maxAttempts && !bookingData) {
+          attempts++;
+          console.log(`[BookingsPage] Verification attempt ${attempts}/${maxAttempts}...`);
+          
+          try {
+            const { data, error } = await db
+              .from('bookings')
+              .select(`
+                id,
+                slot_id,
+                slots:slot_id (
+                  slot_date,
+                  start_time,
+                  end_time
+                )
+              `)
+              .eq('id', updatedBookingId)
+              .single();
+            
+            if (!error && data && data.slot_id === newSlotIdToVerify) {
+              bookingData = data;
+              console.log('[BookingsPage] ✅ Verified updated booking:');
+              console.log('[BookingsPage]   slot_id:', bookingData.slot_id);
+              console.log('[BookingsPage]   slot_date:', bookingData.slots?.slot_date);
+              console.log('[BookingsPage]   start_time:', bookingData.slots?.start_time);
+              break;
+            } else if (error) {
+              console.warn(`[BookingsPage] Verification attempt ${attempts} failed:`, error);
+            } else if (data && data.slot_id !== newSlotIdToVerify) {
+              console.warn(`[BookingsPage] Verification attempt ${attempts}: slot_id mismatch. Expected: ${newSlotIdToVerify}, Got: ${data.slot_id}`);
+            }
+          } catch (verifyError) {
+            console.warn(`[BookingsPage] Verification attempt ${attempts} error:`, verifyError);
+          }
+          
+          // Wait before next attempt
+          if (attempts < maxAttempts && !bookingData) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+        
+        // Force a fresh query of all bookings
         await fetchBookings();
         console.log('[BookingsPage] ✅ Bookings refreshed');
         
-        // Double-check: verify the booking was updated correctly
-        // Use a fresh query to get the updated booking
-        try {
-          const { data: bookingData, error: bookingError } = await db
-            .from('bookings')
-            .select(`
-              id,
-              slot_id,
-              slots:slot_id (
-                slot_date,
-                start_time,
-                end_time
-              )
-            `)
-            .eq('id', updatedBookingId)
-            .single();
+        // If we got the updated booking data, force update the state (only if we didn't already update from backend response)
+        if (!backendBookingData && bookingData && bookingData.slots?.slot_date) {
+          console.log('[BookingsPage] 🔄 Force updating booking state with new slot data...');
+          setBookings(prevBookings => 
+            prevBookings.map(b => {
+              if (b.id === updatedBookingId) {
+                console.log('[BookingsPage]   Updating booking:', b.id);
+                console.log('[BookingsPage]     Old slot_date:', b.slots?.slot_date);
+                console.log('[BookingsPage]     New slot_date:', bookingData.slots?.slot_date);
+                return { 
+                  ...b, 
+                  slot_id: bookingData.slot_id, 
+                  slots: bookingData.slots 
+                };
+              }
+              return b;
+            })
+          );
           
-          if (!bookingError && bookingData) {
-            console.log('[BookingsPage] ✅ Verified updated booking:');
-            console.log('[BookingsPage]   slot_id:', bookingData.slot_id);
-            console.log('[BookingsPage]   slot_date:', bookingData.slots?.slot_date);
-            console.log('[BookingsPage]   start_time:', bookingData.slots?.start_time);
-            
-            // If the slot_date doesn't match, force another refresh
-            if (bookingData.slot_id === selectedNewSlotId && bookingData.slots?.slot_date) {
-              // Update the bookings state directly for this booking
-              setBookings(prevBookings => 
-                prevBookings.map(b => 
-                  b.id === updatedBookingId 
-                    ? { ...b, slot_id: bookingData.slot_id, slots: bookingData.slots }
-                    : b
-                )
-              );
-            }
-          }
-        } catch (verifyError) {
-          console.error('[BookingsPage] Error verifying booking update:', verifyError);
+          console.log('[BookingsPage] ✅ State updated with new slot data');
+        } else if (backendBookingData) {
+          console.log('[BookingsPage] ✅ State already updated from backend response, skipping verification update');
+        } else {
+          console.warn('[BookingsPage] ⚠️  Could not verify booking update after multiple attempts');
         }
-      }, 1000);
+      }, 1500);
       
       alert(t('bookings.bookingTimeUpdatedSuccessfully'));
     } catch (error: any) {
