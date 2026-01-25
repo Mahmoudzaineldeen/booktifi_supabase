@@ -11,19 +11,18 @@
  * - Local development: Uses Railway backend (default) or VITE_API_URL
  */
 export function getApiUrl(): string {
-  // VITE_API_URL is REQUIRED - no fallbacks to hardcoded URLs
-  const apiUrl = import.meta.env.VITE_API_URL;
+  // Try VITE_API_URL first
+  let apiUrl = import.meta.env.VITE_API_URL;
   
+  // Fallback to Railway backend if VITE_API_URL is not set
   if (!apiUrl) {
-    const error = '[getApiUrl] ❌ CRITICAL: VITE_API_URL environment variable is not set!';
-    console.error(error);
-    console.error('[getApiUrl] Please set VITE_API_URL in your environment variables.');
-    console.error('[getApiUrl] For local development: VITE_API_URL=http://localhost:3001/api');
-    console.error('[getApiUrl] For production: VITE_API_URL=https://your-backend-url.com/api');
-    throw new Error('VITE_API_URL environment variable is required. Please configure it in your environment.');
+    const railwayUrl = 'https://booktifisupabase-production.up.railway.app/api';
+    console.warn('[getApiUrl] ⚠️  VITE_API_URL not set, using Railway backend fallback:', railwayUrl);
+    console.warn('[getApiUrl] To avoid this warning, set VITE_API_URL in your environment variables.');
+    apiUrl = railwayUrl;
   }
   
-  console.log('[getApiUrl] Using VITE_API_URL:', apiUrl);
+  console.log('[getApiUrl] Using API URL:', apiUrl);
   return apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`;
 }
 

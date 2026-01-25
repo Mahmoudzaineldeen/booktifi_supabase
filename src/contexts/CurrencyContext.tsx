@@ -45,7 +45,8 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
 
     try {
       // Use API endpoint instead of direct database query for better error handling
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const { getApiUrl } = await import('../lib/apiUrl');
+      const API_URL = getApiUrl();
       const session = await db.auth.getSession();
       const token = session.data.session?.access_token;
 

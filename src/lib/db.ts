@@ -5,7 +5,15 @@
 import { getApiUrl } from './apiUrl';
 import { getRequestTimeout } from './requestTimeout';
 
-const API_URL = getApiUrl();
+// Get API URL with error handling
+let API_URL: string;
+try {
+  API_URL = getApiUrl();
+} catch (error: any) {
+  // Fallback to Railway if getApiUrl fails
+  console.warn('[db] Failed to get API URL, using Railway fallback:', error.message);
+  API_URL = 'https://booktifisupabase-production.up.railway.app/api';
+}
 
 class DatabaseClient {
   private baseUrl: string;

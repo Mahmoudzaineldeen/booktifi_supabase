@@ -5,7 +5,16 @@
 
 import { getApiBaseUrl } from './apiUrl';
 
-const API_BASE_URL = getApiBaseUrl();
+// Get API base URL with error handling
+let API_BASE_URL: string;
+try {
+  API_BASE_URL = getApiBaseUrl();
+} catch (error: any) {
+  // Fallback to Railway if getApiBaseUrl fails
+  console.warn('[serverHealth] Failed to get API base URL, using Railway fallback:', error.message);
+  API_BASE_URL = 'https://booktifisupabase-production.up.railway.app';
+}
+
 const HEALTH_CHECK_INTERVAL = 30000; // Check every 30 seconds
 const HEALTH_CHECK_TIMEOUT = 15000; // 15 second timeout (allows for Railway cold starts)
 
