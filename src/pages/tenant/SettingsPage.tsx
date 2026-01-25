@@ -29,13 +29,22 @@ export function SettingsPage() {
     confirmPassword: '',
   });
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [formData, setFormData] = useState({
+  // Initialize formData with undefined for tickets_enabled to prevent false default
+  // This ensures we wait for actual tenant data before setting the checkbox state
+  const [formData, setFormData] = useState<{
+    name: string;
+    name_ar: string;
+    contact_email: string;
+    tenant_time_zone: string;
+    maintenance_mode: boolean;
+    tickets_enabled: boolean | undefined; // undefined until tenant data loads
+  }>({
     name: '',
     name_ar: '',
     contact_email: '',
     tenant_time_zone: 'Asia/Riyadh',
     maintenance_mode: false,
-    tickets_enabled: true,
+    tickets_enabled: undefined, // undefined = not loaded yet, prevents false default
   });
   const [smtpSettings, setSmtpSettings] = useState({
     smtp_host: 'smtp.gmail.com',
@@ -134,13 +143,20 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (tenant) {
+      // CRITICAL: Only set tickets_enabled from tenant data, no default fallback
+      // If tickets_enabled is undefined, it means the field doesn't exist (migration not run)
+      // In that case, default to true for backward compatibility, but only if undefined
+      const ticketsEnabled = tenant.tickets_enabled !== undefined 
+        ? tenant.tickets_enabled 
+        : true; // Default to true only if field doesn't exist (backward compatibility)
+      
       setFormData({
         name: tenant.name || '',
         name_ar: tenant.name_ar || '',
         contact_email: tenant.contact_email || '',
         tenant_time_zone: tenant.tenant_time_zone || 'Asia/Riyadh',
         maintenance_mode: tenant.maintenance_mode || false,
-        tickets_enabled: tenant.tickets_enabled !== undefined ? tenant.tickets_enabled : true,
+        tickets_enabled: ticketsEnabled,
       });
     }
   }, [tenant]);
@@ -1021,6 +1037,11 @@ export function SettingsPage() {
 
     setLoading(true);
     try {
+      // CRITICAL: Ensure tickets_enabled is a boolean, not undefined
+      const ticketsEnabledValue = formData.tickets_enabled !== undefined 
+        ? formData.tickets_enabled 
+        : true; // Default to true if somehow undefined (shouldn't happen)
+
       const { error } = await db
         .from('tenants')
         .update({
@@ -1029,11 +1050,29 @@ export function SettingsPage() {
           contact_email: formData.contact_email,
           tenant_time_zone: formData.tenant_time_zone,
           maintenance_mode: formData.maintenance_mode,
-          tickets_enabled: formData.tickets_enabled,
+          tickets_enabled: ticketsEnabledValue,
         })
         .eq('id', tenant.id);
 
       if (error) throw error;
+
+      // CRITICAL: Refresh tenant data from database to ensure UI is in sync
+      // This ensures the checkbox reflects the actual persisted value after save
+      const { data: refreshedTenant } = await db
+        .from('tenants')
+        .select('tickets_enabled')
+        .eq('id', tenant.id)
+        .single();
+      
+      if (refreshedTenant) {
+        // Update formData with the actual persisted value from database
+        setFormData(prev => ({
+          ...prev,
+          tickets_enabled: refreshedTenant.tickets_enabled !== undefined 
+            ? refreshedTenant.tickets_enabled 
+            : true // Fallback only if field doesn't exist (backward compatibility)
+        }));
+      }
 
       alert(t('settings.settingsSavedSuccessfully'));
     } catch (err) {
@@ -1198,13 +1237,18 @@ export function SettingsPage() {
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={formData.tickets_enabled}
+                  checked={formData.tickets_enabled === true} // Only checked if explicitly true
                   onChange={(e) => setFormData({ ...formData, tickets_enabled: e.target.checked })}
                   className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  disabled={formData.tickets_enabled === undefined} // Disable until loaded
                 />
                 <div>
                   <span className="text-sm font-medium text-gray-700">Enable Tickets</span>
-                  <p className="text-xs text-gray-500">When disabled, ticket generation and functionality will be completely inactive across the entire system</p>
+                  <p className="text-xs text-gray-500">
+                    {formData.tickets_enabled === undefined 
+                      ? 'Loading...' 
+                      : 'When disabled, ticket generation and functionality will be completely inactive across the entire system'}
+                  </p>
                 </div>
               </label>
             </CardContent>

@@ -29,6 +29,7 @@ export interface Tenant {
   theme_preset: string;
   logo_url?: string;
   custom_theme_config?: Record<string, any>;
+  tickets_enabled?: boolean;
   created_at: string;
   updated_at: string;
 }
