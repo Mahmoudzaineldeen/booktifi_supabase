@@ -28,7 +28,6 @@ interface Service {
   base_price: number;
   original_price?: number | null;
   discount_percentage?: number | null;
-  child_price?: number | null;
   capacity_per_slot: number;
   is_public: boolean;
   is_active: boolean;
@@ -51,7 +50,7 @@ interface Shift {
 export function ServicesPage() {
   const { t, i18n } = useTranslation();
   const { userProfile } = useAuth();
-  const { formatPrice } = useCurrency();
+  const { formatPrice, formatPriceString } = useCurrency();
   const [services, setServices] = useState<Service[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,8 +75,6 @@ export function ServicesPage() {
     description_ar: '',
     duration_minutes: 60,
     base_price: 0,
-    // adult_price is not stored - it's auto-calculated from base_price (discounted price)
-    child_price: null as number | null,
     original_price: null as number | null,
     discount_percentage: null as number | null,
     capacity_per_slot: 1,
@@ -185,25 +182,6 @@ export function ServicesPage() {
         return;
       }
 
-      // Validate child_price if provided (optional field)
-      // Only validate if child_price is set and > 0
-      if (serviceForm.child_price !== null && serviceForm.child_price !== undefined) {
-        if (serviceForm.child_price <= 0) {
-          alert(i18n.language === 'ar' 
-            ? 'سعر تذكرة الأطفال يجب أن يكون أكبر من 0' 
-            : 'Child ticket price must be greater than 0');
-          return;
-        }
-
-        // Validate child_price does not exceed adult price (base_price)
-        const finalAdultPrice = typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0));
-        if (serviceForm.child_price > finalAdultPrice) {
-          alert(i18n.language === 'ar'
-            ? `سعر تذكرة الأطفال (${formatPrice(serviceForm.child_price)}) لا يمكن أن يتجاوز سعر تذكرة الكبار (${formatPrice(finalAdultPrice)})`
-            : `Child ticket price (${formatPrice(serviceForm.child_price)}) cannot exceed Adult ticket price (${formatPrice(finalAdultPrice)})`);
-          return;
-        }
-      }
 
       if (!editingService) {
         // Check for duplicates when creating new service
@@ -303,9 +281,6 @@ export function ServicesPage() {
         service_duration_minutes: parseInt(String(serviceForm.service_duration_minutes || 60), 10),
         capacity_per_slot: validCapacity,
         base_price: parseFloat(String(serviceForm.base_price || 0)),
-        // Adult price is auto-calculated from base_price (discounted price), so we don't store it
-        // child_price is optional - if not set, child tickets will use adult price
-        child_price: serviceForm.child_price !== null && serviceForm.child_price !== undefined ? parseFloat(String(serviceForm.child_price)) : null,
         gallery_urls: galleryUrls.length > 0 ? galleryUrls : null,
         image_url: serviceForm.image_url || null,
         is_public: serviceForm.is_public,
@@ -758,8 +733,6 @@ export function ServicesPage() {
       description_ar: service.description_ar,
       duration_minutes: service.duration_minutes,
       base_price: service.base_price,
-      // adult_price is not stored - it's auto-calculated from base_price
-      child_price: serviceData.child_price || null,
       original_price: serviceData.original_price || null,
       discount_percentage: serviceData.discount_percentage || null,
       capacity_per_slot: service.capacity_per_slot,
@@ -796,8 +769,6 @@ export function ServicesPage() {
       description_ar: '',
       duration_minutes: 60,
       base_price: 0,
-      // adult_price is not stored - it's auto-calculated from base_price
-      child_price: null,
       original_price: null,
       discount_percentage: null,
       capacity_per_slot: 1,
@@ -1335,88 +1306,13 @@ export function ServicesPage() {
               required
               min="0"
               step="0.01"
+              helperText={(() => {
+                const basePrice = typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0));
+                return basePrice > 0 ? `Current price: ${formatPriceString(basePrice)}` : '';
+              })()}
             />
           </div>
 
-          {/* Adult/Child Ticket Pricing */}
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <h4 className="text-sm font-semibold text-gray-700 mb-3">Adult/Child Ticket Pricing</h4>
-            <p className="text-xs text-gray-600 mb-3">
-              Adult ticket price is automatically calculated from Base Price (or Discounted Price if discount is active). 
-              You must set a Child ticket price manually.
-            </p>
-            
-            {/* Display Adult Price (Read-only, Auto-calculated) */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Adult Ticket Price (Auto-calculated) *
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={(() => {
-                    // Calculate final adult price: use base_price (discounted) if discount exists, else base_price
-                    const finalAdultPrice = typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0));
-                    return formatPrice(finalAdultPrice);
-                  })()}
-                  readOnly
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
-                />
-                <div className="absolute right-3 top-2.5 text-xs text-gray-500">
-                  {(() => {
-                    const basePrice = typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0));
-                    const originalPrice = typeof serviceForm.original_price === 'number' ? serviceForm.original_price : (serviceForm.original_price ? parseFloat(String(serviceForm.original_price)) : null);
-                    return originalPrice && originalPrice > basePrice ? (
-                      <span className="text-green-600">Discounted</span>
-                    ) : (
-                      <span>Base Price</span>
-                    );
-                  })()}
-                </div>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                {(() => {
-                  const basePrice = typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0));
-                  const originalPrice = typeof serviceForm.original_price === 'number' ? serviceForm.original_price : (serviceForm.original_price ? parseFloat(String(serviceForm.original_price)) : null);
-                  if (originalPrice && originalPrice > basePrice) {
-                    return <>Original: {formatPrice(originalPrice)} → Discounted: {formatPrice(basePrice)}</>;
-                  }
-                  return <>Uses Base Price: {formatPrice(basePrice)}</>;
-                })()}
-              </p>
-            </div>
-
-            {/* Child Price (Optional) */}
-            <div>
-              <Input
-                type="number"
-                label="Child Ticket Price (Optional)"
-                value={serviceForm.child_price || ''}
-                onChange={(e) => {
-                  const childPrice = e.target.value ? parseFloat(e.target.value) : null;
-                  
-                  // Validation: Child price must be > 0 if provided
-                  if (childPrice !== null && childPrice <= 0) {
-                    alert('Child ticket price must be greater than 0');
-                    return;
-                  }
-                  
-                  // Validation: Child price cannot exceed Adult price
-                  const finalAdultPrice = typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0)); // This is the discounted/base price
-                  if (childPrice !== null && childPrice > finalAdultPrice) {
-                    alert(`Child ticket price cannot exceed Adult ticket price (${formatPrice(finalAdultPrice)})`);
-                    return;
-                  }
-                  
-                  setServiceForm({ ...serviceForm, child_price: childPrice });
-                }}
-                min="0.01"
-                step="0.01"
-                placeholder="e.g., 50 (optional)"
-                helperText={serviceForm.base_price ? `Optional. If set, must be between 0.01 and ${formatPrice(typeof serviceForm.base_price === 'number' ? serviceForm.base_price : parseFloat(String(serviceForm.base_price || 0)))} (Adult price). If not set, child tickets will use adult price.` : 'Optional. If not set, child tickets will use adult price.'}
-              />
-            </div>
-          </div>
 
           {/* Discount Options */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

@@ -65,10 +65,9 @@ interface Service {
   id: string;
   name: string;
   name_ar: string;
-  base_price: number; // This is the final adult price (discounted if discount exists)
+  base_price: number; // This is the final price (discounted if discount exists)
   original_price?: number | null;
   discount_percentage?: number | null;
-  child_price?: number | null; // Mandatory, set by service provider
   capacity_per_slot: number;
   offers?: ServiceOffer[]; // Service offers
 }
@@ -165,9 +164,7 @@ export function ReceptionPage() {
     customer_phone: '',
     customer_name: '',
     customer_email: '',
-    visitor_count: '' as number | '',
-    adult_count: 1,
-    child_count: 0,
+    visitor_count: 1,
     notes: '',
     booking_option: 'consecutive' as 'consecutive' | 'parallel'
   });
@@ -283,13 +280,6 @@ export function ReceptionPage() {
     }
   }, [selectedService, selectedDate]);
 
-  // Update visitor_count when adult_count or child_count changes
-  useEffect(() => {
-    const total = bookingForm.adult_count + bookingForm.child_count;
-    if (total > 0 && bookingForm.visitor_count !== total) {
-      setBookingForm(prev => ({ ...prev, visitor_count: total }));
-    }
-  }, [bookingForm.adult_count, bookingForm.child_count]);
 
   // Clear selected slots when key parameters change
   useEffect(() => {
@@ -452,7 +442,7 @@ export function ReceptionPage() {
       console.log('[ReceptionPage] fetchServices: Querying services table...');
       const servicesResult = await db
       .from('services')
-      .select('id, name, name_ar, base_price, original_price, discount_percentage, child_price, capacity_per_slot, capacity_mode')
+      .select('id, name, name_ar, base_price, original_price, discount_percentage, capacity_per_slot, capacity_mode')
       .eq('tenant_id', userProfile.tenant_id)
       .eq('is_active', true)
       .order('name');
@@ -547,7 +537,7 @@ export function ReceptionPage() {
       
       const { data: packageServicesData, error: packageServicesError } = await db
         .from('package_services')
-        .select('package_id, service_id, services(id, name, name_ar, base_price, child_price)')
+        .select('package_id, service_id, services(id, name, name_ar, base_price)')
         .in('package_id', packageIds);
       
       if (packageServicesError) {
@@ -768,8 +758,6 @@ export function ReceptionPage() {
         customer_phone: b.customer_phone,
         customer_email: b.customer_email,
         visitor_count: b.visitor_count,
-        adult_count: b.adult_count,
-        child_count: b.child_count,
         total_price: b.total_price,
         status: b.status,
         payment_status: b.payment_status,
@@ -1128,8 +1116,6 @@ export function ReceptionPage() {
     customer_phone: string;
     customer_email?: string | null;
     visitor_count: number;
-    adult_count: number;
-    child_count: number;
     total_price: number;
     notes?: string | null;
     employee_id?: string | null;
@@ -1299,16 +1285,15 @@ export function ReceptionPage() {
       // Book all tickets in the same slot - this is what the user wants
       await saveOrUpdateCustomer(fullPhoneNumber);
       
-      // Calculate prices
-      let adultPrice = service.base_price || 0;
+      // Calculate price
+      let price = service.base_price || 0;
       if (selectedOffer) {
         const offer = service.offers?.find(o => o.id === selectedOffer);
         if (offer) {
-          adultPrice = offer.price;
+          price = offer.price;
         }
       }
-      const childPrice = service.child_price || adultPrice;
-      const totalPrice = (adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count);
+      const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
       
       // Generate booking group ID
       const bookingGroupId = crypto.randomUUID();
@@ -1332,8 +1317,6 @@ export function ReceptionPage() {
             customer_phone: fullPhoneNumber,
             customer_email: bookingForm.customer_email || null,
             visitor_count: quantity,
-            adult_count: bookingForm.adult_count,
-            child_count: bookingForm.child_count,
             total_price: totalPrice,
             notes: bookingForm.notes || null,
             status: 'confirmed',
@@ -1440,16 +1423,15 @@ export function ReceptionPage() {
     // Generate a group ID for all bookings in this transaction
     const bookingGroupId = crypto.randomUUID();
 
-    // Calculate prices
-      let adultPrice = service.base_price || 0;
+    // Calculate price
+      let price = service.base_price || 0;
       if (selectedOffer) {
         const offer = service.offers?.find(o => o.id === selectedOffer);
         if (offer) {
-          adultPrice = offer.price;
+          price = offer.price;
         }
       }
-      const childPrice = service.child_price || adultPrice;
-    const totalPrice = (adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count);
+    const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
 
     // Determine which slots to use
     let slotsToUse: Slot[];
@@ -1476,8 +1458,6 @@ export function ReceptionPage() {
           customer_phone: fullPhoneNumber,
           customer_email: bookingForm.customer_email || null,
         visitor_count: quantity,
-        adult_count: bookingForm.adult_count,
-        child_count: bookingForm.child_count,
         total_price: totalPrice,
           notes: bookingForm.notes || null,
         employee_id: slotsToUse[0]?.employee_id || null, // Use first slot's employee
@@ -1509,15 +1489,14 @@ export function ReceptionPage() {
     const bookingGroupId = crypto.randomUUID();
 
     // Calculate prices
-    let adultPrice = service.base_price || 0;
-    if (selectedOffer) {
-      const offer = service.offers?.find(o => o.id === selectedOffer);
-      if (offer) {
-        adultPrice = offer.price;
+      let price = service.base_price || 0;
+      if (selectedOffer) {
+        const offer = service.offers?.find(o => o.id === selectedOffer);
+        if (offer) {
+          price = offer.price;
+        }
       }
-    }
-    const childPrice = service.child_price || adultPrice;
-    const totalPrice = (adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count);
+    const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
 
     // Get slots from selected slots
     const slotsToUse = selectedSlots.map(s => slots.find(slot => slot.id === s.slot_id)).filter(Boolean) as Slot[];
@@ -1537,8 +1516,6 @@ export function ReceptionPage() {
         customer_phone: fullPhoneNumber,
         customer_email: bookingForm.customer_email || null,
         visitor_count: quantity,
-        adult_count: bookingForm.adult_count,
-        child_count: bookingForm.child_count,
         total_price: totalPrice,
         notes: bookingForm.notes || null,
         employee_id: employeeId,
@@ -1628,26 +1605,22 @@ export function ReceptionPage() {
           // Calculate price for this booking
           const serviceForBooking = services.find(s => s.id === item.service.id);
           // If an offer is selected, use offer price; otherwise use base_price
-          let adultPriceForBooking = serviceForBooking?.base_price || 0;
+          let priceForBooking = serviceForBooking?.base_price || 0;
           if (selectedOffer) {
             const offer = serviceForBooking?.offers?.find(o => o.id === selectedOffer);
             if (offer) {
-              adultPriceForBooking = offer.price;
+              priceForBooking = offer.price;
             }
           }
-          // Child price is mandatory and set by service provider (offers don't affect child price)
-          const childPriceForBooking = serviceForBooking?.child_price || adultPriceForBooking;
           
           // Check if this is a multi-ticket booking in a single slot
           const isMultiTicketInSingleSlot = item.service.id === selectedService && 
                                            bookingForm.visitor_count > 1 && 
                                            item.slot.available_capacity >= bookingForm.visitor_count;
           
-          // Use actual ticket counts if multi-ticket in single slot, otherwise use 1 adult
-          const bookingAdultCount = isMultiTicketInSingleSlot ? bookingForm.adult_count : 1;
-          const bookingChildCount = isMultiTicketInSingleSlot ? bookingForm.child_count : 0;
-          const bookingVisitorCount = isMultiTicketInSingleSlot ? bookingForm.visitor_count : 1;
-          const bookingPrice = usePackage ? 0 : ((adultPriceForBooking * bookingAdultCount) + (childPriceForBooking * bookingChildCount));
+          // Use actual ticket count if multi-ticket in single slot, otherwise use 1
+          const bookingVisitorCount = isMultiTicketInSingleSlot ? (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1) : 1;
+          const bookingPrice = usePackage ? 0 : (priceForBooking * bookingVisitorCount);
 
           // Insert booking via API
           try {
@@ -1661,8 +1634,6 @@ export function ReceptionPage() {
               customer_phone: fullPhoneNumber,
               customer_email: bookingForm.customer_email || null,
               visitor_count: bookingVisitorCount,
-              adult_count: bookingAdultCount,
-              child_count: bookingChildCount,
               total_price: bookingPrice,
               notes: bookingForm.notes || null,
               status: 'confirmed',
@@ -1993,16 +1964,14 @@ export function ReceptionPage() {
 
       // Calculate total price based on adult/child pricing
       // If an offer is selected, use offer price; otherwise use base_price
-      let adultPrice = service.base_price || 0;
+      let price = service.base_price || 0;
       if (selectedOffer) {
         const offer = service.offers?.find(o => o.id === selectedOffer);
         if (offer) {
-          adultPrice = offer.price;
+          price = offer.price;
         }
       }
-      // Child price is mandatory and set by service provider (offers don't affect child price)
-      const childPrice = service.child_price || adultPrice; // Fallback to adult price if child_price not set
-      const totalPrice = (adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count);
+      const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
 
       try {
         await createBookingViaAPI({
@@ -2014,9 +1983,7 @@ export function ReceptionPage() {
           customer_name: bookingForm.customer_name,
           customer_phone: fullPhoneNumber,
           customer_email: bookingForm.customer_email || null,
-          visitor_count: bookingForm.visitor_count,
-          adult_count: bookingForm.adult_count,
-          child_count: bookingForm.child_count,
+          visitor_count: typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1,
           total_price: totalPrice,
           notes: bookingForm.notes || null,
           status: 'confirmed',
@@ -2940,9 +2907,7 @@ export function ReceptionPage() {
       customer_phone: '',
       customer_name: '',
       customer_email: '',
-      visitor_count: '',
-      adult_count: 1,
-      child_count: 0,
+      visitor_count: 1,
       notes: '',
       booking_option: 'consecutive'
     });
@@ -3866,12 +3831,6 @@ export function ReceptionPage() {
                           </div>
                           <div className="text-sm text-gray-600">
                             {(() => {
-                              const service = services.find(s => s.id === selectedService);
-                              // Check if child_price is set (which means adult/child pricing is enabled)
-                              const hasAdultChildPricing = service?.child_price !== null && service?.child_price !== undefined;
-                              if (hasAdultChildPricing) {
-                                return `${bookingForm.adult_count} adult${bookingForm.adult_count !== 1 ? 's' : ''}${bookingForm.child_count > 0 ? `, ${bookingForm.child_count} child${bookingForm.child_count !== 1 ? 'ren' : ''}` : ''}`;
-                              }
                               return `Quantity: ${bookingForm.visitor_count}`;
                             })()}
                           </div>
@@ -3887,11 +3846,9 @@ export function ReceptionPage() {
                           ) : (
                             <span className="font-bold text-gray-900">
                               {(() => {
-                                // Adult price is always base_price (discounted if discount exists)
-                                const adultPrice = service.base_price || 0;
-                                // Child price is mandatory and set by service provider
-                                const childPrice = service.child_price || adultPrice;
-                                return (adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count);
+                                const price = service.base_price || 0;
+                                const visitorCount = typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1;
+                                return formatPrice(price * visitorCount);
                               })()}
                             </span>
                           )}
@@ -3973,9 +3930,9 @@ export function ReceptionPage() {
                       if (packageCheck.available && packageCheck.remaining >= (bookingForm.visitor_count as number)) {
                         return `Package Service (${formatPrice(0)})`;
                       }
-                      const adultPrice = service.adult_price || service.base_price || 0;
-                      const childPrice = service.child_price || adultPrice;
-                      return formatPrice((adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count));
+                      const price = service.base_price || 0;
+                      const visitorCount = typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1;
+                      return formatPrice(price * visitorCount);
                     })()}
                   </span>
                 </div>
@@ -4175,185 +4132,41 @@ export function ReceptionPage() {
             return null;
           })()}
 
-          {/* 5. Ticket Type and Quantity */}
-          {selectedService && (() => {
-            const service = services.find(s => s.id === selectedService);
-            // Check if child_price is set (which means adult/child pricing is enabled)
-            const hasAdultChildPricing = service?.child_price !== null && service?.child_price !== undefined;
-            
-            return (
-              <div className="space-y-4">
-                {hasAdultChildPricing ? (
-                  <>
-                    {/* Adult/Child Ticket Selection */}
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <h4 className="text-sm font-semibold text-gray-700 mb-3">Ticket Type & Quantity</h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Adult Tickets *
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (bookingForm.adult_count > 0) {
-                                  const newAdultCount = bookingForm.adult_count - 1;
-                                  const newVisitorCount = newAdultCount + bookingForm.child_count;
-                                  setBookingForm({ 
-                                    ...bookingForm, 
-                                    adult_count: newAdultCount,
-                                    visitor_count: newVisitorCount || ''
-                                  });
-                                }
-                              }}
-                              className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                              disabled={bookingForm.adult_count <= 0}
-                            >
-                              -
-                            </button>
-                            <Input
-                              type="number"
-                              min="0"
-                              value={bookingForm.adult_count}
-                              onChange={(e) => {
-                                const adultCount = parseInt(e.target.value) || 0;
-                                const newVisitorCount = adultCount + bookingForm.child_count;
-                                setBookingForm({ 
-                                  ...bookingForm, 
-                                  adult_count: adultCount,
-                                  visitor_count: newVisitorCount || ''
-                                });
-                              }}
-                              className="text-center"
-                              required
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newAdultCount = bookingForm.adult_count + 1;
-                                const newVisitorCount = newAdultCount + bookingForm.child_count;
-                                setBookingForm({ 
-                                  ...bookingForm, 
-                                  adult_count: newAdultCount,
-                                  visitor_count: newVisitorCount || ''
-                                });
-                              }}
-                              className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                            >
-                              +
-                            </button>
-                          </div>
-                          <p className="text-xs text-gray-600 mt-1">
-                            {formatPrice(service?.base_price || 0)} per ticket
-                            {service?.original_price && service?.original_price > service?.base_price && (
-                              <span className="text-green-600 ml-1">(Discounted)</span>
-                            )}
-                          </p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Child Tickets
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (bookingForm.child_count > 0) {
-                                  const newChildCount = bookingForm.child_count - 1;
-                                  const newVisitorCount = bookingForm.adult_count + newChildCount;
-                                  setBookingForm({ 
-                                    ...bookingForm, 
-                                    child_count: newChildCount,
-                                    visitor_count: newVisitorCount || ''
-                                  });
-                                }
-                              }}
-                              className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                              disabled={bookingForm.child_count <= 0}
-                            >
-                              -
-                            </button>
-                            <Input
-                              type="number"
-                              min="0"
-                              value={bookingForm.child_count}
-                              onChange={(e) => {
-                                const childCount = parseInt(e.target.value) || 0;
-                                const newVisitorCount = bookingForm.adult_count + childCount;
-                                setBookingForm({ 
-                                  ...bookingForm, 
-                                  child_count: childCount,
-                                  visitor_count: newVisitorCount || ''
-                                });
-                              }}
-                              className="text-center"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newChildCount = bookingForm.child_count + 1;
-                                const newVisitorCount = bookingForm.adult_count + newChildCount;
-                                setBookingForm({ 
-                                  ...bookingForm, 
-                                  child_count: newChildCount,
-                                  visitor_count: newVisitorCount || ''
-                                });
-                              }}
-                              className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                            >
-                              +
-                            </button>
-                          </div>
-                          <p className="text-xs text-gray-600 mt-1">
-                            {formatPrice(service?.child_price || service?.base_price || 0)} per ticket
-                          </p>
-                        </div>
-                      </div>
-                      <div className="mt-3 pt-3 border-t border-blue-200">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium text-gray-700">Total Visitors:</span>
-                          <span className="text-lg font-bold text-blue-600">
-                            {bookingForm.adult_count + bookingForm.child_count}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center mt-1">
-                          <span className="text-sm font-medium text-gray-700">Total Price:</span>
-                          <span className="text-lg font-bold text-gray-900">
-                            {(() => {
-                              // Adult price is always base_price (discounted if discount exists)
-                              const adultPrice = service?.base_price || 0;
-                              // Child price is mandatory and set by service provider
-                              const childPrice = service?.child_price || adultPrice;
-                              return (adultPrice * bookingForm.adult_count) + (childPrice * bookingForm.child_count);
-                            })()}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <Input
-                    label={`${t('booking.visitorCount')} *`}
-                    type="number"
-                    min="1"
-                    value={bookingForm.visitor_count}
-                    onChange={(e) => {
-                      const visitorCount = e.target.value ? parseInt(e.target.value) : '';
-                      setBookingForm({ 
-                        ...bookingForm, 
-                        visitor_count: visitorCount,
-                        adult_count: typeof visitorCount === 'number' ? visitorCount : 1,
-                        child_count: 0
-                      });
-                    }}
-                    required
-                    placeholder="Enter quantity"
-                  />
-                )}
-              </div>
-            );
-          })()}
+          {/* 5. Visitor Count */}
+          {selectedService && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('booking.visitorCount')} *
+              </label>
+              <Input
+                type="number"
+                min="1"
+                value={bookingForm.visitor_count}
+                onChange={(e) => {
+                  const visitorCount = parseInt(e.target.value) || 1;
+                  setBookingForm({ 
+                    ...bookingForm, 
+                    visitor_count: visitorCount
+                  });
+                }}
+                required
+                placeholder="Enter number of tickets"
+              />
+              <p className="text-xs text-gray-600 mt-1">
+                {(() => {
+                  const service = services.find(s => s.id === selectedService);
+                  return `${formatPrice(service?.base_price || 0)} per ticket`;
+                })()}
+                {(() => {
+                  const service = services.find(s => s.id === selectedService);
+                  if (service?.original_price && service?.original_price > service?.base_price) {
+                    return <span className="text-green-600 ml-1">(Discounted)</span>;
+                  }
+                  return null;
+                })()}
+              </p>
+            </div>
+          )}
 
           {/* 6. Notes */}
           {selectedService && bookingForm.visitor_count && (

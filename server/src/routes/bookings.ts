@@ -159,20 +159,21 @@ function authenticateTenantAdminOnly(req: express.Request, res: express.Response
       });
     }
     
-    // STRICT: Only tenant_admin (Service Provider) can manage payment status and delete bookings
-    if (decoded.role !== 'tenant_admin') {
-      console.error('[Auth] Access denied for booking time edit:', {
+    // STRICT: Only tenant_admin, customer_admin, and admin_user can manage payment status and delete bookings
+    const allowedRoles = ['tenant_admin', 'customer_admin', 'admin_user'];
+    if (!allowedRoles.includes(decoded.role)) {
+      console.error('[Auth] Access denied for booking management:', {
         userId: decoded.id,
         email: decoded.email,
         actualRole: decoded.role,
-        requiredRole: 'tenant_admin',
+        requiredRoles: allowedRoles,
         tenantId: decoded.tenant_id
       });
       return res.status(403).json({ 
-        error: 'Access denied. Only Service Providers (tenant admins) can perform this action.',
+        error: 'Access denied. Only authorized admin roles can perform this action.',
         userRole: decoded.role,
-        requiredRole: 'tenant_admin',
-        hint: 'You must be logged in as a Service Provider (tenant_admin role) to edit booking times. Current role: ' + decoded.role
+        requiredRoles: allowedRoles,
+        hint: 'You must be logged in as an authorized admin role to perform this action. Current role: ' + decoded.role
       });
     }
 
@@ -299,12 +300,13 @@ function authenticateReceptionistOrTenantAdmin(req: express.Request, res: expres
       });
     }
     
-    // TASK 5: Allow receptionist OR tenant_admin (but not cashier)
-    if (decoded.role !== 'receptionist' && decoded.role !== 'tenant_admin') {
+    // TASK 5: Allow receptionist, tenant_admin, customer_admin, or admin_user (but not cashier)
+    const allowedRoles = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user'];
+    if (!allowedRoles.includes(decoded.role)) {
       return res.status(403).json({ 
-        error: 'Access denied. Only receptionists and tenant owners can create/edit bookings.',
+        error: 'Access denied. Only authorized roles can create/edit bookings.',
         userRole: decoded.role,
-        hint: 'Cashiers cannot create or edit bookings. Please use a receptionist or tenant owner account.'
+        hint: 'Cashiers cannot create or edit bookings. Please use an authorized account.'
       });
     }
 
@@ -572,8 +574,6 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       customer_phone,
       customer_email,
       visitor_count = 1,
-      adult_count,
-      child_count,
       total_price,
       notes,
       employee_id,
@@ -597,15 +597,10 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       return res.status(400).json({ error: 'Invalid phone number format' });
     }
 
-    // Calculate adult_count and child_count if not provided (backward compatibility)
-    const finalAdultCount = adult_count !== undefined ? adult_count : visitor_count;
-    const finalChildCount = child_count !== undefined ? child_count : 0;
-
-    // Ensure visitor_count matches adult_count + child_count
-    const calculatedVisitorCount = finalAdultCount + finalChildCount;
-    if (calculatedVisitorCount !== visitor_count) {
+    // Validate visitor_count
+    if (visitor_count < 1) {
       return res.status(400).json({
-        error: `visitor_count (${visitor_count}) must equal adult_count (${finalAdultCount}) + child_count (${finalChildCount})`
+        error: 'visitor_count must be at least 1'
       });
     }
 
@@ -620,8 +615,6 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
         p_customer_phone: normalizedPhone,
         p_customer_email: customer_email || null,
         p_visitor_count: visitor_count,
-        p_adult_count: finalAdultCount,
-        p_child_count: finalChildCount,
         p_total_price: total_price,
         p_notes: notes || null,
         p_employee_id: employee_id || null,
@@ -1276,8 +1269,6 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       customer_phone,
       customer_email,
       visitor_count, // Total visitors across all slots
-      adult_count,
-      child_count,
       total_price, // Total price for all bookings
       notes,
       employee_id,
@@ -1305,15 +1296,10 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       return res.status(400).json({ error: 'Invalid phone number format' });
     }
 
-    // Calculate adult_count and child_count if not provided
-    const finalAdultCount = adult_count !== undefined ? adult_count : visitor_count;
-    const finalChildCount = child_count !== undefined ? child_count : 0;
-
-    // Ensure visitor_count matches adult_count + child_count
-    const calculatedVisitorCount = finalAdultCount + finalChildCount;
-    if (calculatedVisitorCount !== visitor_count) {
+    // Validate visitor_count
+    if (visitor_count < 1) {
       return res.status(400).json({
-        error: `visitor_count (${visitor_count}) must equal adult_count (${finalAdultCount}) + child_count (${finalChildCount})`
+        error: 'visitor_count must be at least 1'
       });
     }
 
@@ -1405,8 +1391,6 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
         p_customer_phone: normalizedPhone,
         p_customer_email: customer_email || null,
         p_visitor_count: visitor_count,
-        p_adult_count: finalAdultCount,
-        p_child_count: finalChildCount,
         p_total_price: total_price,
         p_notes: notes || null,
         p_employee_id: employee_id || null,
@@ -1701,8 +1685,6 @@ router.post('/validate-qr', authenticate, async (req, res) => {
         customer_name,
         customer_phone,
         visitor_count,
-        adult_count,
-        child_count,
         total_price,
         qr_scanned,
         qr_scanned_at,
@@ -1774,8 +1756,6 @@ router.post('/validate-qr', authenticate, async (req, res) => {
         start_time: (booking.slots as any).start_time,
         end_time: (booking.slots as any).end_time,
         visitor_count: booking.visitor_count,
-        adult_count: booking.adult_count,
-        child_count: booking.child_count,
         total_price: booking.total_price,
         status: 'checked_in',
         payment_status: booking.payment_status,
@@ -1816,8 +1796,6 @@ router.get('/:id/details', async (req, res) => {
         customer_phone,
         customer_email,
         visitor_count,
-        adult_count,
-        child_count,
         total_price,
         services!inner (
           name,
@@ -1905,14 +1883,7 @@ router.get('/:id/details', async (req, res) => {
 
     // Determine ticket type
     const getTicketType = (): string => {
-      if (booking.adult_count > 0 && booking.child_count === 0) {
-        return booking.adult_count > 1 ? `${booking.adult_count} Adults` : 'Adult';
-      } else if (booking.child_count > 0 && booking.adult_count === 0) {
-        return booking.child_count > 1 ? `${booking.child_count} Children` : 'Child';
-      } else if (booking.adult_count > 0 && booking.child_count > 0) {
-        return `${booking.adult_count} Adult${booking.adult_count > 1 ? 's' : ''}, ${booking.child_count} Child${booking.child_count > 1 ? 'ren' : ''}`;
-      }
-      return 'General';
+      return booking.visitor_count > 1 ? `${booking.visitor_count} Tickets` : '1 Ticket';
     };
 
     // SECURITY: Public endpoint returns ticket details only, NO status or payment info
@@ -1923,8 +1894,6 @@ router.get('/:id/details', async (req, res) => {
       customer_phone: string;
       customer_email?: string | null;
       visitor_count: number;
-      adult_count: number | null;
-      child_count: number | null;
       total_price: number;
       slot_date: string;
       start_time: string;
@@ -1945,8 +1914,6 @@ router.get('/:id/details', async (req, res) => {
       customer_phone: booking.customer_phone,
       customer_email: (booking as any).customer_email || null,
       visitor_count: booking.visitor_count,
-      adult_count: booking.adult_count || null,
-      child_count: booking.child_count || null,
       total_price: booking.total_price,
       slot_date: (booking.slots as any).slot_date,
       start_time: (booking.slots as any).start_time,
@@ -2303,8 +2270,6 @@ router.patch('/:id', authenticateReceptionistOrTenantAdmin, async (req, res) => 
       'customer_phone',
       'customer_email',
       'visitor_count',
-      'adult_count',
-      'child_count',
       'total_price',
       'status',
       'notes',
@@ -2333,80 +2298,12 @@ router.patch('/:id', authenticateReceptionistOrTenantAdmin, async (req, res) => 
       }
     }
 
-    // CRITICAL: Ensure visitor_count, adult_count, and child_count are consistent
-    // The database constraint requires: visitor_count = adult_count + child_count AND visitor_count > 0
-    
-    // Get current values as defaults
-    const currentVisitorCount = currentBooking.visitor_count || 1;
-    const currentAdultCount = currentBooking.adult_count ?? currentVisitorCount;
-    const currentChildCount = currentBooking.child_count ?? 0;
-
-    // Determine final values (use provided values or keep existing)
-    let finalVisitorCount = updatePayload.visitor_count !== undefined 
-      ? updatePayload.visitor_count 
-      : currentVisitorCount;
-    
-    let finalAdultCount = updatePayload.adult_count !== undefined 
-      ? updatePayload.adult_count 
-      : currentAdultCount;
-    
-    let finalChildCount = updatePayload.child_count !== undefined 
-      ? updatePayload.child_count 
-      : currentChildCount;
-
-    // Validate individual fields
-    if (finalVisitorCount < 1) {
-      return res.status(400).json({ error: 'visitor_count must be at least 1' });
+    // Validate visitor_count if provided
+    if (updatePayload.visitor_count !== undefined) {
+      if (updatePayload.visitor_count < 1) {
+        return res.status(400).json({ error: 'visitor_count must be at least 1' });
+      }
     }
-
-    if (finalAdultCount < 0) {
-      return res.status(400).json({ error: 'adult_count cannot be negative' });
-    }
-
-    if (finalChildCount < 0) {
-      return res.status(400).json({ error: 'child_count cannot be negative' });
-    }
-
-    // CRITICAL: Ensure visitor_count = adult_count + child_count
-    // If visitor_count is provided but doesn't match, we have two options:
-    // 1. Reject the update (strict validation)
-    // 2. Auto-calculate visitor_count from adult_count + child_count (user-friendly)
-    // We'll use option 2 for better UX, but log a warning if visitor_count was explicitly provided
-    
-    const calculatedVisitorCount = finalAdultCount + finalChildCount;
-    
-    if (updatePayload.visitor_count !== undefined && finalVisitorCount !== calculatedVisitorCount) {
-      // User provided visitor_count that doesn't match adult_count + child_count
-      // Auto-correct: use calculated value instead
-      console.warn(`[Update Booking] visitor_count mismatch: provided=${finalVisitorCount}, calculated=${calculatedVisitorCount}. Using calculated value.`);
-      finalVisitorCount = calculatedVisitorCount;
-    } else if (updatePayload.visitor_count === undefined && (updatePayload.adult_count !== undefined || updatePayload.child_count !== undefined)) {
-      // User updated adult_count or child_count but not visitor_count
-      // Auto-calculate visitor_count
-      finalVisitorCount = calculatedVisitorCount;
-    }
-
-    // Final validation: ensure consistency
-    if (finalVisitorCount !== calculatedVisitorCount) {
-      return res.status(400).json({
-        error: `visitor_count (${finalVisitorCount}) must equal adult_count (${finalAdultCount}) + child_count (${finalChildCount})`,
-        provided: {
-          visitor_count: updatePayload.visitor_count,
-          adult_count: updatePayload.adult_count,
-          child_count: updatePayload.child_count
-        },
-        calculated: {
-          visitor_count: calculatedVisitorCount,
-          adult_count: finalAdultCount,
-          child_count: finalChildCount
-        }
-      });
-    }
-
-    // Update the payload with consistent values
-    updatePayload.visitor_count = finalVisitorCount;
-    updatePayload.adult_count = finalAdultCount;
-    updatePayload.child_count = finalChildCount;
 
     // TASK 8: Validate slot_id change (rescheduling) - only for tenant_admin
     let slotChanged = false;
@@ -3483,8 +3380,6 @@ router.get('/search', authenticateReceptionistOrTenantAdmin, async (req, res) =>
       customer_phone,
       customer_email,
       visitor_count,
-      adult_count,
-      child_count,
       total_price,
       status,
       payment_status,

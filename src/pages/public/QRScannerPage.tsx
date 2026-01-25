@@ -14,8 +14,6 @@ interface BookingDetails {
   customer_name: string;
   customer_phone: string;
   visitor_count: number;
-  adult_count: number;
-  child_count: number;
   total_price: number;
   status: string;
   payment_status: string;
@@ -215,11 +213,6 @@ export function QRScannerPage() {
                         <p className="text-sm text-gray-500">Quantity</p>
                         <p className="font-medium">
                           {bookingDetails.visitor_count} {bookingDetails.visitor_count === 1 ? 'ticket' : 'tickets'}
-                          {bookingDetails.adult_count > 0 && bookingDetails.child_count > 0 && (
-                            <span className="text-sm text-gray-600 ml-2">
-                              ({bookingDetails.adult_count} adult{bookingDetails.adult_count !== 1 ? 's' : ''}, {bookingDetails.child_count} child{bookingDetails.child_count !== 1 ? 'ren' : ''})
-                            </span>
-                          )}
                         </p>
                       </div>
                     </div>

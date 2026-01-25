@@ -649,7 +649,9 @@
       "employee": "موظف",
       "receptionist": "موظف استقبال",
       "cashier": "أمين صندوق",
-      "tenant_admin": "مسؤول المنشأة"
+      "tenant_admin": "مسؤول المنشأة",
+      "customer_admin": "مسؤول العملاء",
+      "admin_user": "مستخدم إداري"
     }
   },
   "admin": {

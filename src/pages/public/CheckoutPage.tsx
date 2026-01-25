@@ -10,7 +10,7 @@ import { Input } from '../../components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
-import { Package, User, Calendar, Clock, Users, CreditCard, CheckCircle, X, ArrowLeft, Percent, ChevronDown, Baby } from 'lucide-react';
+import { Package, User, Calendar, Clock, Users, CreditCard, CheckCircle, X, ArrowLeft, Percent, ChevronDown } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { AnimatedRating } from '../../components/ui/AnimatedRating';
 import { countryCodes, validatePhoneNumberByCountry } from '../../lib/countryCodes';
@@ -42,10 +42,9 @@ interface Service {
   name_ar: string;
   description: string;
   description_ar: string;
-  base_price: number; // This is the final adult price (discounted if discount exists)
+  base_price: number; // This is the final price (discounted if discount exists)
   original_price?: number;
   discount_percentage?: number;
-  child_price?: number; // Mandatory, set by service provider
   duration_minutes: number;
   image_url?: string;
   gallery_urls?: string[];
@@ -128,20 +127,15 @@ export function CheckoutPage() {
     serviceName: string;
     serviceName_ar: string;
     base_price: number;
-    child_price?: number;
-    adultCount: number;
-    childCount: number;
+    visitorCount: number;
   }>>([]);
   const [slot, setSlot] = useState<Slot | null>(null);
   const [slotCapacity, setSlotCapacity] = useState<number | null>(null); // Track current slot capacity
-  // Get ticket counts from booking data if provided, otherwise default to 1 adult
+  // Get visitor count from booking data if provided, otherwise default to 1
   const bookingDataFromState = location.state as any;
-  const initialAdultCount = bookingDataFromState?.adultCount || 1;
-  const initialChildCount = bookingDataFromState?.childCount || 0;
+  const initialVisitorCount = bookingDataFromState?.visitorCount || bookingDataFromState?.adultCount || 1;
   
-  const [visitorCount, setVisitorCount] = useState(initialAdultCount + initialChildCount);
-  const [adultCount, setAdultCount] = useState(initialAdultCount);
-  const [childCount, setChildCount] = useState(initialChildCount);
+  const [visitorCount, setVisitorCount] = useState(initialVisitorCount);
   const [countryCode, setCountryCode] = useState('+966'); // Default to Saudi Arabia (kept for backward compatibility)
   const [customerPhoneFull, setCustomerPhoneFull] = useState(userProfile?.phone || ''); // Full phone number with country code
   const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -314,8 +308,6 @@ export function CheckoutPage() {
         description: serviceData.description || '',
         description_ar: serviceData.description_ar || '',
         base_price: parseFloat(serviceData.base_price?.toString() || '0'),
-        // adult_price is not stored - it's auto-calculated from base_price
-        child_price: serviceData.child_price !== null && serviceData.child_price !== undefined ? parseFloat(serviceData.child_price.toString()) : undefined,
         original_price: serviceData.original_price ? parseFloat(serviceData.original_price.toString()) : undefined,
         discount_percentage: serviceData.discount_percentage ? parseFloat(serviceData.discount_percentage.toString()) : undefined,
         duration_minutes: serviceData.duration_minutes || serviceData.service_duration_minutes || 0,
@@ -369,13 +361,12 @@ export function CheckoutPage() {
           console.log('=== PACKAGE PRICING DEBUG ===');
           console.log('bookingDataFromState:', bookingDataFromState);
           console.log('bookingPackageServices:', bookingPackageServices);
-          console.log('adultCount from state:', bookingDataFromState?.adultCount);
-          console.log('childCount from state:', bookingDataFromState?.childCount);
+          console.log('visitorCount from state:', bookingDataFromState?.visitorCount || bookingDataFromState?.adultCount);
           
           // Fetch package services to format name correctly and get prices
           const { data: packageServices, error: packageServicesError } = await db
             .from('package_services')
-            .select('service_id, quantity, services (id, name, name_ar, base_price, child_price)')
+            .select('service_id, quantity, services (id, name, name_ar, base_price)')
             .eq('package_id', bookingData.packageId);
 
           if (packageServicesError) {
@@ -413,18 +404,14 @@ export function CheckoutPage() {
               return bsServiceId === ps.service_id;
             });
             
-            // Use ticket counts from bookingService if found, otherwise use defaults
-            const adultCount = bookingService?.adultCount !== undefined && bookingService?.adultCount !== null
-              ? bookingService.adultCount
-              : 1;
-            const childCount = bookingService?.childCount !== undefined && bookingService?.childCount !== null
-              ? bookingService.childCount
-              : 0;
+            // Use visitor count from bookingService if found, otherwise use default
+            const visitorCount = bookingService?.visitorCount !== undefined && bookingService?.visitorCount !== null
+              ? bookingService.visitorCount
+              : (bookingService?.adultCount !== undefined ? bookingService.adultCount : 1);
             
             console.log(`Matching service ${ps.service_id}:`, {
               found: !!bookingService,
-              adultCount,
-              childCount,
+              visitorCount,
               bookingService
             });
             
@@ -433,11 +420,7 @@ export function CheckoutPage() {
               serviceName: serviceData?.name || '',
               serviceName_ar: serviceData?.name_ar || '',
               base_price: parseFloat(serviceData?.base_price?.toString() || '0'),
-              child_price: serviceData?.child_price !== null && serviceData?.child_price !== undefined 
-                ? parseFloat(serviceData.child_price.toString()) 
-                : undefined,
-              adultCount: adultCount,
-              childCount: childCount,
+              visitorCount: visitorCount,
             };
           });
           
@@ -451,49 +434,40 @@ export function CheckoutPage() {
           });
           
           if (!hasMatches && bookingDataFromState) {
-            const totalAdultsFromState = bookingDataFromState.adultCount || 0;
-            const totalChildrenFromState = bookingDataFromState.childCount || 0;
+            const totalVisitorsFromState = bookingDataFromState.visitorCount || bookingDataFromState.adultCount || 1;
             
-            if (totalAdultsFromState > 0 || totalChildrenFromState > 0) {
+            if (totalVisitorsFromState > 0) {
               // If single service, apply all counts to it
               if (serviceDetails.length === 1) {
-                serviceDetails[0].adultCount = totalAdultsFromState || 1;
-                serviceDetails[0].childCount = totalChildrenFromState || 0;
+                serviceDetails[0].visitorCount = totalVisitorsFromState;
               } else {
                 // If multiple services, distribute evenly
-                const adultsPerService = Math.floor(totalAdultsFromState / serviceDetails.length) || 1;
-                const childrenPerService = Math.floor(totalChildrenFromState / serviceDetails.length) || 0;
-                const adultsRemainder = totalAdultsFromState % serviceDetails.length;
+                const visitorsPerService = Math.floor(totalVisitorsFromState / serviceDetails.length) || 1;
+                const visitorsRemainder = totalVisitorsFromState % serviceDetails.length;
                 
                 serviceDetails.forEach((svc, index) => {
-                  svc.adultCount = adultsPerService + (index === 0 ? adultsRemainder : 0);
-                  svc.childCount = childrenPerService;
+                  svc.visitorCount = visitorsPerService + (index === 0 ? visitorsRemainder : 0);
                 });
               }
             }
           }
           
           console.log('Service details after processing:', serviceDetails.map(s => {
-            const childPrice = s.child_price !== undefined ? s.child_price : s.base_price;
-            const serviceTotal = (s.base_price * s.adultCount) + (childPrice * s.childCount);
+            const serviceTotal = s.base_price * s.visitorCount;
             return {
               name: s.serviceName,
-              adultCount: s.adultCount,
-              childCount: s.childCount,
+              visitorCount: s.visitorCount,
               base_price: s.base_price,
-              child_price: s.child_price,
               serviceTotal: serviceTotal
             };
           }));
 
           const calculatedTotal = serviceDetails.reduce((sum, s) => {
-            const childPrice = s.child_price !== undefined ? s.child_price : s.base_price;
-            return sum + (s.base_price * s.adultCount) + (childPrice * s.childCount);
+            return sum + (s.base_price * s.visitorCount);
           }, 0);
           
           console.log('Calculated total from serviceDetails:', calculatedTotal);
-          console.log('Total adults:', serviceDetails.reduce((sum, s) => sum + s.adultCount, 0));
-          console.log('Total children:', serviceDetails.reduce((sum, s) => sum + s.childCount, 0));
+          console.log('Total visitors:', serviceDetails.reduce((sum, s) => sum + s.visitorCount, 0));
           console.log('=== END PACKAGE PRICING DEBUG ===');
           setPackageServiceDetails(serviceDetails);
 
@@ -583,53 +557,41 @@ export function CheckoutPage() {
 
   // Calculate prices with adult/child pricing
   // If offer is selected, use offer price; otherwise use base_price
-  const adultPrice = selectedOffer ? selectedOffer.price : (service?.base_price || 0);
-  // Child price is mandatory and set by service provider (not affected by offers)
-  const childPrice = service?.child_price || adultPrice; // Fallback to adult price if child_price not set
-  const basePrice = servicePackage ? servicePackage.total_price : adultPrice;
+  const price = selectedOffer ? selectedOffer.price : (service?.base_price || 0);
+  const basePrice = servicePackage ? servicePackage.total_price : price;
   const originalPrice = selectedOffer 
     ? (selectedOffer.original_price || selectedOffer.price)
     : (service?.original_price || basePrice);
   const serviceDiscount = selectedOffer?.discount_percentage || service?.discount_percentage || 0;
   
-  // For packages, calculate total based on individual service prices * ticket counts
-  // For services, total is (adultPrice * adultCount) + (childPrice * childCount)
+  // Calculate total based on price * visitor count
   let subtotal: number;
   let total: number;
   
   if (servicePackage && packageServiceDetails.length > 0) {
-    // Package booking: sum up all services with their ticket counts
+    // Package booking: sum up all services with their visitor counts
     subtotal = packageServiceDetails.reduce((sum, svc) => {
-      // For packages, use service base_price (offers don't apply to packages)
-      const adultPriceForService = svc.base_price || 0;
-      const childPriceForService = svc.child_price !== undefined ? svc.child_price : adultPriceForService;
-      // Ensure we have valid ticket counts (default to 1 adult if undefined)
-      const svcAdultCount = svc.adultCount !== undefined && svc.adultCount !== null ? svc.adultCount : 1;
-      const svcChildCount = svc.childCount !== undefined && svc.childCount !== null ? svc.childCount : 0;
-      const serviceTotal = (adultPriceForService * svcAdultCount) + (childPriceForService * svcChildCount);
-      console.log(`Service ${svc.serviceName}: ${svcAdultCount} adults × ${adultPriceForService} + ${svcChildCount} children × ${childPriceForService} = ${serviceTotal}`);
+      const priceForService = svc.base_price || 0;
+      const svcVisitorCount = svc.visitorCount !== undefined && svc.visitorCount !== null ? svc.visitorCount : 1;
+      const serviceTotal = priceForService * svcVisitorCount;
+      console.log(`Service ${svc.serviceName}: ${svcVisitorCount} tickets × ${priceForService} = ${serviceTotal}`);
       return sum + serviceTotal;
     }, 0);
     total = subtotal;
   } else if (servicePackage && packageServiceDetails.length === 0) {
-    // Package but service details not loaded yet - use total counts as fallback
-    // This handles the case where the user selected tickets but packageServiceDetails is empty
-    const totalAdults = bookingDataFromState?.adultCount || adultCount || 1;
-    const totalChildren = bookingDataFromState?.childCount || childCount || 0;
-    // For packages, we need to estimate based on individual service prices
-    // If we can't get service prices, use package price as fallback
+    // Package but service details not loaded yet - use visitor count as fallback
+    const totalVisitors = bookingDataFromState?.visitorCount || bookingDataFromState?.adultCount || visitorCount || 1;
     const pricePerTicket = servicePackage.total_price || 0;
-    subtotal = pricePerTicket * (totalAdults + totalChildren);
+    subtotal = pricePerTicket * totalVisitors;
     total = subtotal;
     console.log('Package pricing fallback (service details not loaded):', {
-      totalAdults,
-      totalChildren,
+      totalVisitors,
       pricePerTicket,
       subtotal
     });
   } else {
     // Regular service booking - use offer price if selected, otherwise base_price
-    subtotal = (adultPrice * adultCount) + (childPrice * childCount);
+    subtotal = basePrice * visitorCount;
     total = subtotal;
   }
   
@@ -638,17 +600,14 @@ export function CheckoutPage() {
     packageServiceDetailsCount: packageServiceDetails.length,
     subtotal,
     total,
-    adultCount,
-    childCount,
+    visitorCount,
     bookingDataFromState: {
-      adultCount: bookingDataFromState?.adultCount,
-      childCount: bookingDataFromState?.childCount,
+      visitorCount: bookingDataFromState?.visitorCount || bookingDataFromState?.adultCount,
       packageServices: bookingDataFromState?.packageServices?.length || 0
     },
     packageServiceDetails: packageServiceDetails.map(s => ({
       name: s.serviceName,
-      adultCount: s.adultCount,
-      childCount: s.childCount,
+      visitorCount: s.visitorCount,
       base_price: s.base_price
     }))
   });
@@ -656,23 +615,15 @@ export function CheckoutPage() {
   // Update visitor count based on actual ticket counts
   useEffect(() => {
     if (servicePackage && packageServiceDetails.length > 0) {
-      // For packages, sum up all ticket counts from packageServiceDetails
+      // For packages, sum up all visitor counts from packageServiceDetails
       const totalVisitors = packageServiceDetails.reduce((sum, svc) => {
-        const svcAdultCount = svc.adultCount !== undefined && svc.adultCount !== null ? svc.adultCount : 1;
-        const svcChildCount = svc.childCount !== undefined && svc.childCount !== null ? svc.childCount : 0;
-        return sum + svcAdultCount + svcChildCount;
+        const svcVisitorCount = svc.visitorCount !== undefined && svc.visitorCount !== null ? svc.visitorCount : 1;
+        return sum + svcVisitorCount;
       }, 0);
       setVisitorCount(totalVisitors);
-      // Also update adultCount and childCount totals for display
-      const totalAdults = packageServiceDetails.reduce((sum, svc) => sum + (svc.adultCount || 1), 0);
-      const totalChildren = packageServiceDetails.reduce((sum, svc) => sum + (svc.childCount || 0), 0);
-      setAdultCount(totalAdults);
-      setChildCount(totalChildren);
-    } else {
-      // For regular services, use adultCount + childCount
-      setVisitorCount(adultCount + childCount);
     }
-  }, [packageServiceDetails, adultCount, childCount, servicePackage]);
+    // For regular services, visitorCount is already set
+  }, [packageServiceDetails, servicePackage]);
 
   // Handle booking submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -697,8 +648,8 @@ export function CheckoutPage() {
       return;
     }
 
-    // Ensure at least one adult ticket
-    if (adultCount === 0 && childCount === 0) {
+    // Ensure at least one ticket
+    if (visitorCount === 0 || visitorCount < 1) {
       alert(t('checkout.pleaseSelectAtLeastOneTicket'));
       return;
     }
@@ -710,13 +661,12 @@ export function CheckoutPage() {
       const token = localStorage.getItem('auth_token');
 
       // Calculate actual visitor count
-      const actualVisitorCount = servicePackage && packageServiceDetails.length > 0
-        ? packageServiceDetails.reduce((sum, svc) => {
-            const svcAdultCount = svc.adultCount !== undefined && svc.adultCount !== null ? svc.adultCount : 1;
-            const svcChildCount = svc.childCount !== undefined && svc.childCount !== null ? svc.childCount : 0;
-            return sum + svcAdultCount + svcChildCount;
-          }, 0)
-        : (adultCount + childCount);
+          const actualVisitorCount = servicePackage && packageServiceDetails.length > 0
+            ? packageServiceDetails.reduce((sum, svc) => {
+                const svcVisitorCount = svc.visitorCount !== undefined && svc.visitorCount !== null ? svc.visitorCount : 1;
+                return sum + svcVisitorCount;
+              }, 0)
+            : visitorCount;
 
       // Acquire booking lock first
       const lockResponse = await fetch(`${API_URL}/bookings/lock`, {
@@ -753,12 +703,6 @@ export function CheckoutPage() {
           customer_email: customerInfo.email || null,
           customer_phone: customerPhoneFull || `${countryCode}${customerInfo.phone}`, // Use full phone number
           visitor_count: actualVisitorCount,
-          adult_count: servicePackage && packageServiceDetails.length > 0
-            ? packageServiceDetails.reduce((sum, svc) => sum + (svc.adultCount || 1), 0)
-            : adultCount,
-          child_count: servicePackage && packageServiceDetails.length > 0
-            ? packageServiceDetails.reduce((sum, svc) => sum + (svc.childCount || 0), 0)
-            : childCount,
           total_price: total,
           notes: null,
           lock_id: lockData.lock_id,
@@ -1222,38 +1166,23 @@ export function CheckoutPage() {
                     <>
                       {/* Package Pricing - Show breakdown per service */}
                       {packageServiceDetails.map((svc, idx) => {
-                        const adultPriceForService = svc.base_price || 0;
-                        const childPriceForService = svc.child_price !== undefined ? svc.child_price : adultPriceForService;
-                        // Ensure we use valid ticket counts
-                        const svcAdultCount = svc.adultCount !== undefined && svc.adultCount !== null ? svc.adultCount : 1;
-                        const svcChildCount = svc.childCount !== undefined && svc.childCount !== null ? svc.childCount : 0;
-                        const serviceTotal = (adultPriceForService * svcAdultCount) + (childPriceForService * svcChildCount);
+                        const priceForService = svc.base_price || 0;
+                        const svcVisitorCount = svc.visitorCount !== undefined && svc.visitorCount !== null ? svc.visitorCount : 1;
+                        const serviceTotal = priceForService * svcVisitorCount;
                         
                         return (
                           <div key={idx} className="pb-3 border-b last:border-b-0 last:pb-0">
                             <div className="text-sm font-medium text-gray-700 mb-2">
                               {i18n.language === 'ar' ? svc.serviceName_ar : svc.serviceName}
                             </div>
-                            {svcAdultCount > 0 && (
-                              <div className="flex justify-between text-xs text-gray-600 mb-1">
-                                <span>
-                                  {i18n.language === 'ar' ? 'كبار' : 'Adults'} × {svcAdultCount}
-                                </span>
-                                <span>
-                                  {formatPrice(adultPriceForService)} × {svcAdultCount} = {formatPrice(adultPriceForService * svcAdultCount)}
-                                </span>
-                              </div>
-                            )}
-                            {svcChildCount > 0 && (
-                              <div className="flex justify-between text-xs text-gray-600 mb-1">
-                                <span>
-                                  {i18n.language === 'ar' ? 'أطفال' : 'Children'} × {svcChildCount}
-                                </span>
-                                <span>
-                                  {formatPrice(childPriceForService)} × {svcChildCount} = {formatPrice(childPriceForService * svcChildCount)}
-                                </span>
-                              </div>
-                            )}
+                            <div className="flex justify-between text-xs text-gray-600 mb-1">
+                              <span>
+                                {i18n.language === 'ar' ? 'عدد التذاكر' : 'Tickets'} × {svcVisitorCount}
+                              </span>
+                              <span>
+                                {formatPrice(priceForService)} × {svcVisitorCount} = {formatPrice(serviceTotal)}
+                              </span>
+                            </div>
                             <div className="flex justify-between text-sm font-medium text-gray-900 mt-2">
                               <span>{i18n.language === 'ar' ? 'المجموع' : 'Subtotal'}</span>
                               <span>{formatPrice(serviceTotal)}</span>
@@ -1381,46 +1310,13 @@ export function CheckoutPage() {
                         </div>
                       )}
 
-                      {/* Adult/Child Breakdown */}
-                      {service?.child_price !== undefined && (
-                        <>
-                          {adultCount > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <div className="flex items-center gap-2">
-                                <Users className="w-3 h-3 text-gray-600" />
-                                <span className="text-gray-600">
-                                  {i18n.language === 'ar' ? 'تذاكر الكبار' : 'Adult Tickets'}
-                                </span>
-                              </div>
-                              <span className="text-gray-900">
-                                {adultCount} × {formatPrice(adultPrice)} = {formatPrice(adultCount * adultPrice)}
-                              </span>
-                            </div>
-                          )}
-                          {childCount > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <div className="flex items-center gap-2">
-                                <Baby className="w-3 h-3 text-gray-600" />
-                                <span className="text-gray-600">
-                                  {i18n.language === 'ar' ? 'تذاكر الأطفال' : 'Child Tickets'}
-                                </span>
-                              </div>
-                              <span className="text-gray-900">
-                                {childCount} × {formatPrice(childPrice)} = {formatPrice(childCount * childPrice)}
-                              </span>
-                            </div>
-                          )}
-                        </>
-                      )}
-                      
-                      {service?.child_price === undefined && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">
-                            {i18n.language === 'ar' ? 'الكمية' : 'Quantity'}
-                          </span>
-                          <span className="text-gray-900">× {visitorCount}</span>
-                        </div>
-                      )}
+                      {/* Quantity Display */}
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">
+                          {i18n.language === 'ar' ? 'الكمية' : 'Quantity'}
+                        </span>
+                        <span className="text-gray-900">× {visitorCount}</span>
+                      </div>
 
                       <div className="pt-3 border-t">
                         <div className="flex justify-between text-sm mb-2">
@@ -1454,9 +1350,8 @@ export function CheckoutPage() {
                 {(() => {
                   const actualVisitorCount = servicePackage && packageServiceDetails.length > 0
                     ? packageServiceDetails.reduce((sum, svc) => {
-                        const svcAdultCount = svc.adultCount !== undefined && svc.adultCount !== null ? svc.adultCount : 1;
-                        const svcChildCount = svc.childCount !== undefined && svc.childCount !== null ? svc.childCount : 0;
-                        return sum + svcAdultCount + svcChildCount;
+                        const svcVisitorCount = svc.visitorCount !== undefined && svc.visitorCount !== null ? svc.visitorCount : 1;
+                        return sum + svcVisitorCount;
                       }, 0)
                     : visitorCount;
                   
@@ -1478,9 +1373,8 @@ export function CheckoutPage() {
                   disabled={(() => {
                     const actualVisitorCount = servicePackage && packageServiceDetails.length > 0
                       ? packageServiceDetails.reduce((sum, svc) => {
-                          const svcAdultCount = svc.adultCount !== undefined && svc.adultCount !== null ? svc.adultCount : 1;
-                          const svcChildCount = svc.childCount !== undefined && svc.childCount !== null ? svc.childCount : 0;
-                          return sum + svcAdultCount + svcChildCount;
+                          const svcVisitorCount = svc.visitorCount !== undefined && svc.visitorCount !== null ? svc.visitorCount : 1;
+                          return sum + svcVisitorCount;
                         }, 0)
                       : visitorCount;
                     
@@ -1491,7 +1385,7 @@ export function CheckoutPage() {
                       (slotCapacity !== null && slotCapacity < actualVisitorCount) ||
                       total <= 0 ||
                       (!isLoggedIn && otpStep !== 'verified') || // Require OTP verification for guests
-                      (adultCount === 0 && childCount === 0); // Require at least one ticket
+                      (visitorCount === 0 || visitorCount < 1); // Require at least one ticket
                   })()}
                   className="mt-6"
                   style={{ 

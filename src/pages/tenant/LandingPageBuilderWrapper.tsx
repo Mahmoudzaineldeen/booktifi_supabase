@@ -38,6 +38,11 @@ export function LandingPageBuilderWrapper() {
     return <Navigate to="/solution-admin" replace />;
   }
 
+  // Block customer_admin and admin_user from landing page
+  if (userProfile.role === 'customer_admin' || userProfile.role === 'admin_user') {
+    return <Navigate to={`/${tenantSlug}/admin/bookings`} replace />;
+  }
+
   if (userProfile.role !== 'tenant_admin') {
     return <Navigate to="/login" replace />;
   }

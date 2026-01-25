@@ -1,6 +1,6 @@
 // Core type definitions for Bookati platform
 
-export type UserRole = 'solution_owner' | 'tenant_admin' | 'receptionist' | 'cashier' | 'employee' | 'customer';
+export type UserRole = 'solution_owner' | 'tenant_admin' | 'receptionist' | 'cashier' | 'employee' | 'customer' | 'customer_admin' | 'admin_user';
 
 export type BookingStatus = 'pending' | 'confirmed' | 'checked_in' | 'completed' | 'cancelled';
 

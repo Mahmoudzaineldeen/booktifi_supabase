@@ -992,7 +992,6 @@ class ZohoService {
             description,
             description_ar,
             base_price,
-            child_price
           ),
           slots (
             start_time,
@@ -1028,8 +1027,7 @@ class ZohoService {
               name_ar,
               description,
               description_ar,
-              base_price,
-              child_price
+              base_price
             ),
             slots (
               start_time,
@@ -1110,7 +1108,6 @@ class ZohoService {
       service_description: bookings.services?.description || '',
       service_description_ar: bookings.services?.description_ar || '',
       base_price: bookings.services?.base_price || 0,
-      child_price: bookings.services?.child_price || 0,
       start_time: bookings.slots?.start_time,
       end_time: bookings.slots?.end_time,
       slot_date: bookings.slots?.slot_date,
@@ -1160,82 +1157,41 @@ class ZohoService {
       // Build line items
       const lineItems: ZohoInvoiceData['line_items'] = [];
 
-      // Determine adult price: use offer price if offer exists, otherwise use base_price
-      let adultPrice: number;
+      // Determine price: use offer price if offer exists, otherwise use base_price
+      let pricePerTicket: number;
       if (booking.offer_id && booking.offer_price) {
-        // Use offer price for adults
-        adultPrice = parseFloat(booking.offer_price.toString());
-        console.log(`[ZohoService] Using offer price for invoice: ${adultPrice} (Offer ID: ${booking.offer_id})`);
+        pricePerTicket = parseFloat(booking.offer_price.toString());
+        console.log(`[ZohoService] Using offer price for invoice: ${pricePerTicket} (Offer ID: ${booking.offer_id})`);
       } else {
-        // Use base price
-        adultPrice = parseFloat(booking.base_price?.toString() || '0');
+        pricePerTicket = parseFloat(booking.base_price?.toString() || '0');
       }
 
-      // Child price always uses service child_price (offers don't affect child price)
-      const childPrice = parseFloat(booking.child_price?.toString() || adultPrice.toString());
-
-      // If adult and child pricing are different, create separate line items
-      if (booking.adult_count > 0 && booking.child_count > 0 && adultPrice > 0 && childPrice > 0) {
-        // Build item name - include offer name if offer is used
-        let adultItemName = `${serviceName} - Adult`;
-        if (booking.offer_id && booking.offer_name) {
-          const offerName = language === 'ar' && booking.offer_name_ar 
-            ? booking.offer_name_ar 
-            : booking.offer_name;
-          // Only add offer name if it's different from service name
-          if (offerName !== serviceName) {
-            adultItemName = `${serviceName} - ${offerName} (Adult)`;
-          } else {
-            adultItemName = `${serviceName} - Adult (Offer)`;
-          }
-        }
-
-        if (adultPrice > 0) {
-          lineItems.push({
-            name: adultItemName,
-            description: serviceDescription,
-            rate: adultPrice,
-            quantity: booking.adult_count,
-            unit: 'ticket',
-          });
-        }
-
-        if (childPrice > 0 && childPrice !== adultPrice) {
-          lineItems.push({
-            name: `${serviceName} - Child`,
-            description: serviceDescription,
-            rate: childPrice,
-            quantity: booking.child_count,
-            unit: 'ticket',
-          });
-        }
-      } else {
-        // Single line item for total price
-        // Use the actual total_price from booking (which already accounts for offers)
-        const totalPrice = parseFloat(booking.total_price.toString());
-        
-        // Build item name - include offer name if offer is used
-        let itemName = serviceName;
-        if (booking.offer_id && booking.offer_name) {
-          const offerName = language === 'ar' && booking.offer_name_ar 
-            ? booking.offer_name_ar 
-            : booking.offer_name;
-          // Only add offer name if it's different from service name
-          if (offerName !== serviceName) {
+      // Single line item for total price
+      // Use the actual total_price from booking (which already accounts for offers)
+      const totalPrice = parseFloat(booking.total_price.toString());
+      const visitorCount = booking.visitor_count || 1;
+      
+      // Build item name - include offer name if offer is used
+      let itemName = serviceName;
+      if (booking.offer_id && booking.offer_name) {
+        const offerName = language === 'ar' && booking.offer_name_ar 
+          ? booking.offer_name_ar 
+          : booking.offer_name;
+        // Only add offer name if it's different from service name
+        if (offerName !== serviceName) {
             itemName = `${serviceName} - ${offerName}`;
           } else {
             itemName = `${serviceName} (Offer)`;
           }
         }
 
-        lineItems.push({
-          name: itemName,
-          description: serviceDescription,
-          rate: totalPrice,
-          quantity: booking.visitor_count || 1,
-          unit: 'ticket',
-        });
-      }
+      lineItems.push({
+        name: itemName,
+        description: serviceDescription,
+        rate: pricePerTicket,
+        quantity: visitorCount,
+        unit: 'ticket',
+      });
 
       // Format date
       const bookingDate = new Date(booking.created_at);
@@ -1325,7 +1281,6 @@ class ZohoService {
             description,
             description_ar,
             base_price,
-            child_price
           ),
           slots (
             start_time,

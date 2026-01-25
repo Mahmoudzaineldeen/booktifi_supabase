@@ -7,7 +7,7 @@ import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
-import { Calendar, Clock, MapPin, ChevronRight, ChevronLeft, Edit2, Check, AlertCircle, X, Trash2, Package, User, Users, Baby } from 'lucide-react';
+import { Calendar, Clock, MapPin, ChevronRight, ChevronLeft, Edit2, Check, AlertCircle, X, Trash2, Package, User, Users } from 'lucide-react';
 import { format, addDays, startOfWeek, isSameDay, parseISO, getDay, startOfDay, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, getDaysInMonth } from 'date-fns';
 import { StarRating } from '../../components/ui/StarRating';
 import { AnimatedRating } from '../../components/ui/AnimatedRating';
@@ -30,7 +30,6 @@ interface Service {
   description: string;
   description_ar: string;
   base_price: number;
-  child_price?: number | null;
   duration_minutes: number;
   service_duration_minutes?: number;
   gallery_urls?: string[];
@@ -185,8 +184,7 @@ export function ServiceBookingFlow() {
   const [selectedOffer, setSelectedOffer] = useState<ServiceOffer | null | undefined>(undefined); // null = basic service, undefined = not selected
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [showTimeSelection, setShowTimeSelection] = useState(false);
-  const [adultCount, setAdultCount] = useState(1);
-  const [childCount, setChildCount] = useState(0);
+  const [visitorCount, setVisitorCount] = useState(1);
   const [hasShifts, setHasShifts] = useState(false);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [debugInfo, setDebugInfo] = useState<string>('');
@@ -1043,8 +1041,7 @@ export function ServiceBookingFlow() {
       slotId: selectedSlot.id,
       date: format(selectedDate, 'yyyy-MM-dd'),
       time: selectedSlot.start_time,
-      adultCount: adultCount,
-      childCount: childCount,
+      visitorCount: visitorCount,
     };
 
     // Check if user is logged in
@@ -1951,13 +1948,13 @@ export function ServiceBookingFlow() {
                 </h2>
                 
                 <div className="space-y-4">
-                  {/* Adult Tickets */}
+                  {/* Visitor Count */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <Users className="w-4 h-4 text-gray-600" />
                         <span className="text-sm text-gray-700">
-                          {i18n.language === 'ar' ? 'تذاكر الكبار' : 'Adult Tickets'}
+                          {i18n.language === 'ar' ? 'عدد التذاكر' : 'Number of Tickets'}
                         </span>
                       </div>
                       <span className="text-sm font-semibold text-gray-900">
@@ -1971,97 +1968,38 @@ export function ServiceBookingFlow() {
                             price = parseFloat(String(service.base_price || 0));
                           }
                           return formatPrice(price);
-                        })()}
+                        })()} {i18n.language === 'ar' ? 'لكل تذكرة' : 'per ticket'}
                       </span>
                     </div>
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
-                        onClick={() => setAdultCount(Math.max(1, adultCount - 1))}
-                        disabled={adultCount === 1}
+                        onClick={() => setVisitorCount(Math.max(1, visitorCount - 1))}
+                        disabled={visitorCount === 1}
                         className="w-10 h-10 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <X className="w-4 h-4" />
                       </button>
-                      <span className="text-lg font-semibold w-12 text-center">{adultCount}</span>
+                      <span className="text-lg font-semibold w-12 text-center">{visitorCount}</span>
                       <button
                         type="button"
                         onClick={() => {
-                          const newCount = adultCount + 1;
-                          if (selectedSlot && selectedSlot.available_capacity < (newCount + childCount)) {
+                          const newCount = visitorCount + 1;
+                          if (selectedSlot && selectedSlot.available_capacity < newCount) {
                             alert(
                               i18n.language === 'ar'
-                                ? `لا توجد أماكن كافية. المتاح: ${selectedSlot.available_capacity}، المطلوب: ${newCount + childCount}`
-                                : `Not enough capacity available. Available: ${selectedSlot.available_capacity}, Requested: ${newCount + childCount}`
+                                ? `لا توجد أماكن كافية. المتاح: ${selectedSlot.available_capacity}، المطلوب: ${newCount}`
+                                : `Not enough capacity available. Available: ${selectedSlot.available_capacity}, Requested: ${newCount}`
                             );
                             return;
                           }
-                          setAdultCount(newCount);
+                          setVisitorCount(newCount);
                         }}
-                        disabled={selectedSlot !== null && selectedSlot.available_capacity !== null && (adultCount + childCount) >= selectedSlot.available_capacity}
+                        disabled={selectedSlot !== null && selectedSlot.available_capacity !== null && visitorCount >= selectedSlot.available_capacity}
                         className="w-10 h-10 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <Users className="w-4 h-4" />
                       </button>
-                    </div>
-                  </div>
-
-                  {/* Child Tickets - Only show if child_price is defined */}
-                  {service?.child_price !== undefined && service.child_price !== null && (
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <Baby className="w-4 h-4 text-gray-600" />
-                          <span className="text-sm text-gray-700">
-                            {i18n.language === 'ar' ? 'تذاكر الأطفال' : 'Child Tickets'}
-                          </span>
-                        </div>
-                        <span className="text-sm font-semibold text-gray-900">
-                          {formatPrice(parseFloat(String(service.child_price || 0)))}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setChildCount(Math.max(0, childCount - 1))}
-                          disabled={childCount === 0}
-                          className="w-10 h-10 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                        <span className="text-lg font-semibold w-12 text-center">{childCount}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newCount = childCount + 1;
-                            if (selectedSlot && selectedSlot.available_capacity < (adultCount + newCount)) {
-                              alert(
-                                i18n.language === 'ar'
-                                  ? `لا توجد أماكن كافية. المتاح: ${selectedSlot.available_capacity}، المطلوب: ${adultCount + newCount}`
-                                  : `Not enough capacity available. Available: ${selectedSlot.available_capacity}, Requested: ${adultCount + newCount}`
-                              );
-                              return;
-                            }
-                            setChildCount(newCount);
-                          }}
-                          disabled={selectedSlot !== null && selectedSlot.available_capacity !== null && (adultCount + childCount) >= selectedSlot.available_capacity}
-                          className="w-10 h-10 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <Users className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Total Visitors Display */}
-                  <div className="pt-2 border-t">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-700">
-                        {i18n.language === 'ar' ? 'إجمالي الزوار' : 'Total Visitors'}
-                      </span>
-                      <span className="text-lg font-semibold text-gray-900">
-                        {adultCount + childCount} {i18n.language === 'ar' ? 'زائر' : 'visitor(s)'}
-                      </span>
                     </div>
                   </div>
                 </div>
@@ -2248,12 +2186,9 @@ export function ServiceBookingFlow() {
                         originalPrice = service.original_price ? parseFloat(String(service.original_price)) : null;
                       }
 
-                      const totalVisitors = adultCount + childCount;
-                      const childPrice = service.child_price ? parseFloat(String(service.child_price)) : pricePerTicket;
-                      const adultSubtotal = pricePerTicket * adultCount;
-                      const childSubtotal = childPrice * childCount;
-                      const subtotal = adultSubtotal + childSubtotal;
-                      const originalSubtotal = originalPrice ? (originalPrice * adultCount) + (childPrice * childCount) : null;
+                      const totalVisitors = visitorCount;
+                      const subtotal = pricePerTicket * visitorCount;
+                      const originalSubtotal = originalPrice ? (originalPrice * visitorCount) : null;
 
                       return (
                         <>
@@ -2280,26 +2215,14 @@ export function ServiceBookingFlow() {
                           </div>
 
                           {/* Ticket breakdown */}
-                          {adultCount > 0 && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-gray-600">
-                                {i18n.language === 'ar' ? 'تذاكر الكبار' : 'Adult Tickets'}
-                              </span>
-                              <span className="text-gray-900 font-medium">
-                                {adultCount} × {formatPrice(pricePerTicket)} = {formatPrice(adultSubtotal)}
-                              </span>
-                            </div>
-                          )}
-                          {childCount > 0 && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-gray-600">
-                                {i18n.language === 'ar' ? 'تذاكر الأطفال' : 'Child Tickets'}
-                              </span>
-                              <span className="text-gray-900 font-medium">
-                                {childCount} × {formatPrice(childPrice)} = {formatPrice(childSubtotal)}
-                              </span>
-                            </div>
-                          )}
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-600">
+                              {i18n.language === 'ar' ? 'عدد التذاكر' : 'Number of Tickets'}
+                            </span>
+                            <span className="text-gray-900 font-medium">
+                              {visitorCount} × {formatPrice(pricePerTicket)} = {formatPrice(subtotal)}
+                            </span>
+                          </div>
 
                           {/* Subtotal */}
                           <div className="pt-2 border-t">
@@ -2345,16 +2268,14 @@ export function ServiceBookingFlow() {
                   onClick={handleProceedToCheckout}
                   disabled={(() => {
                     if (!selectedDate || !selectedSlot) return true;
-                    const totalVisitors = adultCount + childCount;
-                    if (selectedSlot.available_capacity < totalVisitors) return true;
+                    if (selectedSlot.available_capacity < visitorCount) return true;
                     return false;
                   })()}
                   className="w-full py-3 rounded-lg font-semibold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ 
                     backgroundColor: (() => {
                       if (!selectedDate || !selectedSlot) return primaryColor;
-                      const totalVisitors = adultCount + childCount;
-                      if (selectedSlot.available_capacity < totalVisitors) return '#EF4444';
+                      if (selectedSlot.available_capacity < visitorCount) return '#EF4444';
                       return primaryColor;
                     })(),
                   }}
@@ -2363,8 +2284,7 @@ export function ServiceBookingFlow() {
                     if (!selectedDate || !selectedSlot) {
                       return i18n.language === 'ar' ? 'اختر التاريخ والوقت' : 'Select Date & Time';
                     }
-                    const totalVisitors = adultCount + childCount;
-                    if (selectedSlot.available_capacity < totalVisitors) {
+                    if (selectedSlot.available_capacity < visitorCount) {
                       return i18n.language === 'ar' ? 'السعة غير كافية' : 'Insufficient Capacity';
                     }
                     return i18n.language === 'ar' ? 'المتابعة للدفع' : 'Proceed to Checkout';

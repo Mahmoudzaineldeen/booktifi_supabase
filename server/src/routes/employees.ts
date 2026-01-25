@@ -24,8 +24,9 @@ router.post('/create', async (req, res) => {
     }
 
     // Validate role
-    if (!['employee', 'receptionist', 'cashier'].includes(role)) {
-      return res.status(400).json({ error: 'Invalid role. Must be employee, receptionist, or cashier' });
+    const validRoles = ['employee', 'receptionist', 'cashier', 'customer_admin', 'admin_user'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
     }
 
     // Check if username already exists
@@ -184,8 +185,9 @@ router.post('/update', async (req, res) => {
     if (full_name_ar !== undefined) updates.full_name_ar = full_name_ar;
     if (phone !== undefined) updates.phone = phone;
     if (role !== undefined) {
-      if (!['employee', 'receptionist', 'cashier'].includes(role)) {
-        return res.status(400).json({ error: 'Invalid role. Must be employee, receptionist, or cashier' });
+      const validRoles = ['employee', 'receptionist', 'cashier', 'customer_admin', 'admin_user'];
+      if (!validRoles.includes(role)) {
+        return res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
       }
       updates.role = role;
     }

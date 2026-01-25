@@ -69,8 +69,9 @@ function authenticateTenantAdmin(req: express.Request, res: express.Response, ne
       }
     }
     
-    // Allow tenant_admin, receptionist, cashier, and solution_owner
-    const allowedRoles = ['tenant_admin', 'receptionist', 'cashier', 'solution_owner'];
+    // Allow tenant_admin, receptionist, cashier, solution_owner, customer_admin, and admin_user
+    // Note: customer_admin and admin_user have restricted access (bookings only) enforced at route level
+    const allowedRoles = ['tenant_admin', 'receptionist', 'cashier', 'solution_owner', 'customer_admin', 'admin_user'];
     if (!decoded.role) {
       console.error('[Auth] Token missing role:', { decoded });
       return res.status(403).json({ 
@@ -176,8 +177,15 @@ function authenticateTenantAdminOnly(req: express.Request, res: express.Response
   }
 }
 
-// Get SMTP settings for tenant
+// Get SMTP settings for tenant (block customer_admin and admin_user)
 router.get('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
+  // Block restricted roles from accessing settings
+  if (req.user?.role === 'customer_admin' || req.user?.role === 'admin_user') {
+    return res.status(403).json({ 
+      error: 'Access denied. This role does not have permission to access settings.',
+      userRole: req.user.role
+    });
+  }
   try {
     // Solution Owner needs to provide tenant_id in query params for tenant-specific operations
     const tenantId = req.query.tenant_id as string || req.user!.tenant_id;
@@ -235,6 +243,13 @@ router.get('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
 
 // Update email settings for tenant (supports both SendGrid API and SMTP)
 router.put('/smtp-settings', authenticateTenantAdmin, async (req, res) => {
+  // Block restricted roles from accessing settings
+  if (req.user?.role === 'customer_admin' || req.user?.role === 'admin_user') {
+    return res.status(403).json({ 
+      error: 'Access denied. This role does not have permission to access settings.',
+      userRole: req.user.role
+    });
+  }
   console.log('[Tenants Route] PUT /smtp-settings called');
   console.log('[Tenants Route] Request user:', {
     userId: req.user?.id,
@@ -497,6 +512,13 @@ async function updateSmtpSettings(
 // Test email connection (SendGrid API or SMTP)
 // This endpoint now uses the production-ready email API service
 router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => {
+  // Block restricted roles from accessing settings
+  if (req.user?.role === 'customer_admin' || req.user?.role === 'admin_user') {
+    return res.status(403).json({ 
+      error: 'Access denied. This role does not have permission to access settings.',
+      userRole: req.user.role
+    });
+  }
   console.log('[SMTP Test] ========================================');
   console.log('[SMTP Test] Email test request received');
   console.log('[SMTP Test] Tenant ID:', req.user?.tenant_id);
@@ -777,6 +799,13 @@ router.post('/smtp-settings/test', authenticateTenantAdmin, async (req, res) => 
 
 // Get WhatsApp settings for tenant
 router.get('/whatsapp-settings', authenticateTenantAdmin, async (req, res) => {
+  // Block restricted roles from accessing settings
+  if (req.user?.role === 'customer_admin' || req.user?.role === 'admin_user') {
+    return res.status(403).json({ 
+      error: 'Access denied. This role does not have permission to access settings.',
+      userRole: req.user.role
+    });
+  }
   try {
     const tenantId = req.user!.tenant_id;
     
@@ -829,6 +858,13 @@ router.get('/whatsapp-settings', authenticateTenantAdmin, async (req, res) => {
 
 // Update WhatsApp settings for tenant
 router.put('/whatsapp-settings', authenticateTenantAdmin, async (req, res) => {
+  // Block restricted roles from accessing settings
+  if (req.user?.role === 'customer_admin' || req.user?.role === 'admin_user') {
+    return res.status(403).json({ 
+      error: 'Access denied. This role does not have permission to access settings.',
+      userRole: req.user.role
+    });
+  }
   try {
     const tenantId = req.user!.tenant_id;
     const { provider, api_url, api_key, phone_number_id, access_token, account_sid, auth_token, from } = req.body;
@@ -922,6 +958,13 @@ router.put('/whatsapp-settings', authenticateTenantAdmin, async (req, res) => {
 
 // Test WhatsApp connection
 router.post('/whatsapp-settings/test', authenticateTenantAdmin, async (req, res) => {
+  // Block restricted roles from accessing settings
+  if (req.user?.role === 'customer_admin' || req.user?.role === 'admin_user') {
+    return res.status(403).json({ 
+      error: 'Access denied. This role does not have permission to access settings.',
+      userRole: req.user.role
+    });
+  }
   try {
     const tenantId = req.user!.tenant_id;
     const { provider, api_url, api_key, phone_number_id, access_token, account_sid, auth_token, from } = req.body;
@@ -1367,8 +1410,15 @@ router.post('/zoho-config/test', authenticateTenantAdmin, async (req, res) => {
 // Currency Settings
 // ============================================================================
 
-// Get currency settings
+// Get currency settings (block customer_admin and admin_user)
 router.get('/currency', authenticateTenantAdmin, async (req, res) => {
+  // Block restricted roles from accessing settings
+  if (req.user?.role === 'customer_admin' || req.user?.role === 'admin_user') {
+    return res.status(403).json({ 
+      error: 'Access denied. This role does not have permission to access settings.',
+      userRole: req.user.role
+    });
+  }
   try {
     const tenantId = req.user!.tenant_id!;
 

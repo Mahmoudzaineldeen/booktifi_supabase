@@ -278,7 +278,9 @@
       "employee": "Employee",
       "receptionist": "Receptionist",
       "cashier": "Cashier",
-      "tenant_admin": "Tenant Admin"
+      "tenant_admin": "Tenant Admin",
+      "customer_admin": "Customer Admin",
+      "admin_user": "Admin User"
     }
   },
   "admin": {

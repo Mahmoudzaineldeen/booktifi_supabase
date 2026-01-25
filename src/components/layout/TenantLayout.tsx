@@ -24,41 +24,46 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
   // Get tenantSlug from props, URL params, or tenant slug
   const tenantSlug = propTenantSlug || params.tenantSlug || tenant?.slug || '';
 
+  // Determine restricted roles
+  const isRestrictedRole = userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user';
+  const isAdminUser = userProfile?.role === 'admin_user';
+  const isCustomerAdmin = userProfile?.role === 'customer_admin';
+
   const baseNavigation = [
     {
       name: t('navigation.home'),
       href: `/${tenantSlug}/admin`,
       icon: LayoutDashboard,
       current: location.pathname === `/${tenantSlug}/admin`,
-      visible: true,
+      visible: !isAdminUser, // Admin User only sees bookings
     },
     {
       name: t('navigation.services'),
       href: `/${tenantSlug}/admin/services`,
       icon: Briefcase,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/services`),
-      visible: true,
+      visible: !isRestrictedRole, // Both restricted roles cannot access
     },
     {
       name: t('navigation.packages'),
       href: `/${tenantSlug}/admin/packages`,
       icon: Package,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/packages`),
-      visible: features?.packages_enabled ?? true,
+      visible: (features?.packages_enabled ?? true) && !isRestrictedRole,
     },
     {
       name: t('navigation.offers'),
       href: `/${tenantSlug}/admin/offers`,
       icon: Gift,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/offers`),
-      visible: true,
+      visible: !isRestrictedRole,
     },
     {
       name: t('navigation.bookings'),
       href: `/${tenantSlug}/admin/bookings`,
       icon: Calendar,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/bookings`),
-      visible: true,
+      visible: true, // All roles can see bookings
     },
     {
       name: t('navigation.employees'),
@@ -72,14 +77,14 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       href: `/${tenantSlug}/admin/landing`,
       icon: Globe,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/landing`),
-      visible: features?.landing_page_enabled ?? true,
+      visible: (features?.landing_page_enabled ?? true) && !isRestrictedRole,
     },
     {
       name: t('navigation.settings'),
       href: `/${tenantSlug}/admin/settings`,
       icon: Settings,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/settings`),
-      visible: true,
+      visible: !isRestrictedRole,
     },
   ];
 
@@ -173,34 +178,36 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
               );
             })}
             
-            {/* Preview Mode Section */}
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <p className="px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                {t('navigation.previewMode')}
-              </p>
-              <Link
-                to={`/${tenantSlug}/book`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
-              >
-                <Eye className="w-5 h-5" />
-                <span>{t('navigation.viewBookingPage')}</span>
-                <ExternalLink className="w-4 h-4 ml-auto" />
-              </Link>
-              <Link
-                to={`/${tenantSlug}/customer`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
-              >
-                <Eye className="w-5 h-5" />
-                <span>{t('navigation.viewCustomerPage')}</span>
-                <ExternalLink className="w-4 h-4 ml-auto" />
-              </Link>
-            </div>
+            {/* Preview Mode Section - Hidden for restricted roles */}
+            {!isRestrictedRole && (
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <p className="px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  {t('navigation.previewMode')}
+                </p>
+                <Link
+                  to={`/${tenantSlug}/book`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
+                >
+                  <Eye className="w-5 h-5" />
+                  <span>{t('navigation.viewBookingPage')}</span>
+                  <ExternalLink className="w-4 h-4 ml-auto" />
+                </Link>
+                <Link
+                  to={`/${tenantSlug}/customer`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
+                >
+                  <Eye className="w-5 h-5" />
+                  <span>{t('navigation.viewCustomerPage')}</span>
+                  <ExternalLink className="w-4 h-4 ml-auto" />
+                </Link>
+              </div>
+            )}
           </nav>
 
           <div className="p-4 border-t border-gray-200 space-y-3">

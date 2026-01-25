@@ -195,11 +195,6 @@ export function BookingSuccessPage() {
                     </p>
                     <p className="font-semibold text-gray-900">
                       {booking.visitor_count}
-                      {booking.adult_count && booking.child_count && (
-                        <span className="text-sm text-gray-600 ml-2">
-                          ({booking.adult_count} {i18n.language === 'ar' ? 'كبار' : 'adults'}, {booking.child_count} {i18n.language === 'ar' ? 'أطفال' : 'children'})
-                        </span>
-                      )}
                     </p>
                   </div>
                 </div>

@@ -49,8 +49,7 @@ interface BookingData {
   start_time: string;
   end_time: string;
   visitor_count: number;
-  adult_count?: number | null;
-  child_count?: number | null;
+  // adult_count and child_count removed - use visitor_count only
   total_price: number;
   service_name?: string;
   service_name_ar?: string;
@@ -203,15 +202,13 @@ function formatTimeRange(startTime: string, endTime: string): string {
  * @param language - Language for the ticket ('en' or 'ar')
  * @param ticketNumber - Optional: Ticket number (1-based) if multiple tickets
  * @param totalTickets - Optional: Total number of tickets in the booking
- * @param ticketType - Optional: 'adult' or 'child' for individual ticket type
- * @param ticketPrice - Optional: Individual ticket price (for adult or child)
+ * @param ticketPrice - Optional: Individual ticket price
  */
 export async function generateBookingTicketPDF(
   bookingId: string, 
   language: 'en' | 'ar' = 'en',
   ticketNumber?: number,
   totalTickets?: number,
-  ticketType?: 'adult' | 'child',
   ticketPrice?: number
 ): Promise<Buffer> {
   try {
@@ -264,13 +261,12 @@ export async function generateBookingTicketPDF(
       .select(`
         id, customer_name, customer_phone, customer_email,
         created_at, package_id, offer_id,
-        visitor_count, adult_count, child_count, total_price,
+        visitor_count, total_price,
         payment_status, status,
         services (
           name,
           name_ar,
           base_price,
-          child_price
         ),
         tenants (
           name,
@@ -293,7 +289,6 @@ export async function generateBookingTicketPDF(
     const booking: BookingData & {
       package_id?: string | null;
       base_price?: number;
-      child_price?: number | null;
       offer_id?: string | null;
     } = {
       id: bookings.id,
@@ -304,8 +299,6 @@ export async function generateBookingTicketPDF(
       start_time: bookings.slots.start_time,
       end_time: bookings.slots.end_time,
       visitor_count: bookings.visitor_count,
-      adult_count: bookings.adult_count,
-      child_count: bookings.child_count,
       total_price: bookings.total_price,
       service_name: bookings.services.name,
       service_name_ar: bookings.services.name_ar,
@@ -314,7 +307,6 @@ export async function generateBookingTicketPDF(
       created_at: bookings.created_at,
       package_id: bookings.package_id,
       base_price: bookings.services.base_price,
-      child_price: bookings.services.child_price,
       offer_id: bookings.offer_id,
     };
     const tenantSettings = bookings.tenants.landing_page_settings;
@@ -326,32 +318,26 @@ export async function generateBookingTicketPDF(
     if (ticketPrice !== undefined) {
       // Use provided ticket price
       individualTicketPrice = ticketPrice;
-    } else if (ticketType === 'child' && booking.child_price !== null && booking.child_price !== undefined) {
-      // Child ticket price
-      individualTicketPrice = parseFloat(String(booking.child_price));
     } else {
-      // Adult ticket price (use base_price or calculate from total)
-      if (booking.base_price !== undefined && booking.base_price !== null) {
-        individualTicketPrice = parseFloat(String(booking.base_price));
-      } else {
-        // Fallback: calculate average price per ticket
-        const totalPrice = parseFloat(String(booking.total_price || 0));
-        const totalVisitors = booking.visitor_count || 1;
-        individualTicketPrice = totalPrice / totalVisitors;
-      }
-    }
-    
-    // If offer is selected, fetch offer price
-    if (booking.offer_id && !ticketPrice && ticketType !== 'child') {
-      const { data: offers, error: offerError } = await supabase
-        .from('service_offers')
-        .select('price')
-        .eq('id', booking.offer_id)
-        .single();
+      // Calculate price per ticket from total
+      const totalPrice = parseFloat(String(booking.total_price || 0));
+      const totalVisitors = booking.visitor_count || 1;
+      individualTicketPrice = totalPrice / totalVisitors;
+      
+      // If offer is selected, try to use offer price
+      if (booking.offer_id && !ticketPrice) {
+        const { data: offers, error: offerError } = await supabase
+          .from('service_offers')
+          .select('price')
+          .eq('id', booking.offer_id)
+          .single();
 
-      if (!offerError && offers) {
-        // Use offer price for adults, child price remains as is
-        individualTicketPrice = parseFloat(String(offers.price));
+        if (!offerError && offers) {
+          individualTicketPrice = parseFloat(String(offers.price));
+        }
+      } else if (booking.base_price !== undefined && booking.base_price !== null) {
+        // Use base_price as fallback
+        individualTicketPrice = parseFloat(String(booking.base_price));
       }
     }
 
@@ -768,66 +754,6 @@ export async function generateBookingTicketPDF(
          width: contentWidth - 30
        });
     
-    yPos += 30;
-    
-    // Ticket Type section - Show individual ticket type (Adult or Child)
-    let ticketTypeDisplay = '';
-    let ticketTypeLabel = getText('TICKET TYPE', 'نوع التذكرة');
-    
-    // Explicitly check for 'adult' and 'child' strings (case-insensitive)
-    const normalizedTicketType = ticketType?.toLowerCase();
-    
-    if (normalizedTicketType === 'adult') {
-      ticketTypeDisplay = getText('Adult', 'كبار');
-    } else if (normalizedTicketType === 'child') {
-      ticketTypeDisplay = getText('Child', 'أطفال');
-    } else {
-      // Fallback: show total counts if ticket type not specified
-      // This should not happen when generating individual tickets
-      const adultCount = booking.adult_count ?? 0;
-      const childCount = booking.child_count ?? 0;
-      if (adultCount > 0 && childCount > 0) {
-        ticketTypeDisplay = getText(
-          `${adultCount} Adult + ${childCount} Child`,
-          `${adultCount} كبار + ${childCount} أطفال`
-        );
-      } else if (adultCount > 0) {
-        ticketTypeDisplay = getText(
-          `${adultCount} Adult`,
-          `${adultCount} كبار`
-        );
-      } else if (childCount > 0) {
-        ticketTypeDisplay = getText(
-          `${childCount} Child`,
-          `${childCount} أطفال`
-        );
-      } else {
-        ticketTypeDisplay = getText(
-          `${booking.visitor_count} Visitor${booking.visitor_count > 1 ? 's' : ''}`,
-          `${booking.visitor_count} زائر`
-        );
-      }
-    }
-    
-    const ticketTypeLabelFont = getFontAndAlign(true);
-    doc.fillColor('#34495E')
-       .fontSize(10)
-       .font(ticketTypeLabelFont.font)
-       .text(ticketTypeLabel, margin + 15, yPos, {
-         align: ticketTypeLabelFont.align,
-         width: contentWidth - 30
-       });
-    
-    yPos += 18;
-    const ticketTypeDisplayFont = getFontAndAlign(false);
-    doc.fillColor('#2C3E50')
-       .fontSize(11)
-       .font(ticketTypeDisplayFont.font)
-       .text(ticketTypeDisplay, margin + 15, yPos, {
-         align: ticketTypeDisplayFont.align,
-         width: contentWidth - 30
-       });
-    
     yPos = eventBoxY + eventBoxHeight + 25;
 
     // ============================================
@@ -1042,18 +968,16 @@ export async function generateBookingTicketPDF(
          width: rightSectionWidth - 30
        });
     
-    // Explicitly check for 'adult' and 'child' strings (case-insensitive)
-    const normalizedTicketTypeForDisplay = ticketType?.toLowerCase();
-    const displayTicketType = normalizedTicketTypeForDisplay === 'adult'
-      ? getText('Adult', 'كبار')
-      : normalizedTicketTypeForDisplay === 'child'
-      ? getText('Child', 'أطفال')
-      : getText('General', 'عام');
+    // Show visitor count
+    const ticketCountDisplay = getText(
+      `${booking.visitor_count} Ticket${booking.visitor_count > 1 ? 's' : ''}`,
+      `${booking.visitor_count} تذكرة${booking.visitor_count > 1 ? '' : ''}`
+    );
     
     doc.fillColor('#2C3E50')
        .fontSize(10)
        .font(ticketDetailValueFont.font)
-       .text(displayTicketType, ticketInfoX, yPos + 12, {
+       .text(ticketCountDisplay, ticketInfoX, yPos + 12, {
          align: ticketDetailValueFont.align,
          width: rightSectionWidth - 30
        });
@@ -1223,10 +1147,10 @@ export async function generateAllTicketsInOnePDF(
   try {
     console.log(`📄 generateAllTicketsInOnePDF: Starting for booking ${bookingId}`);
     
-    // Fetch booking details to get adult_count and child_count
+    // Fetch booking details to get visitor_count
     const { data: bookings, error: bookingError } = await supabase
       .from('bookings')
-      .select('visitor_count, adult_count, child_count, service_id, offer_id')
+      .select('visitor_count, service_id, offer_id')
       .eq('id', bookingId)
       .single();
 
@@ -1235,24 +1159,13 @@ export async function generateAllTicketsInOnePDF(
     }
 
     const booking = bookings;
-    const adultCount = booking.adult_count || 0;
-    const childCount = booking.child_count || 0;
     const visitorCount = booking.visitor_count || 1;
 
-    console.log(`📄 Booking details: ${adultCount} adults, ${childCount} children, ${visitorCount} total visitors`);
-
-    // If only one ticket, generate single ticket
-    if (visitorCount === 1) {
-      // Determine ticket type
-      const ticketType = adultCount > 0 ? 'adult' : 'child';
-      console.log(`📄 Generating single ticket (type: ${ticketType})`);
-      return await generateBookingTicketPDF(bookingId, language, 1, 1, ticketType);
-    }
+    console.log(`📄 Booking details: ${visitorCount} tickets`);
 
     // Generate all tickets in one PDF (multiple pages)
-    // Generate separate tickets for adults and children
-    console.log(`📄 Generating multiple tickets: ${adultCount} adult + ${childCount} child`);
-    const result = await generateMultipleTicketsInOnePDF(bookingId, language, adultCount, childCount);
+    console.log(`📄 Generating ${visitorCount} ticket(s)`);
+    const result = await generateMultipleTicketsInOnePDF(bookingId, language, visitorCount);
     console.log(`✅ generateAllTicketsInOnePDF: Completed for booking ${bookingId} (${result.length} bytes)`);
     return result;
   } catch (error: any) {
@@ -1283,14 +1196,11 @@ export async function generateBulkBookingTicketPDFBase64(
         customer_phone,
         customer_email,
         visitor_count,
-        adult_count,
-        child_count,
         total_price,
         services (
           name,
           name_ar,
           base_price,
-          child_price
         ),
         slots (
           slot_date,
@@ -1334,16 +1244,10 @@ export async function generateBulkBookingTicketPDFBase64(
       const ticketNumber = i + 1;
       const totalTickets = bookings.length;
 
-      // Determine ticket type (adult or child)
-      const ticketType = booking.adult_count > 0 ? 'adult' : 'child';
-      
-      // Calculate ticket price
-      let ticketPrice: number | undefined;
-      if (ticketType === 'child' && booking.services.child_price) {
-        ticketPrice = parseFloat(String(booking.services.child_price));
-      } else {
-        ticketPrice = parseFloat(String(booking.services.base_price));
-      }
+      // Calculate ticket price (price per ticket)
+      const totalPrice = parseFloat(String(booking.total_price || 0));
+      const totalVisitors = booking.visitor_count || 1;
+      const ticketPrice = totalPrice / totalVisitors;
 
       // Generate ticket PDF for this booking
       const ticketBuffer = await generateBookingTicketPDF(
@@ -1351,7 +1255,6 @@ export async function generateBulkBookingTicketPDFBase64(
         language,
         ticketNumber,
         totalTickets,
-        ticketType,
         ticketPrice
       );
 
@@ -1376,38 +1279,39 @@ export async function generateBulkBookingTicketPDFBase64(
 /**
  * Generate multiple tickets in a single PDF file (one page per ticket)
  * This function creates a single PDF with multiple pages, each page being one ticket
- * Generates separate tickets for adults and children with their individual prices
+ * Generates multiple tickets in a single PDF file (one page per ticket)
  */
 async function generateMultipleTicketsInOnePDF(
   bookingId: string,
   language: 'en' | 'ar',
-  adultCount: number,
-  childCount: number
+  visitorCount: number
 ): Promise<Buffer> {
   const { PDFDocument } = await import('pdf-lib');
   
-  // Fetch service prices to calculate individual ticket prices
-  const { data: bookings, error: bookingError } = await supabase
+  // Fetch booking to get total price for calculating price per ticket
+  const { data: booking, error: bookingError } = await supabase
     .from('bookings')
     .select(`
-      service_id,
+      total_price,
+      visitor_count,
       offer_id,
       services (
-        base_price,
-        child_price
+        base_price
       )
     `)
     .eq('id', bookingId)
     .single();
 
-  let adultPrice: number | undefined;
-  let childPrice: number | undefined;
+  let ticketPrice: number | undefined;
 
-  if (!bookingError && bookings) {
-    const booking = bookings;
+  if (!bookingError && booking) {
+    // Calculate price per ticket
+    const totalPrice = parseFloat(String(booking.total_price || 0));
+    const totalVisitors = booking.visitor_count || visitorCount || 1;
+    ticketPrice = totalPrice / totalVisitors;
 
-    // Get offer price if offer is selected
-    if (booking.offer_id) {
+    // If offer is selected, try to use offer price
+    if (booking.offer_id && !ticketPrice) {
       const { data: offers, error: offerError } = await supabase
         .from('service_offers')
         .select('price')
@@ -1415,60 +1319,31 @@ async function generateMultipleTicketsInOnePDF(
         .single();
 
       if (!offerError && offers) {
-        adultPrice = parseFloat(String(offers.price));
+        ticketPrice = parseFloat(String(offers.price));
       }
     }
 
-    // Use base_price if offer price not available
-    if (!adultPrice && booking.services.base_price) {
-      adultPrice = parseFloat(String(booking.services.base_price));
-    }
-
-    // Child price
-    if (booking.services.child_price) {
-      childPrice = parseFloat(String(booking.services.child_price));
-    } else {
-      // If no child price, use adult price
-      childPrice = adultPrice;
+    // Use base_price as fallback
+    if (!ticketPrice && booking.services?.base_price) {
+      ticketPrice = parseFloat(String(booking.services.base_price));
     }
   }
   
-  const totalTickets = adultCount + childCount;
+  const totalTickets = visitorCount;
   
   // Create a new PDF document to combine all tickets
   const combinedPdf = await PDFDocument.create();
   
   let ticketNumber = 1;
   
-  // Generate adult tickets
-  for (let i = 0; i < adultCount; i++) {
+  // Generate tickets (one per visitor)
+  for (let i = 0; i < visitorCount; i++) {
     const ticketBuffer = await generateBookingTicketPDF(
       bookingId, 
       language, 
       ticketNumber, 
       totalTickets, 
-      'adult' as 'adult', // Explicitly type as 'adult'
-      adultPrice
-    );
-    const ticketPdf = await PDFDocument.load(ticketBuffer);
-    
-    const ticketPageCount = ticketPdf.getPageCount();
-    if (ticketPageCount > 0) {
-      const [copiedPage] = await combinedPdf.copyPages(ticketPdf, [0]);
-      combinedPdf.addPage(copiedPage);
-    }
-    ticketNumber++;
-  }
-  
-  // Generate child tickets
-  for (let i = 0; i < childCount; i++) {
-    const ticketBuffer = await generateBookingTicketPDF(
-      bookingId, 
-      language, 
-      ticketNumber, 
-      totalTickets, 
-      'child' as 'child', // Explicitly type as 'child'
-      childPrice
+      ticketPrice
     );
     const ticketPdf = await PDFDocument.load(ticketBuffer);
     

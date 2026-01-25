@@ -7,7 +7,7 @@ import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { AnimatedRating } from '../../components/ui/AnimatedRating';
-import { Calendar, Clock, Package, ChevronRight, ChevronLeft, CheckCircle, X, User, AlertCircle, Users, Baby } from 'lucide-react';
+import { Calendar, Clock, Package, ChevronRight, ChevronLeft, CheckCircle, X, User, AlertCircle, Users } from 'lucide-react';
 import { format, addDays, startOfDay, getDay, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, parseISO, startOfMonth, endOfMonth, addMonths, subMonths, getDaysInMonth } from 'date-fns';
 
 interface Tenant {
@@ -49,7 +49,6 @@ interface PackageService {
     description: string;
     description_ar: string;
     base_price: number;
-    child_price?: number | null;
     duration_minutes: number;
     image_url?: string;
   };
@@ -130,8 +129,7 @@ export function PackageSchedulePage() {
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 0 }));
   const [showFullCalendar, setShowFullCalendar] = useState<Record<string, boolean>>({});
   const [calendarMonth, setCalendarMonth] = useState<Record<string, Date>>({});
-  const [adultCounts, setAdultCounts] = useState<Record<string, number>>({});
-  const [childCounts, setChildCounts] = useState<Record<string, number>>({});
+  const [visitorCounts, setVisitorCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (tenantSlug && packageId) {
@@ -214,7 +212,7 @@ export function PackageSchedulePage() {
       // Use explicit foreign key format: services:service_id to avoid auto-detection issues
       const { data: packageServicesData, error: packageServicesError } = await db
         .from('package_services')
-        .select('service_id, quantity, services:service_id (id, name, name_ar, description, description_ar, base_price, child_price, duration_minutes, image_url)')
+        .select('service_id, quantity, services:service_id (id, name, name_ar, description, description_ar, base_price, duration_minutes, image_url)')
         .eq('package_id', packageId);
 
       if (packageServicesError) {
@@ -233,9 +231,6 @@ export function PackageSchedulePage() {
           description: ps.services.description || '',
           description_ar: ps.services.description_ar || '',
           base_price: parseFloat(ps.services.base_price || 0),
-          child_price: ps.services.child_price !== undefined && ps.services.child_price !== null 
-            ? parseFloat(String(ps.services.child_price)) 
-            : null,
           duration_minutes: ps.services.duration_minutes || 60,
           image_url: ps.services.image_url || null,
         } : undefined,
@@ -478,9 +473,7 @@ export function PackageSchedulePage() {
     // Validate capacity for each service's slot before proceeding
     for (const pkgService of packageServices) {
       const slot = selectedSlots[pkgService.service_id];
-      const serviceAdultCount = adultCounts[pkgService.service_id] || 1;
-      const serviceChildCount = childCounts[pkgService.service_id] || 0;
-      const serviceVisitorCount = serviceAdultCount + serviceChildCount;
+      const serviceVisitorCount = visitorCounts[pkgService.service_id] || 1;
       
       if (!slot) {
         alert(
@@ -501,9 +494,8 @@ export function PackageSchedulePage() {
       }
     }
 
-    // Calculate total adult and child counts across all services
-    const totalAdultCount = packageServices.reduce((sum, svc) => sum + (adultCounts[svc.service_id] || 1), 0);
-    const totalChildCount = packageServices.reduce((sum, svc) => sum + (childCounts[svc.service_id] || 0), 0);
+    // Calculate total visitor count across all services
+    const totalVisitorCount = packageServices.reduce((sum, svc) => sum + (visitorCounts[svc.service_id] || 1), 0);
 
     // Build packageServices array with all required data
     const packageServicesData = packageServices.map(svc => {
@@ -515,8 +507,7 @@ export function PackageSchedulePage() {
         date: selectedDates[svc.service_id],
         slot: slot,
         slotId: slot?.id,
-        adultCount: adultCounts[svc.service_id] || 1,
-        childCount: childCounts[svc.service_id] || 0,
+        visitorCount: visitorCounts[svc.service_id] || 1,
       };
     });
 
@@ -529,8 +520,7 @@ export function PackageSchedulePage() {
       // Additional package data
       packageName: formatPackageName(packageData, i18n.language),
       totalPrice: packageData.total_price,
-      adultCount: totalAdultCount,
-      childCount: totalChildCount,
+      visitorCount: totalVisitorCount,
       packageServices: packageServicesData,
     };
 
@@ -1130,42 +1120,41 @@ export function PackageSchedulePage() {
                     </h2>
                     
                     <div className="space-y-4">
-                      {/* Adult Tickets */}
+                      {/* Visitor Count */}
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
                             <Users className="w-4 h-4 text-gray-600" />
                             <span className="text-sm text-gray-700">
-                              {i18n.language === 'ar' ? 'تذاكر الكبار' : 'Adult Tickets'}
+                              {i18n.language === 'ar' ? 'عدد التذاكر' : 'Number of Tickets'}
                             </span>
                           </div>
                           {service && (
                             <span className="text-sm font-semibold text-gray-900">
-                              {formatPrice(parseFloat(String(service.base_price || 0)))}
+                              {formatPrice(parseFloat(String(service.base_price || 0)))} {i18n.language === 'ar' ? 'لكل تذكرة' : 'per ticket'}
                             </span>
                           )}
                         </div>
                         <div className="flex items-center gap-3">
                           <button
                             type="button"
-                            onClick={() => setAdultCounts(prev => ({
+                            onClick={() => setVisitorCounts(prev => ({
                               ...prev,
                               [pkgService.service_id]: Math.max(1, (prev[pkgService.service_id] || 1) - 1)
                             }))}
-                            disabled={(adultCounts[pkgService.service_id] || 1) === 1}
+                            disabled={(visitorCounts[pkgService.service_id] || 1) === 1}
                             className="w-10 h-10 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <X className="w-4 h-4" />
                           </button>
                           <span className="text-lg font-semibold w-12 text-center">
-                            {adultCounts[pkgService.service_id] || 1}
+                            {visitorCounts[pkgService.service_id] || 1}
                           </span>
                           <button
                             type="button"
                             onClick={() => {
-                              const currentCount = adultCounts[pkgService.service_id] || 1;
-                              const currentChildCount = childCounts[pkgService.service_id] || 0;
-                              const newTotalTickets = currentCount + currentChildCount + 1;
+                              const currentCount = visitorCounts[pkgService.service_id] || 1;
+                              const newTotalTickets = currentCount + 1;
                               // Check capacity before allowing increase
                               if (selectedSlot && selectedSlot.available_capacity < newTotalTickets) {
                                 alert(
@@ -1175,86 +1164,16 @@ export function PackageSchedulePage() {
                                 );
                                 return;
                               }
-                              setAdultCounts(prev => ({
+                              setVisitorCounts(prev => ({
                                 ...prev,
-                                [pkgService.service_id]: currentCount + 1
+                                [pkgService.service_id]: newTotalTickets
                               }));
                             }}
-                            disabled={selectedSlot ? (adultCounts[pkgService.service_id] || 1) + (childCounts[pkgService.service_id] || 0) >= (selectedSlot.available_capacity || 0) : false}
+                            disabled={selectedSlot ? (visitorCounts[pkgService.service_id] || 1) >= (selectedSlot.available_capacity || 0) : false}
                             className="w-10 h-10 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Users className="w-4 h-4" />
                           </button>
-                        </div>
-                      </div>
-
-                      {/* Child Tickets - Only show if this service has child_price */}
-                      {service && service.child_price !== undefined && service.child_price !== null && (
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <Baby className="w-4 h-4 text-gray-600" />
-                              <span className="text-sm text-gray-700">
-                                {i18n.language === 'ar' ? 'تذاكر الأطفال' : 'Child Tickets'}
-                              </span>
-                            </div>
-                            <span className="text-sm font-semibold text-gray-900">
-                              {formatPrice(parseFloat(String(service.child_price || 0)))}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <button
-                              type="button"
-                              onClick={() => setChildCounts(prev => ({
-                                ...prev,
-                                [pkgService.service_id]: Math.max(0, (prev[pkgService.service_id] || 0) - 1)
-                              }))}
-                              disabled={(childCounts[pkgService.service_id] || 0) === 0}
-                              className="w-10 h-10 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                            <span className="text-lg font-semibold w-12 text-center">
-                              {childCounts[pkgService.service_id] || 0}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const currentCount = adultCounts[pkgService.service_id] || 1;
-                                const currentChildCount = childCounts[pkgService.service_id] || 0;
-                                const newTotalTickets = currentCount + currentChildCount + 1;
-                                // Check capacity before allowing increase
-                                if (selectedSlot && selectedSlot.available_capacity < newTotalTickets) {
-                                  alert(
-                                    i18n.language === 'ar' 
-                                      ? `لا توجد أماكن كافية. المتاح: ${selectedSlot.available_capacity}، المطلوب: ${newTotalTickets}`
-                                      : `Not enough capacity available. Available: ${selectedSlot.available_capacity}, Requested: ${newTotalTickets}`
-                                  );
-                                  return;
-                                }
-                                setChildCounts(prev => ({
-                                  ...prev,
-                                  [pkgService.service_id]: currentChildCount + 1
-                                }));
-                              }}
-                              disabled={selectedSlot ? (adultCounts[pkgService.service_id] || 1) + (childCounts[pkgService.service_id] || 0) >= (selectedSlot.available_capacity || 0) : false}
-                              className="w-10 h-10 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <Users className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Total Visitors Display for this service */}
-                      <div className="pt-2 border-t">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-gray-700">
-                            {i18n.language === 'ar' ? 'إجمالي الزوار لهذه الخدمة' : 'Total Visitors for this service'}
-                          </span>
-                          <span className="text-lg font-semibold text-gray-900">
-                            {(adultCounts[pkgService.service_id] || 1) + (childCounts[pkgService.service_id] || 0)} {i18n.language === 'ar' ? 'زائر' : 'visitor(s)'}
-                          </span>
                         </div>
                       </div>
                     </div>
@@ -1335,14 +1254,9 @@ export function PackageSchedulePage() {
                     {(() => {
                       // Calculate total visitors across all services
                       const totalVisitors = packageServices.reduce((sum, svc) => {
-                        const adultCount = adultCounts[svc.service_id] || 1;
-                        const childCount = childCounts[svc.service_id] || 0;
-                        return sum + adultCount + childCount;
+                        const visitorCount = visitorCounts[svc.service_id] || 1;
+                        return sum + visitorCount;
                       }, 0);
-
-                      // Calculate totals for breakdown
-                      const totalAdults = packageServices.reduce((sum, svc) => sum + (adultCounts[svc.service_id] || 1), 0);
-                      const totalChildren = packageServices.reduce((sum, svc) => sum + (childCounts[svc.service_id] || 0), 0);
                       
                       // Get the first service for base price display (assuming all services in package have same pricing structure)
                       const firstService = packageServices[0]?.service;
@@ -1351,53 +1265,26 @@ export function PackageSchedulePage() {
                       const hasServiceDiscount = originalPrice > basePrice;
                       const serviceDiscountPercent = hasServiceDiscount ? Math.round(((originalPrice - basePrice) / originalPrice) * 100) : 0;
                       
-                      // Calculate adult and child subtotals
-                      const adultSubtotal = packageServices.reduce((sum, svc) => {
+                      // Calculate total price: sum of (service_price × visitor_count) for each service
+                      const totalPrice = packageServices.reduce((sum, svc) => {
                         const service = svc.service;
-                        const adultCount = adultCounts[svc.service_id] || 1;
+                        const visitorCount = visitorCounts[svc.service_id] || 1;
                         const serviceBasePrice = parseFloat(String(service?.base_price || 0));
-                        return sum + (serviceBasePrice * adultCount);
+                        return sum + (serviceBasePrice * visitorCount);
                       }, 0);
-                      
-                      const childSubtotal = packageServices.reduce((sum, svc) => {
-                        const service = svc.service;
-                        const childCount = childCounts[svc.service_id] || 0;
-                        const childPrice = service?.child_price 
-                          ? parseFloat(String(service.child_price)) 
-                          : parseFloat(String(service?.base_price || 0));
-                        return sum + (childPrice * childCount);
-                      }, 0);
-                      
-                      // Calculate total price: sum of (service_price × ticket_count) for each service
-                      const totalPrice = adultSubtotal + childSubtotal;
                       
                       // Calculate original total price (if services have discounts)
                       const originalTotalPrice = packageServices.reduce((sum, svc) => {
                         const service = svc.service;
-                        const adultCount = adultCounts[svc.service_id] || 1;
-                        const childCount = childCounts[svc.service_id] || 0;
+                        const visitorCount = visitorCounts[svc.service_id] || 1;
                         const originalBasePrice = parseFloat(String(service?.original_price || service?.base_price || 0));
-                        const originalChildPrice = service?.child_price 
-                          ? parseFloat(String(service.child_price)) 
-                          : originalBasePrice;
-                        return sum + (originalBasePrice * adultCount) + (originalChildPrice * childCount);
+                        return sum + (originalBasePrice * visitorCount);
                       }, 0);
-                      
-                      // Get child price for display (from first service that has child_price, or use base_price)
-                      const displayChildPrice = (() => {
-                        const serviceWithChildPrice = packageServices.find(svc => svc.service?.child_price);
-                        if (serviceWithChildPrice?.service?.child_price) {
-                          return parseFloat(String(serviceWithChildPrice.service.child_price));
-                        }
-                        return basePrice;
-                      })();
 
                       // Find capacity issues with specific details
                       const capacityIssues = packageServices.filter(svc => {
                         const slot = selectedSlots[svc.service_id];
-                        const adultCount = adultCounts[svc.service_id] || 1;
-                        const childCount = childCounts[svc.service_id] || 0;
-                        const serviceVisitors = adultCount + childCount;
+                        const serviceVisitors = visitorCounts[svc.service_id] || 1;
                         return slot && slot.available_capacity < serviceVisitors;
                       });
                       
@@ -1448,26 +1335,14 @@ export function PackageSchedulePage() {
 
                           {/* Detailed Price Breakdown */}
                           <div className="space-y-2 pb-3 border-b">
-                            {totalAdults > 0 && (
-                              <div className="flex items-center justify-between">
-                                <div className="text-sm text-gray-600">
-                                  {i18n.language === 'ar' ? 'تذاكر الكبار' : 'Adult Tickets'}
-                                </div>
-                                <div className="text-sm font-semibold text-gray-900">
-                                  {totalAdults} × {formatPrice(basePrice)} = {formatPrice(adultSubtotal)}
-                                </div>
+                            <div className="flex items-center justify-between">
+                              <div className="text-sm text-gray-600">
+                                {i18n.language === 'ar' ? 'عدد التذاكر' : 'Number of Tickets'}
                               </div>
-                            )}
-                            {totalChildren > 0 && (
-                              <div className="flex items-center justify-between">
-                                <div className="text-sm text-gray-600">
-                                  {i18n.language === 'ar' ? 'تذاكر الأطفال' : 'Child Tickets'}
-                                </div>
-                                <div className="text-sm font-semibold text-gray-900">
-                                  {totalChildren} × {formatPrice(displayChildPrice)} = {formatPrice(childSubtotal)}
-                                </div>
+                              <div className="text-sm font-semibold text-gray-900">
+                                {totalVisitors} × {formatPrice(basePrice)} = {formatPrice(totalPrice)}
                               </div>
-                            )}
+                            </div>
                             <div className="flex items-center justify-between pt-2">
                               <div className="text-sm font-medium text-gray-700">
                                 {i18n.language === 'ar' ? 'المجموع الفرعي' : 'Subtotal'}
@@ -1491,9 +1366,7 @@ export function PackageSchedulePage() {
                             <div className="p-3 bg-red-50 border border-red-200 rounded-lg space-y-2">
                               {capacityIssues.map((svc, idx) => {
                                 const slot = selectedSlots[svc.service_id];
-                                const adultCount = adultCounts[svc.service_id] || 1;
-                                const childCount = childCounts[svc.service_id] || 0;
-                                const serviceVisitors = adultCount + childCount;
+                                const serviceVisitors = visitorCounts[svc.service_id] || 1;
                                 return (
                                   <p key={idx} className="text-sm text-red-700">
                                     ⚠️ {t('common.capacityForService', { 
@@ -1536,9 +1409,7 @@ export function PackageSchedulePage() {
                     // Check if any service exceeds capacity
                     return packageServices.some(svc => {
                       const slot = selectedSlots[svc.service_id];
-                      const adultCount = adultCounts[svc.service_id] || 1;
-                      const childCount = childCounts[svc.service_id] || 0;
-                      const serviceVisitors = adultCount + childCount;
+                      const serviceVisitors = visitorCounts[svc.service_id] || 1;
                       return slot && slot.available_capacity < serviceVisitors;
                     });
                   })()}
@@ -1548,9 +1419,7 @@ export function PackageSchedulePage() {
                       if (!canProceed()) return '#9CA3AF';
                       const hasCapacityIssue = packageServices.some(svc => {
                         const slot = selectedSlots[svc.service_id];
-                        const adultCount = adultCounts[svc.service_id] || 1;
-                        const childCount = childCounts[svc.service_id] || 0;
-                        const serviceVisitors = adultCount + childCount;
+                        const serviceVisitors = visitorCounts[svc.service_id] || 1;
                         return slot && slot.available_capacity < serviceVisitors;
                       });
                       return hasCapacityIssue ? '#EF4444' : primaryColor;
@@ -1567,9 +1436,7 @@ export function PackageSchedulePage() {
                     if (canProceed()) {
                       const hasCapacityIssue = packageServices.some(svc => {
                         const slot = selectedSlots[svc.service_id];
-                        const adultCount = adultCounts[svc.service_id] || 1;
-                        const childCount = childCounts[svc.service_id] || 0;
-                        const serviceVisitors = adultCount + childCount;
+                        const serviceVisitors = visitorCounts[svc.service_id] || 1;
                         return slot && slot.available_capacity < serviceVisitors;
                       });
                       e.currentTarget.style.backgroundColor = hasCapacityIssue ? '#EF4444' : primaryColor;
@@ -1582,9 +1449,7 @@ export function PackageSchedulePage() {
                     }
                     const hasCapacityIssue = packageServices.some(svc => {
                       const slot = selectedSlots[svc.service_id];
-                      const adultCount = adultCounts[svc.service_id] || 1;
-                      const childCount = childCounts[svc.service_id] || 0;
-                      const serviceVisitors = adultCount + childCount;
+                      const serviceVisitors = visitorCounts[svc.service_id] || 1;
                       return slot && slot.available_capacity < serviceVisitors;
                     });
                     if (hasCapacityIssue) {

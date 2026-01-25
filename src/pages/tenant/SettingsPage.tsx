@@ -115,6 +115,13 @@ export function SettingsPage() {
       return;
     }
 
+    // Block customer_admin and admin_user from settings
+    if (userProfile.role === 'customer_admin' || userProfile.role === 'admin_user') {
+      console.warn('[SettingsPage] Restricted role attempted to access settings', { role: userProfile.role });
+      navigate(`/${tenantSlug}/admin/bookings`);
+      return;
+    }
+
     // Only allow tenant_admin, receptionist, and cashier
     const allowedRoles = ['tenant_admin', 'receptionist', 'cashier'];
     if (!allowedRoles.includes(userProfile.role)) {

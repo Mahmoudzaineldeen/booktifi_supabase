@@ -133,8 +133,22 @@ export function TenantDashboard() {
       return;
     }
 
-    // Only tenant_admin can access admin dashboard
-    if (userProfile.role !== 'tenant_admin') {
+    // Admin User should only access bookings page
+    if (userProfile.role === 'admin_user') {
+      console.log('[TenantDashboard] Admin User detected, redirecting to bookings', {
+        role: userProfile.role,
+      });
+      if (tenantSlug) {
+        navigate(`/${tenantSlug}/admin/bookings`);
+      } else {
+        navigate('/');
+      }
+      return;
+    }
+
+    // Allow tenant_admin and customer_admin to access admin dashboard
+    const allowedRoles = ['tenant_admin', 'customer_admin'];
+    if (!allowedRoles.includes(userProfile.role)) {
       console.log('[TenantDashboard] Wrong role, redirecting to home', {
         role: userProfile.role,
       });
