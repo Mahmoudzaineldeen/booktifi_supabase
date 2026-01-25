@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Html5Qrcode } from 'html5-qrcode';
 import { X, Camera, CameraOff, AlertCircle } from 'lucide-react';
 import { Button } from '../ui/Button';
@@ -134,7 +135,7 @@ export function QRScanner({
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">{title}</h2>
+          <h2 className="text-lg font-semibold">{defaultTitle}</h2>
           <button
             onClick={() => {
               stopScanning();
