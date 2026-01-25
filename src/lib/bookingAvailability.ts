@@ -99,14 +99,40 @@ export async function fetchAvailableSlots(
     return { slots: [], shifts: [], lockedSlotIds: [] };
   }
 
-  const shiftIds = shifts?.map(s => s.id) || [];
+  const shiftIds = shifts?.map(s => s.id).filter(Boolean) || [];
 
   if (shiftIds.length === 0) {
     console.error('[bookingAvailability] ❌ No shifts found for service:', serviceId);
+    console.error('[bookingAvailability]    Service ID:', serviceId);
+    console.error('[bookingAvailability]    Tenant ID:', tenantId);
+    console.error('[bookingAvailability]    Shifts data:', shifts);
     return { slots: [], shifts: shifts || [], lockedSlotIds: [] };
   }
+  
+  console.log('[bookingAvailability] Shift IDs extracted:', {
+    count: shiftIds.length,
+    ids: shiftIds.map(id => id.substring(0, 8))
+  });
 
   // Step 2: Fetch slots for these shifts on the selected date
+  console.log('[bookingAvailability] ========================================');
+  console.log('[bookingAvailability] Building slots query with filters:');
+  console.log(`[bookingAvailability]    tenant_id = ${tenantId}`);
+  console.log(`[bookingAvailability]    shift_id IN [${shiftIds.length} shifts]:`, shiftIds.map(id => id.substring(0, 8)));
+  console.log(`[bookingAvailability]    slot_date = ${dateStr}`);
+  console.log(`[bookingAvailability]    is_available = true`);
+  console.log(`[bookingAvailability]    includeZeroCapacity = ${includeZeroCapacity}`);
+  if (!includeZeroCapacity) {
+    console.log(`[bookingAvailability]    available_capacity > 0 (filtering zero capacity)`);
+  }
+  console.log('[bookingAvailability] ========================================');
+  
+  // CRITICAL: Ensure shiftIds is not empty and is an array
+  if (!Array.isArray(shiftIds) || shiftIds.length === 0) {
+    console.error('[bookingAvailability] ❌ Invalid shiftIds:', shiftIds);
+    return { slots: [], shifts: shifts || [], lockedSlotIds: [] };
+  }
+  
   let slotsQuery = db
     .from('slots')
     .select(`
@@ -131,28 +157,87 @@ export async function fetchAvailableSlots(
   }
 
   const { data: slotsData, error: slotsError } = await slotsQuery.order('start_time');
-
+  
+  console.log('[bookingAvailability] Query executed. Results:');
+  console.log(`[bookingAvailability]    Slots found: ${slotsData?.length || 0}`);
   if (slotsError) {
+    console.error(`[bookingAvailability]    Error: ${slotsError.message}`);
+    console.error(`[bookingAvailability]    Error code: ${slotsError.code}`);
+    console.error(`[bookingAvailability]    Error details:`, slotsError);
     console.error('[bookingAvailability] Error fetching slots:', slotsError);
     return { slots: [], shifts: shifts || [], lockedSlotIds: [] };
   }
 
   let availableSlots = (slotsData || []) as Slot[];
   
+  console.log('[bookingAvailability] ========================================');
   console.log('[bookingAvailability] Fetched slots from database:', {
     dateStr,
     tenantId,
     serviceId,
-    shiftIds,
+    shiftIds: shiftIds.map(id => id.substring(0, 8)),
+    shiftIdsCount: shiftIds.length,
     slotCount: availableSlots.length,
+    includeZeroCapacity,
     slots: availableSlots.map(s => ({ 
       id: s.id.substring(0, 8), 
       date: s.slot_date, 
       time: s.start_time, 
       capacity: s.available_capacity,
-      shiftId: s.shift_id.substring(0, 8)
+      booked: s.booked_count,
+      shiftId: s.shift_id?.substring(0, 8) || 'NO_SHIFT_ID'
     }))
   });
+  console.log('[bookingAvailability] ========================================');
+  
+  // CRITICAL: If no slots found but shifts exist, log detailed diagnostic info
+  if (availableSlots.length === 0 && shiftIds.length > 0) {
+    console.warn('[bookingAvailability] ⚠️  NO SLOTS FOUND - Running diagnostic query...');
+    
+    // Try querying WITHOUT the available_capacity filter to see if slots exist
+    try {
+      const diagnosticQuery = db
+        .from('slots')
+        .select('id, slot_date, start_time, end_time, available_capacity, booked_count, shift_id, is_available')
+        .eq('tenant_id', tenantId)
+        .in('shift_id', shiftIds)
+        .eq('slot_date', dateStr);
+      
+      const { data: allSlots, error: diagError } = await diagnosticQuery.order('start_time');
+      
+      if (!diagError && allSlots && allSlots.length > 0) {
+        console.warn('[bookingAvailability] 🔍 DIAGNOSTIC: Found slots WITHOUT capacity filter:', allSlots.length);
+        console.warn('[bookingAvailability]    Slots breakdown:');
+        allSlots.forEach((slot: any) => {
+          console.warn(`      - Slot ${slot.id.substring(0, 8)}: ${slot.start_time}, capacity=${slot.available_capacity}, booked=${slot.booked_count}, is_available=${slot.is_available}`);
+        });
+        
+        // Check if they're being filtered by capacity
+        const zeroCapacitySlots = allSlots.filter((s: any) => s.available_capacity <= 0);
+        const unavailableSlots = allSlots.filter((s: any) => !s.is_available);
+        const withCapacity = allSlots.filter((s: any) => s.available_capacity > 0 && s.is_available);
+        
+        console.warn(`[bookingAvailability]    Breakdown: ${withCapacity.length} available, ${zeroCapacitySlots.length} zero capacity, ${unavailableSlots.length} not available`);
+        
+        if (zeroCapacitySlots.length > 0 && !includeZeroCapacity) {
+          console.warn(`[bookingAvailability]    ⚠️  ${zeroCapacitySlots.length} slots filtered out due to zero capacity (includeZeroCapacity=false)`);
+        }
+        if (unavailableSlots.length > 0) {
+          console.warn(`[bookingAvailability]    ⚠️  ${unavailableSlots.length} slots filtered out due to is_available=false`);
+        }
+      } else if (!diagError && (!allSlots || allSlots.length === 0)) {
+        console.warn('[bookingAvailability] 🔍 DIAGNOSTIC: No slots found at all for this date (even without filters)');
+        console.warn('[bookingAvailability]    This means:');
+        console.warn('[bookingAvailability]      1. No slots exist for shift_ids:', shiftIds.map(id => id.substring(0, 8)));
+        console.warn('[bookingAvailability]      2. No slots exist for date:', dateStr);
+        console.warn('[bookingAvailability]      3. OR slots exist but shift_id doesn\'t match');
+      } else {
+        console.error('[bookingAvailability] 🔍 DIAGNOSTIC query error:', diagError);
+      }
+    } catch (diagErr: any) {
+      console.error('[bookingAvailability] 🔍 DIAGNOSTIC query exception:', diagErr);
+    }
+  }
 
   // Step 4: Fetch active locks for these slots to exclude locked ones
   const slotIds = availableSlots.map(s => s.id);
@@ -182,10 +267,14 @@ export async function fetchAvailableSlots(
   }
 
   // Step 5: Filter out locked slots (unless includeLockedSlots is true)
+  const slotsBeforeLockFilter = availableSlots.length;
   if (!includeLockedSlots) {
     availableSlots = availableSlots.filter(slot =>
       slot.available_capacity > 0 && !lockedSlotIds.includes(slot.id)
     );
+    if (slotsBeforeLockFilter > availableSlots.length) {
+      console.log(`[bookingAvailability] Filtered out ${slotsBeforeLockFilter - availableSlots.length} locked slots`);
+    }
   }
 
   // Step 6: Filter slots to only include those that match shift days_of_week
@@ -202,14 +291,26 @@ export async function fetchAvailableSlots(
     const [year, month, day] = dateStr.split('-').map(Number);
     const normalizedDate = new Date(year, month - 1, day);
     const dayOfWeek = normalizedDate.getDay();
-
+    
+    // Also get day of week from the original date object for comparison
+    const originalDayOfWeek = date.getDay();
+    
+    // Log both to catch any timezone issues
     console.log('[bookingAvailability] Day of week check:', {
       dateStr,
-      dayOfWeek,
+      dayOfWeekFromString: dayOfWeek,
+      dayOfWeekFromDate: originalDayOfWeek,
       dayName: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek],
       availableSlotCount: availableSlots.length,
-      shifts: Array.from(shiftDaysMap.entries()).map(([id, days]) => ({ id, days }))
+      shifts: Array.from(shiftDaysMap.entries()).map(([id, days]) => ({ 
+        id: id.substring(0, 8), 
+        days, 
+        dayNames: days.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d])
+      }))
     });
+    
+    // Use the normalized date's day of week (more reliable)
+    const targetDayOfWeek = dayOfWeek;
 
     // Filter slots: only keep slots where the day matches the shift's days_of_week
     availableSlots = availableSlots.filter((slot: Slot) => {
@@ -226,18 +327,26 @@ export async function fetchAvailableSlots(
       }
 
       // Check if this day matches the shift's days_of_week
-      if (shiftDays.includes(dayOfWeek)) {
+      if (shiftDays.includes(targetDayOfWeek)) {
         return true;
       }
 
       // Day doesn't match the shift's days_of_week, filter it out
       console.warn(
-        `[bookingAvailability] Filtering out slot ${slot.id} on ${dateStr} (DOW=${dayOfWeek}/${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayOfWeek]}) - doesn't match shift ${slotShiftId} days [${shiftDays.join(', ')}]`
+        `[bookingAvailability] Filtering out slot ${slot.id.substring(0, 8)} on ${dateStr} (DOW=${targetDayOfWeek}/${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][targetDayOfWeek]}) - doesn't match shift ${slotShiftId.substring(0, 8)} days [${shiftDays.join(', ')}] (${shiftDays.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')})`
       );
       return false;
     });
 
+    const slotsBeforeDayFilter = availableSlots.length;
     console.log('[bookingAvailability] After day-of-week filter: ' + availableSlots.length + ' slots remaining');
+    if (slotsBeforeDayFilter > availableSlots.length) {
+      console.warn(`[bookingAvailability] ⚠️  Filtered out ${slotsBeforeDayFilter - availableSlots.length} slots due to day-of-week mismatch`);
+      console.warn(`[bookingAvailability]    Selected date: ${dateStr} (${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][targetDayOfWeek]})`);
+      console.warn(`[bookingAvailability]    Shift days:`, Array.from(shiftDaysMap.entries()).map(([id, days]) => 
+        `Shift ${id.substring(0, 8)}: [${days.join(', ')}] (${days.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')})`
+      ));
+    }
   }
 
   // Step 7: Filter out past time slots for today only (unless includePastSlots is true)
@@ -291,6 +400,16 @@ export async function fetchAvailableSlots(
     // For future dates, mark all slots as future
     availableSlots = availableSlots.map((slot: Slot) => ({ ...slot, isPast: false }));
   }
+
+  console.log('[bookingAvailability] ========================================');
+  console.log('[bookingAvailability] FINAL RESULT:');
+  console.log(`[bookingAvailability]    Total slots returned: ${availableSlots.length}`);
+  console.log(`[bookingAvailability]    Shifts found: ${shifts?.length || 0}`);
+  console.log(`[bookingAvailability]    Locked slot IDs: ${lockedSlotIds.length}`);
+  if (availableSlots.length > 0) {
+    console.log(`[bookingAvailability]    Slot times: ${availableSlots.map(s => s.start_time).join(', ')}`);
+  }
+  console.log('[bookingAvailability] ========================================');
 
   return {
     slots: availableSlots,

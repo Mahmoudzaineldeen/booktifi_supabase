@@ -1066,6 +1066,9 @@
     "whatsapp": {
       "title": "إعدادات واتساب",
       "provider": "المزود",
+      "providerMeta": "Meta Cloud API",
+      "providerTwilio": "Twilio",
+      "providerWati": "WATI",
       "apiUrl": "رابط API",
       "apiKey": "مفتاح API",
       "phoneNumberId": "معرف رقم الهاتف",

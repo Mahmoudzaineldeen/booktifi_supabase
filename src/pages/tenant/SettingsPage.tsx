@@ -1603,9 +1603,9 @@ export function SettingsPage() {
                     onChange={(e) => setWhatsappSettings({ ...whatsappSettings, provider: e.target.value as any })}
                     required
                   >
-                    <option value="meta">Meta Cloud API</option>
-                    <option value="twilio">Twilio</option>
-                    <option value="wati">WATI</option>
+                    <option value="meta">{t('settings.whatsapp.providerMeta')}</option>
+                    <option value="twilio">{t('settings.whatsapp.providerTwilio')}</option>
+                    <option value="wati">{t('settings.whatsapp.providerWati')}</option>
                   </select>
                   <p className="text-xs text-gray-500">{t('settings.whatsapp.providerHint')}</p>
                 </div>
@@ -1753,7 +1753,7 @@ export function SettingsPage() {
                     variant="secondary"
                     icon={<MessageCircle className="w-4 h-4" />}
                   >
-                    Test Connection
+                    {t('settings.whatsapp.testConnection')}
                   </Button>
                   <Button
                     type="button"
