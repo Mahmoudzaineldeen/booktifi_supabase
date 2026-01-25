@@ -216,9 +216,10 @@ export function ReceptionPage() {
       return;
     }
 
-    // STRICT: Only receptionists allowed on ReceptionPage
-    if (userProfile.role !== 'receptionist') {
-      console.log('ReceptionPage: Wrong role, redirecting. Expected: receptionist, Got:', userProfile.role);
+    // Allow receptionist, customer_admin, and admin_user to access reception page for booking creation
+    const allowedRoles = ['receptionist', 'customer_admin', 'admin_user'];
+    if (!allowedRoles.includes(userProfile.role)) {
+      console.log('ReceptionPage: Wrong role, redirecting. Expected: receptionist, customer_admin, or admin_user, Got:', userProfile.role);
       if (userProfile.role === 'cashier') {
         // Redirect cashiers to their own page
         const tenantSlug = window.location.pathname.split('/')[1];
@@ -3330,7 +3331,8 @@ export function ReceptionPage() {
   }
 
   // Early return if user is not a receptionist (prevent rendering)
-  if (!authLoading && userProfile && userProfile.role !== 'receptionist') {
+  const allowedReceptionRoles = ['receptionist', 'customer_admin', 'admin_user'];
+  if (!authLoading && userProfile && !allowedReceptionRoles.includes(userProfile.role)) {
     // Redirect will happen in useEffect, but don't render anything
     return (
       <div className="min-h-screen flex items-center justify-center">

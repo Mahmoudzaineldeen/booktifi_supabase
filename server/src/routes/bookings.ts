@@ -677,33 +677,67 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     });
 
     // Handle JSONB response - Supabase RPC may return JSONB as object or string
+    // The RPC function returns: { success: true, booking: { id: ..., ... } }
     let bookingData: any = booking;
     if (typeof booking === 'string') {
       try {
         console.log(`[Booking Creation] Parsing JSONB string response...`);
         bookingData = JSON.parse(booking);
-        console.log(`[Booking Creation] ✅ Parsed successfully, booking ID: ${bookingData?.id || 'NOT FOUND'}`);
+        console.log(`[Booking Creation] ✅ Parsed successfully`);
       } catch (e) {
         console.error(`[Booking Creation] ❌ Failed to parse booking JSONB:`, e);
         console.error(`[Booking Creation]    Raw response:`, booking);
         bookingData = booking;
       }
     } else if (typeof booking === 'object' && booking !== null) {
-      console.log(`[Booking Creation] Response is already an object, booking ID: ${bookingData?.id || 'NOT FOUND'}`);
+      console.log(`[Booking Creation] Response is already an object`);
     }
 
-    // Ensure booking has an ID
-    const bookingId = bookingData?.id;
+    // Extract booking from response structure: { success: true, booking: { id: ... } }
+    // OR direct booking object: { id: ... }
+    let actualBooking: any = null;
+    if (bookingData?.booking) {
+      // RPC returns { success: true, booking: { id: ... } }
+      actualBooking = bookingData.booking;
+      console.log(`[Booking Creation] Found nested booking structure (booking.booking)`);
+    } else if (bookingData?.id) {
+      // Direct booking object
+      actualBooking = bookingData;
+      console.log(`[Booking Creation] Found direct booking object`);
+    } else if (bookingData?.success && bookingData?.booking) {
+      // Alternative nested structure
+      actualBooking = bookingData.booking;
+      console.log(`[Booking Creation] Found success.booking structure`);
+    }
+
+    // Extract booking ID from the response structure
+    // RPC returns: { success: true, booking: { id: ... } }
+    let bookingId: string | null = null;
+    
+    if (actualBooking?.id) {
+      bookingId = actualBooking.id;
+    } else if (bookingData?.id) {
+      bookingId = bookingData.id;
+    } else if (bookingData?.booking?.id) {
+      bookingId = bookingData.booking.id;
+    }
+
     if (!bookingId) {
       console.error(`[Booking Creation] ❌ CRITICAL: Booking created but no ID found in response!`);
       console.error(`[Booking Creation]    Response type: ${typeof booking}`);
       console.error(`[Booking Creation]    Parsed data type: ${typeof bookingData}`);
       console.error(`[Booking Creation]    Parsed data:`, JSON.stringify(bookingData, null, 2));
       console.error(`[Booking Creation]    Raw response:`, JSON.stringify(booking, null, 2));
+      console.error(`[Booking Creation]    Actual booking:`, JSON.stringify(actualBooking, null, 2));
       console.error(`[Booking Creation]    This will prevent ticket generation from running!`);
       return res.status(500).json({ 
         error: 'Booking created but ID not returned',
-        details: 'The booking was created but the response does not contain an ID. Ticket generation cannot proceed.'
+        details: 'The booking was created but the response does not contain an ID. Ticket generation cannot proceed.',
+        debug: {
+          responseType: typeof booking,
+          parsedData: bookingData,
+          actualBooking: actualBooking
+        }
       });
     }
 
@@ -743,8 +777,8 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
         const { sendBookingTicketEmail } = await import('../services/emailService.js');
 
         // Get language from booking (stored when booking was created)
-        // If booking is JSONB, access language property
-        const bookingLanguage = bookingData?.language || validLanguage;
+        // Use actualBooking if available, otherwise fall back to bookingData
+        const bookingLanguage = actualBooking?.language || bookingData?.language || validLanguage;
         const ticketLanguage = (bookingLanguage === 'ar' || bookingLanguage === 'en')
           ? bookingLanguage as 'en' | 'ar'
           : 'en';
@@ -1230,15 +1264,15 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     console.log(`[Booking Creation] ========================================`);
     console.log(`[Booking Creation]    Booking ID: ${bookingId}`);
     console.log(`[Booking Creation]    Customer: ${customer_name}`);
-    console.log(`[Booking Creation]    Total Price: ${bookingData.total_price || 'N/A'}`);
+    console.log(`[Booking Creation]    Total Price: ${actualBooking?.total_price || 'N/A'}`);
     console.log(`[Booking Creation]    Invoice Creation: ${(normalizedPhone || customer_phone || customer_email) ? 'COMPLETED' : 'SKIPPED (no contact)'}`);
     console.log(`[Booking Creation] ========================================`);
 
     // Return the booking with proper structure
     res.status(201).json({ 
       id: bookingId,
-      ...bookingData,
-      booking: bookingData // Also include as 'booking' for backward compatibility
+      ...actualBooking,
+      booking: actualBooking // Also include as 'booking' for backward compatibility
     });
   } catch (error: any) {
     const context = logger.extractContext(req);
