@@ -24,7 +24,8 @@
     "test:receptionist-edit": "node tests/test-receptionist-edit-booking.js",
     "test:tenant-change-date": "node tests/test-tenant-provider-change-date.js",
     "test:invoice-diagnostic": "node tests/test-invoice-diagnostic.js",
-    "test:zoho-token-refresh": "node tests/test-zoho-token-auto-refresh.js"
+    "test:zoho-token-refresh": "node tests/test-zoho-token-auto-refresh.js",
+    "test:booking-date-update": "node tests/test-booking-date-update-comprehensive.js"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",

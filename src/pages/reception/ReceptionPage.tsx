@@ -2379,44 +2379,78 @@ export function ReceptionPage() {
         await fetchBookings();
         console.log('[ReceptionPage] ✅ Bookings refreshed');
         
-        // If we got the updated booking data, force update the state (only if we didn't already update from backend response)
-        if (!backendBookingData && bookingData && bookingData.slots?.slot_date) {
-          console.log('[ReceptionPage] 🔄 Force updating booking state with new slot data...');
-          setBookings(prevBookings => 
-            prevBookings.map(b => {
+        // CRITICAL: Always update state if slot_id matches, regardless of whether we got backend data
+        // This ensures the UI reflects the new slot even if relationship query is delayed
+        if (bookingData && bookingData.slot_id === newSlotIdToVerify) {
+          console.log('[ReceptionPage] 🔄 Force updating booking state with verified slot data...');
+          console.log('[ReceptionPage]   Verified slot_id:', bookingData.slot_id);
+          console.log('[ReceptionPage]   Verified slot_date:', bookingData.slots?.slot_date || 'MISSING (will fetch)');
+          
+          // If slot_date is missing, fetch it separately
+          let finalSlotData = bookingData.slots;
+          if (!finalSlotData || !finalSlotData.slot_date) {
+            console.log('[ReceptionPage]   Slot date missing, fetching slot details...');
+            try {
+              const { data: slotData, error: slotError } = await db
+                .from('slots')
+                .select('slot_date, start_time, end_time')
+                .eq('id', bookingData.slot_id)
+                .single();
+              
+              if (!slotError && slotData) {
+                finalSlotData = slotData;
+                console.log('[ReceptionPage]   ✅ Fetched slot date:', finalSlotData.slot_date);
+              }
+            } catch (slotFetchError) {
+              console.warn('[ReceptionPage]   ⚠️  Failed to fetch slot details:', slotFetchError);
+            }
+          }
+          
+          setBookings(prevBookings => {
+            const updated = prevBookings.map(b => {
               if (b.id === updatedBookingId) {
-                console.log('[ReceptionPage]   Updating booking:', b.id);
-                console.log('[ReceptionPage]     Old slot_date:', b.slots?.slot_date);
-                console.log('[ReceptionPage]     New slot_date:', bookingData.slots?.slot_date);
-                return { 
-                  ...b, 
-                  slot_id: bookingData.slot_id, 
-                  slots: bookingData.slots 
+                const updatedBooking = {
+                  ...b,
+                  slot_id: bookingData.slot_id,
+                  slots: finalSlotData || b.slots, // Use fetched slot data or keep old if fetch failed
+                };
+                console.log('[ReceptionPage]   State update:', {
+                  bookingId: updatedBookingId,
+                  oldSlotId: b.slot_id,
+                  newSlotId: updatedBooking.slot_id,
+                  oldSlotDate: b.slots?.slot_date,
+                  newSlotDate: updatedBooking.slots?.slot_date,
+                });
+                return updatedBooking;
+              }
+              return b;
+            });
+            return updated;
+          });
+          
+          // Also update todayBookings
+          setTodayBookings(prevTodayBookings => {
+            const updated = prevTodayBookings.map(b => {
+              if (b.id === updatedBookingId) {
+                return {
+                  ...b,
+                  slot_id: bookingData.slot_id,
+                  slots: finalSlotData || b.slots,
                 };
               }
               return b;
-            })
-          );
+            });
+            return updated;
+          });
           
-          // Also update todayBookings if this booking is in today's list
-          setTodayBookings(prevTodayBookings =>
-            prevTodayBookings.map(b => {
-              if (b.id === updatedBookingId) {
-                return { 
-                  ...b, 
-                  slot_id: bookingData.slot_id, 
-                  slots: bookingData.slots 
-                };
-              }
-              return b;
-            })
-          );
-          
-          console.log('[ReceptionPage] ✅ State updated with new slot data');
+          console.log('[ReceptionPage] ✅ State updated with verified slot data');
         } else if (backendBookingData) {
-          console.log('[ReceptionPage] ✅ State already updated from backend response, skipping verification update');
+          console.log('[ReceptionPage] ✅ State already updated from backend response');
         } else {
-          console.warn('[ReceptionPage] ⚠️  Could not verify booking update after multiple attempts');
+          console.warn('[ReceptionPage] ⚠️  Could not verify booking update. Slot ID mismatch or booking not found.');
+          if (bookingData) {
+            console.warn(`[ReceptionPage]   Expected slot_id: ${newSlotIdToVerify}, Got: ${bookingData.slot_id}`);
+          }
         }
       }, 1500);
       
