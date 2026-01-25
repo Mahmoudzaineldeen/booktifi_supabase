@@ -961,6 +961,7 @@ class ZohoService {
     let bookingError: any = null;
     
     try {
+      // First, try to fetch booking with relations (excluding currency_code from tenants relation to avoid alias issues)
       const result = await supabase
         .from('bookings')
         .select(`
@@ -980,8 +981,7 @@ class ZohoService {
           ),
           tenants (
             name,
-            name_ar,
-            currency_code
+            name_ar
           ),
           service_offers (
             price,
@@ -994,6 +994,44 @@ class ZohoService {
 
       bookings = result.data;
       bookingError = result.error;
+      
+      // If error is related to currency_code column, try a simpler query without tenants relation
+      if (bookingError && (bookingError.message?.includes('currency_code') || bookingError.code === '42703')) {
+        console.warn(`[ZohoService] ⚠️ Relation query failed (likely currency_code issue), trying simpler query...`);
+        
+        const simpleResult = await supabase
+          .from('bookings')
+          .select(`
+            *,
+            services (
+              name,
+              name_ar,
+              description,
+              description_ar,
+              base_price,
+              child_price
+            ),
+            slots (
+              start_time,
+              end_time,
+              slot_date
+            ),
+            service_offers (
+              price,
+              name,
+              name_ar
+            )
+          `)
+          .eq('id', bookingId)
+          .single();
+        
+        bookings = simpleResult.data;
+        bookingError = simpleResult.error;
+        
+        if (!bookingError && bookings) {
+          console.log(`[ZohoService] ✅ Booking fetched with simpler query (currency will be fetched separately)`);
+        }
+      }
       
       if (bookingError) {
         console.error(`[ZohoService] ❌ Error fetching booking: ${bookingError.message}`);
