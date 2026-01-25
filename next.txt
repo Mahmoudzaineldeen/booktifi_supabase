@@ -4,6 +4,7 @@ done create packages failed
 done search bar in receptionist page
 new customer admin admin remove landing page,settings ,navigation.perview
 new user can only see see bookings and edit them
-done the receptionist has the full control on the bookings like the admin
+done 1/2 the receptionist has the full control on the bookings like the admin
 remove child ticket
-done remove cached info in the booking as recptionist
+done remove cached info in the booking as receptionist
+packages

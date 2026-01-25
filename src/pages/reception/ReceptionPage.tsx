@@ -9,7 +9,7 @@ import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
-import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search } from 'lucide-react';
+import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Edit, CalendarClock } from 'lucide-react';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { format, addDays, startOfWeek, isSameDay, parseISO, startOfDay, endOfDay, addMinutes, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -2914,6 +2914,41 @@ export function ReceptionPage() {
                       )}
                     </div>
                   )}
+
+                  {/* Edit and Reschedule Buttons - Always visible for receptionists */}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setEditingBooking(booking);
+                      setIsEditBookingModalOpen(true);
+                    }}
+                    icon={<Edit className="w-3 h-3" />}
+                    className="w-full"
+                  >
+                    {t('reception.editBooking') || 'Edit Booking'}
+                  </Button>
+                  {booking.status !== 'cancelled' && booking.status !== 'completed' && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        setEditingBooking(booking);
+                        setIsEditBookingModalOpen(true);
+                        // Focus on reschedule section when modal opens
+                        setTimeout(() => {
+                          const rescheduleSection = document.getElementById('reschedule-section');
+                          if (rescheduleSection) {
+                            rescheduleSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }
+                        }, 100);
+                      }}
+                      icon={<CalendarClock className="w-3 h-3" />}
+                      className="w-full"
+                    >
+                      {t('reception.reschedule') || 'Reschedule'}
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
@@ -4792,21 +4827,22 @@ export function ReceptionPage() {
             )}
 
             {/* Action Buttons */}
-            {selectedBookingForDetails.status !== 'cancelled' && selectedBookingForDetails.status !== 'completed' && (
-              <div className="flex flex-col gap-2 pt-4 border-t">
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setEditingBooking(selectedBookingForDetails);
-                      setIsEditBookingModalOpen(true);
-                      setSelectedBookingForDetails(null);
-                    }}
-                    icon={<FileText className="w-4 h-4" />}
-                    fullWidth
-                  >
-                    {t('reception.editBooking') || 'Edit Booking'}
-                  </Button>
+            <div className="flex flex-col gap-2 pt-4 border-t">
+              {/* Edit and Reschedule - Edit always visible, Reschedule only for active bookings */}
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setEditingBooking(selectedBookingForDetails);
+                    setIsEditBookingModalOpen(true);
+                    setSelectedBookingForDetails(null);
+                  }}
+                  icon={<Edit className="w-4 h-4" />}
+                  fullWidth
+                >
+                  {t('reception.editBooking') || 'Edit Booking'}
+                </Button>
+                {selectedBookingForDetails.status !== 'cancelled' && selectedBookingForDetails.status !== 'completed' && (
                   <Button
                     variant="secondary"
                     onClick={() => {
@@ -4821,12 +4857,16 @@ export function ReceptionPage() {
                         }
                       }, 100);
                     }}
-                    icon={<Clock className="w-4 h-4" />}
+                    icon={<CalendarClock className="w-4 h-4" />}
                     fullWidth
                   >
                     {t('reception.reschedule') || 'Reschedule'}
                   </Button>
-                </div>
+                )}
+              </div>
+              
+              {/* Status Management Buttons */}
+              {selectedBookingForDetails.status !== 'cancelled' && selectedBookingForDetails.status !== 'completed' && (
                 <div className="flex gap-2">
                   {selectedBookingForDetails.status === 'confirmed' && (
                     <Button
@@ -4853,8 +4893,8 @@ export function ReceptionPage() {
                     Cancel Booking
                   </Button>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {(selectedBookingForDetails.payment_status === 'unpaid' || selectedBookingForDetails.payment_status === 'awaiting_payment') && (
               <Button
@@ -4949,59 +4989,88 @@ export function ReceptionPage() {
               </div>
             </div>
 
-            {/* Reschedule Section */}
-            <div id="reschedule-section" className="border-t pt-4">
-              <h3 className="text-lg font-semibold mb-3">{t('reception.reschedule') || 'Reschedule Booking'}</h3>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t('reception.currentTimeSlot') || 'Current Time Slot'}
-                  </label>
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-2 text-sm">
-                      <CalendarDays className="w-4 h-4 text-gray-400" />
-                      <span>{editingBooking.slots?.slot_date ? format(parseISO(editingBooking.slots.slot_date), 'MMM dd, yyyy') : 'N/A'}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm mt-1">
-                      <Clock className="w-4 h-4 text-gray-400" />
-                      <span>{editingBooking.slots?.start_time} - {editingBooking.slots?.end_time}</span>
+            {/* Reschedule Section - Only show for active bookings */}
+            {editingBooking.status !== 'cancelled' && editingBooking.status !== 'completed' && (
+              <div id="reschedule-section" className="border-t pt-4">
+                <h3 className="text-lg font-semibold mb-3">{t('reception.reschedule') || 'Reschedule Booking'}</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('reception.currentTimeSlot') || 'Current Time Slot'}
+                    </label>
+                    <div className="p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-2 text-sm">
+                        <CalendarDays className="w-4 h-4 text-gray-400" />
+                        <span>{editingBooking.slots?.slot_date ? (() => {
+                          try {
+                            return format(parseISO(editingBooking.slots.slot_date), 'MMM dd, yyyy');
+                          } catch {
+                            return editingBooking.slots.slot_date.split('T')[0];
+                          }
+                        })() : 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm mt-1">
+                        <Clock className="w-4 h-4 text-gray-400" />
+                        <span>{editingBooking.slots?.start_time} - {editingBooking.slots?.end_time}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t('reception.selectNewTimeSlot') || 'Select New Time Slot'}
-                  </label>
-                  <select
-                    value={editSelectedSlot}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    onChange={(e) => setEditSelectedSlot(e.target.value)}
-                  >
-                    <option value="">{t('reception.keepCurrentSlot') || 'Keep current time slot'}</option>
-                    {editAvailableSlots
-                      .filter(slot => {
-                        const slotDate = new Date(slot.slot_date);
-                        const now = new Date();
-                        return slotDate >= now;
-                      })
-                      .map(slot => {
-                        const slotDate = typeof slot.slot_date === 'string' 
-                          ? (slot.slot_date.includes('T') ? format(parseISO(slot.slot_date), 'MMM dd, yyyy') : format(parseISO(slot.slot_date + 'T00:00:00'), 'MMM dd, yyyy'))
-                          : format(new Date(slot.slot_date), 'MMM dd, yyyy');
-                        return (
-                          <option key={slot.id} value={slot.id}>
-                            {slotDate} - {slot.start_time} - {slot.end_time}
-                            {slot.available_capacity !== undefined && ` (${slot.available_capacity} available)`}
-                          </option>
-                        );
-                      })}
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {t('reception.rescheduleNote') || 'Selecting a new time slot will reschedule the booking and send a new ticket to the customer.'}
-                  </p>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('reception.selectNewTimeSlot') || 'Select New Time Slot'}
+                    </label>
+                    {editAvailableSlots.length > 0 ? (
+                      <>
+                        <select
+                          value={editSelectedSlot}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          onChange={(e) => setEditSelectedSlot(e.target.value)}
+                        >
+                          <option value="">{t('reception.keepCurrentSlot') || 'Keep current time slot'}</option>
+                          {editAvailableSlots
+                            .filter(slot => {
+                              try {
+                                const slotDate = typeof slot.slot_date === 'string' 
+                                  ? (slot.slot_date.includes('T') ? parseISO(slot.slot_date) : parseISO(slot.slot_date + 'T00:00:00'))
+                                  : new Date(slot.slot_date);
+                                const now = new Date();
+                                return slotDate >= now;
+                              } catch {
+                                return true; // Include slot if date parsing fails
+                              }
+                            })
+                            .map(slot => {
+                              let slotDate = 'N/A';
+                              try {
+                                slotDate = typeof slot.slot_date === 'string' 
+                                  ? (slot.slot_date.includes('T') ? format(parseISO(slot.slot_date), 'MMM dd, yyyy') : format(parseISO(slot.slot_date + 'T00:00:00'), 'MMM dd, yyyy'))
+                                  : format(new Date(slot.slot_date), 'MMM dd, yyyy');
+                              } catch {
+                                slotDate = typeof slot.slot_date === 'string' ? slot.slot_date.split('T')[0] : 'N/A';
+                              }
+                              return (
+                                <option key={slot.id} value={slot.id}>
+                                  {slotDate} - {slot.start_time} - {slot.end_time}
+                                  {slot.available_capacity !== undefined && ` (${slot.available_capacity} available)`}
+                                </option>
+                              );
+                            })}
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {t('reception.rescheduleNote') || 'Selecting a new time slot will reschedule the booking and send a new ticket to the customer.'}
+                        </p>
+                      </>
+                    ) : (
+                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <p className="text-sm text-yellow-800">
+                          {t('reception.loadingSlots') || 'Loading available time slots...'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Action Buttons */}
             <div className="flex gap-2 pt-4 border-t">
