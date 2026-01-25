@@ -41,7 +41,7 @@ interface Booking {
 
 export function BookingsPage() {
   const { t, i18n } = useTranslation();
-  const { userProfile } = useAuth();
+  const { userProfile, tenant } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
@@ -1676,12 +1676,14 @@ export function BookingsPage() {
                   )}
                 </div>
 
-                {/* Warning Message */}
-                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                  <p className="text-xs text-blue-800">
-                    {t('common.oldTicketsInvalidated')}
-                  </p>
-                </div>
+                {/* Warning Message - Only show if tickets are enabled */}
+                {tenant?.tickets_enabled !== false && (
+                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-xs text-blue-800">
+                      {t('common.oldTicketsInvalidated')}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 mt-6">

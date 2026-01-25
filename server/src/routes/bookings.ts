@@ -746,21 +746,41 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     console.log(`[Booking Creation]    Email: ${customer_email || 'not provided'}`);
     console.log(`[Booking Creation]    Phone: ${normalizedPhone || customer_phone || 'not provided'}`);
 
+    // Check if tickets are enabled for this tenant
+    const { data: tenantSettings } = await supabase
+      .from('tenants')
+      .select('tickets_enabled')
+      .eq('id', tenant_id)
+      .single();
+    
+    const ticketsEnabled = tenantSettings?.tickets_enabled !== false; // Default to true if not set
+    
     // Generate and send ticket PDF asynchronously (don't block response)
-    // IMPORTANT: Tickets are ALWAYS generated and sent, regardless of invoice status
+    // IMPORTANT: Tickets are only generated if tickets_enabled is true
     // Use setImmediate for more reliable execution than process.nextTick
     // CRITICAL: This MUST run - tickets are more important than invoices
     console.log(`\n🎫 ========================================`);
-    console.log(`🎫 TICKET GENERATION STARTING for booking ${bookingId}`);
+    console.log(`🎫 TICKET GENERATION CHECK for booking ${bookingId}`);
+    console.log(`🎫 Tickets Enabled: ${ticketsEnabled}`);
     console.log(`🎫 Customer: ${customer_name}`);
     console.log(`🎫 Email: ${customer_email || 'NOT PROVIDED'}`);
     console.log(`🎫 Phone: ${normalizedPhone || customer_phone || 'NOT PROVIDED'}`);
     console.log(`🎫 ========================================\n`);
     
+    // Only generate tickets if enabled
+    if (!ticketsEnabled) {
+      console.log(`🎫 Tickets are disabled for this tenant. Skipping ticket generation.`);
+    }
+    
     // Generate ticket PDF synchronously to ensure it completes before response
     // This prevents Railway container restarts from killing the process
     // The actual sending (WhatsApp/Email) can be async
     const ticketGenerationPromise = (async () => {
+      // Early return if tickets are disabled
+      if (!ticketsEnabled) {
+        console.log(`🎫 Ticket generation skipped - tickets are disabled for this tenant`);
+        return;
+      }
       let pdfBuffer: Buffer | null = null;
 
       try {
@@ -1515,8 +1535,23 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       });
     }
 
+    // Check if tickets are enabled for this tenant
+    const { data: tenantSettings } = await supabase
+      .from('tenants')
+      .select('tickets_enabled')
+      .eq('id', tenant_id)
+      .single();
+    
+    const ticketsEnabled = tenantSettings?.tickets_enabled !== false; // Default to true if not set
+    
     // Generate ONE ticket PDF with multiple QR codes (one per slot) - asynchronously
     Promise.resolve().then(async () => {
+      // Early return if tickets are disabled
+      if (!ticketsEnabled) {
+        console.log(`[Bulk Booking Creation] 🎫 Tickets are disabled for this tenant. Skipping ticket generation.`);
+        return;
+      }
+      
       try {
         console.log(`[Bulk Booking Creation] 🎫 Generating ONE ticket PDF for booking group ${bookingGroupId}...`);
         const { generateBulkBookingTicketPDFBase64 } = await import('../services/pdfService.js');
@@ -2452,6 +2487,20 @@ router.patch('/:id', authenticateReceptionistOrTenantAdmin, async (req, res) => 
             return;
           }
 
+          // Check if tickets are enabled for this tenant
+          const { data: tenantSettings } = await supabase
+            .from('tenants')
+            .select('tickets_enabled')
+            .eq('id', tenantId)
+            .single();
+          
+          const ticketsEnabled = tenantSettings?.tickets_enabled !== false; // Default to true if not set
+          
+          if (!ticketsEnabled) {
+            console.log(`📄 Tickets are disabled for this tenant. Skipping ticket regeneration for rescheduled booking.`);
+            return;
+          }
+          
           // Import required modules
           const { generateBookingTicketPDFBase64 } = await import('../services/pdfService.js');
           const { sendWhatsAppDocument } = await import('../services/whatsappService.js');
@@ -2802,9 +2851,19 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
     console.log(`[Booking Time Edit]    Will Generate Tickets: ${!!updatedBooking ? 'YES' : 'NO'}`);
     console.log(`[Booking Time Edit] ========================================\n`);
     
+    // Check if tickets are enabled for this tenant
+    const { data: tenantSettings } = await supabase
+      .from('tenants')
+      .select('tickets_enabled')
+      .eq('id', tenantId)
+      .single();
+    
+    const ticketsEnabled = tenantSettings?.tickets_enabled !== false; // Default to true if not set
+    
     if (updatedBooking) {
       console.log(`\n🎫 ========================================`);
-      console.log(`🎫 TICKET REGENERATION STARTING for booking ${bookingId} (time edit)`);
+      console.log(`🎫 TICKET REGENERATION CHECK for booking ${bookingId} (time edit)`);
+      console.log(`🎫 Tickets Enabled: ${ticketsEnabled}`);
       console.log(`🎫 Customer: ${updatedBooking.customer_name || 'N/A'}`);
       console.log(`🎫 Email: ${updatedBooking.customer_email || 'NOT PROVIDED'}`);
       console.log(`🎫 Phone: ${updatedBooking.customer_phone || 'NOT PROVIDED'}`);
@@ -2821,6 +2880,11 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
       // CRITICAL: This promise will be awaited before sending the response
       // CRITICAL: Store tenantId in closure to ensure it's available in async context
       const ticketGenerationPromise = (async () => {
+        // Early return if tickets are disabled
+        if (!ticketsEnabled) {
+          console.log(`[Booking Time Edit] 🎫 Tickets are disabled for this tenant. Skipping ticket regeneration.`);
+          return;
+        }
         let pdfBuffer: Buffer | null = null;
         
         // Store tenantId in closure for async context

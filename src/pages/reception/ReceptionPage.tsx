@@ -112,7 +112,7 @@ interface CustomerPackage {
 
 export function ReceptionPage() {
   const { t, i18n } = useTranslation();
-  const { userProfile, signOut, loading: authLoading } = useAuth();
+  const { userProfile, tenant, signOut, loading: authLoading } = useAuth();
   const { formatPrice } = useCurrency();
   const navigate = useNavigate();
   const tenantDefaultCountry = useTenantDefaultCountry();
@@ -5332,12 +5332,14 @@ export function ReceptionPage() {
                   )}
                 </div>
 
-                {/* Warning Message */}
-                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                  <p className="text-xs text-blue-800">
-                    {t('common.oldTicketsInvalidated') || 'Changing the booking time will invalidate old tickets and send new tickets to the customer.'}
-                  </p>
-                </div>
+                {/* Warning Message - Only show if tickets are enabled */}
+                {tenant?.tickets_enabled !== false && (
+                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-xs text-blue-800">
+                      {t('common.oldTicketsInvalidated') || 'Changing the booking time will invalidate old tickets and send new tickets to the customer.'}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 mt-6">

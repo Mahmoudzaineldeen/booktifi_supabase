@@ -35,6 +35,7 @@ export function SettingsPage() {
     contact_email: '',
     tenant_time_zone: 'Asia/Riyadh',
     maintenance_mode: false,
+    tickets_enabled: true,
   });
   const [smtpSettings, setSmtpSettings] = useState({
     smtp_host: 'smtp.gmail.com',
@@ -139,6 +140,7 @@ export function SettingsPage() {
         contact_email: tenant.contact_email || '',
         tenant_time_zone: tenant.tenant_time_zone || 'Asia/Riyadh',
         maintenance_mode: tenant.maintenance_mode || false,
+        tickets_enabled: tenant.tickets_enabled !== undefined ? tenant.tickets_enabled : true,
       });
     }
   }, [tenant]);
@@ -1027,6 +1029,7 @@ export function SettingsPage() {
           contact_email: formData.contact_email,
           tenant_time_zone: formData.tenant_time_zone,
           maintenance_mode: formData.maintenance_mode,
+          tickets_enabled: formData.tickets_enabled,
         })
         .eq('id', tenant.id);
 
@@ -1178,7 +1181,7 @@ export function SettingsPage() {
                 {t('tenant.operationalSettings')}
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
@@ -1189,6 +1192,19 @@ export function SettingsPage() {
                 <div>
                   <span className="text-sm font-medium text-gray-700">{t('tenant.maintenanceMode')}</span>
                   <p className="text-xs text-gray-500">{t('tenant.disablePublicBookings')}</p>
+                </div>
+              </label>
+              
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.tickets_enabled}
+                  onChange={(e) => setFormData({ ...formData, tickets_enabled: e.target.checked })}
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-700">Enable Tickets</span>
+                  <p className="text-xs text-gray-500">When disabled, ticket generation and functionality will be completely inactive across the entire system</p>
                 </div>
               </label>
             </CardContent>
