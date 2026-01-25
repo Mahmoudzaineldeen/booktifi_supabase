@@ -244,7 +244,13 @@
     "employeeBookingComparison": "Employee Booking Comparison Over Time",
     "noDataAvailable": "No data available for the selected period",
     "bookingsCount": "Bookings",
-    "sar": "SAR"
+    "sar": "SAR",
+    "expiredBookings": "Past Bookings",
+    "time": "Time",
+    "viewMode": {
+      "dashboard": "Dashboard",
+      "calendar": "Calendar"
+    }
   },
   "navigation": {
     "home": "Home",
@@ -462,6 +468,22 @@
     "expiresOn": "Expires",
     "remainingServices": "Remaining Services",
     "remaining": "remaining",
+    "subscribers": {
+      "title": "Package Subscribers",
+      "subtitle": "View customer package subscriptions and remaining capacity",
+      "empty": "No active package subscriptions",
+      "noResults": "No subscribers found matching your search",
+      "phone": "Phone",
+      "email": "Email",
+      "active": "Active",
+      "services": "Services & Capacity",
+      "remaining": "Remaining",
+      "used": "Used",
+      "total": "Total"
+    },
+    "search": {
+      "packageName": "Package Name"
+    },
     "cancel": "Cancel",
     "confirmCancelSubscription": "Are you sure you want to cancel this subscription?",
     "activePackage": "Active Package",
@@ -475,11 +497,15 @@
     "home": "Dashboard",
     "services": "Services",
     "packages": "Packages",
+    "packageSubscribers": "Package Subscribers",
     "offers": "Offers",
     "bookings": "Bookings",
     "employees": "Employees",
     "settings": "Settings",
-    "landingPage": "Landing Page"
+    "landingPage": "Landing Page",
+    "previewMode": "Preview Mode",
+    "viewBookingPage": "View Booking Page",
+    "viewCustomerPage": "View Customer Page"
   },
   "offers": {
     "title": "Service Offers",
@@ -736,7 +762,22 @@
     "failedToUpdateBookingTime": "Failed to update booking time: {{message}}",
     "bookingTimeUpdatedSuccessfully": "Booking time updated successfully. New tickets will be sent to the customer.",
     "noAvailableTimeSlots": "No available time slots for this date",
-    "makeSureShiftsAndSlotsExist": "Make sure shifts and slots exist for this date"
+    "makeSureShiftsAndSlotsExist": "Make sure shifts and slots exist for this date",
+    "search": {
+      "type": "Search Type",
+      "query": "Search Query",
+      "selectType": "Select search type",
+      "customerName": "Customer Name",
+      "customerPhone": "Customer Phone",
+      "serviceName": "Service Name",
+      "placeholder": "Enter search term...",
+      "search": "Search",
+      "clear": "Clear",
+      "results": "Found {{count}} result(s)",
+      "validation": {
+        "required": "Please select search type and enter query"
+      }
+    }
   },
   "settings": {
     "loading": "Loading settings...",

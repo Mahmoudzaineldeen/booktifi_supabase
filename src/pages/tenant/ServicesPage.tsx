@@ -984,8 +984,8 @@ export function ServicesPage() {
     <div className="p-4 md:p-8">
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('service.services')}</h1>
-          <p className="text-sm md:text-base text-gray-600 mt-1">{t('service.manageServices')}</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('service.services', 'Services')}</h1>
+          <p className="text-sm md:text-base text-gray-600 mt-1">{t('service.manageServices', 'Manage your services and categories')}</p>
         </div>
         <div className="flex gap-3">
           <Button
@@ -993,13 +993,13 @@ export function ServicesPage() {
             variant="secondary"
             icon={<FolderOpen className="w-4 h-4" />}
           >
-            {t('service.categories')}
+            {t('service.categories', 'Categories')}
           </Button>
           <Button
             onClick={() => setIsServiceModalOpen(true)}
             icon={<Plus className="w-4 h-4" />}
           >
-            {t('service.addService')}
+            {t('service.addService', 'Add Service')}
           </Button>
         </div>
       </div>
@@ -1059,10 +1059,10 @@ export function ServicesPage() {
             <Card>
               <CardContent className="py-12 text-center">
                 <Briefcase className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">{t('service.noServicesYet')}</h3>
-                <p className="text-gray-600 mb-6">{t('service.getStarted')}</p>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">{t('service.noServicesYet', 'No services yet')}</h3>
+                <p className="text-gray-600 mb-6">{t('service.getStarted', 'Get started by adding your first service')}</p>
                 <Button onClick={() => setIsServiceModalOpen(true)} icon={<Plus className="w-4 h-4" />}>
-                  {t('service.addService')}
+                  {t('service.addService', 'Add Service')}
                 </Button>
               </CardContent>
             </Card>
@@ -1081,7 +1081,7 @@ export function ServicesPage() {
                   <span className={`text-xs px-2 py-1 rounded ${
                     service.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                   }`}>
-                    {service.is_active ? t('service.active') : t('employee.inactive')}
+                    {service.is_active ? t('service.active', 'Active') : t('employee.inactive', 'Inactive')}
                   </span>
                 </CardTitle>
               </CardHeader>
@@ -1096,17 +1096,17 @@ export function ServicesPage() {
                 </p>
                 <div className="space-y-2 mb-4">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">{t('service.duration')}</span>
+                    <span className="text-gray-600">{t('service.duration', 'Duration')}</span>
                     <span className="font-medium">
                       {service.duration_minutes} min
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">{t('service.price')}</span>
+                    <span className="text-gray-600">{t('service.price', 'Price')}</span>
                     <span className="font-medium">{formatPrice(service.base_price)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">{t('service.capacity')}</span>
+                    <span className="text-gray-600">{t('service.capacity', 'Capacity')}</span>
                     <span className="font-medium">
                       {service.capacity_per_slot}
                     </span>
@@ -1141,7 +1141,7 @@ export function ServicesPage() {
                         setIsOffersModalOpen(true);
                       }}
                       icon={<Gift className="w-4 h-4" />}
-                      title={t('service.manageOffers')}
+                      title={t('service.manageOffers', 'Manage Offers')}
                     />
                     <Button
                       variant="danger"
@@ -1165,11 +1165,11 @@ export function ServicesPage() {
           setEditingService(null);
           resetServiceForm();
         }}
-        title={editingService ? t('service.editService') : t('service.addService')}
+        title={editingService ? t('service.editService', 'Edit Service') : t('service.addService', 'Add Service')}
       >
         <form onSubmit={handleServiceSubmit} className="space-y-4">
           <Input
-            label={t('service.nameEnglish')}
+            label={t('service.nameEnglish', 'Service Name (English)')}
             value={serviceForm.name}
             onChange={(e) => setServiceForm({ ...serviceForm, name: e.target.value })}
             required

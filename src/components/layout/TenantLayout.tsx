@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, Eye, ExternalLink } from 'lucide-react';
+import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface TenantLayoutProps {
@@ -50,6 +50,13 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       icon: Package,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/packages`),
       visible: (features?.packages_enabled ?? true) && !isAdminUser, // customer_admin can access, but admin_user cannot
+    },
+    {
+      name: t('navigation.packageSubscribers', 'Package Subscribers'),
+      href: `/${tenantSlug}/admin/package-subscribers`,
+      icon: UserCheck,
+      current: location.pathname.startsWith(`/${tenantSlug}/admin/package-subscribers`),
+      visible: (features?.packages_enabled ?? true) && userProfile?.role === 'tenant_admin', // Only tenant_admin
     },
     {
       name: t('navigation.offers'),
@@ -182,7 +189,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
             {!isRestrictedRole && (
               <div className="mt-6 pt-6 border-t border-gray-200">
                 <p className="px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                  {t('navigation.previewMode')}
+                  {t('navigation.previewMode', 'Preview Mode')}
                 </p>
                 <Link
                   to={`/${tenantSlug}/book`}
@@ -191,9 +198,8 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
                   onClick={() => setMobileMenuOpen(false)}
                   className="flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
                 >
-                  <Eye className="w-5 h-5" />
-                  <span>{t('navigation.viewBookingPage')}</span>
-                  <ExternalLink className="w-4 h-4 ml-auto" />
+                  <Calendar className="w-5 h-5" />
+                  <span>{t('navigation.viewBookingPage', 'View Booking Page')}</span>
                 </Link>
                 <Link
                   to={`/${tenantSlug}/customer`}
@@ -202,9 +208,8 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
                   onClick={() => setMobileMenuOpen(false)}
                   className="flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
                 >
-                  <Eye className="w-5 h-5" />
-                  <span>{t('navigation.viewCustomerPage')}</span>
-                  <ExternalLink className="w-4 h-4 ml-auto" />
+                  <Users className="w-5 h-5" />
+                  <span>{t('navigation.viewCustomerPage', 'View Customer Page')}</span>
                 </Link>
               </div>
             )}

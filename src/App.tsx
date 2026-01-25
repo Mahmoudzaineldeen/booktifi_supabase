@@ -27,6 +27,7 @@ import { BookingSuccessPage } from './pages/public/BookingSuccessPage';
 import { QRScannerPage } from './pages/public/QRScannerPage';
 import { LandingPageBuilderWrapper } from './pages/tenant/LandingPageBuilderWrapper';
 import { PackagesPageWrapper } from './pages/tenant/PackagesPageWrapper';
+import { PackageSubscribersPageWrapper } from './pages/tenant/PackageSubscribersPageWrapper';
 import { OffersPageWrapper } from './pages/tenant/OffersPageWrapper';
 import { CustomerSignupPage } from './pages/customer/CustomerSignupPage';
 import { CustomerLoginPage } from './pages/customer/CustomerLoginPage';
@@ -59,6 +60,7 @@ function AppContent() {
       <Route path="/:tenantSlug/admin" element={<TenantDashboard />} />
       <Route path="/:tenantSlug/admin/services" element={<ServicesPageWrapper />} />
       <Route path="/:tenantSlug/admin/packages" element={<PackagesPageWrapper />} />
+      <Route path="/:tenantSlug/admin/package-subscribers" element={<PackageSubscribersPageWrapper />} />
       <Route path="/:tenantSlug/admin/offers" element={<OffersPageWrapper />} />
       <Route path="/:tenantSlug/admin/bookings" element={<BookingsPageWrapper />} />
       <Route path="/:tenantSlug/admin/employees" element={<EmployeesPageWrapper />} />

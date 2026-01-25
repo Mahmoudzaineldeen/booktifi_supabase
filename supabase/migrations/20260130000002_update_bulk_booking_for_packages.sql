@@ -1,10 +1,12 @@
--- ============================================================================
--- Create Bulk Booking Function
--- ============================================================================
--- This function creates multiple bookings in a single atomic transaction
--- Validates total availability across all slots before creating any bookings
--- Prevents overbooking and ensures all-or-nothing booking creation
--- ============================================================================
+/*
+  # Update create_bulk_booking to support package_subscription_id
+  
+  Adds package_subscription_id parameter to bulk booking creation function
+  so that package capacity can be automatically applied during bulk bookings.
+  All bookings in a bulk booking use the same package subscription if capacity exists.
+  
+  NOTE: This migration applies the full updated function from database/create_bulk_booking_function.sql
+*/
 
 -- Drop ALL existing versions of the function first to avoid ambiguity
 -- Use a DO block to dynamically drop all overloads
@@ -23,25 +25,27 @@ BEGIN
   END LOOP;
 END $$;
 
+-- Apply the updated function with package_subscription_id support
+-- This includes the fix for v_unique_slot_count variable declaration
 CREATE OR REPLACE FUNCTION public.create_bulk_booking(
-  p_slot_ids uuid[], -- Array of slot IDs to book
+  p_slot_ids uuid[],
   p_service_id uuid,
   p_tenant_id uuid,
   p_customer_name text,
   p_customer_phone text,
   p_customer_email text,
-  p_visitor_count integer, -- Total visitors across all slots
+  p_visitor_count integer,
   p_adult_count integer,
   p_child_count integer,
-  p_total_price numeric(10,2), -- Total price for all bookings
+  p_total_price numeric(10,2),
   p_notes text,
   p_employee_id uuid,
   p_session_id text,
   p_customer_id uuid,
   p_offer_id uuid,
   p_language text DEFAULT 'en',
-  p_booking_group_id uuid DEFAULT NULL, -- Optional: group ID to link bookings
-  p_package_subscription_id uuid DEFAULT NULL -- NEW: Package subscription ID for package bookings
+  p_booking_group_id uuid DEFAULT NULL,
+  p_package_subscription_id uuid DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -122,11 +126,9 @@ BEGIN
 
   -- ============================================================================
   -- STEP 1: Validate ALL slots BEFORE creating any bookings (prevent overbooking)
-  -- CRITICAL: All validations happen BEFORE any database modifications
   -- ============================================================================
   
-  -- CRITICAL: Check for duplicate slot IDs in the array
-  -- This prevents booking the same slot multiple times in a single request
+  -- Check for duplicate slot IDs
   SELECT COUNT(DISTINCT slot_id)
   INTO v_unique_slot_count
   FROM unnest(p_slot_ids) AS slot_id;
@@ -135,7 +137,7 @@ BEGIN
     RAISE EXCEPTION 'Duplicate slot IDs detected. Each slot can only be booked once per request.';
   END IF;
 
-  -- CRITICAL: Idempotency check - prevent duplicate bookings with same booking_group_id
+  -- Idempotency check
   IF p_booking_group_id IS NOT NULL THEN
     DECLARE
       v_existing_count integer;
@@ -151,37 +153,31 @@ BEGIN
     END;
   END IF;
   
-  -- CRITICAL: Pre-validate ALL slots and calculate total available capacity
-  -- This ensures we reject the request immediately if total requested > total available
+  -- Pre-validate ALL slots
   v_total_requested := 0;
   DECLARE
     v_total_available integer := 0;
     v_slot_available_capacities integer[] := ARRAY[]::integer[];
   BEGIN
-    -- First pass: Lock and validate all slots, collect available capacities
     FOR v_slot_index IN 1..array_length(p_slot_ids, 1) LOOP
-      -- Get and lock slot (FOR UPDATE prevents concurrent modifications)
       SELECT id, available_capacity, is_available, original_capacity, booked_count, tenant_id
       INTO v_slot_record
       FROM slots
       WHERE id = p_slot_ids[v_slot_index]
-      FOR UPDATE; -- Lock slot to prevent race conditions
+      FOR UPDATE;
 
       IF NOT FOUND THEN
         RAISE EXCEPTION 'Slot % not found', p_slot_ids[v_slot_index];
       END IF;
 
-      -- Verify slot belongs to tenant
       IF v_slot_record.tenant_id != p_tenant_id THEN
         RAISE EXCEPTION 'Slot % does not belong to the specified tenant', p_slot_ids[v_slot_index];
       END IF;
 
-      -- Check if slot is available
       IF NOT v_slot_record.is_available THEN
         RAISE EXCEPTION 'Slot % is not available', p_slot_ids[v_slot_index];
       END IF;
 
-      -- Calculate currently locked capacity (excluding locks from this session if provided)
       SELECT COALESCE(SUM(reserved_capacity), 0)
       INTO v_locked_capacity
       FROM booking_locks
@@ -189,148 +185,87 @@ BEGIN
         AND lock_expires_at > now()
         AND (p_session_id IS NULL OR reserved_by_session_id != p_session_id);
 
-      -- Calculate available capacity for this slot
       v_available_capacity := v_slot_record.available_capacity - v_locked_capacity;
 
-      -- Check if there's enough capacity for this slot
-      -- For bulk booking, we book 1 visitor per slot (each slot gets 1 booking)
       IF v_available_capacity < 1 THEN
         RAISE EXCEPTION 'Not enough tickets available for slot %. Only % available, but 1 requested.', 
           p_slot_ids[v_slot_index], v_available_capacity;
       END IF;
 
-      -- Store available capacity for this slot
       v_slot_available_capacities := array_append(v_slot_available_capacities, v_available_capacity);
       v_total_available := v_total_available + v_available_capacity;
       v_total_requested := v_total_requested + 1;
     END LOOP;
 
-    -- CRITICAL: Final validation - ensure total requested does not exceed total available
-    -- This is a redundant check but ensures absolute safety
     IF v_total_requested > v_total_available THEN
       RAISE EXCEPTION 'Not enough tickets available. Total available: %, Total requested: %.', 
         v_total_available, v_total_requested;
     END IF;
 
-    -- CRITICAL: Ensure we're not booking more slots than available
-    -- Each slot requires at least 1 available capacity
     IF array_length(p_slot_ids, 1) > v_total_available THEN
       RAISE EXCEPTION 'Not enough slots available. Available slots: %, Requested slots: %.', 
         v_total_available, array_length(p_slot_ids, 1);
     END IF;
   END;
 
-  -- Validate total requested matches visitor_count
-  -- In bulk booking, each slot gets 1 visitor, so total slots should match visitor_count
   IF v_total_requested != p_visitor_count THEN
     RAISE EXCEPTION 'Number of slots (%) does not match visitor_count (%). Each slot requires 1 visitor.', 
       v_total_requested, p_visitor_count;
   END IF;
 
-  -- Calculate price per slot (distribute total price evenly)
-  -- Each slot gets 1 visitor, so price per slot = total_price / total_slots
   v_price_per_slot := p_total_price / array_length(p_slot_ids, 1);
 
   -- ============================================================================
-  -- STEP 2: Create ALL bookings in transaction (all-or-nothing)
+  -- STEP 2: Create ALL bookings in transaction
   -- ============================================================================
   FOR v_slot_index IN 1..array_length(p_slot_ids, 1) LOOP
-    -- Get slot again (already locked from validation step)
     SELECT id, available_capacity, is_available, original_capacity, booked_count, tenant_id
     INTO v_slot_record
     FROM slots
     WHERE id = p_slot_ids[v_slot_index];
 
-    -- Create booking for this slot (1 visitor per slot in bulk booking)
     INSERT INTO bookings (
-      tenant_id,
-      service_id,
-      slot_id,
-      employee_id,
-      customer_name,
-      customer_phone,
-      customer_email,
-      visitor_count,
-      adult_count,
-      child_count,
-      total_price,
-      status,
-      payment_status,
-      notes,
-      created_by_user_id,
-      customer_id,
-      offer_id,
-      language,
-      booking_group_id,
-      package_subscription_id -- NEW: Include package subscription
+      tenant_id, service_id, slot_id, employee_id,
+      customer_name, customer_phone, customer_email,
+      visitor_count, adult_count, child_count,
+      total_price, status, payment_status, notes,
+      created_by_user_id, customer_id, offer_id, language,
+      booking_group_id, package_subscription_id
     ) VALUES (
-      p_tenant_id,
-      p_service_id,
-      p_slot_ids[v_slot_index],
-      p_employee_id,
-      p_customer_name,
-      p_customer_phone,
-      p_customer_email,
-      1, -- Each slot gets 1 visitor in bulk booking
-      CASE 
-        WHEN v_slot_index <= p_adult_count THEN 1 
-        ELSE 0 
-      END, -- Distribute adults across slots
-      CASE 
-        WHEN v_slot_index > p_adult_count THEN 1 
-        ELSE 0 
-      END, -- Distribute children across slots
-      v_price_per_slot, -- Price per slot
-      'pending',
-      'unpaid',
-      p_notes,
-      p_customer_id,
-      p_customer_id,
-      p_offer_id,
-      p_language,
-      v_booking_group_id_final,
-      p_package_subscription_id -- NEW: Set package subscription
+      p_tenant_id, p_service_id, p_slot_ids[v_slot_index], p_employee_id,
+      p_customer_name, p_customer_phone, p_customer_email,
+      1,
+      CASE WHEN v_slot_index <= p_adult_count THEN 1 ELSE 0 END,
+      CASE WHEN v_slot_index > p_adult_count THEN 1 ELSE 0 END,
+      v_price_per_slot, 'pending', 'unpaid', p_notes,
+      p_customer_id, p_customer_id, p_offer_id, p_language,
+      v_booking_group_id_final, p_package_subscription_id
     )
     RETURNING id INTO v_booking_id;
 
-    -- CRITICAL: Reduce slot capacity immediately
     UPDATE slots
     SET 
       available_capacity = GREATEST(0, available_capacity - 1),
       booked_count = booked_count + 1
     WHERE id = p_slot_ids[v_slot_index];
     
-    -- Verify the update succeeded
     IF NOT FOUND THEN
       RAISE EXCEPTION 'Failed to update slot capacity for slot %', p_slot_ids[v_slot_index];
     END IF;
 
-    -- Collect booking ID
     v_booking_ids := array_append(v_booking_ids, v_booking_id);
 
-    -- Get the created booking with related data
     SELECT jsonb_build_object(
-      'id', b.id,
-      'tenant_id', b.tenant_id,
-      'service_id', b.service_id,
-      'slot_id', b.slot_id,
-      'employee_id', b.employee_id,
-      'customer_name', b.customer_name,
-      'customer_phone', b.customer_phone,
-      'customer_email', b.customer_email,
-      'visitor_count', b.visitor_count,
-      'adult_count', b.adult_count,
-      'child_count', b.child_count,
-      'total_price', b.total_price,
-      'status', b.status,
-      'payment_status', b.payment_status,
-      'notes', b.notes,
-      'customer_id', b.customer_id,
-      'offer_id', b.offer_id,
-      'language', b.language,
-      'booking_group_id', b.booking_group_id,
-      'created_at', b.created_at,
-      'updated_at', b.updated_at
+      'id', b.id, 'tenant_id', b.tenant_id, 'service_id', b.service_id,
+      'slot_id', b.slot_id, 'employee_id', b.employee_id,
+      'customer_name', b.customer_name, 'customer_phone', b.customer_phone,
+      'customer_email', b.customer_email, 'visitor_count', b.visitor_count,
+      'adult_count', b.adult_count, 'child_count', b.child_count,
+      'total_price', b.total_price, 'status', b.status,
+      'payment_status', b.payment_status, 'notes', b.notes,
+      'customer_id', b.customer_id, 'offer_id', b.offer_id,
+      'language', b.language, 'booking_group_id', b.booking_group_id,
+      'created_at', b.created_at, 'updated_at', b.updated_at
     )
     INTO v_booking
     FROM bookings b
@@ -339,7 +274,6 @@ BEGIN
     v_bookings := array_append(v_bookings, v_booking);
   END LOOP;
 
-  -- Return all bookings with group ID
   RETURN jsonb_build_object(
     'booking_group_id', v_booking_group_id_final,
     'bookings', v_bookings,

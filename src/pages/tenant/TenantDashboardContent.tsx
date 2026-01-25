@@ -12,7 +12,7 @@ import { PerformanceChart } from '../../components/dashboard/PerformanceChart';
 import { PieChart } from '../../components/dashboard/PieChart';
 import { ComparisonChart } from '../../components/dashboard/ComparisonChart';
 import { StatCard } from '../../components/dashboard/StatCard';
-import { Calendar, Users, Briefcase, DollarSign, TrendingUp, CheckCircle, Grid, List, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, Users, Briefcase, DollarSign, TrendingUp, CheckCircle, Grid, List, ChevronLeft, ChevronRight, Clock, XCircle, User } from 'lucide-react';
 import { startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, parseISO, eachDayOfInterval, addDays, isSameDay, addMinutes, isAfter, isBefore, parse } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
@@ -517,7 +517,7 @@ export function TenantDashboardContent() {
                 : (userProfile?.full_name || '')
             })}
           </h1>
-          <p className="text-sm md:text-base text-gray-600">{t('dashboard.subtitle')}</p>
+          <p className="text-sm md:text-base text-gray-600">{t('dashboard.subtitle', 'View your business analytics and manage bookings')}</p>
         </div>
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
           <button
@@ -529,7 +529,7 @@ export function TenantDashboardContent() {
             }`}
           >
             <Grid className="w-4 h-4 inline-block mr-1 md:mr-2" />
-            <span className="hidden sm:inline">{t('dashboard.viewMode.dashboard')}</span>
+            <span className="hidden sm:inline">{t('dashboard.viewMode.dashboard', 'Dashboard')}</span>
           </button>
           <button
             onClick={() => setViewMode('calendar')}
@@ -540,7 +540,7 @@ export function TenantDashboardContent() {
             }`}
           >
             <Calendar className="w-4 h-4 inline-block mr-1 md:mr-2" />
-            <span className="hidden sm:inline">{t('dashboard.viewMode.calendar')}</span>
+            <span className="hidden sm:inline">{t('dashboard.viewMode.calendar', 'Calendar')}</span>
           </button>
         </div>
       </div>
@@ -560,7 +560,7 @@ export function TenantDashboardContent() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard
-          title={t('dashboard.totalBookings')}
+          title={t('dashboard.totalBookings', 'Total Bookings')}
           value={stats.totalBookings}
           icon={Calendar}
           iconColor="text-blue-600"
@@ -568,7 +568,7 @@ export function TenantDashboardContent() {
         />
 
         <StatCard
-          title={t('dashboard.totalRevenue')}
+          title={t('dashboard.totalRevenue', 'Total Revenue')}
           value={formatPrice(stats.totalRevenue)}
           icon={DollarSign}
           iconColor="text-green-600"
@@ -576,7 +576,7 @@ export function TenantDashboardContent() {
         />
 
         <StatCard
-          title={t('dashboard.completedBookings')}
+          title={t('dashboard.completedBookings', 'Completed Bookings')}
           value={stats.completedBookings}
           icon={CheckCircle}
           iconColor="text-teal-600"
@@ -584,7 +584,7 @@ export function TenantDashboardContent() {
         />
 
         <StatCard
-          title={t('dashboard.averageBookingValue')}
+          title={t('dashboard.averageBookingValue', 'Average Booking Value')}
           value={formatPrice(stats.averageBookingValue)}
           icon={TrendingUp}
           iconColor="text-orange-600"
@@ -594,22 +594,22 @@ export function TenantDashboardContent() {
 
       <div className="grid grid-cols-1 gap-6 mb-8">
         <PieChart
-          title={t('dashboard.revenueByService')}
+          title={t('dashboard.revenueByService', 'Revenue by Service')}
           data={servicePieData}
         />
       </div>
 
       <div className="mb-8">
         <ComparisonChart
-          title={t('dashboard.serviceBookingComparison')}
+          title={t('dashboard.serviceBookingComparison', 'Service Booking Comparison')}
           series={serviceComparisonSeries}
-          valueLabel={t('dashboard.bookings')}
+          valueLabel={t('dashboard.bookings', 'Bookings')}
         />
       </div>
 
       <div className="grid grid-cols-1 gap-6 mb-8">
         <PerformanceChart
-          title={t('dashboard.servicePerformance')}
+          title={t('dashboard.servicePerformance', 'Service Performance')}
           data={serviceChartData}
           metric="revenue"
         />
@@ -617,7 +617,7 @@ export function TenantDashboardContent() {
 
       <div className="grid grid-cols-1 gap-6">
         <PerformanceChart
-          title={t('dashboard.bookingsByService')}
+          title={t('dashboard.bookingsByService', 'Bookings by Service')}
           data={serviceChartData}
           metric="bookings"
         />
@@ -626,9 +626,12 @@ export function TenantDashboardContent() {
       {/* Upcoming Bookings */}
       {upcomingBookings.length > 0 && (
         <div className="mt-8">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            {t('dashboard.upcomingBookings')}
-          </h2>
+          <div className="flex items-center gap-2 mb-4">
+            <Clock className="w-5 h-5 text-blue-600" />
+            <h2 className="text-xl font-semibold text-gray-900">
+              {t('dashboard.upcomingBookings', 'Upcoming Bookings')}
+            </h2>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {upcomingBookings.map((booking) => {
               const slot = booking.slots;
@@ -641,7 +644,10 @@ export function TenantDashboardContent() {
                   <CardContent className="p-4">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <h3 className="font-semibold text-gray-900">{booking.customer_name}</h3>
+                        <div className="flex items-center gap-2">
+                          <User className="w-4 h-4 text-gray-500" />
+                          <h3 className="font-semibold text-gray-900">{booking.customer_name}</h3>
+                        </div>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                           booking.status === 'confirmed' ? 'bg-green-100 text-green-800' :
                           booking.status === 'checked_in' ? 'bg-blue-100 text-blue-800' :
@@ -666,7 +672,7 @@ export function TenantDashboardContent() {
                         </span>
                         {booking.visitor_count > 1 && (
                           <span className="text-gray-600 ml-2">
-                            ({booking.visitor_count} {t('booking.visitors')})
+                            ({booking.visitor_count} {t('booking.visitors', 'visitors')})
                           </span>
                         )}
                       </div>
@@ -682,9 +688,12 @@ export function TenantDashboardContent() {
       {/* Expired Bookings */}
       {expiredBookings.length > 0 && (
         <div className="mt-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
-              {t('dashboard.expiredBookings')}
-            </h2>
+            <div className="flex items-center gap-2 mb-4">
+              <XCircle className="w-5 h-5 text-gray-600" />
+              <h2 className="text-xl font-semibold text-gray-900">
+                {t('dashboard.expiredBookings', 'Past Bookings')}
+              </h2>
+            </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {expiredBookings.map((booking) => {
               const slot = booking.slots;
@@ -697,7 +706,10 @@ export function TenantDashboardContent() {
                   <CardContent className="p-4">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <h3 className="font-semibold text-gray-700">{booking.customer_name}</h3>
+                        <div className="flex items-center gap-2">
+                          <User className="w-4 h-4 text-gray-500" />
+                          <h3 className="font-semibold text-gray-700">{booking.customer_name}</h3>
+                        </div>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                           booking.status === 'completed' ? 'bg-blue-100 text-blue-800' :
                           booking.status === 'cancelled' ? 'bg-red-100 text-red-800' :
@@ -722,7 +734,7 @@ export function TenantDashboardContent() {
                         </span>
                         {booking.visitor_count > 1 && (
                           <span className="text-gray-500 ml-2">
-                            ({booking.visitor_count} {t('booking.visitors')})
+                            ({booking.visitor_count} {t('booking.visitors', 'visitors')})
                           </span>
                         )}
                       </div>
@@ -751,7 +763,7 @@ export function TenantDashboardContent() {
                 onClick={() => setCalendarDate(new Date())}
                 className="px-4 py-2 bg-white hover:bg-gray-50 rounded-lg font-medium text-sm transition-colors shadow-sm"
               >
-                {t('dashboard.today')}
+                {t('dashboard.today', 'Today')}
               </button>
               <button
                 onClick={() => setCalendarDate(addDays(calendarDate, 7))}
@@ -768,7 +780,7 @@ export function TenantDashboardContent() {
           <div className="overflow-x-auto">
             <div className="min-w-[1200px]">
               <div className="grid grid-cols-8 border-b bg-gradient-to-r from-blue-50 to-indigo-50 sticky top-0 z-10">
-                <div className="px-2 py-3 text-xs font-medium text-gray-500 border-r">{t('dashboard.time')}</div>
+                <div className="px-2 py-3 text-xs font-medium text-gray-500 border-r">{t('dashboard.time', 'Time')}</div>
                 {Array.from({ length: 7 }, (_, i) => {
                   const day = addDays(startOfWeek(calendarDate, { weekStartsOn: 0 }), i);
                   const isToday = isSameDay(day, new Date());

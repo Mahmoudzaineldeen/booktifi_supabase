@@ -577,7 +577,13 @@
     "employeeBookingComparison": "مقارنة حجوزات الموظفين عبر الوقت",
     "noDataAvailable": "لا توجد بيانات متاحة للفترة المحددة",
     "bookingsCount": "الحجوزات",
-    "sar": "ريال"
+    "sar": "ريال",
+    "expiredBookings": "الحجوزات السابقة",
+    "time": "الوقت",
+    "viewMode": {
+      "dashboard": "لوحة التحكم",
+      "calendar": "التقويم"
+    }
   },
   "navigation": {
     "home": "الرئيسية",
@@ -836,6 +842,22 @@
     "expiresOn": "تاريخ الانتهاء",
     "remainingServices": "الخدمات المتبقية",
     "remaining": "متبقي",
+    "subscribers": {
+      "title": "مشتركي الباقات",
+      "subtitle": "عرض اشتراكات العملاء في الباقات والطاقة المتبقية",
+      "empty": "لا توجد اشتراكات باقات نشطة",
+      "noResults": "لم يتم العثور على مشتركين يطابقون بحثك",
+      "phone": "الهاتف",
+      "email": "البريد الإلكتروني",
+      "active": "نشط",
+      "services": "الخدمات والسعة",
+      "remaining": "متبقي",
+      "used": "مستخدم",
+      "total": "الإجمالي"
+    },
+    "search": {
+      "packageName": "اسم الباقة"
+    },
     "cancel": "إلغاء",
     "confirmCancelSubscription": "هل أنت متأكد من إلغاء هذا الاشتراك؟",
     "activePackage": "باقة نشطة",
@@ -849,11 +871,15 @@
     "home": "لوحة التحكم",
     "services": "الخدمات",
     "packages": "الباقات",
+    "packageSubscribers": "مشتركي الباقات",
     "offers": "العروض",
     "bookings": "الحجوزات",
     "employees": "الموظفون",
     "settings": "الإعدادات",
-    "landingPage": "الصفحة الرئيسية"
+    "landingPage": "الصفحة الرئيسية",
+    "previewMode": "وضع المعاينة",
+    "viewBookingPage": "عرض صفحة الحجز",
+    "viewCustomerPage": "عرض صفحة العميل"
   },
   "offers": {
     "title": "عروض الخدمات",
@@ -1202,11 +1228,6 @@
     "errorSavingSettings": "خطأ في حفظ الإعدادات. يرجى المحاولة مرة أخرى.",
     "contactEmailPlaceholder": "contact@example.com"
   },
-  "navigation": {
-    "previewMode": "وضع المعاينة",
-    "viewBookingPage": "عرض صفحة الحجز",
-    "viewCustomerPage": "عرض صفحة العميل"
-  },
   "status": {
     "pending": "قيد الانتظار",
     "confirmed": "مؤكد",
@@ -1219,13 +1240,6 @@
     "awaiting_payment": "في انتظار الدفع",
     "refunded": "مسترد",
     "expired": "منتهي"
-  },
-  "dashboard": {
-    "viewMode": {
-      "dashboard": "لوحة التحكم",
-      "calendar": "التقويم"
-    },
-    "expiredBookings": "الحجوزات المنتهية"
   },
   "common": {
     "tip": "نصيحة",
@@ -1351,7 +1365,22 @@
     "failedToUpdateBookingTime": "فشل تحديث وقت الحجز: {{message}}",
     "bookingTimeUpdatedSuccessfully": "تم تحديث وقت الحجز بنجاح. سيتم إرسال التذاكر الجديدة للعميل.",
     "noAvailableTimeSlots": "لا توجد أوقات متاحة لهذا التاريخ",
-    "makeSureShiftsAndSlotsExist": "تأكد من وجود ورديات ووقتات لهذا التاريخ"
+    "makeSureShiftsAndSlotsExist": "تأكد من وجود ورديات ووقتات لهذا التاريخ",
+    "search": {
+      "type": "نوع البحث",
+      "query": "استعلام البحث",
+      "selectType": "اختر نوع البحث",
+      "customerName": "اسم العميل",
+      "customerPhone": "هاتف العميل",
+      "serviceName": "اسم الخدمة",
+      "placeholder": "أدخل مصطلح البحث...",
+      "search": "بحث",
+      "clear": "مسح",
+      "results": "تم العثور على {{count}} نتيجة",
+      "validation": {
+        "required": "يرجى اختيار نوع البحث وإدخال الاستعلام"
+      }
+    }
   },
   "landingPage": {
     "title": "منشئ الصفحة الرئيسية",

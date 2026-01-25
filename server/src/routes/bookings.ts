@@ -390,6 +390,112 @@ function validatePaymentStatusTransition(oldStatus: string, newStatus: string): 
 }
 
 // ============================================================================
+// Check package exhaustion notification status
+// ============================================================================
+router.get('/package-exhaustion/:subscriptionId/:serviceId', authenticate, async (req, res) => {
+  try {
+    const { subscriptionId, serviceId } = req.params;
+
+    if (!subscriptionId || !serviceId) {
+      return res.status(400).json({ error: 'subscriptionId and serviceId are required' });
+    }
+
+    // Check if notification should be shown
+    const { data: notificationData, error: notificationError } = await supabase
+      .from('package_exhaustion_notifications')
+      .select('id, notified_at')
+      .eq('subscription_id', subscriptionId)
+      .eq('service_id', serviceId)
+      .maybeSingle();
+
+    if (notificationError) {
+      console.error(`[Exhaustion Check] ❌ Error:`, notificationError);
+      return res.status(500).json({ 
+        error: 'Failed to check exhaustion status',
+        details: notificationError.message 
+      });
+    }
+
+    // Check if capacity is actually exhausted
+    const { data: usageData, error: usageError } = await supabase
+      .from('package_subscription_usage')
+      .select('remaining_quantity')
+      .eq('subscription_id', subscriptionId)
+      .eq('service_id', serviceId)
+      .maybeSingle();
+
+    if (usageError) {
+      console.error(`[Exhaustion Check] ❌ Usage Error:`, usageError);
+      return res.status(500).json({ 
+        error: 'Failed to check usage status',
+        details: usageError.message 
+      });
+    }
+
+    const isExhausted = usageData && usageData.remaining_quantity === 0;
+    const alreadyNotified = notificationData !== null;
+
+    res.json({
+      is_exhausted: isExhausted,
+      should_notify: isExhausted && !alreadyNotified,
+      already_notified: alreadyNotified,
+      notified_at: notificationData?.notified_at || null
+    });
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Exhaustion check error', error, context);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ============================================================================
+// Resolve customer service capacity (package capacity check)
+// ============================================================================
+router.get('/capacity/:customerId/:serviceId', authenticate, async (req, res) => {
+  try {
+    const { customerId, serviceId } = req.params;
+
+    if (!customerId || !serviceId) {
+      return res.status(400).json({ error: 'customerId and serviceId are required' });
+    }
+
+    // Call the database function to resolve capacity
+    const { data: capacityData, error: capacityError } = await supabase
+      .rpc('resolveCustomerServiceCapacity', {
+        p_customer_id: customerId,
+        p_service_id: serviceId
+      });
+
+    if (capacityError) {
+      console.error(`[Capacity Resolution] ❌ Error:`, capacityError);
+      return res.status(500).json({ 
+        error: 'Failed to resolve capacity',
+        details: capacityError.message 
+      });
+    }
+
+    if (!capacityData || capacityData.length === 0) {
+      return res.json({
+        total_remaining_capacity: 0,
+        source_package_ids: [],
+        exhaustion_status: []
+      });
+    }
+
+    const result = capacityData[0];
+    res.json({
+      total_remaining_capacity: result.total_remaining_capacity || 0,
+      source_package_ids: result.source_package_ids || [],
+      exhaustion_status: result.exhaustion_status || []
+    });
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Capacity resolution error', error, context);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ============================================================================
 // Acquire booking lock (called when user proceeds to checkout)
 // ============================================================================
 router.post('/lock', authenticate, async (req, res) => {
@@ -574,6 +680,8 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       customer_phone,
       customer_email,
       visitor_count = 1,
+      adult_count,
+      child_count,
       total_price,
       notes,
       employee_id,
@@ -604,8 +712,81 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       });
     }
 
+    // ============================================================================
+    // PACKAGE CAPACITY CHECK - Auto-apply package if capacity exists
+    // ============================================================================
+    let packageSubscriptionId: string | null = null;
+    let finalTotalPrice = total_price || 0;
+    let shouldUsePackage = false;
+
+    // Look up customer by phone if customer_id not provided (for receptionist bookings)
+    let customerIdForPackage = req.user?.id || req.body.customer_id;
+    if (!customerIdForPackage && normalizedPhone) {
+      const { data: customerData } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('phone', normalizedPhone)
+        .eq('tenant_id', tenant_id)
+        .maybeSingle();
+      
+      if (customerData) {
+        customerIdForPackage = customerData.id;
+      }
+    }
+    
+    if (customerIdForPackage) {
+      try {
+        // Resolve package capacity for this customer and service
+        const { data: capacityData, error: capacityError } = await supabase
+          .rpc('resolveCustomerServiceCapacity', {
+            p_customer_id: customerIdForPackage,
+            p_service_id: service_id
+          });
+
+        if (!capacityError && capacityData && capacityData.length > 0) {
+          const capacityResult = capacityData[0];
+          const totalRemaining = capacityResult.total_remaining_capacity || 0;
+          const exhaustionStatus = capacityResult.exhaustion_status || [];
+
+          // If we have enough capacity for the requested visitor count
+          if (totalRemaining >= visitor_count) {
+            shouldUsePackage = true;
+            finalTotalPrice = 0; // Package booking is free
+
+            // Find the subscription ID to use
+            // Priority: use the one with most remaining capacity
+            if (exhaustionStatus.length > 0) {
+              const availableSubscriptions = exhaustionStatus
+                .filter((s: any) => !s.is_exhausted && s.remaining >= visitor_count)
+                .sort((a: any, b: any) => b.remaining - a.remaining);
+
+              if (availableSubscriptions.length > 0) {
+                // Use the subscription_id directly from the exhaustion status
+                // (it's already in the result from resolveCustomerServiceCapacity)
+                packageSubscriptionId = availableSubscriptions[0].subscription_id;
+                console.log(`[Booking Creation] ✅ Using package subscription: ${packageSubscriptionId} (remaining: ${availableSubscriptions[0].remaining})`);
+              }
+            }
+          } else if (totalRemaining > 0) {
+            // Partial capacity - booking becomes paid (no partial usage)
+            console.log(`[Booking Creation] ⚠️ Partial package capacity (${totalRemaining}/${visitor_count}) - booking will be paid`);
+          } else {
+            // No capacity - check if we should notify about exhaustion
+            const exhaustedPackages = exhaustionStatus.filter((s: any) => s.is_exhausted);
+            if (exhaustedPackages.length > 0) {
+              console.log(`[Booking Creation] ℹ️ Package capacity exhausted for ${exhaustedPackages.length} package(s)`);
+            }
+          }
+        }
+      } catch (packageError: any) {
+        // Log but don't fail - proceed with paid booking if package check fails
+        console.error(`[Booking Creation] ⚠️ Package capacity check failed:`, packageError);
+      }
+    }
+
     // Use RPC for transaction - handles all validation, lock checking, and booking creation
     console.log(`[Booking Creation] Calling create_booking_with_lock RPC function...`);
+    console.log(`[Booking Creation]    Package: ${shouldUsePackage ? 'YES' : 'NO'}, Price: ${finalTotalPrice}`);
     const { data: booking, error: createError } = await supabase
       .rpc('create_booking_with_lock', {
         p_slot_id: slot_id,
@@ -615,14 +796,17 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
         p_customer_phone: normalizedPhone,
         p_customer_email: customer_email || null,
         p_visitor_count: visitor_count,
-        p_total_price: total_price,
+        p_adult_count: finalAdultCount,
+        p_child_count: finalChildCount,
+        p_total_price: finalTotalPrice,
         p_notes: notes || null,
         p_employee_id: employee_id || null,
         p_lock_id: lock_id || null,
         p_session_id: req.user?.id || session_id || null,
-        p_customer_id: req.user?.id || null,
+        p_customer_id: customerIdForPackage || null,
         p_offer_id: offer_id || null,
-        p_language: validLanguage
+        p_language: validLanguage,
+        p_package_subscription_id: packageSubscriptionId // NEW: Pass package subscription
       });
 
     if (createError) {
@@ -1323,6 +1507,8 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       customer_phone,
       customer_email,
       visitor_count, // Total visitors across all slots
+      adult_count,
+      child_count,
       total_price, // Total price for all bookings
       notes,
       employee_id,
@@ -1355,6 +1541,72 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       return res.status(400).json({
         error: 'visitor_count must be at least 1'
       });
+    }
+
+    // ============================================================================
+    // PACKAGE CAPACITY CHECK - Auto-apply package if capacity exists
+    // ============================================================================
+    // Note: For bulk bookings, we check capacity per slot (each slot = 1 visitor)
+    // If package capacity exists, we'll use it for as many slots as possible
+    let packageSubscriptionId: string | null = null;
+    let finalTotalPrice = total_price || 0;
+    let shouldUsePackage = false;
+
+    // Look up customer by phone if customer_id not provided
+    let customerIdForPackage = req.user?.id || req.body.customer_id;
+    if (!customerIdForPackage && normalizedPhone) {
+      const { data: customerData } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('phone', normalizedPhone)
+        .eq('tenant_id', tenant_id)
+        .maybeSingle();
+      
+      if (customerData) {
+        customerIdForPackage = customerData.id;
+      }
+    }
+
+    if (customerIdForPackage) {
+      try {
+        // For bulk bookings, check if we have capacity for at least 1 slot
+        // (Each slot in bulk booking = 1 visitor)
+        const { data: capacityData, error: capacityError } = await supabase
+          .rpc('resolveCustomerServiceCapacity', {
+            p_customer_id: customerIdForPackage,
+            p_service_id: service_id
+          });
+
+        if (!capacityError && capacityData && capacityData.length > 0) {
+          const capacityResult = capacityData[0];
+          const totalRemaining = capacityResult.total_remaining_capacity || 0;
+          const exhaustionStatus = capacityResult.exhaustion_status || [];
+
+          // For bulk bookings, we can use package for up to totalRemaining slots
+          // But per requirements: "No partial package usage in a single booking"
+          // So if we have enough for ALL slots, use package. Otherwise, paid.
+          if (totalRemaining >= visitor_count) {
+            shouldUsePackage = true;
+            finalTotalPrice = 0; // Package booking is free
+
+            // Find the subscription ID to use
+            if (exhaustionStatus.length > 0) {
+              const availableSubscriptions = exhaustionStatus
+                .filter((s: any) => !s.is_exhausted && s.remaining >= visitor_count)
+                .sort((a: any, b: any) => b.remaining - a.remaining);
+
+              if (availableSubscriptions.length > 0) {
+                packageSubscriptionId = availableSubscriptions[0].subscription_id;
+                console.log(`[Bulk Booking Creation] ✅ Using package subscription: ${packageSubscriptionId}`);
+              }
+            }
+          } else {
+            console.log(`[Bulk Booking Creation] ⚠️ Insufficient package capacity (${totalRemaining}/${visitor_count}) - booking will be paid`);
+          }
+        }
+      } catch (packageError: any) {
+        console.error(`[Bulk Booking Creation] ⚠️ Package capacity check failed:`, packageError);
+      }
     }
 
     // CRITICAL: Validate that number of slots matches visitor_count
@@ -1445,14 +1697,17 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
         p_customer_phone: normalizedPhone,
         p_customer_email: customer_email || null,
         p_visitor_count: visitor_count,
-        p_total_price: total_price,
+        p_adult_count: finalAdultCount,
+        p_child_count: finalChildCount,
+        p_total_price: finalTotalPrice, // Use calculated price (0 if using package)
         p_notes: notes || null,
         p_employee_id: employee_id || null,
         p_session_id: req.user?.id || session_id || null,
-        p_customer_id: req.user?.id || null,
+        p_customer_id: customerIdForPackage || null,
         p_offer_id: offer_id || null,
         p_language: validLanguage,
-        p_booking_group_id: booking_group_id || null
+        p_booking_group_id: booking_group_id || null,
+        p_package_subscription_id: packageSubscriptionId // Pass package subscription if using package
       });
 
     if (createError) {
