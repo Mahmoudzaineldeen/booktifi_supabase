@@ -16,6 +16,7 @@ import { zohoRoutes } from './routes/zoho';
 import { packageRoutes } from './routes/packages';
 import { startLockCleanup } from './jobs/cleanupLocks';
 import { startZohoReceiptWorker } from './jobs/zohoReceiptWorker';
+import { startZohoTokenRefresh } from './jobs/zohoTokenRefresh';
 import { zohoCredentials } from './config/zohoCredentials';
 import { logger } from './utils/logger';
 
@@ -137,4 +138,14 @@ app.listen(PORT, () => {
     : 30000;
   startZohoReceiptWorker(zohoWorkerInterval);
   logger.info('Background jobs started', undefined, { job: 'zohoReceiptWorker' });
+  
+  // Start Zoho token refresh worker (runs every 10 minutes)
+  // This proactively refreshes tokens before they expire, ensuring they're always valid
+  const tokenRefreshInterval = process.env.ZOHO_TOKEN_REFRESH_INTERVAL
+    ? parseInt(process.env.ZOHO_TOKEN_REFRESH_INTERVAL)
+    : 10 * 60 * 1000; // 10 minutes
+  startZohoTokenRefresh(tokenRefreshInterval);
+  logger.info('Background jobs started', undefined, { job: 'zohoTokenRefresh' });
+  console.log(`🔄 Zoho token auto-refresh enabled (runs every ${tokenRefreshInterval / 1000 / 60} minutes)`);
+  console.log(`   Tokens will be refreshed automatically 15 minutes before expiration`);
 });

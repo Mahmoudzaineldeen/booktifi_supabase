@@ -1075,36 +1075,15 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
             console.log(`[Booking Creation]    Current time: ${now.toISOString()}`);
             console.log(`[Booking Creation]    Minutes until expiration: ${minutesUntilExpiry}`);
             
-            // Only reject if token is actually expired (not close to expiration)
-            // getAccessToken() will handle auto-refresh for tokens close to expiration
+            // CRITICAL: Don't reject expired tokens here - let getAccessToken() handle refresh
+            // getAccessToken() will attempt to refresh expired tokens using refresh_token
+            // Only log a warning, but continue - getAccessToken() will handle it
             if (expiresAt <= now) {
-              const errorMsg = `Zoho token expired for tenant ${tenant_id}. Expired at: ${expiresAt.toISOString()}, Current: ${now.toISOString()}`;
-              console.error(`[Booking Creation] ❌ ${errorMsg}`);
-              console.error(`[Booking Creation]    Invoice creation skipped. Please refresh Zoho connection in Settings`);
-              
-              // Log this failure to zoho_invoice_logs for tracking
-              try {
-                await supabase
-                  .from('zoho_invoice_logs')
-                  .insert({
-                    booking_id: bookingId,
-                    tenant_id: tenant_id,
-                    zoho_invoice_id: null,
-                    status: 'failed',
-                    error_message: errorMsg,
-                    request_payload: JSON.stringify({ 
-                      booking_id: bookingId, 
-                      tenant_id: tenant_id,
-                      token_expired_at: expiresAt.toISOString(),
-                      current_time: now.toISOString()
-                    }),
-                    response_payload: JSON.stringify({ error: 'Token expired' }),
-                  });
-              } catch (logError: any) {
-                console.error(`[Booking Creation] ⚠️ Failed to log invoice failure: ${logError.message}`);
-              }
-              
-              return; // Exit early if token is expired
+              const minutesExpired = Math.abs(Math.round((expiresAt.getTime() - now.getTime()) / 1000 / 60));
+              console.warn(`[Booking Creation] ⚠️ Token expired ${minutesExpired} minutes ago`);
+              console.warn(`[Booking Creation]    getAccessToken() will attempt to refresh using refresh_token`);
+              console.warn(`[Booking Creation]    If refresh fails, invoice creation will fail with clear error`);
+              // Continue - don't exit early. Let getAccessToken() handle refresh
             } else {
               // Token is valid - getAccessToken() will handle refresh if needed
               if (minutesUntilExpiry <= 5) {

@@ -116,17 +116,37 @@ class ZohoService {
     console.log(`[ZohoService]    Current time: ${now.toISOString()}`);
     console.log(`[ZohoService]    Minutes until expiry: ${minutesUntilExpiry}`);
 
+    // CRITICAL: Always attempt refresh if token is expired or expiring soon
+    // This ensures expired tokens are automatically refreshed
     if (timeUntilExpiry < buffer) {
       if (timeUntilExpiry <= 0) {
         console.log(`[ZohoService] Token is expired (${minutesUntilExpiry} minutes ago), refreshing for tenant ${tenantId}...`);
       } else {
         console.log(`[ZohoService] Token expires soon (${minutesUntilExpiry} minutes), refreshing for tenant ${tenantId}...`);
       }
+      
+      // CRITICAL: Check if refresh_token exists before attempting refresh
+      if (!token.refresh_token || token.refresh_token.trim().length === 0) {
+        const errorMsg = `Cannot refresh token: refresh_token is missing or empty. Please reconnect Zoho in Settings → Zoho Integration`;
+        console.error(`[ZohoService] ❌ ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
+      
       try {
         const newAccessToken = await this.refreshAccessToken(tenantId, token.refresh_token);
         console.log(`[ZohoService] ✅ Token refreshed successfully`);
         return newAccessToken;
       } catch (refreshError: any) {
+        // Check if error is about invalid refresh token
+        const errorMessage = refreshError.message || '';
+        if (errorMessage.includes('INVALID_REFRESH_TOKEN') || 
+            errorMessage.includes('invalid_grant') ||
+            errorMessage.includes('invalid refresh token')) {
+          const errorMsg = `Refresh token is invalid or expired. Please reconnect Zoho in Settings → Zoho Integration → Disconnect and Connect again`;
+          console.error(`[ZohoService] ❌ ${errorMsg}`);
+          throw new Error(errorMsg);
+        }
+        
         console.error(`[ZohoService] ❌ Failed to refresh token: ${refreshError.message}`);
         throw new Error(`Failed to refresh Zoho token. Please reconnect Zoho in Settings → Zoho Integration. Error: ${refreshError.message}`);
       }
