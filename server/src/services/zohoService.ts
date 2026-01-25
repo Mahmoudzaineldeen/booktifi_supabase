@@ -2086,15 +2086,30 @@ class ZohoService {
       console.log(`[ZohoService]    Status: SUCCESS`);
       console.log(`[ZohoService] ========================================`);
       
+      // Final verification: Ensure invoice ID is valid before returning success
+      if (!invoiceId || invoiceId.trim().length === 0) {
+        const errorMsg = 'Invoice creation completed but invoice_id is empty or invalid';
+        console.error(`[ZohoService] ❌ ${errorMsg}`);
+        return {
+          invoiceId: '',
+          success: false,
+          error: errorMsg
+        };
+      }
+      
       return { invoiceId, success: true };
     } catch (error: any) {
       // ============================================================================
       // ERROR HANDLING: Log failure and return structured error
       // ============================================================================
+      console.error(`[ZohoService] ========================================`);
       console.error(`[ZohoService] ❌ CRITICAL ERROR: Failed to generate receipt for booking ${bookingId}`);
+      console.error(`[ZohoService] ========================================`);
       console.error(`[ZohoService]    Error: ${error.message}`);
       console.error(`[ZohoService]    Error Type: ${error.constructor.name}`);
+      console.error(`[ZohoService]    Error Code: ${error.code || 'N/A'}`);
       console.error(`[ZohoService]    Stack: ${error.stack}`);
+      console.error(`[ZohoService] ========================================`);
       
       // Log failure to zoho_invoice_logs
       try {
