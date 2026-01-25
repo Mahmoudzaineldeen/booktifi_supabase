@@ -2329,7 +2329,53 @@ export function ReceptionPage() {
       
       // Force refresh by clearing any potential cache
       setTimeout(async () => {
-        // First, verify the booking was updated correctly with multiple attempts
+        // CRITICAL: Use API response data if available (most reliable)
+        // The backend returns the updated booking with correct slot_date
+        if (backendBookingData && backendBookingData.slot_id === newSlotIdToVerify) {
+          console.log('[ReceptionPage] 🔄 Using API response data for state update...');
+          console.log('[ReceptionPage]   API slot_id:', backendBookingData.slot_id);
+          console.log('[ReceptionPage]   API slot_date:', backendBookingData.slots?.slot_date);
+          
+          // Update state immediately with API response data
+          setBookings(prevBookings => {
+            const updated = prevBookings.map(b => {
+              if (b.id === updatedBookingId) {
+                const updatedBooking = {
+                  ...b,
+                  slot_id: backendBookingData.slot_id,
+                  slots: backendBookingData.slots,
+                };
+                console.log('[ReceptionPage]   State update from API response:', {
+                  bookingId: updatedBookingId,
+                  oldSlotDate: b.slots?.slot_date,
+                  newSlotDate: updatedBooking.slots?.slot_date,
+                });
+                return updatedBooking;
+              }
+              return b;
+            });
+            return updated;
+          });
+          
+          // Also update todayBookings
+          setTodayBookings(prevTodayBookings => {
+            const updated = prevTodayBookings.map(b => {
+              if (b.id === updatedBookingId) {
+                return {
+                  ...b,
+                  slot_id: backendBookingData.slot_id,
+                  slots: backendBookingData.slots,
+                };
+              }
+              return b;
+            });
+            return updated;
+          });
+          
+          console.log('[ReceptionPage] ✅ State updated from API response');
+        }
+        
+        // Verify the booking was updated correctly with multiple attempts
         let bookingData: any = null;
         let attempts = 0;
         const maxAttempts = 3;
@@ -2379,10 +2425,10 @@ export function ReceptionPage() {
         await fetchBookings();
         console.log('[ReceptionPage] ✅ Bookings refreshed');
         
-        // CRITICAL: Always update state if slot_id matches, regardless of whether we got backend data
-        // This ensures the UI reflects the new slot even if relationship query is delayed
+        // CRITICAL: After fetchBookings, ensure the updated booking has correct slot_date
+        // This handles cases where fetchBookings might return stale relationship data
         if (bookingData && bookingData.slot_id === newSlotIdToVerify) {
-          console.log('[ReceptionPage] 🔄 Force updating booking state with verified slot data...');
+          console.log('[ReceptionPage] 🔄 Force updating booking state with verified slot data after fetchBookings...');
           console.log('[ReceptionPage]   Verified slot_id:', bookingData.slot_id);
           console.log('[ReceptionPage]   Verified slot_date:', bookingData.slots?.slot_date || 'MISSING (will fetch)');
           
@@ -2406,6 +2452,7 @@ export function ReceptionPage() {
             }
           }
           
+          // Update state again after fetchBookings to ensure correct slot_date
           setBookings(prevBookings => {
             const updated = prevBookings.map(b => {
               if (b.id === updatedBookingId) {
@@ -2414,10 +2461,8 @@ export function ReceptionPage() {
                   slot_id: bookingData.slot_id,
                   slots: finalSlotData || b.slots, // Use fetched slot data or keep old if fetch failed
                 };
-                console.log('[ReceptionPage]   State update:', {
+                console.log('[ReceptionPage]   Final state update after fetchBookings:', {
                   bookingId: updatedBookingId,
-                  oldSlotId: b.slot_id,
-                  newSlotId: updatedBooking.slot_id,
                   oldSlotDate: b.slots?.slot_date,
                   newSlotDate: updatedBooking.slots?.slot_date,
                 });
@@ -2443,9 +2488,23 @@ export function ReceptionPage() {
             return updated;
           });
           
-          console.log('[ReceptionPage] ✅ State updated with verified slot data');
+          console.log('[ReceptionPage] ✅ State updated with verified slot data after fetchBookings');
         } else if (backendBookingData) {
-          console.log('[ReceptionPage] ✅ State already updated from backend response');
+          // If we have API response data but verification failed, still use API data
+          console.log('[ReceptionPage] ✅ Using API response data (verification skipped)');
+          setBookings(prevBookings => {
+            const updated = prevBookings.map(b => {
+              if (b.id === updatedBookingId && b.slot_id !== backendBookingData.slot_id) {
+                return {
+                  ...b,
+                  slot_id: backendBookingData.slot_id,
+                  slots: backendBookingData.slots,
+                };
+              }
+              return b;
+            });
+            return updated;
+          });
         } else {
           console.warn('[ReceptionPage] ⚠️  Could not verify booking update. Slot ID mismatch or booking not found.');
           if (bookingData) {
