@@ -228,10 +228,19 @@ async function getBookingDetails(bookingId) {
   originalSlotData = bookingData.slots || null;
   
   if (!originalSlotData) {
-    // Fetch slot details separately
-    const { data: slotData } = await makeRequest(`/query?table=slots&id=eq.${bookingData.slot_id}&select=slot_date,start_time,end_time`);
+    // Fetch slot details separately including shift_id
+    const { data: slotData } = await makeRequest(`/query?table=slots&id=eq.${bookingData.slot_id}&select=slot_date,start_time,end_time,shift_id`);
     const slots = Array.isArray(slotData) ? slotData : (slotData?.data || []);
     originalSlotData = slots[0] || null;
+  } else {
+    // Also fetch shift_id if not included
+    if (!originalSlotData.shift_id) {
+      const { data: slotData } = await makeRequest(`/query?table=slots&id=eq.${bookingData.slot_id}&select=shift_id`);
+      const slots = Array.isArray(slotData) ? slotData : (slotData?.data || []);
+      if (slots[0]) {
+        originalSlotData.shift_id = slots[0].shift_id;
+      }
+    }
   }
 
   console.log('   ✅ Booking details fetched');
@@ -262,28 +271,37 @@ async function findAvailableSlotsForDifferentDate(serviceId) {
 
   console.log(`   Searching for slots between ${todayStr} and ${futureStr}...`);
 
-  // Slots are linked to services through shifts, so we need to query shifts first
-  const { response: shiftsResponse, data: shiftsData, ok: shiftsOk } = await makeRequest(
-    `/query?table=shifts&service_id=eq.${serviceId}&tenant_id=eq.${tenantId}&is_active=eq.true&limit=100&select=id,service_id`
-  );
+  // Try to use the current booking's shift first (most reliable)
+  let shiftIds = [];
   
-  if (!shiftsOk || !shiftsData) {
-    throw new Error(`Failed to fetch shifts: ${shiftsData?.error || 'Unknown error'}`);
+  if (originalSlotData?.shift_id) {
+    console.log(`   Using current booking's shift: ${originalSlotData.shift_id}`);
+    shiftIds = [originalSlotData.shift_id];
+  } else {
+    // Fallback: query shifts for the service
+    console.log(`   Querying shifts for service ${serviceId}...`);
+    const { response: shiftsResponse, data: shiftsData, ok: shiftsOk } = await makeRequest(
+      `/query?table=shifts&service_id=eq.${serviceId}&tenant_id=eq.${tenantId}&is_active=eq.true&limit=100&select=id,service_id`
+    );
+    
+    if (!shiftsOk || !shiftsData) {
+      throw new Error(`Failed to fetch shifts: ${shiftsData?.error || 'Unknown error'}`);
+    }
+    
+    const shifts = Array.isArray(shiftsData) ? shiftsData : (shiftsData.data || []);
+    if (shifts.length === 0) {
+      throw new Error('No active shifts found for this service');
+    }
+    
+    // Verify all shifts belong to the correct service
+    const validShifts = shifts.filter(s => s.service_id === serviceId);
+    if (validShifts.length === 0) {
+      throw new Error(`No valid shifts found for service ${serviceId}. Found ${shifts.length} shifts but none match the service.`);
+    }
+    
+    shiftIds = validShifts.map(s => s.id);
+    console.log(`   Found ${shiftIds.length} active shifts for this service (verified)`);
   }
-  
-  const shifts = Array.isArray(shiftsData) ? shiftsData : (shiftsData.data || []);
-  if (shifts.length === 0) {
-    throw new Error('No active shifts found for this service');
-  }
-  
-  // Verify all shifts belong to the correct service
-  const validShifts = shifts.filter(s => s.service_id === serviceId);
-  if (validShifts.length === 0) {
-    throw new Error(`No valid shifts found for service ${serviceId}. Found ${shifts.length} shifts but none match the service.`);
-  }
-  
-  const shiftIds = validShifts.map(s => s.id);
-  console.log(`   Found ${shiftIds.length} active shifts for this service (verified)`);
   
   // Query slots for these shifts - use multiple queries or filter in memory
   // Since query endpoint might not support IN operator easily, let's fetch all slots and filter
@@ -317,23 +335,60 @@ async function findAvailableSlotsForDifferentDate(serviceId) {
     console.warn('   ⚠️  No available slots found for the next 7 days');
     console.warn('   Trying to find any slots (including past dates)...');
     
-    // Try to find any slots for this service (including past)
-    const { response: response2, data: data2, ok: ok2 } = await makeRequest(
-      `/query?table=slots&tenant_id=eq.${tenantId}&limit=100&order=slot_date.desc,start_time.asc`
-    );
-    
-    if (ok2) {
-      const allFetchedSlots2 = Array.isArray(data2) ? data2 : (data2?.data || []);
-      const allSlots = allFetchedSlots2.filter(slot => shiftIds.includes(slot.shift_id));
-      if (allSlots.length > 0) {
-        console.log(`   ✅ Found ${allSlots.length} total slots (including past dates)`);
-        // Find a slot with a different date
-        const differentDateSlot = allSlots.find(s => s.slot_date !== originalSlotData?.slot_date);
-        if (differentDateSlot) {
-          console.log(`   Selected slot with different date: ${differentDateSlot.id}`);
-          console.log(`   Date: ${differentDateSlot.slot_date}`);
-          console.log(`   Time: ${differentDateSlot.start_time} - ${differentDateSlot.end_time}`);
-          return differentDateSlot;
+    // Try to find any slots for this shift (any date, any capacity)
+    if (originalSlotData?.shift_id) {
+      console.log(`   Searching for ANY slots for shift ${originalSlotData.shift_id}...`);
+      const { response: response2, data: data2, ok: ok2 } = await makeRequest(
+        `/query?table=slots&shift_id=eq.${originalSlotData.shift_id}&tenant_id=eq.${tenantId}&limit=100&order=slot_date.desc,start_time.asc`
+      );
+      
+      if (ok2) {
+        const allSlots = Array.isArray(data2) ? data2 : (data2?.data || []);
+        if (allSlots.length > 0) {
+          console.log(`   ✅ Found ${allSlots.length} total slots for this shift`);
+          
+          // Verify each slot's shift belongs to the correct service
+          console.log(`   Verifying slots belong to service ${serviceId}...`);
+          const verifiedSlots = [];
+          
+          for (const slot of allSlots) {
+            // Fetch the shift for this slot to verify service_id
+            const { data: shiftData } = await makeRequest(`/query?table=shifts&id=eq.${slot.shift_id}&select=service_id`);
+            const shifts = Array.isArray(shiftData) ? shiftData : (shiftData?.data || []);
+            
+            if (shifts.length > 0 && shifts[0].service_id === serviceId) {
+              verifiedSlots.push(slot);
+            }
+          }
+          
+          if (verifiedSlots.length === 0) {
+            console.warn(`   ⚠️  No slots verified for service ${serviceId}`);
+            // Continue to next fallback - but we're in an if block, so just skip
+          } else {
+          
+          console.log(`   ✅ Verified ${verifiedSlots.length} slots belong to service ${serviceId}`);
+          
+          // Find a slot with a different date and different ID
+          const differentDateSlot = verifiedSlots.find(s => 
+            s.slot_date !== originalSlotData?.slot_date && 
+            s.id !== testBooking.slot_id
+          );
+          if (differentDateSlot) {
+            console.log(`   Selected slot with different date: ${differentDateSlot.id}`);
+            console.log(`   Date: ${differentDateSlot.slot_date} (original: ${originalSlotData?.slot_date})`);
+            console.log(`   Time: ${differentDateSlot.start_time} - ${differentDateSlot.end_time}`);
+            return differentDateSlot;
+          } else {
+            // If no different date, use a different slot on same date (at least test time change)
+            const differentSlot = verifiedSlots.find(s => s.id !== testBooking.slot_id);
+            if (differentSlot) {
+              console.log(`   ⚠️  No different date found, using different slot on same date: ${differentSlot.id}`);
+              console.log(`   Date: ${differentSlot.slot_date} (same as original)`);
+              console.log(`   Time: ${differentSlot.start_time} - ${differentSlot.end_time} (different from original)`);
+              return differentSlot;
+            }
+          }
+          }
         }
       }
     }
@@ -353,37 +408,45 @@ async function findAvailableSlotsForDifferentDate(serviceId) {
     throw new Error('No available slots found for this service with a different date. Please ensure the service has shifts and slots configured for different dates.');
   }
 
-  // Verify each slot's shift belongs to the correct service
-  console.log(`   Verifying slots belong to service ${serviceId}...`);
-  const verifiedSlots = [];
-  
-  for (const slot of slots) {
-    // Fetch the shift for this slot to verify service_id
-    const { data: shiftData } = await makeRequest(`/query?table=shifts&id=eq.${slot.shift_id}&select=service_id`);
-    const shifts = Array.isArray(shiftData) ? shiftData : (shiftData?.data || []);
-    
-    if (shifts.length > 0 && shifts[0].service_id === serviceId) {
-      verifiedSlots.push(slot);
-    } else {
-      console.log(`   ⚠️  Skipping slot ${slot.id} - belongs to different service`);
-    }
-  }
+  // Filter slots by shift_id (they should all belong to the same service)
+  const verifiedSlots = slots.filter(slot => shiftIds.includes(slot.shift_id));
   
   if (verifiedSlots.length === 0) {
+    console.warn('   ⚠️  No slots found for the shifts. Trying to find any slots for this shift...');
+    // Try to find slots for the current shift, any date
+    if (originalSlotData?.shift_id) {
+      const { data: anySlotData } = await makeRequest(
+        `/query?table=slots&shift_id=eq.${originalSlotData.shift_id}&tenant_id=eq.${tenantId}&limit=50&order=slot_date.asc,start_time.asc`
+      );
+      const anySlots = Array.isArray(anySlotData) ? anySlotData : (anySlotData?.data || []);
+      if (anySlots.length > 0) {
+        console.log(`   ✅ Found ${anySlots.length} slots for this shift`);
+        const differentDateSlot = anySlots.find(s => s.slot_date !== originalSlotData?.slot_date && s.id !== testBooking.slot_id);
+        if (differentDateSlot) {
+          console.log(`   Selected slot with different date: ${differentDateSlot.id}`);
+          console.log(`   Date: ${differentDateSlot.slot_date} (original: ${originalSlotData?.slot_date})`);
+          console.log(`   Time: ${differentDateSlot.start_time} - ${differentDateSlot.end_time}`);
+          return differentDateSlot;
+        }
+      }
+    }
     throw new Error('No verified slots found for this service');
   }
   
   // Find a slot with a different date than the current one
-  const differentDateSlot = verifiedSlots.find(s => s.slot_date !== originalSlotData?.slot_date);
+  const differentDateSlot = verifiedSlots.find(s => s.slot_date !== originalSlotData?.slot_date && s.id !== testBooking.slot_id);
   
   if (!differentDateSlot) {
     console.warn('   ⚠️  All available slots are on the same date as the current booking');
-    // Use the first verified slot anyway to test the time change
-    const firstSlot = verifiedSlots[0];
-    console.log(`   Using first verified slot: ${firstSlot.id}`);
-    console.log(`   Date: ${firstSlot.slot_date}`);
-    console.log(`   Time: ${firstSlot.start_time} - ${firstSlot.end_time}`);
-    return firstSlot;
+    // Use a different slot on the same date to at least test time change
+    const differentSlot = verifiedSlots.find(s => s.id !== testBooking.slot_id);
+    if (differentSlot) {
+      console.log(`   Using different slot on same date: ${differentSlot.id}`);
+      console.log(`   Date: ${differentSlot.slot_date} (same as original)`);
+      console.log(`   Time: ${differentSlot.start_time} - ${differentSlot.end_time} (different from original)`);
+      return differentSlot;
+    }
+    throw new Error('No alternative slots found for this service');
   }
 
   console.log(`   ✅ Found ${verifiedSlots.length} verified slots for service`);
