@@ -256,34 +256,61 @@ export async function generateBookingTicketPDF(
     }
 
     // Fetch booking details with tenant design settings and service prices
-    const { data: bookings, error: bookingError } = await supabase
-      .from('bookings')
-      .select(`
-        id, customer_name, customer_phone, customer_email,
-        created_at, package_id, offer_id,
-        visitor_count, total_price,
-        payment_status, status,
-        services (
-          name,
-          name_ar,
-          base_price,
-        ),
-        tenants (
-          name,
-          name_ar,
-          landing_page_settings
-        ),
-        slots (
-          slot_date,
-          start_time,
-          end_time
-        )
-      `)
-      .eq('id', bookingId)
-      .single();
+    // CRITICAL: Add retry logic and better error handling for booking fetch
+    let bookings: any = null;
+    let bookingError: any = null;
+    
+    // Try fetching with retries (booking might be recently updated)
+    for (let retry = 0; retry < 3; retry++) {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select(`
+          id, customer_name, customer_phone, customer_email,
+          created_at, package_id, offer_id,
+          visitor_count, total_price,
+          payment_status, status,
+          services (
+            name,
+            name_ar,
+            base_price,
+          ),
+          tenants (
+            name,
+            name_ar,
+            landing_page_settings
+          ),
+          slots (
+            slot_date,
+            start_time,
+            end_time
+          )
+        `)
+        .eq('id', bookingId)
+        .single();
+      
+      if (!error && data) {
+        bookings = data;
+        bookingError = null;
+        break;
+      } else {
+        bookingError = error;
+        if (retry < 2) {
+          console.log(`[PDF Service] ⚠️ Booking fetch attempt ${retry + 1}/3 failed, retrying...`);
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+    }
 
     if (bookingError || !bookings) {
-      throw new Error('Booking not found');
+      console.error(`[PDF Service] ❌ Failed to fetch booking after retries:`, {
+        bookingId,
+        error: bookingError,
+        errorCode: bookingError?.code,
+        errorMessage: bookingError?.message,
+        errorDetails: bookingError?.details,
+        errorHint: bookingError?.hint
+      });
+      throw new Error(`Booking not found: ${bookingError?.message || 'Unknown error'}`);
     }
 
     const booking: BookingData & {
@@ -1148,14 +1175,38 @@ export async function generateAllTicketsInOnePDF(
     console.log(`📄 generateAllTicketsInOnePDF: Starting for booking ${bookingId}`);
     
     // Fetch booking details to get visitor_count
-    const { data: bookings, error: bookingError } = await supabase
-      .from('bookings')
-      .select('visitor_count, service_id, offer_id')
-      .eq('id', bookingId)
-      .single();
+    // CRITICAL: Add retry logic for booking fetch (booking might be recently updated)
+    let bookings: any = null;
+    let bookingError: any = null;
+    
+    for (let retry = 0; retry < 3; retry++) {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('visitor_count, service_id, offer_id')
+        .eq('id', bookingId)
+        .single();
+      
+      if (!error && data) {
+        bookings = data;
+        bookingError = null;
+        break;
+      } else {
+        bookingError = error;
+        if (retry < 2) {
+          console.log(`[PDF Service] ⚠️ Booking fetch attempt ${retry + 1}/3 failed in generateAllTicketsInOnePDF, retrying...`);
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+    }
 
     if (bookingError || !bookings) {
-      throw new Error(`Booking ${bookingId} not found in database`);
+      console.error(`[PDF Service] ❌ Failed to fetch booking in generateAllTicketsInOnePDF:`, {
+        bookingId,
+        error: bookingError,
+        errorCode: bookingError?.code,
+        errorMessage: bookingError?.message
+      });
+      throw new Error(`Booking ${bookingId} not found in database: ${bookingError?.message || 'Unknown error'}`);
     }
 
     const booking = bookings;
@@ -1289,20 +1340,51 @@ async function generateMultipleTicketsInOnePDF(
   const { PDFDocument } = await import('pdf-lib');
   
   // Fetch booking to get total price for calculating price per ticket
-  const { data: booking, error: bookingError } = await supabase
-    .from('bookings')
-    .select(`
-      total_price,
-      visitor_count,
-      offer_id,
-      services (
-        base_price
-      )
-    `)
-    .eq('id', bookingId)
-    .single();
+  // CRITICAL: Add retry logic for booking fetch (booking might be recently updated)
+  let booking: any = null;
+  let bookingError: any = null;
+  
+  for (let retry = 0; retry < 3; retry++) {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        total_price,
+        visitor_count,
+        offer_id,
+        services (
+          base_price
+        )
+      `)
+      .eq('id', bookingId)
+      .single();
+    
+    if (!error && data) {
+      booking = data;
+      bookingError = null;
+      break;
+    } else {
+      bookingError = error;
+      if (retry < 2) {
+        console.log(`[PDF Service] ⚠️ Booking fetch attempt ${retry + 1}/3 failed in generateMultipleTicketsInOnePDF, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+  }
 
   let ticketPrice: number | undefined;
+
+  if (bookingError || !booking) {
+    console.error(`[PDF Service] ❌ Failed to fetch booking in generateMultipleTicketsInOnePDF:`, {
+      bookingId,
+      error: bookingError,
+      errorCode: bookingError?.code,
+      errorMessage: bookingError?.message,
+      errorDetails: bookingError?.details,
+      errorHint: bookingError?.hint
+    });
+    // Continue with default price calculation if booking fetch fails
+    console.warn(`[PDF Service] ⚠️ Continuing with default price calculation`);
+  }
 
   if (!bookingError && booking) {
     // Calculate price per ticket

@@ -2861,6 +2861,12 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
           console.log(`[Booking Time Edit] 📄 Step 1: Generating PDF for booking ${bookingId}...`);
           console.log(`[Booking Time Edit]    Language: ${ticketLanguage}`);
           
+          // CRITICAL: Wait a moment for database to fully commit the booking update
+          // This prevents "Booking not found" errors when PDF service tries to fetch the booking
+          console.log(`[Booking Time Edit] ⏳ Waiting 1 second for database to commit booking update...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          console.log(`[Booking Time Edit] ✅ Proceeding with PDF generation...`);
+          
           // Generate new PDF - CRITICAL: This must succeed
           const pdfBase64 = await generateBookingTicketPDFBase64(bookingId, ticketLanguage);
           
