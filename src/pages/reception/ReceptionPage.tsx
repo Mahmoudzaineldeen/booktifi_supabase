@@ -132,6 +132,12 @@ export function ReceptionPage() {
   const [selectedBookingForDetails, setSelectedBookingForDetails] = useState<Booking | null>(null);
   const [isEditBookingModalOpen, setIsEditBookingModalOpen] = useState(false);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  const [editingBookingTime, setEditingBookingTime] = useState<Booking | null>(null);
+  const [editingTimeDate, setEditingTimeDate] = useState<Date>(new Date());
+  const [availableTimeSlots, setAvailableTimeSlots] = useState<Slot[]>([]);
+  const [loadingTimeSlots, setLoadingTimeSlots] = useState(false);
+  const [selectedNewSlotId, setSelectedNewSlotId] = useState<string>('');
+  const [updatingBookingTime, setUpdatingBookingTime] = useState(false);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [showFullCalendar, setShowFullCalendar] = useState(false);
   const [assignmentMode, setAssignmentMode] = useState<'automatic' | 'manual'>('automatic');
@@ -2071,47 +2077,10 @@ export function ReceptionPage() {
     visitor_count: 1,
     total_price: 0,
     notes: '',
+    status: 'pending',
   });
-  const [editSelectedSlot, setEditSelectedSlot] = useState<string>('');
-  const [editAvailableSlots, setEditAvailableSlots] = useState<Slot[]>([]);
 
-  // Fetch available slots for rescheduling
-  useEffect(() => {
-    if (editingBooking && (editingBooking as any).service_id && userProfile?.tenant_id) {
-      const serviceId = (editingBooking as any).service_id;
-      const tenantId = userProfile.tenant_id;
-      
-      // Fetch slots for the next 30 days for this service
-      const fetchSlotsForReschedule = async () => {
-        try {
-          const today = format(new Date(), 'yyyy-MM-dd');
-          const futureDate = format(addDays(new Date(), 30), 'yyyy-MM-dd');
-          
-          const { data, error } = await db
-            .from('time_slots')
-            .select('id, slot_date, start_time, end_time, available_capacity, total_capacity, service_id')
-            .eq('service_id', serviceId)
-            .eq('tenant_id', tenantId)
-            .gte('slot_date', today)
-            .lte('slot_date', futureDate)
-            .order('slot_date', { ascending: true })
-            .order('start_time', { ascending: true })
-            .limit(500);
-
-          if (error) throw error;
-          setEditAvailableSlots(data || []);
-        } catch (err) {
-          console.error('Error fetching slots for reschedule:', err);
-          setEditAvailableSlots([]);
-        }
-      };
-      fetchSlotsForReschedule();
-    } else {
-      setEditAvailableSlots([]);
-    }
-  }, [editingBooking, userProfile?.tenant_id]);
-
-  // Edit booking function
+  // Edit booking function (same as tenant provider)
   async function handleEditBooking() {
     if (!editingBooking) return;
 
@@ -2126,12 +2095,8 @@ export function ReceptionPage() {
         visitor_count: editBookingForm.visitor_count,
         total_price: editBookingForm.total_price,
         notes: editBookingForm.notes || null,
+        status: editBookingForm.status,
       };
-
-      // If a new slot is selected, add it to the update
-      if (editSelectedSlot && editSelectedSlot !== (editingBooking as any).slot_id) {
-        updateData.slot_id = editSelectedSlot;
-      }
 
       const response = await fetch(`${API_URL}/bookings/${editingBooking.id}`, {
         method: 'PATCH',
@@ -2147,14 +2112,157 @@ export function ReceptionPage() {
         throw new Error(errorData.error || 'Failed to update booking');
       }
 
-      alert(t('reception.bookingUpdated') || 'Booking updated successfully!');
+      await fetchBookings();
       setIsEditBookingModalOpen(false);
       setEditingBooking(null);
-      setEditSelectedSlot('');
-      fetchBookings();
+      alert(t('bookings.bookingUpdatedSuccessfully') || 'Booking updated successfully!');
     } catch (err: any) {
       console.error('Error updating booking:', err);
-      alert(`Error: ${err.message}`);
+      alert(t('bookings.failedToUpdateBooking', { message: err.message }) || `Error: ${err.message}`);
+    }
+  }
+
+  // Handle edit time click (same as tenant provider)
+  async function handleEditTimeClick(booking: Booking) {
+    console.log('[ReceptionPage] ========================================');
+    console.log('[ReceptionPage] EDIT TIME CLICK - Booking details:');
+    console.log('   Booking ID:', booking.id);
+    console.log('   Customer:', booking.customer_name);
+    console.log('   Service ID:', (booking as any).service_id);
+    console.log('   Service Name:', booking.services?.name);
+    console.log('   Current slot date:', booking.slots?.slot_date);
+    console.log('[ReceptionPage] ========================================');
+    
+    if (!userProfile?.tenant_id || !(booking as any).service_id) {
+      alert(t('bookings.cannotEditBookingTime') || 'Cannot edit booking time');
+      return;
+    }
+
+    setEditingBookingTime(booking);
+    // Set initial date to current booking date
+    // FIX: Parse date string directly to avoid timezone issues with parseISO
+    if (booking.slots?.slot_date) {
+      const [year, month, day] = booking.slots.slot_date.split('-').map(Number);
+      const parsedDate = new Date(year, month - 1, day);
+      setEditingTimeDate(parsedDate);
+      console.log('[ReceptionPage] Edit time click - date set:', {
+        slotDate: booking.slots.slot_date,
+        parsedDate,
+        dayOfWeek: parsedDate.getDay(),
+        dayName: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][parsedDate.getDay()]
+      });
+    } else {
+      setEditingTimeDate(new Date());
+    }
+    setSelectedNewSlotId('');
+    await fetchTimeSlotsForEdit((booking as any).service_id, userProfile.tenant_id);
+  }
+
+  // Fetch time slots for editing (same as tenant provider)
+  async function fetchTimeSlotsForEdit(serviceId: string, tenantId: string) {
+    if (!editingTimeDate) return;
+
+    setLoadingTimeSlots(true);
+    try {
+      console.log('[ReceptionPage] ========================================');
+      console.log('[ReceptionPage] Fetching available slots for booking time edit...');
+      console.log('   Service ID:', serviceId);
+      console.log('   Date object:', editingTimeDate);
+      console.log('   Date string:', format(editingTimeDate, 'yyyy-MM-dd'));
+      console.log('   Day of week:', editingTimeDate.getDay(), ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][editingTimeDate.getDay()]);
+      console.log('   Tenant ID:', tenantId);
+      console.log('[ReceptionPage] ========================================');
+      
+      const result = await fetchAvailableSlotsUtil({
+        tenantId,
+        serviceId,
+        date: editingTimeDate,
+        includePastSlots: true,  // Allow rescheduling to any slot (past or future)
+        includeLockedSlots: false, // Still exclude locked slots
+        includeZeroCapacity: false, // Still exclude fully booked slots
+      });
+
+      console.log('[ReceptionPage] ========================================');
+      console.log('[ReceptionPage] Fetched slots:', result.slots.length);
+      console.log('[ReceptionPage] Shifts found:', result.shifts.length);
+      if (result.shifts.length > 0) {
+        console.log('[ReceptionPage] Shift schedules:', result.shifts.map(s => ({
+          id: s.id.substring(0, 8),
+          days: s.days_of_week,
+          dayNames: s.days_of_week.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d])
+        })));
+      }
+      console.log('[ReceptionPage] ========================================');
+      
+      if (result.slots.length === 0) {
+        console.warn('[ReceptionPage] ❌ No slots found for this date. Possible reasons:');
+        console.warn('   - No shifts defined for this service');
+        console.warn('   - No slots created for this date');
+        console.warn('   - All slots are fully booked');
+        console.warn('   - Day of week does not match shift schedule');
+        console.warn('   CHECK THE LOGS ABOVE FOR DETAILS');
+      }
+
+      setAvailableTimeSlots(result.slots);
+    } catch (error: any) {
+      console.error('Error fetching time slots:', error);
+      alert(t('bookings.failedToFetchTimeSlots', { message: error.message }) || 'Failed to fetch time slots');
+      setAvailableTimeSlots([]);
+    } finally {
+      setLoadingTimeSlots(false);
+    }
+  }
+
+  // Handle time date change (same as tenant provider)
+  async function handleTimeDateChange(newDate: Date) {
+    setEditingTimeDate(newDate);
+    setSelectedNewSlotId('');
+    if (editingBookingTime && userProfile?.tenant_id) {
+      await fetchTimeSlotsForEdit((editingBookingTime as any).service_id, userProfile.tenant_id);
+    }
+  }
+
+  // Update booking time (same as tenant provider - uses atomic endpoint)
+  async function updateBookingTime() {
+    if (!editingBookingTime || !selectedNewSlotId || !userProfile?.tenant_id) {
+      alert(t('bookings.pleaseSelectNewTimeSlot') || 'Please select a new time slot');
+      return;
+    }
+
+    if (!confirm(t('bookings.confirmChangeBookingTime') || 'Are you sure you want to change the booking time? Old tickets will be invalidated.')) {
+      return;
+    }
+
+    setUpdatingBookingTime(true);
+    try {
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+
+      const response = await fetch(`${API_URL}/bookings/${editingBookingTime.id}/time`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify({ slot_id: selectedNewSlotId }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || t('bookings.failedToUpdateBookingTime', { message: t('common.error') }));
+      }
+
+      await fetchBookings();
+      setEditingBookingTime(null);
+      setSelectedNewSlotId('');
+      setAvailableTimeSlots([]);
+      
+      alert(t('bookings.bookingTimeUpdatedSuccessfully') || 'Booking time updated successfully!');
+    } catch (error: any) {
+      console.error('Error updating booking time:', error);
+      alert(t('bookings.failedToUpdateBookingTime', { message: error.message }) || `Error: ${error.message}`);
+    } finally {
+      setUpdatingBookingTime(false);
     }
   }
 
@@ -2168,8 +2276,8 @@ export function ReceptionPage() {
         visitor_count: editingBooking.visitor_count,
         total_price: editingBooking.total_price,
         notes: editingBooking.notes || '',
+        status: editingBooking.status,
       });
-      setEditSelectedSlot((editingBooking as any).slot_id || '');
     }
   }, [editingBooking]);
 
@@ -2932,21 +3040,11 @@ export function ReceptionPage() {
                     <Button
                       size="sm"
                       variant="secondary"
-                      onClick={() => {
-                        setEditingBooking(booking);
-                        setIsEditBookingModalOpen(true);
-                        // Focus on reschedule section when modal opens
-                        setTimeout(() => {
-                          const rescheduleSection = document.getElementById('reschedule-section');
-                          if (rescheduleSection) {
-                            rescheduleSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          }
-                        }, 100);
-                      }}
+                      onClick={() => handleEditTimeClick(booking)}
                       icon={<CalendarClock className="w-3 h-3" />}
                       className="w-full"
                     >
-                      {t('reception.reschedule') || 'Reschedule'}
+                      {t('bookings.changeTime') || 'Change Time'}
                     </Button>
                   )}
                 </div>
@@ -4846,21 +4944,13 @@ export function ReceptionPage() {
                   <Button
                     variant="secondary"
                     onClick={() => {
-                      setEditingBooking(selectedBookingForDetails);
-                      setIsEditBookingModalOpen(true);
+                      handleEditTimeClick(selectedBookingForDetails);
                       setSelectedBookingForDetails(null);
-                      // Focus on reschedule when modal opens
-                      setTimeout(() => {
-                        const rescheduleSection = document.getElementById('reschedule-section');
-                        if (rescheduleSection) {
-                          rescheduleSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }
-                      }, 100);
                     }}
                     icon={<CalendarClock className="w-4 h-4" />}
                     fullWidth
                   >
-                    {t('reception.reschedule') || 'Reschedule'}
+                    {t('bookings.changeTime') || 'Change Time'}
                   </Button>
                 )}
               </div>
@@ -4921,181 +5011,239 @@ export function ReceptionPage() {
         )}
       </Modal>
 
-      {/* Edit Booking Modal */}
-      <Modal
-        isOpen={isEditBookingModalOpen}
-        onClose={() => {
-          setIsEditBookingModalOpen(false);
-          setEditingBooking(null);
-          setEditSelectedSlot('');
-        }}
-        title={t('reception.editBooking') || 'Edit Booking'}
-      >
-        {editingBooking && (
-          <div className="space-y-4">
-            {/* Customer Information Section */}
-            <div>
-              <h3 className="text-lg font-semibold mb-3">{t('reception.customerInformation') || 'Customer Information'}</h3>
-              <div className="space-y-3">
-                <Input
-                  label={t('reception.customerName') || 'Customer Name'}
-                  value={editBookingForm.customer_name}
-                  onChange={(e) => setEditBookingForm({ ...editBookingForm, customer_name: e.target.value })}
-                />
+      {/* Edit Booking Modal - Same as tenant provider */}
+      {editingBooking && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md">
+            <CardContent className="p-6">
+              <h2 className="text-xl font-bold mb-4">{t('billing.editBooking') || t('reception.editBooking') || 'Edit Booking'}</h2>
+              
+              <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t('reception.phoneNumber') || 'Phone Number'}
-                  </label>
+                  <label className="block text-sm font-medium mb-1">{t('billing.customerName') || 'Customer Name'}</label>
+                  <input
+                    type="text"
+                    value={editBookingForm.customer_name}
+                    onChange={(e) => setEditBookingForm({ ...editBookingForm, customer_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('reception.phoneNumber') || 'Phone Number'}</label>
                   <PhoneInput
                     value={editBookingForm.customer_phone}
                     onChange={(value) => setEditBookingForm({ ...editBookingForm, customer_phone: value })}
                     defaultCountry={countryCode}
                   />
                 </div>
-                <Input
-                  label={t('reception.email') || 'Email'}
-                  type="email"
-                  value={editBookingForm.customer_email}
-                  onChange={(e) => setEditBookingForm({ ...editBookingForm, customer_email: e.target.value })}
-                />
-                <div className="grid grid-cols-2 gap-3">
-                  <Input
-                    label={t('reception.visitorCount') || 'Visitor Count'}
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('billing.email') || 'Email'}</label>
+                  <input
+                    type="email"
+                    value={editBookingForm.customer_email}
+                    onChange={(e) => setEditBookingForm({ ...editBookingForm, customer_email: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('billing.visitorCount') || 'Visitor Count'}</label>
+                  <input
                     type="number"
                     min="1"
                     value={editBookingForm.visitor_count}
                     onChange={(e) => setEditBookingForm({ ...editBookingForm, visitor_count: parseInt(e.target.value) || 1 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
-                  <Input
-                    label={t('reception.totalPrice') || 'Total Price'}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('billing.totalPrice') || 'Total Price'}</label>
+                  <input
                     type="number"
                     min="0"
                     step="0.01"
                     value={editBookingForm.total_price}
                     onChange={(e) => setEditBookingForm({ ...editBookingForm, total_price: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t('reception.notes') || 'Notes'}
-                  </label>
+                  <label className="block text-sm font-medium mb-1">{t('billing.status') || 'Status'}</label>
+                  <select
+                    value={editBookingForm.status}
+                    onChange={(e) => setEditBookingForm({ ...editBookingForm, status: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  >
+                    <option value="pending">{t('status.pending')}</option>
+                    <option value="confirmed">{t('status.confirmed')}</option>
+                    <option value="checked_in">{t('status.checked_in')}</option>
+                    <option value="completed">{t('status.completed')}</option>
+                    <option value="cancelled">{t('status.cancelled')}</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('reception.notes') || 'Notes'}</label>
                   <textarea
                     value={editBookingForm.notes}
                     onChange={(e) => setEditBookingForm({ ...editBookingForm, notes: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     rows={3}
                   />
                 </div>
               </div>
-            </div>
 
-            {/* Reschedule Section - Only show for active bookings */}
-            {editingBooking.status !== 'cancelled' && editingBooking.status !== 'completed' && (
-              <div id="reschedule-section" className="border-t pt-4">
-                <h3 className="text-lg font-semibold mb-3">{t('reception.reschedule') || 'Reschedule Booking'}</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t('reception.currentTimeSlot') || 'Current Time Slot'}
-                    </label>
-                    <div className="p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-2 text-sm">
-                        <CalendarDays className="w-4 h-4 text-gray-400" />
-                        <span>{editingBooking.slots?.slot_date ? (() => {
-                          try {
-                            return format(parseISO(editingBooking.slots.slot_date), 'MMM dd, yyyy');
-                          } catch {
-                            return editingBooking.slots.slot_date.split('T')[0];
-                          }
-                        })() : 'N/A'}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm mt-1">
-                        <Clock className="w-4 h-4 text-gray-400" />
-                        <span>{editingBooking.slots?.start_time} - {editingBooking.slots?.end_time}</span>
-                      </div>
+              <div className="flex gap-2 mt-6">
+                <Button
+                  onClick={handleEditBooking}
+                  className="flex-1"
+                >
+                  {t('common.save')}
+                </Button>
+                <Button
+                  onClick={() => {
+                    setIsEditBookingModalOpen(false);
+                    setEditingBooking(null);
+                  }}
+                  variant="ghost"
+                  className="flex-1"
+                >
+                  {t('common.cancel')}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Edit Booking Time Modal - Same as tenant provider */}
+      {editingBookingTime && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <CardContent className="p-6">
+              <h2 className="text-xl font-bold mb-4">{t('bookings.changeBookingTime') || 'Change Booking Time'}</h2>
+              
+              <div className="space-y-4">
+                {/* Current Booking Info */}
+                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <h3 className="text-sm font-semibold mb-2">{t('bookings.currentTime') || 'Current Time'}</h3>
+                  <div className="text-sm text-gray-600">
+                    <div className="flex items-center gap-2 mb-1">
+                      <CalendarDays className="w-4 h-4" />
+                      <span>
+                        {editingBookingTime.slots?.slot_date 
+                          ? format(parseISO(editingBookingTime.slots.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })
+                          : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      <span>
+                        {editingBookingTime.slots?.start_time 
+                          ? `${editingBookingTime.slots.start_time} - ${editingBookingTime.slots.end_time}`
+                          : 'N/A'}
+                      </span>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t('reception.selectNewTimeSlot') || 'Select New Time Slot'}
-                    </label>
-                    {editAvailableSlots.length > 0 ? (
-                      <>
-                        <select
-                          value={editSelectedSlot}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          onChange={(e) => setEditSelectedSlot(e.target.value)}
+                </div>
+
+                {/* New Date Selection */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('bookings.newDate') || 'New Date'}</label>
+                  <input
+                    type="date"
+                    value={format(editingTimeDate, 'yyyy-MM-dd')}
+                    onChange={(e) => {
+                      const newDate = parseISO(e.target.value);
+                      handleTimeDateChange(newDate);
+                    }}
+                    min={format(new Date(), 'yyyy-MM-dd')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+
+                {/* Available Time Slots */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    {t('bookings.availableTimeSlots') || 'Available Time Slots'}
+                  </label>
+                  {loadingTimeSlots ? (
+                    <div className="text-center py-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                      <p className="text-sm text-gray-600 mt-2">
+                        {t('bookings.loadingAvailableSlots') || 'Loading available slots...'}
+                      </p>
+                    </div>
+                  ) : availableTimeSlots.length === 0 ? (
+                    <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <p className="text-sm text-yellow-800">
+                        {t('bookings.noAvailableTimeSlots') || 'No available time slots for this date'}
+                      </p>
+                      <p className="text-xs text-yellow-700 mt-2">
+                        {t('bookings.makeSureShiftsAndSlotsExist') || 'Make sure shifts and slots exist for this service'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto p-2 border border-gray-200 rounded-md">
+                      {availableTimeSlots.map((slot) => (
+                        <button
+                          key={slot.id}
+                          onClick={() => setSelectedNewSlotId(slot.id)}
+                          className={`px-3 py-2 text-sm rounded-md border transition-colors ${
+                            selectedNewSlotId === slot.id
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                          }`}
                         >
-                          <option value="">{t('reception.keepCurrentSlot') || 'Keep current time slot'}</option>
-                          {editAvailableSlots
-                            .filter(slot => {
-                              try {
-                                const slotDate = typeof slot.slot_date === 'string' 
-                                  ? (slot.slot_date.includes('T') ? parseISO(slot.slot_date) : parseISO(slot.slot_date + 'T00:00:00'))
-                                  : new Date(slot.slot_date);
-                                const now = new Date();
-                                return slotDate >= now;
-                              } catch {
-                                return true; // Include slot if date parsing fails
-                              }
-                            })
-                            .map(slot => {
-                              let slotDate = 'N/A';
-                              try {
-                                slotDate = typeof slot.slot_date === 'string' 
-                                  ? (slot.slot_date.includes('T') ? format(parseISO(slot.slot_date), 'MMM dd, yyyy') : format(parseISO(slot.slot_date + 'T00:00:00'), 'MMM dd, yyyy'))
-                                  : format(new Date(slot.slot_date), 'MMM dd, yyyy');
-                              } catch {
-                                slotDate = typeof slot.slot_date === 'string' ? slot.slot_date.split('T')[0] : 'N/A';
-                              }
-                              return (
-                                <option key={slot.id} value={slot.id}>
-                                  {slotDate} - {slot.start_time} - {slot.end_time}
-                                  {slot.available_capacity !== undefined && ` (${slot.available_capacity} available)`}
-                                </option>
-                              );
-                            })}
-                        </select>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {t('reception.rescheduleNote') || 'Selecting a new time slot will reschedule the booking and send a new ticket to the customer.'}
-                        </p>
-                      </>
-                    ) : (
-                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                        <p className="text-sm text-yellow-800">
-                          {t('reception.loadingSlots') || 'Loading available time slots...'}
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                          <div className="font-medium">{slot.start_time}</div>
+                          <div className="text-xs opacity-75">
+                            {slot.available_capacity} {t('common.available') || 'available'}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Warning Message */}
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-xs text-blue-800">
+                    {t('common.oldTicketsInvalidated') || 'Changing the booking time will invalidate old tickets and send new tickets to the customer.'}
+                  </p>
                 </div>
               </div>
-            )}
 
-            {/* Action Buttons */}
-            <div className="flex gap-2 pt-4 border-t">
-              <Button
-                variant="primary"
-                onClick={handleEditBooking}
-                fullWidth
-              >
-                {t('common.save') || 'Save Changes'}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setIsEditBookingModalOpen(false);
-                  setEditingBooking(null);
-                  setEditSelectedSlot('');
-                }}
-                fullWidth
-              >
-                {t('common.cancel') || 'Cancel'}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
+              <div className="flex gap-2 mt-6">
+                <Button
+                  onClick={updateBookingTime}
+                  disabled={!selectedNewSlotId || updatingBookingTime}
+                  className="flex-1"
+                >
+                  {updatingBookingTime 
+                    ? (t('bookings.updating') || 'Updating...')
+                    : (t('bookings.updateTime') || 'Update Time')}
+                </Button>
+                <Button
+                  onClick={() => {
+                    setEditingBookingTime(null);
+                    setSelectedNewSlotId('');
+                    setAvailableTimeSlots([]);
+                  }}
+                  variant="ghost"
+                  className="flex-1"
+                  disabled={updatingBookingTime}
+                >
+                  {t('common.cancel')}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Add Subscription Modal */}
       <Modal
