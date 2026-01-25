@@ -271,14 +271,25 @@ async function findAvailableSlotsForDifferentDate(serviceId) {
 
   console.log(`   Searching for slots between ${todayStr} and ${futureStr}...`);
 
-  // Try to use the current booking's shift first (most reliable)
+  // First, verify the current slot's shift belongs to the correct service
   let shiftIds = [];
   
   if (originalSlotData?.shift_id) {
-    console.log(`   Using current booking's shift: ${originalSlotData.shift_id}`);
-    shiftIds = [originalSlotData.shift_id];
-  } else {
-    // Fallback: query shifts for the service
+    console.log(`   Verifying current booking's shift: ${originalSlotData.shift_id}...`);
+    // Verify the shift belongs to the service
+    const { data: shiftVerifyData } = await makeRequest(`/query?table=shifts&id=eq.${originalSlotData.shift_id}&select=service_id`);
+    const shiftVerify = Array.isArray(shiftVerifyData) ? shiftVerifyData : (shiftVerifyData?.data || []);
+    
+    if (shiftVerify.length > 0 && shiftVerify[0].service_id === serviceId) {
+      console.log(`   ✅ Current shift belongs to service ${serviceId}`);
+      shiftIds = [originalSlotData.shift_id];
+    } else {
+      console.log(`   ⚠️  Current shift does not belong to service ${serviceId}, querying all shifts for service...`);
+    }
+  }
+  
+  // If current shift doesn't match, query all shifts for the service
+  if (shiftIds.length === 0) {
     console.log(`   Querying shifts for service ${serviceId}...`);
     const { response: shiftsResponse, data: shiftsData, ok: shiftsOk } = await makeRequest(
       `/query?table=shifts&service_id=eq.${serviceId}&tenant_id=eq.${tenantId}&is_active=eq.true&limit=100&select=id,service_id`
@@ -335,36 +346,37 @@ async function findAvailableSlotsForDifferentDate(serviceId) {
     console.warn('   ⚠️  No available slots found for the next 7 days');
     console.warn('   Trying to find any slots (including past dates)...');
     
-    // Try to find any slots for this shift (any date, any capacity)
-    if (originalSlotData?.shift_id) {
-      console.log(`   Searching for ANY slots for shift ${originalSlotData.shift_id}...`);
+    // Try to find any slots for the verified shifts (any date, any capacity)
+    if (shiftIds.length > 0) {
+      console.log(`   Searching for ANY slots for verified shift(s)...`);
+      // Query slots for the first verified shift
       const { response: response2, data: data2, ok: ok2 } = await makeRequest(
-        `/query?table=slots&shift_id=eq.${originalSlotData.shift_id}&tenant_id=eq.${tenantId}&limit=100&order=slot_date.desc,start_time.asc`
+        `/query?table=slots&shift_id=eq.${shiftIds[0]}&tenant_id=eq.${tenantId}&limit=100&order=slot_date.desc,start_time.asc`
       );
       
       if (ok2) {
         const allSlots = Array.isArray(data2) ? data2 : (data2?.data || []);
         if (allSlots.length > 0) {
-          console.log(`   ✅ Found ${allSlots.length} total slots for this shift`);
+          console.log(`   ✅ Found ${allSlots.length} total slots for verified shift`);
+          console.log(`   Using slots from verified shift (already confirmed to belong to service ${serviceId})`);
           
-          // Verify each slot's shift belongs to the correct service
-          console.log(`   Verifying slots belong to service ${serviceId}...`);
+          // Final verification: Check each slot's shift service_id before using
+          console.log(`   Final verification: Checking slot shift service_id...`);
           const verifiedSlots = [];
           
-          for (const slot of allSlots) {
-            // Fetch the shift for this slot to verify service_id
-            const { data: shiftData } = await makeRequest(`/query?table=shifts&id=eq.${slot.shift_id}&select=service_id`);
-            const shifts = Array.isArray(shiftData) ? shiftData : (shiftData?.data || []);
+          for (const slot of allSlots.slice(0, 20)) { // Check first 20 to avoid too many API calls
+            const { data: shiftCheckData } = await makeRequest(`/query?table=shifts&id=eq.${slot.shift_id}&select=service_id`);
+            const shiftCheck = Array.isArray(shiftCheckData) ? shiftCheckData : (shiftCheckData?.data || []);
             
-            if (shifts.length > 0 && shifts[0].service_id === serviceId) {
+            if (shiftCheck.length > 0 && shiftCheck[0].service_id === serviceId) {
               verifiedSlots.push(slot);
             }
           }
           
           if (verifiedSlots.length === 0) {
-            console.warn(`   ⚠️  No slots verified for service ${serviceId}`);
-            // Continue to next fallback - but we're in an if block, so just skip
-          } else {
+            console.warn(`   ⚠️  No slots verified after final check. This suggests a data inconsistency.`);
+            throw new Error(`Data inconsistency: Slots for verified shift ${shiftIds[0]} do not belong to service ${serviceId}`);
+          }
           
           console.log(`   ✅ Verified ${verifiedSlots.length} slots belong to service ${serviceId}`);
           
@@ -387,7 +399,6 @@ async function findAvailableSlotsForDifferentDate(serviceId) {
               console.log(`   Time: ${differentSlot.start_time} - ${differentSlot.end_time} (different from original)`);
               return differentSlot;
             }
-          }
           }
         }
       }
