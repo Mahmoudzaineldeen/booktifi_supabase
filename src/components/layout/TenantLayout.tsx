@@ -35,28 +35,28 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       href: `/${tenantSlug}/admin`,
       icon: LayoutDashboard,
       current: location.pathname === `/${tenantSlug}/admin`,
-      visible: !isAdminUser, // Admin User only sees bookings
+      visible: !isAdminUser, // customer_admin can access, but admin_user cannot
     },
     {
       name: t('navigation.services'),
       href: `/${tenantSlug}/admin/services`,
       icon: Briefcase,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/services`),
-      visible: !isRestrictedRole, // Both restricted roles cannot access
+      visible: !isAdminUser, // customer_admin can access, but admin_user cannot
     },
     {
       name: t('navigation.packages'),
       href: `/${tenantSlug}/admin/packages`,
       icon: Package,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/packages`),
-      visible: (features?.packages_enabled ?? true) && !isRestrictedRole,
+      visible: (features?.packages_enabled ?? true) && !isAdminUser, // customer_admin can access, but admin_user cannot
     },
     {
       name: t('navigation.offers'),
       href: `/${tenantSlug}/admin/offers`,
       icon: Gift,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/offers`),
-      visible: !isRestrictedRole,
+      visible: !isAdminUser, // customer_admin can access, but admin_user cannot
     },
     {
       name: t('navigation.bookings'),
@@ -70,21 +70,21 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       href: `/${tenantSlug}/admin/employees`,
       icon: Users,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/employees`),
-      visible: (features?.employees_enabled ?? true) && userProfile?.role === 'tenant_admin',
+      visible: (features?.employees_enabled ?? true) && (userProfile?.role === 'tenant_admin' || userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user'),
     },
     {
       name: t('navigation.landingPage'),
       href: `/${tenantSlug}/admin/landing`,
       icon: Globe,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/landing`),
-      visible: (features?.landing_page_enabled ?? true) && !isRestrictedRole,
+      visible: (features?.landing_page_enabled ?? true) && !isRestrictedRole, // Both restricted roles cannot access
     },
     {
       name: t('navigation.settings'),
       href: `/${tenantSlug}/admin/settings`,
       icon: Settings,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/settings`),
-      visible: !isRestrictedRole,
+      visible: !isRestrictedRole, // Both restricted roles cannot access
     },
   ];
 
@@ -178,7 +178,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
               );
             })}
             
-            {/* Preview Mode Section - Hidden for restricted roles */}
+            {/* Preview Mode Section - Hidden for restricted roles (customer_admin and admin_user) */}
             {!isRestrictedRole && (
               <div className="mt-6 pt-6 border-t border-gray-200">
                 <p className="px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">

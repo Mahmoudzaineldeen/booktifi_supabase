@@ -2744,11 +2744,19 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
       // Generate PDF synchronously (before response) to ensure it completes
       // Same pattern as booking creation - prevents Railway from killing the process
       // CRITICAL: This promise will be awaited before sending the response
+      // CRITICAL: Store tenantId in closure to ensure it's available in async context
       const ticketGenerationPromise = (async () => {
         let pdfBuffer: Buffer | null = null;
         
+        // Store tenantId in closure for async context
+        const tenantIdForTicket = tenantId;
+        const userIdForTicket = userId;
+        
         try {
           console.log(`[Booking Time Edit] 🎫 Starting ticket regeneration...`);
+          console.log(`[Booking Time Edit]    Tenant ID: ${tenantIdForTicket}`);
+          console.log(`[Booking Time Edit]    User ID: ${userIdForTicket}`);
+          console.log(`[Booking Time Edit]    User Role: ${req.user?.role || 'N/A'}`);
           
           const { generateBookingTicketPDFBase64 } = await import('../services/pdfService.js');
           const { sendWhatsAppDocument } = await import('../services/whatsappService.js');
@@ -2795,29 +2803,69 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
           console.log(`[Booking Time Edit]    Customer Email: ${booking?.customer_email || '❌ MISSING'}`);
 
           // Get tenant WhatsApp settings
+          // CRITICAL: This must work for all roles (customer_admin, admin_user, etc.)
+          // We're querying the database directly, not through the restricted API endpoint
           console.log(`[Booking Time Edit] 📱 Step 2a: Fetching WhatsApp configuration...`);
-          const { data: tenantData, error: tenantError } = await supabase
-            .from('tenants')
-            .select('whatsapp_settings')
-            .eq('id', tenantId)
-            .single();
-
+          console.log(`[Booking Time Edit]    Tenant ID: ${tenantId}`);
+          console.log(`[Booking Time Edit]    User Role: ${req.user?.role || 'N/A'}`);
+          
           let whatsappConfig: any = null;
-          if (!tenantError && tenantData && tenantData.whatsapp_settings) {
-            const settings = tenantData.whatsapp_settings;
-            whatsappConfig = {
-              provider: settings.provider,
-              apiUrl: settings.api_url,
-              apiKey: settings.api_key,
-              phoneNumberId: settings.phone_number_id,
-              accessToken: settings.access_token,
-              accountSid: settings.account_sid,
-              authToken: settings.auth_token,
-              from: settings.from,
-            };
-            console.log(`[Booking Time Edit]    ✅ WhatsApp config: provider=${whatsappConfig.provider || 'not set'}`);
-          } else {
-            console.log(`[Booking Time Edit]    ⚠️ No WhatsApp config in tenant settings`);
+          try {
+            const { data: tenantData, error: tenantError } = await supabase
+              .from('tenants')
+              .select('whatsapp_settings')
+              .eq('id', tenantIdForTicket)
+              .single();
+
+            if (tenantError) {
+              console.error(`[Booking Time Edit] ❌ Error fetching WhatsApp settings:`, tenantError);
+              console.error(`[Booking Time Edit]    Error code: ${tenantError.code || 'N/A'}`);
+              console.error(`[Booking Time Edit]    Error message: ${tenantError.message}`);
+              console.error(`[Booking Time Edit]    Error details:`, tenantError);
+            } else if (!tenantData) {
+              console.error(`[Booking Time Edit] ❌ Tenant not found for ID: ${tenantIdForTicket}`);
+            } else if (!tenantData.whatsapp_settings) {
+              console.log(`[Booking Time Edit] ⚠️ No WhatsApp settings configured for tenant ${tenantIdForTicket}`);
+              console.log(`[Booking Time Edit]    WhatsApp sending will fail - configure in tenant settings page`);
+            } else {
+              const settings = tenantData.whatsapp_settings;
+              
+              // Handle both object and string formats
+              let parsedSettings = settings;
+              if (typeof settings === 'string') {
+                try {
+                  parsedSettings = JSON.parse(settings);
+                } catch (e) {
+                  console.error(`[Booking Time Edit] ❌ Failed to parse WhatsApp settings JSON:`, e);
+                  parsedSettings = settings;
+                }
+              }
+              
+              whatsappConfig = {
+                provider: parsedSettings.provider,
+                apiUrl: parsedSettings.api_url,
+                apiKey: parsedSettings.api_key,
+                phoneNumberId: parsedSettings.phone_number_id,
+                accessToken: parsedSettings.access_token,
+                accountSid: parsedSettings.account_sid,
+                authToken: parsedSettings.auth_token,
+                from: parsedSettings.from,
+              };
+              
+              console.log(`[Booking Time Edit]    ✅ WhatsApp config loaded successfully`);
+              console.log(`[Booking Time Edit]    Provider: ${whatsappConfig.provider || 'not set'}`);
+              console.log(`[Booking Time Edit]    Has API URL: ${!!whatsappConfig.apiUrl}`);
+              console.log(`[Booking Time Edit]    Has API Key: ${!!whatsappConfig.apiKey}`);
+              console.log(`[Booking Time Edit]    Has Phone Number ID: ${!!whatsappConfig.phoneNumberId}`);
+              console.log(`[Booking Time Edit]    Has Access Token: ${!!whatsappConfig.accessToken}`);
+              console.log(`[Booking Time Edit]    Has Account SID: ${!!whatsappConfig.accountSid}`);
+              console.log(`[Booking Time Edit]    Has Auth Token: ${!!whatsappConfig.authToken}`);
+            }
+          } catch (configError: any) {
+            console.error(`[Booking Time Edit] ❌ Exception while fetching WhatsApp config:`, configError);
+            console.error(`[Booking Time Edit]    Error message: ${configError.message}`);
+            console.error(`[Booking Time Edit]    Error stack: ${configError.stack}`);
+            // Continue - don't fail ticket generation if config fetch fails
           }
 
           // Step 2: Send new ticket via WhatsApp (async - don't block)
@@ -2881,7 +2929,7 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
                 customerEmail,
                 pdfBuffer,
                 bookingId,
-                tenantId,
+                tenantIdForTicket,
                 {
                   service_name: booking.services?.name || 'Service',
                   service_name_ar: booking.services?.name_ar || '',
