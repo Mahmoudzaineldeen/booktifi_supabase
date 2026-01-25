@@ -10,9 +10,10 @@ export function EmployeesPageWrapper() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Only tenant_admin can access employees page
+    // Allow tenant_admin, customer_admin, and admin_user to access employees page
     if (!authLoading && userProfile) {
-      if (userProfile.role !== 'tenant_admin') {
+      const allowedRoles = ['tenant_admin', 'customer_admin', 'admin_user'];
+      if (!allowedRoles.includes(userProfile.role)) {
         // Redirect cashier/receptionist to reception page
         if (userProfile.role === 'cashier' || userProfile.role === 'receptionist') {
           navigate(`/${tenantSlug}/reception`);
@@ -24,8 +25,9 @@ export function EmployeesPageWrapper() {
     }
   }, [userProfile, authLoading, tenantSlug, navigate]);
 
-  // Don't render if user is not tenant_admin
-  if (!authLoading && userProfile && userProfile.role !== 'tenant_admin') {
+  // Don't render if user is not in allowed roles
+  const allowedRoles = ['tenant_admin', 'customer_admin', 'admin_user'];
+  if (!authLoading && userProfile && !allowedRoles.includes(userProfile.role)) {
     return null;
   }
 
