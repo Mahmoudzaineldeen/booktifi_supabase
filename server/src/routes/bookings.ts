@@ -2667,15 +2667,24 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
     }
 
     console.log(`[Booking Time Edit] ✅ Success:`, editData);
+    console.log(`[Booking Time Edit]    RPC returned success: ${isSuccess}`);
+    console.log(`[Booking Time Edit]    Edit data:`, JSON.stringify(editData, null, 2));
 
     // Get updated booking details (CRITICAL: Must be available for ticket generation)
     // CRITICAL: Always fetch booking data - ticket generation MUST happen for all successful time edits
-    console.log(`[Booking Time Edit] 🔍 Fetching updated booking data for ticket generation...`);
+    console.log(`\n[Booking Time Edit] ========================================`);
+    console.log(`[Booking Time Edit] 🔍 STEP: Fetching updated booking data for ticket generation...`);
+    console.log(`[Booking Time Edit]    Booking ID: ${bookingId}`);
+    console.log(`[Booking Time Edit]    Tenant ID: ${tenantId}`);
+    console.log(`[Booking Time Edit]    User Role: ${req.user?.role || 'N/A'}`);
+    console.log(`[Booking Time Edit] ========================================\n`);
+    
     let updatedBooking: any = null;
     let fetchError: any = null;
     
     // Try to fetch booking with retries if needed
     for (let retry = 0; retry < 3; retry++) {
+      console.log(`[Booking Time Edit] 🔍 Fetch attempt ${retry + 1}/3 for booking ${bookingId}...`);
       const { data, error } = await supabase
         .from('bookings')
         .select(`
@@ -2690,9 +2699,11 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
       if (!error && data) {
         updatedBooking = data;
         fetchError = null;
+        console.log(`[Booking Time Edit] ✅ Fetch attempt ${retry + 1} succeeded!`);
         break;
       } else {
         fetchError = error;
+        console.error(`[Booking Time Edit] ❌ Fetch attempt ${retry + 1} failed:`, error);
         if (retry < 2) {
           console.log(`[Booking Time Edit] ⚠️ Retry ${retry + 1}/3: Waiting 500ms before retry...`);
           await new Promise(resolve => setTimeout(resolve, 500));
@@ -2701,11 +2712,16 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
     }
 
     if (fetchError || !updatedBooking) {
-      console.error(`[Booking Time Edit] ❌ Could not fetch updated booking after retries:`, fetchError);
-      console.error(`[Booking Time Edit] ⚠️ WARNING: Ticket generation may fail, but will still attempt`);
+      console.error(`\n[Booking Time Edit] ========================================`);
+      console.error(`[Booking Time Edit] ❌ CRITICAL: Could not fetch updated booking after 3 retries`);
+      console.error(`[Booking Time Edit]    Booking ID: ${bookingId}`);
+      console.error(`[Booking Time Edit]    Error:`, fetchError);
+      console.error(`[Booking Time Edit]    This will prevent ticket generation!`);
+      console.error(`[Booking Time Edit] ========================================\n`);
       // Don't skip ticket generation - try with bookingId only if needed
     } else {
-      console.log(`[Booking Time Edit] ✅ Fetched updated booking for ticket generation`);
+      console.log(`\n[Booking Time Edit] ========================================`);
+      console.log(`[Booking Time Edit] ✅ SUCCESS: Fetched updated booking for ticket generation`);
       console.log(`[Booking Time Edit]    Booking ID: ${updatedBooking.id}`);
       console.log(`[Booking Time Edit]    Customer: ${updatedBooking.customer_name || 'N/A'}`);
       console.log(`[Booking Time Edit]    Email: ${updatedBooking.customer_email || 'N/A'}`);
@@ -2713,6 +2729,9 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
       console.log(`[Booking Time Edit]    Has Services: ${!!updatedBooking.services}`);
       console.log(`[Booking Time Edit]    Has Slots: ${!!updatedBooking.slots}`);
       console.log(`[Booking Time Edit]    Has Tenants: ${!!updatedBooking.tenants}`);
+      console.log(`[Booking Time Edit]    Slot Date: ${updatedBooking.slots?.slot_date || 'N/A'}`);
+      console.log(`[Booking Time Edit]    Start Time: ${updatedBooking.slots?.start_time || 'N/A'}`);
+      console.log(`[Booking Time Edit] ========================================\n`);
       
       // CRITICAL: Verify we have contact info
       if (!updatedBooking.customer_email && !updatedBooking.customer_phone) {
@@ -2725,17 +2744,73 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
     // This prevents Railway container restarts from killing the process
     // The actual sending (WhatsApp/Email) can be async
     // CRITICAL: Always attempt ticket generation if booking time was successfully updated
+    // If booking fetch failed, try one more time or use minimal data
     if (!updatedBooking) {
+      console.error(`\n[Booking Time Edit] ========================================`);
       console.error(`[Booking Time Edit] ❌ CRITICAL: Cannot generate ticket - updated booking not available`);
       console.error(`[Booking Time Edit]    Booking ID: ${bookingId}`);
-      console.error(`[Booking Time Edit]    This should not happen - booking time was updated but booking data is missing`);
-      console.error(`[Booking Time Edit]    Ticket generation will be skipped - this is a critical error`);
-    } else {
+      console.error(`[Booking Time Edit]    Tenant ID: ${tenantId}`);
+      console.error(`[Booking Time Edit]    User Role: ${req.user?.role || 'N/A'}`);
+      console.error(`[Booking Time Edit]    Attempting one final fetch before skipping...`);
+      console.error(`[Booking Time Edit] ========================================\n`);
+      
+      // Try one more time to fetch the booking with a longer delay
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second for DB to update
+      
+      const { data: finalBooking, error: finalError } = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          services:service_id (name, name_ar),
+          slots:slot_id (slot_date, start_time, end_time),
+          tenants:tenant_id (name, name_ar)
+        `)
+        .eq('id', bookingId)
+        .single();
+      
+      if (finalError || !finalBooking) {
+        console.error(`\n[Booking Time Edit] ========================================`);
+        console.error(`[Booking Time Edit] ❌ FINAL FETCH FAILED:`, finalError);
+        console.error(`[Booking Time Edit]    Booking ID: ${bookingId}`);
+        console.error(`[Booking Time Edit]    Error Code: ${finalError?.code || 'N/A'}`);
+        console.error(`[Booking Time Edit]    Error Message: ${finalError?.message || 'N/A'}`);
+        console.error(`[Booking Time Edit]    Ticket generation will be skipped - booking data unavailable`);
+        console.error(`[Booking Time Edit]    This is a CRITICAL ERROR - tickets will NOT be sent to customer`);
+        console.error(`[Booking Time Edit] ========================================\n`);
+      } else {
+        console.log(`\n[Booking Time Edit] ========================================`);
+        console.log(`[Booking Time Edit] ✅ FINAL FETCH SUCCEEDED - proceeding with ticket generation`);
+        console.log(`[Booking Time Edit]    Booking ID: ${finalBooking.id}`);
+        console.log(`[Booking Time Edit]    Customer: ${finalBooking.customer_name || 'N/A'}`);
+        console.log(`[Booking Time Edit] ========================================\n`);
+        updatedBooking = finalBooking;
+      }
+    }
+    
+    // Track if tickets were actually sent
+    let ticketsSent = false;
+    let ticketGenerationError: any = null;
+    let whatsappSentResult = false;
+    let emailSentResult = false;
+    
+    // CRITICAL: Only proceed if we have booking data
+    // Log clearly whether we're proceeding with ticket generation
+    console.log(`\n[Booking Time Edit] ========================================`);
+    console.log(`[Booking Time Edit] 🎯 TICKET GENERATION DECISION`);
+    console.log(`[Booking Time Edit]    Has Updated Booking: ${!!updatedBooking}`);
+    console.log(`[Booking Time Edit]    Booking ID: ${bookingId}`);
+    console.log(`[Booking Time Edit]    Will Generate Tickets: ${!!updatedBooking ? 'YES' : 'NO'}`);
+    console.log(`[Booking Time Edit] ========================================\n`);
+    
+    if (updatedBooking) {
       console.log(`\n🎫 ========================================`);
       console.log(`🎫 TICKET REGENERATION STARTING for booking ${bookingId} (time edit)`);
       console.log(`🎫 Customer: ${updatedBooking.customer_name || 'N/A'}`);
       console.log(`🎫 Email: ${updatedBooking.customer_email || 'NOT PROVIDED'}`);
       console.log(`🎫 Phone: ${updatedBooking.customer_phone || 'NOT PROVIDED'}`);
+      console.log(`🎫 User Role: ${req.user?.role || 'N/A'}`);
+      console.log(`🎫 Tenant ID: ${tenantId}`);
+      console.log(`🎫 Booking ID: ${bookingId}`);
       console.log(`🎫 ========================================\n`);
       
       // Store booking data for async context
@@ -2751,6 +2826,10 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
         // Store tenantId in closure for async context
         const tenantIdForTicket = tenantId;
         const userIdForTicket = userId;
+        
+        // Local variables to track send results (will update outer scope at end)
+        let localWhatsappSent = false;
+        let localEmailSent = false;
         
         try {
           console.log(`[Booking Time Edit] 🎫 Starting ticket regeneration...`);
@@ -2890,8 +2969,10 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
                 );
                 
                 if (whatsappResult && whatsappResult.success) {
+                  localWhatsappSent = true;
                   console.log(`[Booking Time Edit] ✅ Step 2 Complete: Ticket sent via WhatsApp to ${normalizedPhone}`);
                 } else {
+                  localWhatsappSent = false;
                   console.error(`[Booking Time Edit] ❌ Step 2 Failed: WhatsApp delivery failed`);
                   console.error(`[Booking Time Edit]    Error: ${whatsappResult?.error || 'Unknown error'}`);
                 }
@@ -2943,10 +3024,12 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
               );
               
               if (emailResult && emailResult.success) {
+                localEmailSent = true;
                 console.log(`[Booking Time Edit] ✅ Step 3 Complete: Ticket sent via Email to ${customerEmail}`);
                 console.log(`[Booking Time Edit]    Email delivery confirmed: SUCCESS`);
                 console.log(`[Booking Time Edit]    Customer should receive email with updated ticket PDF`);
               } else {
+                localEmailSent = false;
                 console.error(`[Booking Time Edit] ❌ Step 3 Failed: Email delivery failed`);
                 console.error(`[Booking Time Edit]    Error: ${emailResult?.error || 'Unknown error'}`);
                 console.error(`[Booking Time Edit]    Email: ${customerEmail}`);
@@ -2973,17 +3056,31 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
             }
           }
 
+          // Track if tickets were actually sent (will be set by send results)
+          // These variables are declared in outer scope and will be updated by send operations
+          
+          // Update outer scope variables
+          whatsappSentResult = localWhatsappSent;
+          emailSentResult = localEmailSent;
+          ticketsSent = localWhatsappSent || localEmailSent;
+          
           console.log(`\n✅ ========================================`);
           console.log(`✅ TICKET REGENERATION COMPLETE for booking ${bookingId}`);
           console.log(`✅ PDF: Generated (${pdfBuffer?.length || 0} bytes)`);
-          console.log(`✅ WhatsApp: ${booking?.customer_phone ? 'Sent' : 'Skipped (no phone)'}`);
-          console.log(`✅ Email: ${booking?.customer_email ? 'Sent' : 'Skipped (no email)'}`);
+          console.log(`✅ WhatsApp: ${localWhatsappSent ? 'Sent Successfully' : (booking?.customer_phone ? 'Failed or Skipped' : 'Skipped (no phone)')}`);
+          console.log(`✅ Email: ${localEmailSent ? 'Sent Successfully' : (booking?.customer_email ? 'Failed or Skipped' : 'Skipped (no email)')}`);
+          console.log(`✅ Tickets Sent: ${ticketsSent ? 'YES' : 'NO'}`);
           console.log(`✅ ========================================\n`);
         } catch (ticketError: any) {
+          ticketGenerationError = ticketError;
+          ticketsSent = false;
           console.error(`\n❌ ========================================`);
           console.error(`❌ TICKET REGENERATION FAILED for booking ${bookingId}`);
           console.error(`❌ Error:`, ticketError.message);
           console.error(`❌ Stack:`, ticketError.stack);
+          console.error(`❌ User Role: ${req.user?.role || 'N/A'}`);
+          console.error(`❌ Tenant ID: ${tenantId}`);
+          console.error(`❌ Booking ID: ${bookingId}`);
           console.error(`❌ This is non-blocking - booking time was updated successfully`);
           console.error(`❌ ========================================\n`);
           // Don't fail the booking update if ticket generation fails
@@ -2994,14 +3091,46 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
       // This ensures tickets are sent even if Railway container restarts
       // CRITICAL: This prevents Railway from killing the process before tickets are sent
       // Same pattern as booking creation
+      console.log(`[Booking Time Edit] ⏳ Waiting for ticket generation promise to complete...`);
       try {
         await ticketGenerationPromise;
-        console.log(`[Booking Time Edit] ✅ Ticket generation and sending completed for booking ${bookingId}`);
+        console.log(`[Booking Time Edit] ✅ Ticket generation promise completed`);
+        if (ticketsSent) {
+          console.log(`[Booking Time Edit] ✅✅✅ Ticket generation and sending completed SUCCESSFULLY for booking ${bookingId}`);
+          console.log(`[Booking Time Edit]    WhatsApp Sent: ${whatsappSentResult}`);
+          console.log(`[Booking Time Edit]    Email Sent: ${emailSentResult}`);
+        } else {
+          console.warn(`\n[Booking Time Edit] ========================================`);
+          console.warn(`[Booking Time Edit] ⚠️⚠️⚠️ Ticket generation completed but NO TICKETS WERE SENT`);
+          console.warn(`[Booking Time Edit]    Booking ID: ${bookingId}`);
+          console.warn(`[Booking Time Edit]    WhatsApp Sent: ${whatsappSentResult}`);
+          console.warn(`[Booking Time Edit]    Email Sent: ${emailSentResult}`);
+          console.warn(`[Booking Time Edit]    This may be due to:`);
+          console.warn(`[Booking Time Edit]      - Missing customer contact info (email/phone)`);
+          console.warn(`[Booking Time Edit]      - WhatsApp/Email sending failures`);
+          console.warn(`[Booking Time Edit]      - Missing WhatsApp/Email configuration`);
+          console.warn(`[Booking Time Edit] ========================================\n`);
+        }
       } catch (error: any) {
-        console.error(`[Booking Time Edit] ⚠️ Ticket generation error (non-blocking):`, error);
+        ticketGenerationError = error;
+        ticketsSent = false;
+        console.error(`\n[Booking Time Edit] ========================================`);
+        console.error(`[Booking Time Edit] ❌❌❌ TICKET GENERATION PROMISE FAILED`);
+        console.error(`[Booking Time Edit]    Booking ID: ${bookingId}`);
+        console.error(`[Booking Time Edit]    Error:`, error.message);
+        console.error(`[Booking Time Edit]    Stack:`, error.stack);
+        console.error(`[Booking Time Edit]    Tenant ID: ${tenantId}`);
+        console.error(`[Booking Time Edit]    User Role: ${req.user?.role}`);
+        console.error(`[Booking Time Edit] ========================================\n`);
         // Don't fail booking update if ticket generation fails - booking time was already updated
         // The error was already logged in the inner try-catch
       }
+    } else {
+      console.error(`[Booking Time Edit] ❌ SKIPPING TICKET GENERATION - No booking data available`);
+      console.error(`[Booking Time Edit]    Booking ID: ${bookingId}`);
+      console.error(`[Booking Time Edit]    Tenant ID: ${tenantId}`);
+      console.error(`[Booking Time Edit]    User Role: ${req.user?.role || 'N/A'}`);
+      console.error(`[Booking Time Edit]    This means tickets will NOT be sent to the customer!`);
     }
 
     // Update invoice if price changed (asynchronously)
@@ -3031,14 +3160,34 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
       });
     }
 
-    // Return success response
+    // Return success response with accurate ticket status
+    console.log(`\n[Booking Time Edit] ========================================`);
+    console.log(`[Booking Time Edit] 📤 PREPARING RESPONSE`);
+    console.log(`[Booking Time Edit]    Booking ID: ${bookingId}`);
+    console.log(`[Booking Time Edit]    Has Updated Booking: ${!!updatedBooking}`);
+    console.log(`[Booking Time Edit]    Tickets Sent: ${ticketsSent}`);
+    console.log(`[Booking Time Edit]    WhatsApp Sent: ${whatsappSentResult}`);
+    console.log(`[Booking Time Edit]    Email Sent: ${emailSentResult}`);
+    console.log(`[Booking Time Edit]    Ticket Error: ${ticketGenerationError ? ticketGenerationError.message : 'None'}`);
+    console.log(`[Booking Time Edit] ========================================\n`);
+    
+    const ticketMessage = ticketsSent 
+      ? 'Booking time updated successfully. Old tickets invalidated. New ticket has been sent to customer.'
+      : updatedBooking
+        ? 'Booking time updated successfully. Old tickets invalidated. New ticket generation attempted but may not have been sent (check logs for details).'
+        : 'Booking time updated successfully. Old tickets invalidated. New ticket could not be generated (booking data unavailable).';
+    
     res.json({
       success: true,
       booking: updatedBooking,
       edit_result: editData,
-      message: 'Booking time updated successfully. Old tickets invalidated. New ticket has been sent to customer.',
+      message: ticketMessage,
       tickets_invalidated: true,
-      new_ticket_generated: true
+      new_ticket_generated: !!updatedBooking,
+      tickets_sent: ticketsSent,
+      whatsapp_sent: whatsappSentResult,
+      email_sent: emailSentResult,
+      ticket_error: ticketGenerationError ? ticketGenerationError.message : null
     });
   } catch (error: any) {
     const context = logger.extractContext(req);
