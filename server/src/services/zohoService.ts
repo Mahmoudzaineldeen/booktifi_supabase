@@ -1755,9 +1755,10 @@ class ZohoService {
 
       // Check if booking has paid quantity before creating invoice
       // Fetch paid_quantity to determine if invoice should be created
+      // CRITICAL: Must also select total_price to check if invoice should be created
       const { data: bookingWithPaidQty, error: paidQtyError } = await supabase
         .from('bookings')
-        .select('paid_quantity, package_covered_quantity, visitor_count')
+        .select('paid_quantity, package_covered_quantity, visitor_count, total_price')
         .eq('id', bookingId)
         .maybeSingle();
       
@@ -1767,6 +1768,7 @@ class ZohoService {
       console.log(`[ZohoService] 📊 Partial coverage check for invoice:`);
       console.log(`   Paid quantity: ${paidQty}`);
       console.log(`   Package covered: ${packageCoveredQty}`);
+      console.log(`   Total price from DB: ${bookingWithPaidQty?.total_price ?? 'null/undefined'}`);
       
       // ============================================================================
       // STRICT BILLING RULE: Invoice ONLY when real money is owed
@@ -1777,9 +1779,15 @@ class ZohoService {
       // ============================================================================
       
       // Get total_price to double-check
-      const bookingTotalPrice = bookingWithPaidQty?.total_price 
+      // CRITICAL: total_price is now selected in the query above
+      const bookingTotalPrice = bookingWithPaidQty?.total_price !== null && bookingWithPaidQty?.total_price !== undefined
         ? parseFloat(bookingWithPaidQty.total_price.toString()) 
         : 0;
+      
+      console.log(`[ZohoService] 📊 Price validation:`);
+      console.log(`   Raw total_price: ${bookingWithPaidQty?.total_price}`);
+      console.log(`   Parsed total_price: ${bookingTotalPrice}`);
+      console.log(`   Type: ${typeof bookingWithPaidQty?.total_price}`);
       
       // STRICT CHECK: Only create invoice if there's actual money owed
       if (paidQty <= 0 || bookingTotalPrice <= 0) {
