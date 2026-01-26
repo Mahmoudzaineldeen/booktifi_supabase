@@ -752,18 +752,56 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     let paidQty = visitor_count; // Default: all tickets are paid
 
     // Look up customer by phone if customer_id not provided (for receptionist bookings)
-    let customerIdForPackage = req.user?.id || req.body.customer_id;
+    // CRITICAL: Do NOT use req.user.id - that's a user ID (users table), not customer ID (customers table)
+    // The foreign key constraint references customers(id), not users(id)
+    let customerIdForPackage: string | null = req.body.customer_id || null;
+    
+    // If no customer_id provided, look up customer by phone number
     if (!customerIdForPackage && normalizedPhone) {
-      const { data: customerData } = await supabase
+      console.log('[Booking Creation] Looking up customer by phone:', normalizedPhone);
+      const { data: customerData, error: customerLookupError } = await supabase
         .from('customers')
         .select('id')
         .eq('phone', normalizedPhone)
         .eq('tenant_id', tenant_id)
         .maybeSingle();
       
-      if (customerData) {
+      if (customerLookupError) {
+        console.error('[Booking Creation] ⚠️ Error looking up customer:', customerLookupError);
+        customerIdForPackage = null;
+      } else if (customerData) {
         customerIdForPackage = customerData.id;
+        console.log('[Booking Creation] ✅ Found customer by phone:', customerIdForPackage);
+      } else {
+        console.log('[Booking Creation] ℹ️ No customer found for phone:', normalizedPhone);
+        customerIdForPackage = null;
       }
+    }
+    
+    // CRITICAL: Validate customer_id exists in customers table before using it
+    // If customer_id doesn't exist, set it to NULL to avoid foreign key violation
+    if (customerIdForPackage) {
+      console.log('[Booking Creation] Validating customer_id exists in customers table:', customerIdForPackage);
+      const { data: customerExists, error: customerCheckError } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('id', customerIdForPackage)
+        .eq('tenant_id', tenant_id)
+        .maybeSingle();
+      
+      if (customerCheckError) {
+        console.error('[Booking Creation] ⚠️ Error checking customer existence:', customerCheckError);
+        customerIdForPackage = null; // Set to null if check fails
+      } else if (!customerExists) {
+        console.warn('[Booking Creation] ⚠️ Customer ID does not exist in customers table:', customerIdForPackage);
+        console.warn('[Booking Creation]    This ID might be from users table (not customers table)');
+        console.warn('[Booking Creation]    Setting customer_id to NULL to avoid foreign key violation');
+        customerIdForPackage = null; // Customer doesn't exist, set to null
+      } else {
+        console.log('[Booking Creation] ✅ Customer ID validated and exists:', customerIdForPackage);
+      }
+    } else {
+      console.log('[Booking Creation] ℹ️ No customer_id - booking will be created as guest booking (customer_id = NULL)');
     }
     
     if (customerIdForPackage) {
@@ -875,8 +913,8 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       p_notes: notes || null,
       p_employee_id: employee_id || null,
       p_lock_id: lock_id || null,
-      p_session_id: req.user?.id || session_id || null,
-      p_customer_id: customerIdForPackage || null,
+      p_session_id: req.user?.id || session_id || null, // This is for created_by_user_id (users table)
+      p_customer_id: customerIdForPackage || null, // This must be from customers table, validated above
       p_offer_id: offer_id || null,
       p_language: validLanguage,
       p_package_subscription_id: packageSubscriptionId || null,
