@@ -8,4 +8,5 @@ done the receptionist has the full control on the bookings like the admin
 done remove child ticket
 done remove cached info in the booking as receptionist
 packages
-qr enable and disable
+done tickets enable and disable
+employee auto assign fair cycle /manual assign (receptionist)
