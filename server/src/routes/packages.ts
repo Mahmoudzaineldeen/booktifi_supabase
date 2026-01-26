@@ -109,8 +109,39 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
     
     // Log for debugging
     console.log('[Create Package] ✅ Validation passed: Package will be created with', serviceData.length, 'service(s)');
+    console.log('[Create Package] Service data:', JSON.stringify(serviceData, null, 2));
 
-    const serviceIds = serviceData.map(s => s.service_id);
+    // Extract and validate service IDs
+    const serviceIds = serviceData
+      .map(s => {
+        const id = typeof s.service_id === 'string' ? s.service_id.trim() : String(s.service_id || '').trim();
+        return id;
+      })
+      .filter(id => id && id.length > 0);
+    
+    if (serviceIds.length === 0) {
+      console.error('[Create Package] No valid service IDs extracted from serviceData:', serviceData);
+      return res.status(400).json({ 
+        error: 'No valid service IDs found',
+        hint: 'Please ensure all services have valid service IDs',
+        received_data: serviceData
+      });
+    }
+
+    // Validate service IDs are valid UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const invalidUuids = serviceIds.filter(id => !uuidRegex.test(id));
+    if (invalidUuids.length > 0) {
+      console.error('[Create Package] Invalid UUID format:', invalidUuids);
+      return res.status(400).json({ 
+        error: 'Invalid service ID format',
+        hint: 'Service IDs must be valid UUIDs',
+        invalid_ids: invalidUuids
+      });
+    }
+
+    console.log('[Create Package] Extracted service IDs:', serviceIds);
+    console.log('[Create Package] Validating services for tenant:', tenantId);
 
     if (typeof total_price !== 'number' || total_price < 0) {
       return res.status(400).json({ error: 'Total price must be a non-negative number' });
@@ -119,8 +150,8 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
     // Validate service IDs exist and belong to tenant
     const { data: validServices, error: servicesError } = await supabase
       .from('services')
-      .select('id, tenant_id, base_price')
-      .in('id', service_ids)
+      .select('id, tenant_id, base_price, name')
+      .in('id', serviceIds)
       .eq('tenant_id', tenantId);
 
     if (servicesError) {
@@ -131,19 +162,38 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       });
     }
 
+    console.log('[Create Package] Valid services found:', validServices?.length || 0);
+    console.log('[Create Package] Valid service IDs:', validServices?.map(s => s.id) || []);
+
     if (!validServices || validServices.length === 0) {
+      // Get all services for this tenant to help debug
+      const { data: allTenantServices } = await supabase
+        .from('services')
+        .select('id, name')
+        .eq('tenant_id', tenantId)
+        .limit(10);
+      
+      console.log('[Create Package] Available services for tenant:', allTenantServices?.map(s => ({ id: s.id, name: s.name })) || []);
+      
       return res.status(400).json({ 
         error: 'No valid services found',
-        hint: 'Selected services do not exist or do not belong to your tenant'
+        hint: `Selected services do not exist or do not belong to your tenant. Requested IDs: ${serviceIds.join(', ')}`,
+        debug: {
+          requested_service_ids: serviceIds,
+          tenant_id: tenantId,
+          available_services_count: allTenantServices?.length || 0
+        }
       });
     }
 
-    if (validServices.length !== service_ids.length) {
+    if (validServices.length !== serviceIds.length) {
       const foundIds = new Set(validServices.map(s => s.id));
-      const missingIds = service_ids.filter(id => !foundIds.has(id));
+      const missingIds = serviceIds.filter(id => !foundIds.has(id));
+      console.warn('[Create Package] Some services are invalid:', missingIds);
       return res.status(400).json({ 
         error: 'Some services are invalid',
-        details: `The following service IDs are invalid or do not belong to your tenant: ${missingIds.join(', ')}`
+        details: `The following service IDs are invalid or do not belong to your tenant: ${missingIds.join(', ')}`,
+        valid_service_ids: Array.from(foundIds)
       });
     }
 

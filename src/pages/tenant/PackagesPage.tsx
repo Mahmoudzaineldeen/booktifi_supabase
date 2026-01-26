@@ -435,11 +435,30 @@ export function PackagesPage() {
         
         // Extract service data with capacity from selected services
         const serviceData = packageForm.selectedServices
-          .filter(s => s.service_id && s.service_id.trim() !== '')
-          .map(s => ({
-            service_id: s.service_id.trim(),
-            capacity_total: s.capacity_total || 5 // Default to 5 if not set
-          }));
+          .filter(s => {
+            const hasServiceId = s.service_id && (typeof s.service_id === 'string' ? s.service_id.trim() !== '' : String(s.service_id).trim() !== '');
+            if (!hasServiceId) {
+              console.warn('Skipping service with invalid service_id:', s);
+            }
+            return hasServiceId;
+          })
+          .map(s => {
+            const serviceId = typeof s.service_id === 'string' ? s.service_id.trim() : String(s.service_id).trim();
+            return {
+              service_id: serviceId,
+              capacity_total: s.capacity_total || 5 // Default to 5 if not set
+            };
+          });
+        
+        console.log('Sending service data to API:', serviceData);
+        console.log('Package payload:', packagePayload);
+        
+        if (serviceData.length === 0) {
+          alert(i18n.language === 'ar' 
+            ? 'يرجى اختيار خدمة واحدة على الأقل' 
+            : 'Please select at least 1 service');
+          return;
+        }
         
         try {
           const response = await fetch(`${API_URL}/packages`, {
@@ -456,8 +475,22 @@ export function PackagesPage() {
 
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-            const errorMessage = errorData.error || errorData.details || `HTTP ${response.status}`;
+            const errorMessage = errorData.error || errorData.details || errorData.hint || `HTTP ${response.status}`;
             console.error('Error creating package via API:', errorData);
+            console.error('Request payload:', {
+              ...packagePayload,
+              services: serviceData
+            });
+            
+            // Show detailed error message
+            let fullErrorMessage = errorMessage;
+            if (errorData.debug) {
+              fullErrorMessage += `\n\nDebug info: ${JSON.stringify(errorData.debug, null, 2)}`;
+            }
+            if (errorData.valid_service_ids) {
+              fullErrorMessage += `\n\nValid service IDs: ${errorData.valid_service_ids.join(', ')}`;
+            }
+            
             alert(i18n.language === 'ar' 
               ? `خطأ في إنشاء الحزمة: ${errorMessage}` 
               : `Error creating package: ${errorMessage}`);
