@@ -948,16 +948,14 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
               console.log(`[Booking Creation]    Remaining after: ${totalRemaining - packageCoveredQty}`);
               
               // Create one-time exhaustion notification
+              // Note: Table schema only has: id, subscription_id, service_id, notified_at
+              // notified_at is auto-set by DEFAULT now() in the table
               try {
                 const { error: notifError } = await supabase
                   .from('package_exhaustion_notifications')
                   .upsert({
                     subscription_id: packageSubscriptionId,
-                    service_id: service_id,
-                    tenant_id: tenant_id,
-                    customer_id: customerIdForPackage,
-                    notified_at: new Date().toISOString(),
-                    is_read: false
+                    service_id: service_id
                   }, {
                     onConflict: 'subscription_id,service_id',
                     ignoreDuplicates: false
@@ -2322,11 +2320,9 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
                   .from('package_exhaustion_notifications')
                   .upsert({
                     subscription_id: packageSubscriptionId,
-                    service_id: service_id,
-                    tenant_id: tenant_id,
-                    customer_id: customerIdForPackage,
-                    notified_at: new Date().toISOString(),
-                    is_read: false
+                    service_id: service_id
+                    // Note: notified_at is auto-set by DEFAULT now() in the table
+                    // Table schema only has: id, subscription_id, service_id, notified_at
                   }, {
                     onConflict: 'subscription_id,service_id',
                     ignoreDuplicates: false
