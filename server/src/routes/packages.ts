@@ -480,19 +480,51 @@ router.post('/subscriptions', async (req, res) => {
       .eq('package_id', package_id);
 
     if (servicesError) {
+      console.error('[Create Subscription] Error fetching package services:', servicesError);
       return res.status(500).json({ 
         error: 'Failed to fetch package services',
         details: servicesError.message 
       });
     }
 
+    console.log('[Create Subscription] Package services fetched:', {
+      count: packageServices?.length || 0,
+      services: packageServices?.map(ps => ({
+        service_id: ps.service_id,
+        capacity_total: ps.capacity_total
+      })) || []
+    });
+
+    // Check if package has any services
+    if (!packageServices || packageServices.length === 0) {
+      console.error('[Create Subscription] Package has no services:', { package_id });
+      return res.status(400).json({ 
+        error: 'Package has no services',
+        details: 'Package must have at least one service. Please add services to the package before creating a subscription.'
+      });
+    }
+
     // Calculate total capacity (sum of all service capacities)
-    const totalCapacity = packageServices?.reduce((sum, ps) => sum + (ps.capacity_total || 1), 0) || 0;
+    // Use capacity_total if available, otherwise default to 1 per service
+    const totalCapacity = packageServices.reduce((sum, ps) => {
+      const capacity = ps.capacity_total;
+      // Handle null, undefined, or 0 values - default to 1 if invalid
+      const validCapacity = (capacity && typeof capacity === 'number' && capacity > 0) ? capacity : 1;
+      console.log(`[Create Subscription] Service ${ps.service_id}: capacity_total=${capacity}, using=${validCapacity}`);
+      return sum + validCapacity;
+    }, 0);
+
+    console.log('[Create Subscription] Total capacity calculated:', totalCapacity);
 
     if (totalCapacity === 0) {
+      console.error('[Create Subscription] Total capacity is 0 after calculation:', {
+        package_id,
+        services_count: packageServices.length,
+        services: packageServices
+      });
       return res.status(400).json({ 
         error: 'Package has no capacity',
-        details: 'Package must have at least one service with capacity > 0'
+        details: 'Package must have at least one service with capacity > 0. Please check the package configuration.'
       });
     }
 
