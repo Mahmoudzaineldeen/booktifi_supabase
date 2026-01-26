@@ -827,15 +827,65 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
           const totalRemaining = capacityResult.total_remaining_capacity || 0;
           const exhaustionStatus = capacityResult.exhaustion_status || [];
 
+          console.log(`[Booking Creation] 📊 Package capacity result:`, {
+            total_remaining_capacity: totalRemaining,
+            visitor_count: visitor_count,
+            exhaustion_status_count: exhaustionStatus.length
+          });
+
           // Calculate partial coverage (store in outer scope variables)
+          // CRITICAL: Ensure values are always set correctly
+          // packageCoveredQty = min(visitor_count, totalRemaining)
+          // This means: if customer has 9 remaining and books 10, package covers 9, paid = 1
           packageCoveredQty = Math.min(visitor_count, totalRemaining);
           paidQty = visitor_count - packageCoveredQty;
+
+          // CRITICAL: Double-check the calculation
+          const recalculatedPaidQty = visitor_count - packageCoveredQty;
+          if (recalculatedPaidQty !== paidQty) {
+            console.error(`[Booking Creation] ❌ CRITICAL: paidQty calculation mismatch!`);
+            console.error(`[Booking Creation]    Original: ${paidQty}`);
+            console.error(`[Booking Creation]    Recalculated: ${recalculatedPaidQty}`);
+            paidQty = recalculatedPaidQty;
+            console.error(`[Booking Creation]    → Using recalculated value: ${paidQty}`);
+          }
+
+          // Validate calculation
+          if (packageCoveredQty + paidQty !== visitor_count) {
+            console.error(`[Booking Creation] ❌ CRITICAL: Package coverage calculation error!`);
+            console.error(`[Booking Creation]    visitor_count: ${visitor_count}`);
+            console.error(`[Booking Creation]    totalRemaining: ${totalRemaining}`);
+            console.error(`[Booking Creation]    packageCoveredQty: ${packageCoveredQty}`);
+            console.error(`[Booking Creation]    paidQty: ${paidQty}`);
+            console.error(`[Booking Creation]    Sum: ${packageCoveredQty + paidQty} (expected ${visitor_count})`);
+            // Fix the calculation
+            paidQty = visitor_count - packageCoveredQty;
+            console.error(`[Booking Creation]    → Corrected paidQty to: ${paidQty}`);
+          }
+
+          // CRITICAL: Ensure paidQty is never negative
+          if (paidQty < 0) {
+            console.error(`[Booking Creation] ❌ CRITICAL: paidQty is negative! Fixing...`);
+            paidQty = 0;
+            packageCoveredQty = visitor_count;
+            console.error(`[Booking Creation]    → Corrected: packageCoveredQty=${packageCoveredQty}, paidQty=${paidQty}`);
+          }
+
+          // CRITICAL: Ensure packageCoveredQty doesn't exceed visitor_count
+          if (packageCoveredQty > visitor_count) {
+            console.error(`[Booking Creation] ❌ CRITICAL: packageCoveredQty exceeds visitor_count! Fixing...`);
+            packageCoveredQty = visitor_count;
+            paidQty = 0;
+            console.error(`[Booking Creation]    → Corrected: packageCoveredQty=${packageCoveredQty}, paidQty=${paidQty}`);
+          }
 
           console.log(`[Booking Creation] Package capacity check:`, {
             requestedQty: visitor_count,
             remainingCapacity: totalRemaining,
             packageCoveredQty,
-            paidQty
+            paidQty,
+            calculation: `${packageCoveredQty} + ${paidQty} = ${packageCoveredQty + paidQty} (should be ${visitor_count})`,
+            validation: packageCoveredQty + paidQty === visitor_count ? '✅ PASS' : '❌ FAIL'
           });
 
           // If we have any capacity, use it (even if partial)
@@ -856,6 +906,20 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
             }
 
             // Calculate price only for paid portion
+            // CRITICAL: Final validation before price calculation
+            // Recalculate to ensure consistency
+            const finalPackageCovered = Math.min(visitor_count, totalRemaining);
+            const finalPaidQty = visitor_count - finalPackageCovered;
+            
+            if (finalPackageCovered !== packageCoveredQty || finalPaidQty !== paidQty) {
+              console.error(`[Booking Creation] ❌ CRITICAL: Package coverage values changed during price calculation!`);
+              console.error(`[Booking Creation]    Before: packageCovered=${packageCoveredQty}, paid=${paidQty}`);
+              console.error(`[Booking Creation]    After: packageCovered=${finalPackageCovered}, paid=${finalPaidQty}`);
+              packageCoveredQty = finalPackageCovered;
+              paidQty = finalPaidQty;
+              console.error(`[Booking Creation]    → Using corrected values: packageCovered=${packageCoveredQty}, paid=${paidQty}`);
+            }
+            
             if (paidQty > 0) {
               // Get service price for paid tickets
               const { data: serviceData } = await supabase
@@ -868,6 +932,7 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
               finalTotalPrice = paidQty * servicePrice;
               
               console.log(`[Booking Creation] ⚠️ Partial package coverage: ${packageCoveredQty} free, ${paidQty} paid (${finalTotalPrice})`);
+              console.log(`[Booking Creation]    Service price: ${servicePrice}, Paid qty: ${paidQty}, Total: ${finalTotalPrice}`);
             } else {
               finalTotalPrice = 0; // Fully covered by package
               console.log(`[Booking Creation] ✅ Full package coverage: ${packageCoveredQty} tickets free`);
@@ -929,10 +994,31 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       }
     }
 
+    // ============================================================================
+    // FINAL VALIDATION: Ensure package coverage values are correct before RPC call
+    // ============================================================================
+    // CRITICAL: Validate that packageCoveredQty + paidQty = visitor_count
+    if (packageCoveredQty + paidQty !== visitor_count) {
+      console.error(`[Booking Creation] ❌ CRITICAL: Package coverage validation failed before RPC call!`);
+      console.error(`[Booking Creation]    visitor_count: ${visitor_count}`);
+      console.error(`[Booking Creation]    packageCoveredQty: ${packageCoveredQty}`);
+      console.error(`[Booking Creation]    paidQty: ${paidQty}`);
+      console.error(`[Booking Creation]    Sum: ${packageCoveredQty + paidQty} (expected ${visitor_count})`);
+      // Fix the calculation
+      if (packageCoveredQty > visitor_count) {
+        packageCoveredQty = visitor_count;
+        paidQty = 0;
+      } else {
+        paidQty = visitor_count - packageCoveredQty;
+      }
+      console.error(`[Booking Creation]    → Corrected: packageCoveredQty=${packageCoveredQty}, paidQty=${paidQty}`);
+    }
+
     // Use RPC for transaction - handles all validation, lock checking, and booking creation
     console.log(`[Booking Creation] Calling create_booking_with_lock RPC function...`);
     console.log(`[Booking Creation]    Package: ${shouldUsePackage ? 'YES' : 'NO'}, Price: ${finalTotalPrice}`);
     console.log(`[Booking Creation]    Coverage: ${packageCoveredQty} package, ${paidQty} paid`);
+    console.log(`[Booking Creation]    Validation: ${packageCoveredQty} + ${paidQty} = ${packageCoveredQty + paidQty} (visitor_count: ${visitor_count})`);
     
     // Validate all parameters before calling RPC
     const rpcParams: any = {
@@ -954,9 +1040,81 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       p_offer_id: offer_id || null,
       p_language: validLanguage,
       p_package_subscription_id: packageSubscriptionId || null,
-      p_package_covered_quantity: packageCoveredQty,
-      p_paid_quantity: paidQty
+      p_package_covered_quantity: packageCoveredQty, // Always pass explicit value (0 if no package)
+      p_paid_quantity: paidQty // Always pass explicit value (0 if fully covered, >0 if partial/full paid)
     };
+    
+    // CRITICAL: Ensure we never pass NULL for paid_quantity (PostgreSQL might treat 0 differently)
+    // Always pass explicit integer values
+    if (rpcParams.p_paid_quantity === null || rpcParams.p_paid_quantity === undefined) {
+      console.error(`[Booking Creation] ❌ CRITICAL: paid_quantity is null/undefined! Recalculating...`);
+      rpcParams.p_paid_quantity = rpcParams.p_visitor_count - rpcParams.p_package_covered_quantity;
+      console.error(`[Booking Creation]    → Corrected paid_quantity to: ${rpcParams.p_paid_quantity}`);
+    }
+    
+    if (rpcParams.p_package_covered_quantity === null || rpcParams.p_package_covered_quantity === undefined) {
+      console.error(`[Booking Creation] ❌ CRITICAL: package_covered_quantity is null/undefined! Setting to 0...`);
+      rpcParams.p_package_covered_quantity = 0;
+      rpcParams.p_paid_quantity = rpcParams.p_visitor_count; // If no package coverage, all are paid
+      console.error(`[Booking Creation]    → Corrected package_covered_quantity to: 0, paid_quantity to: ${rpcParams.p_paid_quantity}`);
+    }
+    
+    // CRITICAL: Final recalculation to ensure values are always correct
+    // This catches any edge cases where values might have been modified
+    const finalPackageCovered = rpcParams.p_package_covered_quantity;
+    const finalPaidQty = rpcParams.p_visitor_count - finalPackageCovered;
+    
+    if (finalPaidQty !== rpcParams.p_paid_quantity) {
+      console.error(`[Booking Creation] ❌ CRITICAL: Final validation failed - paid_quantity mismatch!`);
+      console.error(`[Booking Creation]    RPC param paid_quantity: ${rpcParams.p_paid_quantity}`);
+      console.error(`[Booking Creation]    Recalculated from visitor_count (${rpcParams.p_visitor_count}) - packageCovered (${finalPackageCovered}): ${finalPaidQty}`);
+      console.error(`[Booking Creation]    → Correcting RPC param paid_quantity to: ${finalPaidQty}`);
+      rpcParams.p_paid_quantity = finalPaidQty;
+      // Also update the outer scope variable for consistency
+      paidQty = finalPaidQty;
+    }
+    
+    // CRITICAL: Ensure package_covered_quantity doesn't exceed visitor_count
+    if (rpcParams.p_package_covered_quantity > rpcParams.p_visitor_count) {
+      console.error(`[Booking Creation] ❌ CRITICAL: package_covered_quantity (${rpcParams.p_package_covered_quantity}) exceeds visitor_count (${rpcParams.p_visitor_count})!`);
+      rpcParams.p_package_covered_quantity = rpcParams.p_visitor_count;
+      rpcParams.p_paid_quantity = 0;
+      paidQty = 0;
+      packageCoveredQty = rpcParams.p_visitor_count;
+      console.error(`[Booking Creation]    → Corrected: packageCovered=${rpcParams.p_package_covered_quantity}, paid=${rpcParams.p_paid_quantity}`);
+    }
+    
+    // CRITICAL: Final validation - sum must equal visitor_count
+    if (rpcParams.p_package_covered_quantity + rpcParams.p_paid_quantity !== rpcParams.p_visitor_count) {
+      console.error(`[Booking Creation] ❌ CRITICAL: Final RPC param validation failed!`);
+      console.error(`[Booking Creation]    package_covered_quantity: ${rpcParams.p_package_covered_quantity}`);
+      console.error(`[Booking Creation]    paid_quantity: ${rpcParams.p_paid_quantity}`);
+      console.error(`[Booking Creation]    visitor_count: ${rpcParams.p_visitor_count}`);
+      console.error(`[Booking Creation]    Sum: ${rpcParams.p_package_covered_quantity + rpcParams.p_paid_quantity} (expected ${rpcParams.p_visitor_count})`);
+      // Force correct values
+      rpcParams.p_package_covered_quantity = Math.min(rpcParams.p_visitor_count, rpcParams.p_package_covered_quantity);
+      rpcParams.p_paid_quantity = rpcParams.p_visitor_count - rpcParams.p_package_covered_quantity;
+      paidQty = rpcParams.p_paid_quantity;
+      packageCoveredQty = rpcParams.p_package_covered_quantity;
+      console.error(`[Booking Creation]    → FORCED CORRECTION: packageCovered=${rpcParams.p_package_covered_quantity}, paid=${rpcParams.p_paid_quantity}`);
+    }
+    
+    // CRITICAL: Validate package coverage parameters before RPC call
+    if (rpcParams.p_package_covered_quantity + rpcParams.p_paid_quantity !== rpcParams.p_visitor_count) {
+      console.error(`[Booking Creation] ❌ CRITICAL: RPC parameter validation failed!`);
+      console.error(`[Booking Creation]    p_package_covered_quantity: ${rpcParams.p_package_covered_quantity}`);
+      console.error(`[Booking Creation]    p_paid_quantity: ${rpcParams.p_paid_quantity}`);
+      console.error(`[Booking Creation]    p_visitor_count: ${rpcParams.p_visitor_count}`);
+      console.error(`[Booking Creation]    Sum: ${rpcParams.p_package_covered_quantity + rpcParams.p_paid_quantity} (expected ${rpcParams.p_visitor_count})`);
+      // Fix the parameters
+      if (rpcParams.p_package_covered_quantity > rpcParams.p_visitor_count) {
+        rpcParams.p_package_covered_quantity = rpcParams.p_visitor_count;
+        rpcParams.p_paid_quantity = 0;
+      } else {
+        rpcParams.p_paid_quantity = rpcParams.p_visitor_count - rpcParams.p_package_covered_quantity;
+      }
+      console.error(`[Booking Creation]    → Corrected RPC params: packageCovered=${rpcParams.p_package_covered_quantity}, paid=${rpcParams.p_paid_quantity}`);
+    }
     
     // Validate critical parameters
     if (!rpcParams.p_slot_id || !rpcParams.p_service_id || !rpcParams.p_tenant_id) {
@@ -986,7 +1144,20 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       p_package_covered_quantity: rpcParams.p_package_covered_quantity,
       p_paid_quantity: rpcParams.p_paid_quantity,
       p_customer_id: rpcParams.p_customer_id ? 'provided' : 'null',
-      p_session_id: rpcParams.p_session_id ? 'provided' : 'null'
+      p_session_id: rpcParams.p_session_id ? 'provided' : 'null',
+      validation: `${rpcParams.p_package_covered_quantity} + ${rpcParams.p_paid_quantity} = ${rpcParams.p_package_covered_quantity + rpcParams.p_paid_quantity} (visitor_count: ${rpcParams.p_visitor_count})`
+    });
+    
+    // CRITICAL: Log type information to catch any type coercion issues
+    console.log('[Booking Creation] RPC Parameter Types:', {
+      p_package_covered_quantity_type: typeof rpcParams.p_package_covered_quantity,
+      p_paid_quantity_type: typeof rpcParams.p_paid_quantity,
+      p_package_covered_quantity_value: rpcParams.p_package_covered_quantity,
+      p_paid_quantity_value: rpcParams.p_paid_quantity,
+      p_package_covered_quantity_is_null: rpcParams.p_package_covered_quantity === null,
+      p_paid_quantity_is_null: rpcParams.p_paid_quantity === null,
+      p_package_covered_quantity_is_undefined: rpcParams.p_package_covered_quantity === undefined,
+      p_paid_quantity_is_undefined: rpcParams.p_paid_quantity === undefined
     });
     
     let booking: any = null;
@@ -1105,6 +1276,12 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       rawValue: JSON.stringify(booking).substring(0, 200)
     });
 
+    // ============================================================================
+    // VALIDATE BOOKING WAS CREATED WITH CORRECT VALUES
+    // ============================================================================
+    // After RPC call, verify the booking has correct package coverage values
+    // This catches any issues where the RPC function might have overridden our values
+    
     // Handle JSONB response - Supabase RPC may return JSONB as object or string
     // The RPC function returns: { success: true, booking: { id: ..., ... } }
     let bookingData: any = booking;
@@ -1133,6 +1310,67 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       // Direct booking object
       actualBooking = bookingData;
       console.log(`[Booking Creation] Found direct booking object`);
+    }
+
+    // ============================================================================
+    // POST-CREATION VALIDATION: Verify booking has correct package coverage values
+    // ============================================================================
+    if (actualBooking?.id) {
+      const bookingId = actualBooking.id;
+      console.log(`[Booking Creation] 🔍 Validating created booking ${bookingId}...`);
+      
+      // Fetch the actual booking from database to verify values
+      const { data: dbBooking, error: dbError } = await supabase
+        .from('bookings')
+        .select('id, package_covered_quantity, paid_quantity, total_price, visitor_count')
+        .eq('id', bookingId)
+        .single();
+      
+      if (!dbError && dbBooking) {
+        const dbPackageCovered = dbBooking.package_covered_quantity ?? 0;
+        const dbPaidQty = dbBooking.paid_quantity ?? 0;
+        const dbTotalPrice = parseFloat(dbBooking.total_price?.toString() || '0');
+        const dbVisitorCount = dbBooking.visitor_count ?? 0;
+        
+        console.log(`[Booking Creation] 📊 Database booking values:`, {
+          visitor_count: dbVisitorCount,
+          package_covered_quantity: dbPackageCovered,
+          paid_quantity: dbPaidQty,
+          total_price: dbTotalPrice,
+          sum: `${dbPackageCovered} + ${dbPaidQty} = ${dbPackageCovered + dbPaidQty} (should be ${dbVisitorCount})`
+        });
+        
+        // Validate values match what we sent
+        if (dbPackageCovered !== packageCoveredQty || dbPaidQty !== paidQty) {
+          console.error(`[Booking Creation] ❌ CRITICAL: Booking values don't match what we sent!`);
+          console.error(`[Booking Creation]    Expected: packageCovered=${packageCoveredQty}, paid=${paidQty}`);
+          console.error(`[Booking Creation]    Actual: packageCovered=${dbPackageCovered}, paid=${dbPaidQty}`);
+          console.error(`[Booking Creation]    → This indicates the RPC function may have overridden our values`);
+          
+          // If values are wrong, try to fix them (but this shouldn't happen)
+          if (dbPackageCovered + dbPaidQty !== dbVisitorCount) {
+            console.error(`[Booking Creation] ❌ CRITICAL: Booking values are also invalid (sum doesn't match visitor_count)!`);
+            console.error(`[Booking Creation]    This is a database integrity issue - booking may need manual correction`);
+          }
+        } else {
+          console.log(`[Booking Creation] ✅ Booking values match what we sent`);
+        }
+        
+        // Validate strict billing rule
+        if (dbPaidQty > 0 && dbTotalPrice <= 0) {
+          console.error(`[Booking Creation] ❌ CRITICAL: paid_quantity > 0 but total_price = 0!`);
+          console.error(`[Booking Creation]    This violates strict billing rules - invoice cannot be created`);
+          console.error(`[Booking Creation]    paid_quantity: ${dbPaidQty}, total_price: ${dbTotalPrice}`);
+        } else if (dbPaidQty <= 0 && dbTotalPrice > 0) {
+          console.error(`[Booking Creation] ❌ CRITICAL: paid_quantity = 0 but total_price > 0!`);
+          console.error(`[Booking Creation]    This violates strict billing rules - should not charge for package-covered bookings`);
+          console.error(`[Booking Creation]    paid_quantity: ${dbPaidQty}, total_price: ${dbTotalPrice}`);
+        } else {
+          console.log(`[Booking Creation] ✅ Strict billing rule validation passed`);
+        }
+      } else {
+        console.warn(`[Booking Creation] ⚠️ Could not fetch booking from database for validation:`, dbError);
+      }
     } else if (bookingData?.success && bookingData?.booking) {
       // Alternative nested structure
       actualBooking = bookingData.booking;
@@ -1149,6 +1387,69 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       bookingId = bookingData.id;
     } else if (bookingData?.booking?.id) {
       bookingId = bookingData.booking.id;
+    }
+
+    // ============================================================================
+    // POST-CREATION VALIDATION: Verify booking has correct package coverage values
+    // ============================================================================
+    if (bookingId) {
+      console.log(`[Booking Creation] 🔍 Validating created booking ${bookingId}...`);
+      
+      // Wait a moment for database to be consistent
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Fetch the actual booking from database to verify values
+      const { data: dbBooking, error: dbError } = await supabase
+        .from('bookings')
+        .select('id, package_covered_quantity, paid_quantity, total_price, visitor_count')
+        .eq('id', bookingId)
+        .single();
+      
+      if (!dbError && dbBooking) {
+        const dbPackageCovered = dbBooking.package_covered_quantity ?? 0;
+        const dbPaidQty = dbBooking.paid_quantity ?? 0;
+        const dbTotalPrice = parseFloat(dbBooking.total_price?.toString() || '0');
+        const dbVisitorCount = dbBooking.visitor_count ?? 0;
+        
+        console.log(`[Booking Creation] 📊 Database booking values:`, {
+          visitor_count: dbVisitorCount,
+          package_covered_quantity: dbPackageCovered,
+          paid_quantity: dbPaidQty,
+          total_price: dbTotalPrice,
+          sum: `${dbPackageCovered} + ${dbPaidQty} = ${dbPackageCovered + dbPaidQty} (should be ${dbVisitorCount})`
+        });
+        
+        // Validate values match what we sent
+        if (dbPackageCovered !== packageCoveredQty || dbPaidQty !== paidQty) {
+          console.error(`[Booking Creation] ❌ CRITICAL: Booking values don't match what we sent!`);
+          console.error(`[Booking Creation]    Expected: packageCovered=${packageCoveredQty}, paid=${paidQty}`);
+          console.error(`[Booking Creation]    Actual: packageCovered=${dbPackageCovered}, paid=${dbPaidQty}`);
+          console.error(`[Booking Creation]    → This indicates the RPC function may have overridden our values`);
+          
+          // If values are wrong, try to fix them (but this shouldn't happen)
+          if (dbPackageCovered + dbPaidQty !== dbVisitorCount) {
+            console.error(`[Booking Creation] ❌ CRITICAL: Booking values are also invalid (sum doesn't match visitor_count)!`);
+            console.error(`[Booking Creation]    This is a database integrity issue - booking may need manual correction`);
+          }
+        } else {
+          console.log(`[Booking Creation] ✅ Booking values match what we sent`);
+        }
+        
+        // Validate strict billing rule
+        if (dbPaidQty > 0 && dbTotalPrice <= 0) {
+          console.error(`[Booking Creation] ❌ CRITICAL: paid_quantity > 0 but total_price = 0!`);
+          console.error(`[Booking Creation]    This violates strict billing rules - invoice cannot be created`);
+          console.error(`[Booking Creation]    paid_quantity: ${dbPaidQty}, total_price: ${dbTotalPrice}`);
+        } else if (dbPaidQty <= 0 && dbTotalPrice > 0) {
+          console.error(`[Booking Creation] ❌ CRITICAL: paid_quantity = 0 but total_price > 0!`);
+          console.error(`[Booking Creation]    This violates strict billing rules - should not charge for package-covered bookings`);
+          console.error(`[Booking Creation]    paid_quantity: ${dbPaidQty}, total_price: ${dbTotalPrice}`);
+        } else {
+          console.log(`[Booking Creation] ✅ Strict billing rule validation passed`);
+        }
+      } else {
+        console.warn(`[Booking Creation] ⚠️ Could not fetch booking from database for validation:`, dbError);
+      }
     }
 
     if (!bookingId) {
