@@ -1235,13 +1235,20 @@ export function ReceptionPage() {
         if (isJson) {
           try {
             const errorData = JSON.parse(text);
-            throw new Error(errorData.error || `Server error: ${response.status} ${response.statusText}`);
+            console.error('Server error response:', errorData);
+            // Include details if available
+            const errorMessage = errorData.error || `Server error: ${response.status} ${response.statusText}`;
+            const errorDetails = errorData.details ? `\nDetails: ${errorData.details}` : '';
+            const errorCode = errorData.code ? `\nCode: ${errorData.code}` : '';
+            throw new Error(`${errorMessage}${errorDetails}${errorCode}`);
           } catch (parseError) {
-            throw new Error(`Server error: ${response.status} ${response.statusText}`);
+            console.error('Failed to parse error JSON:', parseError);
+            console.error('Raw error text:', text);
+            throw new Error(`Server error: ${response.status} ${response.statusText}\nResponse: ${text.substring(0, 200)}`);
           }
         } else {
           console.error('Non-JSON error response:', text.substring(0, 500));
-          throw new Error(`Server returned invalid response (${response.status}). Check if backend server is running at ${API_URL}`);
+          throw new Error(`Server returned invalid response (${response.status}). Check if backend server is running at ${API_URL}\nResponse: ${text.substring(0, 200)}`);
         }
       }
 

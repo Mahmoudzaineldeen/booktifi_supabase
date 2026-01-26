@@ -671,6 +671,16 @@ router.post('/lock/:lock_id/release', authenticate, async (req, res) => {
 // ============================================================================
 // TASK 5: Receptionist and tenant_admin can create bookings (not cashier)
 router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) => {
+  // Track if response has been sent to prevent double responses
+  let responseSent = false;
+  const sendResponse = (status: number, data: any) => {
+    if (!responseSent) {
+      responseSent = true;
+      return res.status(status).json(data);
+    }
+    console.warn('[Booking Creation] ⚠️ Attempted to send response twice, ignoring second attempt');
+  };
+
   try {
     // Extract only expected fields (ignore extra fields like status, payment_status, created_by_user_id, package_subscription_id)
     // These are handled automatically by the backend
@@ -712,18 +722,18 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
 
     // Validate required fields
     if (!slot_id || !service_id || !tenant_id || !customer_name || !customer_phone) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return sendResponse(400, { error: 'Missing required fields' });
     }
 
     // Normalize phone number (handles Egyptian numbers: +2001032560826 -> +201032560826)
     const normalizedPhone = normalizePhoneNumber(customer_phone);
     if (!normalizedPhone) {
-      return res.status(400).json({ error: 'Invalid phone number format' });
+      return sendResponse(400, { error: 'Invalid phone number format' });
     }
 
     // Validate visitor_count
     if (visitor_count < 1) {
-      return res.status(400).json({
+      return sendResponse(400, {
         error: 'visitor_count must be at least 1'
       });
     }
@@ -758,12 +768,21 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     
     if (customerIdForPackage) {
       try {
+        console.log('[Booking Creation] Checking package capacity for customer:', customerIdForPackage);
         // Resolve package capacity for this customer and service
         const { data: capacityData, error: capacityError } = await supabase
           .rpc('resolveCustomerServiceCapacity', {
             p_customer_id: customerIdForPackage,
             p_service_id: service_id
           });
+
+        if (capacityError) {
+          console.error('[Booking Creation] ⚠️ Package capacity check failed:', capacityError);
+          console.error('[Booking Creation]    Error code:', capacityError.code);
+          console.error('[Booking Creation]    Error message:', capacityError.message);
+          // Don't fail - proceed with paid booking if package check fails
+          // Continue to next block which handles no capacity data
+        }
 
         if (!capacityError && capacityData && capacityData.length > 0) {
           const capacityResult = capacityData[0];
@@ -828,7 +847,11 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
         }
       } catch (packageError: any) {
         // Log but don't fail - proceed with paid booking if package check fails
-        console.error(`[Booking Creation] ⚠️ Package capacity check failed:`, packageError);
+        console.error(`[Booking Creation] ⚠️ Package capacity check exception:`, packageError);
+        console.error(`[Booking Creation]    Error type: ${packageError?.constructor?.name || 'Unknown'}`);
+        console.error(`[Booking Creation]    Error message: ${packageError?.message || 'No message'}`);
+        console.error(`[Booking Creation]    Error stack: ${packageError?.stack || 'No stack'}`);
+        // Continue with paid booking - package check is optional
       }
     }
 
@@ -864,18 +887,18 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     // Validate critical parameters
     if (!rpcParams.p_slot_id || !rpcParams.p_service_id || !rpcParams.p_tenant_id) {
       console.error('[Booking Creation] ❌ CRITICAL: Missing required RPC parameters');
-      return res.status(400).json({ error: 'Missing required booking parameters' });
+      return sendResponse(400, { error: 'Missing required booking parameters' });
     }
     
     // Ensure numeric values are valid
     if (isNaN(rpcParams.p_visitor_count) || rpcParams.p_visitor_count < 1) {
       console.error('[Booking Creation] ❌ CRITICAL: Invalid visitor_count');
-      return res.status(400).json({ error: 'Invalid visitor count' });
+      return sendResponse(400, { error: 'Invalid visitor count' });
     }
     
     if (isNaN(rpcParams.p_total_price) || rpcParams.p_total_price < 0) {
       console.error('[Booking Creation] ❌ CRITICAL: Invalid total_price');
-      return res.status(400).json({ error: 'Invalid total price' });
+      return sendResponse(400, { error: 'Invalid total price' });
     }
     
     // Log RPC parameters (sanitized)
@@ -909,46 +932,95 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     }
 
     if (createError) {
-      console.error(`[Booking Creation] ❌ RPC Error:`, createError);
-      console.error(`[Booking Creation]    Error code: ${createError.code || 'N/A'}`);
-      console.error(`[Booking Creation]    Error message: ${createError.message}`);
-      console.error(`[Booking Creation]    Error details:`, createError);
+      console.error(`[Booking Creation] ========================================`);
+      console.error(`[Booking Creation] ❌ RPC ERROR DETECTED`);
+      console.error(`[Booking Creation] ========================================`);
+      console.error(`[Booking Creation] Error code: ${createError.code || 'N/A'}`);
+      console.error(`[Booking Creation] Error message: ${createError.message || 'No message'}`);
+      console.error(`[Booking Creation] Error details:`, JSON.stringify(createError, null, 2));
+      console.error(`[Booking Creation] Error type: ${createError.constructor?.name || typeof createError}`);
+      console.error(`[Booking Creation] ========================================`);
       
       // Check if RPC function doesn't exist
       if (createError.message?.includes('function') && createError.message?.includes('does not exist')) {
         console.error(`[Booking Creation] ❌ CRITICAL: RPC function 'create_booking_with_lock' does not exist!`);
         console.error(`[Booking Creation]    Please deploy the function from: database/create_booking_with_lock_function.sql`);
-        return res.status(500).json({ 
+        return sendResponse(500, { 
           error: 'Booking function not deployed. Please contact administrator.',
-          details: 'RPC function create_booking_with_lock is missing'
+          details: 'RPC function create_booking_with_lock is missing',
+          code: createError.code
         });
       }
       
       // Map specific error messages to appropriate status codes
-      if (createError.message.includes('Missing required fields') ||
-          createError.message.includes('does not match')) {
-        return res.status(400).json({ error: createError.message });
+      const errorMessage = createError.message || 'Unknown error occurred';
+      
+      if (errorMessage.includes('Missing required fields') ||
+          errorMessage.includes('does not match') ||
+          errorMessage.includes('must be')) {
+        return sendResponse(400, { 
+          error: errorMessage,
+          code: createError.code,
+          details: 'Validation error'
+        });
       }
-      if (createError.message.includes('not found')) {
-        return res.status(404).json({ error: createError.message });
+      if (errorMessage.includes('not found')) {
+        return sendResponse(404, { 
+          error: errorMessage,
+          code: createError.code
+        });
       }
-      if (createError.message.includes('deactivated') ||
-          createError.message.includes('belongs to different session') ||
-          createError.message.includes('does not belong to')) {
-        return res.status(403).json({ error: createError.message });
+      if (errorMessage.includes('deactivated') ||
+          errorMessage.includes('belongs to different session') ||
+          errorMessage.includes('does not belong to')) {
+        return sendResponse(403, { 
+          error: errorMessage,
+          code: createError.code
+        });
       }
-      if (createError.message.includes('expired') ||
-          createError.message.includes('not available') ||
-          createError.message.includes('Not enough tickets')) {
-        return res.status(409).json({ error: createError.message });
+      if (errorMessage.includes('expired') ||
+          errorMessage.includes('not available') ||
+          errorMessage.includes('Not enough tickets')) {
+        return sendResponse(409, { 
+          error: errorMessage,
+          code: createError.code
+        });
       }
-      throw createError;
+      
+      // For database constraint errors, return 400 instead of 500
+      if (createError.code === '23503' || errorMessage.includes('foreign key')) {
+        return sendResponse(400, {
+          error: 'Database constraint violation. Please check that all referenced records exist (customer, service, slot, etc.).',
+          details: errorMessage,
+          code: createError.code
+        });
+      }
+      
+      if (createError.code === '23502' || errorMessage.includes('not null')) {
+        return sendResponse(400, {
+          error: 'Missing required data. Please ensure all required fields are provided.',
+          details: errorMessage,
+          code: createError.code
+        });
+      }
+      
+      // For other RPC errors, return 500 with details
+      // DO NOT throw - always return a response
+      return sendResponse(500, {
+        error: errorMessage || 'Failed to create booking',
+        details: `RPC function error: ${errorMessage}`,
+        code: createError.code,
+        type: 'RPC_ERROR'
+      });
     }
 
     if (!booking) {
       console.error(`[Booking Creation] ❌ CRITICAL: RPC returned null/undefined booking`);
       console.error(`[Booking Creation]    This means the function executed but returned no data`);
-      return res.status(500).json({ error: 'Failed to create booking - no data returned' });
+      return sendResponse(500, { 
+        error: 'Failed to create booking - no data returned',
+        details: 'The RPC function executed but did not return any booking data'
+      });
     }
 
     console.log(`[Booking Creation] RPC Response received:`, {
@@ -1013,7 +1085,7 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       console.error(`[Booking Creation]    Raw response:`, JSON.stringify(booking, null, 2));
       console.error(`[Booking Creation]    Actual booking:`, JSON.stringify(actualBooking, null, 2));
       console.error(`[Booking Creation]    This will prevent ticket generation from running!`);
-      return res.status(500).json({ 
+      return sendResponse(500, { 
         error: 'Booking created but ID not returned',
         details: 'The booking was created but the response does not contain an ID. Ticket generation cannot proceed.',
         debug: {
@@ -1573,7 +1645,7 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     console.log(`[Booking Creation] ========================================`);
 
     // Return the booking with proper structure
-    res.status(201).json({ 
+    return sendResponse(201, { 
       id: bookingId,
       ...actualBooking,
       booking: actualBooking // Also include as 'booking' for backward compatibility
@@ -1655,7 +1727,7 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       errorDetails = process.env.NODE_ENV === 'development' ? error.message : undefined;
     }
     
-    res.status(500).json({ 
+    return sendResponse(500, { 
       error: errorMessage,
       details: errorDetails,
       code: error.code,
