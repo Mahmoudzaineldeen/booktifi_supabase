@@ -489,25 +489,91 @@ router.post('/subscriptions', async (req, res) => {
     // Calculate total capacity (sum of all service capacities)
     const totalCapacity = packageServices?.reduce((sum, ps) => sum + (ps.capacity_total || 1), 0) || 0;
 
+    if (totalCapacity === 0) {
+      return res.status(400).json({ 
+        error: 'Package has no capacity',
+        details: 'Package must have at least one service with capacity > 0'
+      });
+    }
+
     // Create package subscription
-    const { data: subscription, error: subscriptionError } = await supabase
+    // Build subscription data - try to include all possible columns for schema compatibility
+    const subscriptionData: any = {
+      tenant_id,
+      package_id,
+      customer_id: finalCustomerId,
+    };
+
+    // Try to add new schema columns (may not exist in older migrations)
+    // Check error to see if columns don't exist, then retry without them
+    subscriptionData.total_quantity = totalCapacity;
+    subscriptionData.remaining_quantity = totalCapacity;
+    subscriptionData.is_active = true;
+    subscriptionData.status = 'active'; // For old schema compatibility
+
+    console.log('[Create Subscription] Inserting subscription with data:', {
+      ...subscriptionData,
+      customer_id: '***', // Hide customer_id in logs
+    });
+
+    let subscription;
+    let subscriptionError;
+
+    // First attempt: try with all columns
+    const insertResult = await supabase
       .from('package_subscriptions')
-      .insert({
-        tenant_id,
-        package_id,
-        customer_id: finalCustomerId,
-        total_quantity: totalCapacity,
-        remaining_quantity: totalCapacity,
-        is_active: true,
-      })
+      .insert(subscriptionData)
       .select()
       .single();
 
+    subscription = insertResult.data;
+    subscriptionError = insertResult.error;
+
+    // If error is about missing columns, try with minimal schema
+    if (subscriptionError && (
+      subscriptionError.message?.includes('column') && 
+      (subscriptionError.message?.includes('total_quantity') || 
+       subscriptionError.message?.includes('remaining_quantity'))
+    )) {
+      console.warn('[Create Subscription] New schema columns not found, trying old schema...');
+      
+      // Retry with old schema (status only, no total_quantity/remaining_quantity)
+      const oldSchemaData = {
+        tenant_id,
+        package_id,
+        customer_id: finalCustomerId,
+        status: 'active',
+      };
+
+      const oldSchemaResult = await supabase
+        .from('package_subscriptions')
+        .insert(oldSchemaData)
+        .select()
+        .single();
+
+      subscription = oldSchemaResult.data;
+      subscriptionError = oldSchemaResult.error;
+    }
+
     if (subscriptionError) {
       console.error('[Create Subscription] Error:', subscriptionError);
+      console.error('[Create Subscription] Error code:', subscriptionError.code);
+      console.error('[Create Subscription] Error message:', subscriptionError.message);
+      console.error('[Create Subscription] Error details:', subscriptionError.details);
+      console.error('[Create Subscription] Error hint:', subscriptionError.hint);
+      
       return res.status(500).json({ 
         error: 'Failed to create package subscription',
-        details: subscriptionError.message 
+        details: subscriptionError.message || subscriptionError.error || 'Unknown error',
+        code: subscriptionError.code,
+        hint: subscriptionError.hint
+      });
+    }
+
+    if (!subscription) {
+      return res.status(500).json({ 
+        error: 'Failed to create package subscription',
+        details: 'No subscription data returned from database'
       });
     }
 
