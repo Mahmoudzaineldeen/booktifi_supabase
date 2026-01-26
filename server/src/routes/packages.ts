@@ -566,6 +566,39 @@ router.post('/subscriptions', async (req, res) => {
       return res.status(400).json({ error: 'Tenant ID and Package ID are required' });
     }
 
+    // ============================================================================
+    // MAINTENANCE MODE CHECK - Block customers only
+    // ============================================================================
+    // Extract user role from token if present
+    let userRole: string | undefined;
+    try {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.replace('Bearer ', '');
+        const decoded = jwt.verify(token, JWT_SECRET) as any;
+        userRole = decoded.role;
+      }
+    } catch (error) {
+      // Continue without auth - will be treated as customer
+    }
+
+    // For customers or unauthenticated users, check maintenance mode
+    if (!userRole || userRole === 'customer') {
+      const { data: tenantData, error: tenantError } = await supabase
+        .from('tenants')
+        .select('maintenance_mode')
+        .eq('id', tenant_id)
+        .single();
+
+      if (!tenantError && tenantData && tenantData.maintenance_mode === true) {
+        return res.status(403).json({
+          error: 'Bookings are temporarily disabled. Please visit us in person to make a reservation.',
+          code: 'BOOKING_DISABLED_MAINTENANCE'
+        });
+      }
+    }
+    // Staff roles can always create subscriptions
+
     if (!customer_id && (!customer_name || !customer_phone)) {
       return res.status(400).json({ error: 'Customer ID or customer name and phone are required' });
     }

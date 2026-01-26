@@ -263,6 +263,40 @@ function authenticateCashierOnly(req: express.Request, res: express.Response, ne
   }
 }
 
+// Middleware to authenticate customer OR staff (optional auth for public bookings)
+function authenticateCustomerOrStaff(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.replace('Bearer ', '');
+      if (token && token.trim() !== '') {
+        try {
+          const decoded = jwt.verify(token, JWT_SECRET) as any;
+          
+          // Allow customers and all staff roles
+          const allowedRoles = ['customer', 'receptionist', 'tenant_admin', 'customer_admin', 'admin_user', 'cashier', 'employee'];
+          if (decoded.role && allowedRoles.includes(decoded.role)) {
+            req.user = {
+              id: decoded.id,
+              email: decoded.email,
+              role: decoded.role,
+              tenant_id: decoded.tenant_id,
+            };
+          }
+        } catch (jwtError: any) {
+          // Continue without auth for public bookings
+          console.warn('[Auth] Token verification failed, continuing as public:', jwtError.message);
+        }
+      }
+    }
+    // Continue even without auth (for public bookings)
+    next();
+  } catch (error: any) {
+    // Continue even on error (for public bookings)
+    next();
+  }
+}
+
 // TASK 5: Middleware to authenticate receptionist OR tenant admin (for booking creation/editing)
 function authenticateReceptionistOrTenantAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
@@ -669,8 +703,8 @@ router.post('/lock/:lock_id/release', authenticate, async (req, res) => {
 // ============================================================================
 // Create booking with lock validation
 // ============================================================================
-// TASK 5: Receptionist and tenant_admin can create bookings (not cashier)
-router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) => {
+// Allows customers and staff to create bookings, but blocks customers during maintenance mode
+router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
   // Track if response has been sent to prevent double responses
   let responseSent = false;
   const sendResponse = (status: number, data: any) => {
@@ -724,6 +758,28 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     if (!slot_id || !service_id || !tenant_id || !customer_name || !customer_phone) {
       return sendResponse(400, { error: 'Missing required fields' });
     }
+
+    // ============================================================================
+    // MAINTENANCE MODE CHECK - Block customers only
+    // ============================================================================
+    // Check if maintenance mode is enabled and user is a customer
+    const userRole = req.user?.role;
+    if (userRole === 'customer' || !userRole) {
+      // For customers or unauthenticated users, check maintenance mode
+      const { data: tenantData, error: tenantError } = await supabase
+        .from('tenants')
+        .select('maintenance_mode')
+        .eq('id', tenant_id)
+        .single();
+
+      if (!tenantError && tenantData && tenantData.maintenance_mode === true) {
+        return sendResponse(403, {
+          error: 'Bookings are temporarily disabled. Please visit us in person to make a reservation.',
+          code: 'BOOKING_DISABLED_MAINTENANCE'
+        });
+      }
+    }
+    // Staff roles (receptionist, tenant_admin, etc.) can always create bookings
 
     // Normalize phone number (handles Egyptian numbers: +2001032560826 -> +201032560826)
     const normalizedPhone = normalizePhoneNumber(customer_phone);

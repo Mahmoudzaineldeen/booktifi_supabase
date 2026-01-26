@@ -30,6 +30,7 @@ import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { Package, Users, Search, X, CheckCircle, AlertCircle, Phone, Mail } from 'lucide-react';
 import { format } from 'date-fns';
+import { ar } from 'date-fns/locale';
 
 interface PackageService {
   service_id: string;
@@ -121,8 +122,17 @@ export function ReceptionPackagesPage() {
   useEffect(() => {
     console.log('[ReceptionPackagesPage] Modal state changed:', {
       isSubscribeModalOpen,
-      selectedPackageForSubscribe
+      selectedPackageForSubscribe,
+      componentMounted: true
     });
+    
+    // Also check if modal element exists in DOM
+    if (isSubscribeModalOpen) {
+      setTimeout(() => {
+        const modalElement = document.querySelector('[data-modal="subscribe-customer"]');
+        console.log('[ReceptionPackagesPage] Modal element in DOM:', !!modalElement, modalElement);
+      }, 50);
+    }
   }, [isSubscribeModalOpen, selectedPackageForSubscribe]);
   
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -346,11 +356,19 @@ export function ReceptionPackagesPage() {
 
   function openSubscribeModal(packageId?: string) {
     console.log('[ReceptionPackagesPage] Opening subscribe modal for package:', packageId);
+    console.log('[ReceptionPackagesPage] Current modal state before:', isSubscribeModalOpen);
+    
     setSelectedPackageForSubscribe(packageId || null);
     setSelectedCustomer(null);
     setCustomerSearchQuery('');
     setCustomerSearchResults([]);
     setIsSubscribeModalOpen(true);
+    
+    // Force a re-render check
+    setTimeout(() => {
+      console.log('[ReceptionPackagesPage] Modal state after setState (async check):', isSubscribeModalOpen);
+    }, 100);
+    
     console.log('[ReceptionPackagesPage] Modal state set to open');
   }
 
@@ -610,23 +628,23 @@ export function ReceptionPackagesPage() {
             </Card>
           ) : (
             <>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" dir={i18n.language === 'ar' ? 'rtl' : 'ltr'}>
                 <table className="min-w-full bg-white border border-gray-200 rounded-lg">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
                         {i18n.language === 'ar' ? 'العميل' : 'Customer'}
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
                         {i18n.language === 'ar' ? 'الباقة' : 'Package'}
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
                         {i18n.language === 'ar' ? 'السعة المتبقية' : 'Remaining Capacity'}
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
                         {i18n.language === 'ar' ? 'المستهلك' : 'Consumed'}
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
                         {i18n.language === 'ar' ? 'تاريخ الاشتراك' : 'Subscription Date'}
                       </th>
                     </tr>
@@ -635,33 +653,33 @@ export function ReceptionPackagesPage() {
                     {subscribers.map((subscriber) => (
                       <tr key={subscriber.id} className="hover:bg-gray-50">
                         <td className="px-4 py-4 whitespace-nowrap">
-                          <div>
+                          <div className={i18n.language === 'ar' ? 'text-right' : 'text-left'}>
                             <p className="text-sm font-medium text-gray-900">{subscriber.customer.name}</p>
-                            <p className="text-sm text-gray-500 flex items-center gap-1">
+                            <p className={`text-sm text-gray-500 flex items-center ${i18n.language === 'ar' ? 'flex-row-reverse justify-end' : 'flex-row'} gap-1`}>
                               <Phone className="w-3 h-3" />
                               {subscriber.customer.phone}
                             </p>
                             {subscriber.customer.email && (
-                              <p className="text-sm text-gray-500 flex items-center gap-1">
+                              <p className={`text-sm text-gray-500 flex items-center ${i18n.language === 'ar' ? 'flex-row-reverse justify-end' : 'flex-row'} gap-1`}>
                                 <Mail className="w-3 h-3" />
                                 {subscriber.customer.email}
                               </p>
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap">
+                        <td className={`px-4 py-4 whitespace-nowrap ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
                           <p className="text-sm text-gray-900">
                             {i18n.language === 'ar' ? subscriber.package.name_ar || subscriber.package.name : subscriber.package.name}
                           </p>
                         </td>
-                        <td className="px-4 py-4">
+                        <td className={`px-4 py-4 ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
                           <div className="space-y-1">
                             {subscriber.usage.map((usage, idx) => (
                               <div key={idx} className="text-sm">
                                 <span className="text-gray-900">
                                   {i18n.language === 'ar' ? usage.service_name_ar || usage.service_name : usage.service_name}:
                                 </span>
-                                <span className={`ml-2 font-medium ${
+                                <span className={`${i18n.language === 'ar' ? 'mr-2' : 'ml-2'} font-medium ${
                                   usage.remaining_quantity > 0 ? 'text-green-600' : 'text-red-600'
                                 }`}>
                                   {usage.remaining_quantity} / {usage.original_quantity}
@@ -670,7 +688,7 @@ export function ReceptionPackagesPage() {
                             ))}
                           </div>
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap">
+                        <td className={`px-4 py-4 whitespace-nowrap ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
                           <div className="space-y-1">
                             {subscriber.usage.map((usage, idx) => (
                               <div key={idx} className="text-sm text-gray-600">
@@ -679,8 +697,8 @@ export function ReceptionPackagesPage() {
                             ))}
                           </div>
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {format(new Date(subscriber.subscribed_at), 'MMM dd, yyyy')}
+                        <td className={`px-4 py-4 whitespace-nowrap text-sm text-gray-500 ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
+                          {format(new Date(subscriber.subscribed_at), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}
                         </td>
                       </tr>
                     ))}
@@ -726,6 +744,7 @@ export function ReceptionPackagesPage() {
       <Modal
         isOpen={isSubscribeModalOpen}
         onClose={() => {
+          console.log('[ReceptionPackagesPage] Modal onClose called');
           setIsSubscribeModalOpen(false);
           setSelectedPackageForSubscribe(null);
           setSelectedCustomer(null);

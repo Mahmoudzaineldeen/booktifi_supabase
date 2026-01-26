@@ -141,6 +141,11 @@ export function PublicBookingPage() {
   const isLoggedIn = userProfile?.role === 'customer';
   const isServiceProvider = userProfile?.role === 'tenant_admin' || userProfile?.role === 'receptionist' || userProfile?.role === 'cashier';
   const [tenant, setTenant] = useState<Tenant | null>(null);
+  
+  // Check if maintenance mode is enabled and user is a customer
+  const isMaintenanceMode = tenant?.maintenance_mode === true;
+  const isCustomer = !userProfile || userProfile?.role === 'customer';
+  const isBlockedByMaintenance = isMaintenanceMode && isCustomer;
   const [services, setServices] = useState<Service[]>([]);
   const [packages, setPackages] = useState<any[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -316,7 +321,7 @@ export function PublicBookingPage() {
       setLoading(true);
       const { data: tenantData, error: tenantError } = await db
         .from('tenants')
-        .select('id, name, name_ar, slug, landing_page_settings, is_active')
+        .select('id, name, name_ar, slug, landing_page_settings, is_active, maintenance_mode')
         .eq('slug', tenantSlug)
         .maybeSingle();
 
@@ -667,6 +672,16 @@ export function PublicBookingPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    
+    // Check maintenance mode for customers
+    if (isBlockedByMaintenance) {
+      alert(i18n.language === 'ar' 
+        ? 'الحجوزات معطلة مؤقتاً. يرجى زيارة موقعنا شخصياً لإجراء الحجز.'
+        : 'Bookings are temporarily disabled. Please visit us in person to make a reservation.'
+      );
+      return;
+    }
+    
     if (!tenant?.id || !selectedAggregatedSlot || !selectedService?.id) return;
 
     const quantity = bookingForm.visitor_count;
@@ -903,6 +918,15 @@ export function PublicBookingPage() {
   }
 
   async function createBooking(slot: Slot, quantity: number, lockId: string | null = null, sessionId: string | null = null) {
+    // Check maintenance mode for customers
+    const isCustomer = !userProfile || userProfile?.role === 'customer';
+    if (isCustomer && tenant?.maintenance_mode === true) {
+      throw new Error(i18n.language === 'ar' 
+        ? 'الحجوزات معطلة مؤقتاً. يرجى زيارة موقعنا شخصياً لإجراء الحجز.'
+        : 'Bookings are temporarily disabled. Please visit us in person to make a reservation.'
+      );
+    }
+
     const bookingData: any = {
       tenant_id: tenant!.id,
       service_id: selectedService!.id,
@@ -930,7 +954,17 @@ export function PublicBookingPage() {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error || 'Failed to create booking');
+      const errorMessage = error.error || 'Failed to create booking';
+      
+      // Check if error is due to maintenance mode
+      if (error.code === 'BOOKING_DISABLED_MAINTENANCE' || errorMessage.includes('temporarily disabled')) {
+        throw new Error(i18n.language === 'ar' 
+          ? 'الحجوزات معطلة مؤقتاً. يرجى زيارة موقعنا شخصياً لإجراء الحجز.'
+          : 'Bookings are temporarily disabled. Please visit us in person to make a reservation.'
+        );
+      }
+      
+      throw new Error(errorMessage);
     }
 
     return await response.json();
@@ -1260,6 +1294,22 @@ export function PublicBookingPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Maintenance Mode Warning Banner */}
+      {isBlockedByMaintenance && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3">
+          <div className="max-w-7xl mx-auto flex items-center gap-3">
+            <svg className="w-5 h-5 text-amber-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            <p className="text-sm text-amber-800">
+              {i18n.language === 'ar' 
+                ? 'الحجوزات معطلة مؤقتاً. يرجى زيارة موقعنا شخصياً لإجراء الحجز.'
+                : 'Bookings are temporarily disabled. Please visit us in person to make a reservation.'}
+            </p>
+          </div>
+        </div>
+      )}
+      
       <header 
         className="bg-white/95 backdrop-blur-md shadow-md sticky top-0 z-50 border-b transition-all duration-300" 
         style={{ 
@@ -1428,27 +1478,49 @@ export function PublicBookingPage() {
               : settings.hero_subtitle || t('booking.bookYourServices')}
           </p>
           <button
-            onClick={() => document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' })}
-            className="text-lg px-6 md:px-8 py-3 shadow-lg hover:shadow-xl transition-all font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2"
-            style={{
+            onClick={() => {
+              if (isBlockedByMaintenance) {
+                alert(i18n.language === 'ar' 
+                  ? 'الحجوزات معطلة مؤقتاً. يرجى زيارة موقعنا شخصياً لإجراء الحجز.'
+                  : 'Bookings are temporarily disabled. Please visit us in person to make a reservation.'
+                );
+                return;
+              }
+              document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            disabled={isBlockedByMaintenance}
+            className={`text-lg px-6 md:px-8 py-3 shadow-lg transition-all font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              isBlockedByMaintenance 
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                : 'hover:shadow-xl'
+            }`}
+            style={isBlockedByMaintenance ? {} : {
               backgroundColor: '#ffffff',
               color: primaryColor,
               border: `2px solid ${primaryColor}`,
               '--tw-ring-color': primaryColor,
             } as React.CSSProperties & { '--tw-ring-color': string }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = primaryColor;
-              e.currentTarget.style.color = '#ffffff';
+              if (!isBlockedByMaintenance) {
+                e.currentTarget.style.backgroundColor = primaryColor;
+                e.currentTarget.style.color = '#ffffff';
+              }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#ffffff';
-              e.currentTarget.style.color = primaryColor;
+              if (!isBlockedByMaintenance) {
+                e.currentTarget.style.backgroundColor = '#ffffff';
+                e.currentTarget.style.color = primaryColor;
+              }
             }}
             onFocus={(e) => {
-              e.currentTarget.style.setProperty('--tw-ring-color', primaryColor);
+              if (!isBlockedByMaintenance) {
+                e.currentTarget.style.setProperty('--tw-ring-color', primaryColor);
+              }
             }}
           >
-            Book Now
+            {isBlockedByMaintenance 
+              ? (i18n.language === 'ar' ? 'الحجوزات معطلة' : 'Bookings Disabled')
+              : 'Book Now'}
           </button>
         </div>
       </section>

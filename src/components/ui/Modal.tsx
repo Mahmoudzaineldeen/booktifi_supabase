@@ -12,6 +12,7 @@ interface ModalProps {
 
 export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
   useEffect(() => {
+    console.log('[Modal] isOpen changed:', isOpen, 'Title:', title);
     if (isOpen) {
       document.body.style.overflow = 'hidden';
     } else {
@@ -20,7 +21,7 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [isOpen]);
+  }, [isOpen, title]);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -32,7 +33,12 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    console.log('[Modal] Not rendering - isOpen is false');
+    return null;
+  }
+
+  console.log('[Modal] Rendering modal with title:', title);
 
   const sizeClasses = {
     sm: 'max-w-md',
@@ -42,11 +48,37 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
   };
 
   const modalContent = (
-    <div className="fixed inset-0 z-[9999] overflow-y-auto">
+    <div 
+      className="fixed inset-0 overflow-y-auto" 
+      data-modal="subscribe-customer"
+      style={{ 
+        position: 'fixed', 
+        zIndex: 9999,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        pointerEvents: 'auto'
+      }}
+    >
       <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-black bg-opacity-50 transition-opacity z-[9998]" onClick={onClose} />
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 transition-opacity" 
+          style={{ 
+            position: 'fixed',
+            zIndex: 9998,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0
+          }}
+          onClick={onClose} 
+        />
 
-        <div className={`relative bg-white rounded-lg shadow-xl w-full ${sizeClasses[size]} max-h-[90vh] overflow-y-auto z-[10000]`}>
+        <div 
+          className={`relative bg-white rounded-lg shadow-xl w-full ${sizeClasses[size]} max-h-[90vh] overflow-y-auto`}
+          style={{ zIndex: 10000 }}
+        >
           {title && (
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
@@ -66,8 +98,13 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
 
   // Render modal in a portal to avoid parent container clipping
   if (typeof window !== 'undefined') {
-    return createPortal(modalContent, document.body);
+    const portalTarget = document.body;
+    console.log('[Modal] Rendering to portal, target:', portalTarget);
+    const portal = createPortal(modalContent, portalTarget);
+    console.log('[Modal] Portal created:', portal);
+    return portal;
   }
 
+  console.log('[Modal] Window not available, returning modalContent directly');
   return modalContent;
 }

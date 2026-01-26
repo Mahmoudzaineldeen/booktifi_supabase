@@ -156,13 +156,13 @@ export function ReceptionPage() {
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [packages, setPackages] = useState<any[]>([]);
   const [subscriptionCustomerLookup, setSubscriptionCustomerLookup] = useState<any>(null);
-  const [subscriptionCountryCode, setSubscriptionCountryCode] = useState(tenantDefaultCountry);
+  const [subscriptionPhoneFull, setSubscriptionPhoneFull] = useState(''); // Full phone number with country code
+  const [isLookingUpSubscriptionCustomer, setIsLookingUpSubscriptionCustomer] = useState(false);
   const [subscriptionForm, setSubscriptionForm] = useState({
     customer_phone: '',
     customer_name: '',
     customer_email: '',
-    package_id: '',
-    expires_at: ''
+    package_id: ''
   });
 
   const [bookingForm, setBookingForm] = useState({
@@ -577,35 +577,66 @@ export function ReceptionPage() {
     return phone;
   }
 
-  async function lookupSubscriptionCustomer(phone: string, code: string) {
-    const formattedPhone = formatPhoneNumber(phone, code);
-    const fullPhone = `${code}${formattedPhone}`;
-
-    if (!formattedPhone || formattedPhone.length < 8 || !userProfile?.tenant_id) {
+  async function lookupSubscriptionCustomer(fullPhoneNumber: string) {
+    if (!fullPhoneNumber || fullPhoneNumber.length < 10 || !userProfile?.tenant_id) {
       setSubscriptionCustomerLookup(null);
+      setIsLookingUpSubscriptionCustomer(false);
       return;
     }
 
-      const { data } = await db
-        .from('customers')
-      .select('*')
-      .eq('tenant_id', userProfile.tenant_id)
-      .eq('phone', fullPhone)
-      .maybeSingle();
+    setIsLookingUpSubscriptionCustomer(true);
+    
+    try {
+      // Extract country code and phone number
+      let phoneNumber = fullPhoneNumber;
+      let code = tenantDefaultCountry;
+      
+      for (const country of countryCodes) {
+        if (fullPhoneNumber.startsWith(country.code)) {
+          code = country.code;
+          phoneNumber = fullPhoneNumber.replace(country.code, '');
+          break;
+        }
+      }
 
-    setSubscriptionCustomerLookup(data);
-    if (data) {
-      setSubscriptionForm(prev => ({
-        ...prev,
-        customer_name: data.name,
-        customer_email: data.email || ''
-      }));
-    } else {
-      setSubscriptionForm(prev => ({
-        ...prev,
-        customer_name: '',
-        customer_email: ''
-      }));
+      // Lookup customer in customers table
+      const { data: customerData, error: customerError } = await db
+        .from('customers')
+        .select('id, name, email, phone')
+        .eq('tenant_id', userProfile.tenant_id)
+        .eq('phone', fullPhoneNumber)
+        .maybeSingle();
+
+      if (customerError) {
+        console.error('Error looking up subscription customer:', customerError);
+        setSubscriptionCustomerLookup(null);
+        setIsLookingUpSubscriptionCustomer(false);
+        return;
+      }
+
+      if (customerData) {
+        // Customer found - auto-fill data
+        setSubscriptionCustomerLookup(customerData);
+        setSubscriptionForm(prev => ({
+          ...prev,
+          customer_name: customerData.name || '',
+          customer_email: customerData.email || '',
+          customer_phone: phoneNumber // Store without country code for display
+        }));
+      } else {
+        // Customer not found - clear lookup but keep phone
+        setSubscriptionCustomerLookup(null);
+        setSubscriptionForm(prev => ({
+          ...prev,
+          customer_name: '',
+          customer_email: ''
+        }));
+      }
+    } catch (error) {
+      console.error('Error in lookupSubscriptionCustomer:', error);
+      setSubscriptionCustomerLookup(null);
+    } finally {
+      setIsLookingUpSubscriptionCustomer(false);
     }
   }
 
@@ -613,8 +644,13 @@ export function ReceptionPage() {
     e.preventDefault();
     if (!userProfile?.tenant_id) return;
 
-    const formattedPhone = formatPhoneNumber(subscriptionForm.customer_phone, subscriptionCountryCode);
-    const fullPhone = `${subscriptionCountryCode}${formattedPhone}`;
+    // Use the full phone number from subscriptionPhoneFull
+    const fullPhone = subscriptionPhoneFull || (subscriptionForm.customer_phone ? `${tenantDefaultCountry}${subscriptionForm.customer_phone}` : '');
+    if (!fullPhone) {
+      alert(t('packages.customerPhoneRequired') || 'Customer phone is required');
+      return;
+    }
+
     let customerId = subscriptionCustomerLookup?.id;
 
     try {
@@ -640,8 +676,7 @@ export function ReceptionPage() {
           tenant_id: userProfile.tenant_id,
           customer_id: customerId,
           package_id: subscriptionForm.package_id,
-          status: 'active',
-          expires_at: subscriptionForm.expires_at || null
+          status: 'active'
         });
 
         alert(t('packages.subscriptionSuccess'));
@@ -659,11 +694,11 @@ export function ReceptionPage() {
       customer_phone: '',
       customer_name: '',
       customer_email: '',
-      package_id: '',
-      expires_at: ''
+      package_id: ''
     });
     setSubscriptionCustomerLookup(null);
-    setSubscriptionCountryCode(tenantDefaultCountry);
+    setSubscriptionPhoneFull('');
+    setIsLookingUpSubscriptionCustomer(false);
   }
 
   // Validate search input based on search type
@@ -5520,70 +5555,78 @@ export function ReceptionPage() {
         title={t('packages.addSubscription')}
       >
         <form onSubmit={handleSubscriptionSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('packages.customerPhone')} *
-            </label>
-            <div className="flex gap-2">
-              <select
-                value={subscriptionCountryCode}
-                onChange={(e) => setSubscriptionCountryCode(e.target.value)}
-                className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                {countryCodes.map((country, index) => (
-                  <option key={`${country.code}-${country.name}-${index}`} value={country.code}>
-                    {country.code}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="tel"
-                value={subscriptionForm.customer_phone}
-                onChange={(e) => {
-                  const phone = e.target.value.replace(/[^\d]/g, '');
-                  const formattedPhone = formatPhoneNumber(phone, subscriptionCountryCode);
-                  setSubscriptionForm({ ...subscriptionForm, customer_phone: formattedPhone });
-                  if (subscriptionCustomerLookup) {
-                    setSubscriptionCustomerLookup(null);
+          {/* Customer Phone with Auto-fill */}
+          <div className="relative">
+            <PhoneInput
+              label={`${t('packages.customerPhone')} *`}
+              value={subscriptionPhoneFull}
+              onChange={(value) => {
+                setSubscriptionPhoneFull(value);
+                // Extract phone number without country code for backward compatibility
+                let phoneNumber = value;
+                let code = tenantDefaultCountry;
+                for (const country of countryCodes) {
+                  if (value.startsWith(country.code)) {
+                    code = country.code;
+                    phoneNumber = value.replace(country.code, '');
+                    break;
                   }
-                  if (formattedPhone.length >= 8) {
-                    lookupSubscriptionCustomer(formattedPhone, subscriptionCountryCode);
-                  }
-                }}
-                onBlur={(e) => lookupSubscriptionCustomer(e.target.value, subscriptionCountryCode)}
-                placeholder="501234567"
-                required
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-            {subscriptionCustomerLookup && (
-              <p className="text-sm text-green-600 mt-2 flex items-center gap-1">
+                }
+                setSubscriptionForm({ ...subscriptionForm, customer_phone: phoneNumber });
+                // Clear lookup when phone changes
+                if (subscriptionCustomerLookup) {
+                  setSubscriptionCustomerLookup(null);
+                }
+                // Lookup customer when phone number is long enough
+                if (value.length >= 10) {
+                  lookupSubscriptionCustomer(value);
+                } else {
+                  // Clear form if phone is too short
+                  setSubscriptionForm(prev => ({
+                    ...prev,
+                    customer_name: '',
+                    customer_email: ''
+                  }));
+                }
+              }}
+              defaultCountry={tenantDefaultCountry}
+              required
+            />
+            {isLookingUpSubscriptionCustomer && (
+              <div className="absolute right-3 top-[38px]">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              </div>
+            )}
+          </div>
+          {subscriptionCustomerLookup && (
+            <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-sm text-green-700 flex items-center gap-1">
                 <CheckCircle className="w-4 h-4" />
                 <span>
                   {t('packages.existingCustomer')}: <strong>{subscriptionCustomerLookup.name}</strong>
                   {subscriptionCustomerLookup.email && ` (${subscriptionCustomerLookup.email})`}
                 </span>
               </p>
-            )}
-            {subscriptionForm.customer_phone.length >= 8 && !subscriptionCustomerLookup && (
-              <p className="text-sm text-blue-600 mt-2">
-                {t('packages.newCustomer')}
-              </p>
-            )}
-          </div>
+            </div>
+          )}
+          {subscriptionPhoneFull.length >= 10 && !subscriptionCustomerLookup && !isLookingUpSubscriptionCustomer && (
+            <p className="text-sm text-blue-600">
+              {t('packages.newCustomer')}
+            </p>
+          )}
           <Input
             label={`${t('packages.customerName')} *`}
             value={subscriptionForm.customer_name}
             onChange={(e) => setSubscriptionForm({ ...subscriptionForm, customer_name: e.target.value })}
             required
-            disabled={!!subscriptionCustomerLookup}
+            placeholder={t('packages.customerName')}
           />
           <Input
             label={t('packages.customerEmail')}
             type="email"
             value={subscriptionForm.customer_email}
             onChange={(e) => setSubscriptionForm({ ...subscriptionForm, customer_email: e.target.value })}
-            disabled={!!subscriptionCustomerLookup}
+            placeholder={t('packages.customerEmail')}
           />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -5603,12 +5646,6 @@ export function ReceptionPage() {
               ))}
             </select>
           </div>
-          <Input
-            label={t('packages.expiryDate')}
-            type="date"
-            value={subscriptionForm.expires_at}
-            onChange={(e) => setSubscriptionForm({ ...subscriptionForm, expires_at: e.target.value })}
-          />
 
           <div className="flex gap-2 pt-4">
             <Button type="submit" className="flex-1">
