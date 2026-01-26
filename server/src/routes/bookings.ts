@@ -691,8 +691,13 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       session_id,
       offer_id, // Optional: ID of selected service offer
       language = 'en', // Customer preferred language ('en' or 'ar')
-      booking_group_id // Optional: for grouping related bookings
+      booking_group_id // Optional: for grouping related bookings (will be ignored if not provided)
     } = req.body;
+    
+    // Ensure booking_group_id is either a valid UUID string or null (not undefined)
+    const finalBookingGroupId = booking_group_id && typeof booking_group_id === 'string' && booking_group_id.trim() !== '' 
+      ? booking_group_id.trim() 
+      : null;
     
     // Log warning if unexpected fields are sent (but don't fail)
     const unexpectedFields = ['status', 'payment_status', 'created_by_user_id', 'package_subscription_id'];
@@ -831,29 +836,77 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     console.log(`[Booking Creation] Calling create_booking_with_lock RPC function...`);
     console.log(`[Booking Creation]    Package: ${shouldUsePackage ? 'YES' : 'NO'}, Price: ${finalTotalPrice}`);
     console.log(`[Booking Creation]    Coverage: ${packageCoveredQty} package, ${paidQty} paid`);
-    const { data: booking, error: createError } = await supabase
-      .rpc('create_booking_with_lock', {
-        p_slot_id: slot_id,
-        p_service_id: service_id,
-        p_tenant_id: tenant_id,
-        p_customer_name: customer_name,
-        p_customer_phone: normalizedPhone,
-        p_customer_email: customer_email || null,
-        p_visitor_count: visitor_count,
-        p_adult_count: finalAdultCount,
-        p_child_count: finalChildCount,
-        p_total_price: finalTotalPrice,
-        p_notes: notes || null,
-        p_employee_id: employee_id || null,
-        p_lock_id: lock_id || null,
-        p_session_id: req.user?.id || session_id || null,
-        p_customer_id: customerIdForPackage || null,
-        p_offer_id: offer_id || null,
-        p_language: validLanguage,
-        p_package_subscription_id: packageSubscriptionId,
-        p_package_covered_quantity: packageCoveredQty,
-        p_paid_quantity: paidQty
-      });
+    
+    // Validate all parameters before calling RPC
+    const rpcParams: any = {
+      p_slot_id: slot_id,
+      p_service_id: service_id,
+      p_tenant_id: tenant_id,
+      p_customer_name: customer_name,
+      p_customer_phone: normalizedPhone,
+      p_customer_email: customer_email || null,
+      p_visitor_count: visitor_count,
+      p_adult_count: finalAdultCount,
+      p_child_count: finalChildCount,
+      p_total_price: finalTotalPrice,
+      p_notes: notes || null,
+      p_employee_id: employee_id || null,
+      p_lock_id: lock_id || null,
+      p_session_id: req.user?.id || session_id || null,
+      p_customer_id: customerIdForPackage || null,
+      p_offer_id: offer_id || null,
+      p_language: validLanguage,
+      p_package_subscription_id: packageSubscriptionId || null,
+      p_package_covered_quantity: packageCoveredQty,
+      p_paid_quantity: paidQty
+    };
+    
+    // Validate critical parameters
+    if (!rpcParams.p_slot_id || !rpcParams.p_service_id || !rpcParams.p_tenant_id) {
+      console.error('[Booking Creation] ❌ CRITICAL: Missing required RPC parameters');
+      return res.status(400).json({ error: 'Missing required booking parameters' });
+    }
+    
+    // Ensure numeric values are valid
+    if (isNaN(rpcParams.p_visitor_count) || rpcParams.p_visitor_count < 1) {
+      console.error('[Booking Creation] ❌ CRITICAL: Invalid visitor_count');
+      return res.status(400).json({ error: 'Invalid visitor count' });
+    }
+    
+    if (isNaN(rpcParams.p_total_price) || rpcParams.p_total_price < 0) {
+      console.error('[Booking Creation] ❌ CRITICAL: Invalid total_price');
+      return res.status(400).json({ error: 'Invalid total price' });
+    }
+    
+    // Log RPC parameters (sanitized)
+    console.log('[Booking Creation] RPC Parameters:', {
+      p_slot_id: rpcParams.p_slot_id,
+      p_service_id: rpcParams.p_service_id,
+      p_tenant_id: rpcParams.p_tenant_id,
+      p_visitor_count: rpcParams.p_visitor_count,
+      p_total_price: rpcParams.p_total_price,
+      p_package_subscription_id: rpcParams.p_package_subscription_id,
+      p_package_covered_quantity: rpcParams.p_package_covered_quantity,
+      p_paid_quantity: rpcParams.p_paid_quantity,
+      p_customer_id: rpcParams.p_customer_id ? 'provided' : 'null',
+      p_session_id: rpcParams.p_session_id ? 'provided' : 'null'
+    });
+    
+    let booking: any = null;
+    let createError: any = null;
+    
+    try {
+      console.log('[Booking Creation] Executing RPC call...');
+      const rpcResult = await supabase.rpc('create_booking_with_lock', rpcParams);
+      booking = rpcResult.data;
+      createError = rpcResult.error;
+      console.log('[Booking Creation] RPC call completed');
+    } catch (rpcException: any) {
+      console.error('[Booking Creation] ❌ Exception during RPC call:', rpcException);
+      console.error('[Booking Creation] Exception message:', rpcException?.message);
+      console.error('[Booking Creation] Exception stack:', rpcException?.stack);
+      createError = rpcException;
+    }
 
     if (createError) {
       console.error(`[Booking Creation] ❌ RPC Error:`, createError);
@@ -1535,44 +1588,78 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     console.error('[Booking Creation] Error type:', error?.constructor?.name || 'Unknown');
     console.error('[Booking Creation] Error message:', error?.message || 'No message');
     console.error('[Booking Creation] Error code:', error?.code || 'No code');
+    console.error('[Booking Creation] Error name:', error?.name || 'Unknown');
+    
+    if (error?.response) {
+      console.error('[Booking Creation] Error response:', {
+        status: error.response.status,
+        data: error.response.data,
+        headers: error.response.headers
+      });
+    }
+    
     if (error?.stack) {
       console.error('[Booking Creation] Error stack:', error.stack);
     }
+    
     console.error('[Booking Creation] Request body:', {
-      slot_id: req.body.slot_id,
-      service_id: req.body.service_id,
-      tenant_id: req.body.tenant_id,
-      customer_name: req.body.customer_name,
-      visitor_count: req.body.visitor_count,
-      has_package: !!req.body.package_subscription_id
+      slot_id: req.body?.slot_id,
+      service_id: req.body?.service_id,
+      tenant_id: req.body?.tenant_id,
+      customer_name: req.body?.customer_name,
+      visitor_count: req.body?.visitor_count,
+      has_package: !!req.body?.package_subscription_id,
+      has_booking_group_id: !!req.body?.booking_group_id
     });
+    
+    console.error('[Booking Creation] User:', {
+      id: req.user?.id,
+      role: req.user?.role,
+      tenant_id: req.user?.tenant_id
+    });
+    
     console.error('[Booking Creation] ========================================');
     
     logger.error('Create booking error', error, context, {
-      slot_id: req.body.slot_id,
-      service_id: req.body.service_id,
-      tenant_id: req.body.tenant_id,
-      lock_id: req.body.lock_id,
+      slot_id: req.body?.slot_id,
+      service_id: req.body?.service_id,
+      tenant_id: req.body?.tenant_id,
+      lock_id: req.body?.lock_id,
     });
     
     // Provide more helpful error message
     let errorMessage = error.message || 'Internal server error';
+    let errorDetails: string | undefined = undefined;
     
     // Check for common issues
     if (error.message?.includes('foreign key') || error.code === '23503') {
       errorMessage = 'Database constraint violation. Please check that all referenced records exist (customer, service, slot, etc.).';
+      errorDetails = error.message;
     } else if (error.message?.includes('not null') || error.code === '23502') {
       errorMessage = 'Missing required data. Please ensure all required fields are provided.';
+      errorDetails = error.message;
     } else if (error.message?.includes('unique') || error.code === '23505') {
       errorMessage = 'Duplicate entry detected. This booking may already exist.';
+      errorDetails = error.message;
     } else if (error.message?.includes('RPC') || error.message?.includes('function')) {
       errorMessage = 'Database function error. Please contact administrator.';
+      errorDetails = error.message;
+    } else if (error.message?.includes('timeout') || error.message?.includes('ETIMEDOUT')) {
+      errorMessage = 'Request timeout. The database operation took too long. Please try again.';
+      errorDetails = error.message;
+    } else if (error.message?.includes('ECONNREFUSED') || error.message?.includes('connection')) {
+      errorMessage = 'Database connection error. Please contact administrator.';
+      errorDetails = error.message;
+    } else {
+      // For unknown errors, include details in development
+      errorDetails = process.env.NODE_ENV === 'development' ? error.message : undefined;
     }
     
     res.status(500).json({ 
       error: errorMessage,
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      code: error.code
+      details: errorDetails,
+      code: error.code,
+      type: error?.constructor?.name || 'Unknown'
     });
   }
 });

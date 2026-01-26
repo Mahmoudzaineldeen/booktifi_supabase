@@ -668,6 +668,7 @@ router.post('/subscriptions', async (req, res) => {
     // Packages are prepaid, so invoice must be created at purchase time
     let zohoInvoiceId: string | null = null;
     let invoiceError: string | null = null;
+    let customerData: any = null; // Store customer data for final status logging
 
     console.log('[Create Subscription] ========================================');
     console.log('[Create Subscription] 📋 STARTING INVOICE CREATION PROCESS');
@@ -679,17 +680,18 @@ router.post('/subscriptions', async (req, res) => {
     try {
       // Get customer details for invoice
       console.log('[Create Subscription] Step 1: Fetching customer data...');
-      const { data: customerData, error: customerFetchError } = await supabase
+      const { data: fetchedCustomerData, error: customerFetchError } = await supabase
         .from('customers')
         .select('name, email, phone')
         .eq('id', finalCustomerId)
         .single();
 
-      if (customerFetchError || !customerData) {
+      if (customerFetchError || !fetchedCustomerData) {
         console.error('[Create Subscription] ❌ Step 1 FAILED: Failed to fetch customer for invoice');
         console.error('[Create Subscription] Error details:', customerFetchError);
         invoiceError = `Failed to fetch customer details for invoice: ${customerFetchError?.message || 'Customer not found'}`;
       } else {
+        customerData = fetchedCustomerData; // Store for later use
         console.log('[Create Subscription] ✅ Step 1 SUCCESS: Customer data fetched');
         console.log('[Create Subscription] Customer:', {
           name: customerData.name,
@@ -802,6 +804,23 @@ router.post('/subscriptions', async (req, res) => {
             zohoInvoiceId = invoiceResponse.invoice.invoice_id;
             console.log('[Create Subscription] ✅ Zoho invoice created:', zohoInvoiceId);
 
+            // Send invoice via email if customer email is available
+            const emailToSend = invoiceData.customer_email;
+            if (emailToSend) {
+              console.log('[Create Subscription] Step 6: Sending invoice via email...');
+              try {
+                await zohoService.sendInvoiceEmail(tenant_id, zohoInvoiceId, emailToSend);
+                console.log('[Create Subscription] ✅ Step 6 SUCCESS: Invoice sent to customer email');
+              } catch (emailError: any) {
+                console.error('[Create Subscription] ⚠️  Failed to send invoice email:', emailError.message);
+                // Don't fail the subscription creation - invoice was created successfully
+                // Email can be sent manually from Zoho if needed
+              }
+            } else {
+              console.warn('[Create Subscription] ⚠️  No customer email provided - invoice created but not sent');
+              console.warn('[Create Subscription] 💡 Invoice can be sent manually from Zoho Invoice dashboard');
+            }
+
             // Update subscription with invoice ID and mark as paid
             // Try to update with new schema columns first, fall back to old schema if columns don't exist
             const updateData: any = {};
@@ -886,6 +905,12 @@ router.post('/subscriptions', async (req, res) => {
     if (zohoInvoiceId) {
       console.log('[Create Subscription] ✅ SUCCESS: Invoice created');
       console.log('[Create Subscription] Invoice ID:', zohoInvoiceId);
+      const emailSent = customerData?.email || customer_email;
+      if (emailSent) {
+        console.log('[Create Subscription] ✅ Email sent to:', emailSent);
+      } else {
+        console.warn('[Create Subscription] ⚠️  No email sent (customer email not provided)');
+      }
     } else {
       console.warn('[Create Subscription] ⚠️  FAILED: No invoice created');
       if (invoiceError) {

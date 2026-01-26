@@ -1642,7 +1642,7 @@ export function ReceptionPage() {
               // - Auto-detect package and calculate package_covered_quantity/paid_quantity
               // - Set status based on payment
               // - Use authenticated user for created_by_user_id
-              booking_group_id: bookingGroupId || undefined
+              ...(bookingGroupId ? { booking_group_id: bookingGroupId } : {})
             });
 
             console.log('Booking created:', bookingData);
