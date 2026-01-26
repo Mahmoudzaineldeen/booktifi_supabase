@@ -689,6 +689,13 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
     const tenantId = req.user!.tenant_id!;
     const { subscriptionId } = req.params;
 
+    console.log(`[Cancel Subscription] Request received:`, {
+      subscriptionId,
+      tenantId,
+      userId: req.user!.id,
+      role: req.user!.role
+    });
+
     if (!subscriptionId) {
       return res.status(400).json({ error: 'Subscription ID is required' });
     }
@@ -701,12 +708,32 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
       .eq('tenant_id', tenantId)
       .single();
 
-    if (fetchError || !subscription) {
+    if (fetchError) {
+      console.error(`[Cancel Subscription] Error fetching subscription:`, {
+        error: fetchError.message,
+        code: fetchError.code,
+        details: fetchError.details,
+        hint: fetchError.hint
+      });
+      return res.status(404).json({ 
+        error: 'Subscription not found',
+        details: fetchError.message || 'The subscription does not exist or does not belong to your tenant'
+      });
+    }
+
+    if (!subscription) {
+      console.error(`[Cancel Subscription] Subscription not found:`, { subscriptionId, tenantId });
       return res.status(404).json({ 
         error: 'Subscription not found',
         details: 'The subscription does not exist or does not belong to your tenant'
       });
     }
+
+    console.log(`[Cancel Subscription] Found subscription:`, {
+      id: subscription.id,
+      status: subscription.status,
+      is_active: subscription.is_active
+    });
 
     // Check if already cancelled
     if (subscription.status === 'cancelled' || subscription.is_active === false) {
@@ -717,12 +744,17 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
     }
 
     // Update subscription to cancelled
-    // Try new schema first (status and is_active)
+    // Build update data based on what columns exist
     const updateData: any = {
-      status: 'cancelled',
-      is_active: false,
-      updated_at: new Date().toISOString()
+      status: 'cancelled'
     };
+    
+    // Only add is_active if the subscription has that property (check from fetched data)
+    if (subscription.hasOwnProperty('is_active') || subscription.is_active !== undefined) {
+      updateData.is_active = false;
+    }
+
+    console.log(`[Cancel Subscription] Updating with data:`, updateData);
 
     const { data: updatedSubscription, error: updateError } = await supabase
       .from('package_subscriptions')
@@ -733,13 +765,20 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
       .single();
 
     if (updateError) {
+      console.error(`[Cancel Subscription] Update error:`, {
+        error: updateError.message,
+        code: updateError.code,
+        details: updateError.details,
+        hint: updateError.hint
+      });
+
       // If error is about missing columns, try with old schema (status only)
       if (updateError.message?.includes('column') && updateError.message?.includes('is_active')) {
         console.warn('[Cancel Subscription] is_active column not found, trying old schema...');
         
         const oldSchemaUpdate = {
-          status: 'cancelled',
-          updated_at: new Date().toISOString()
+          status: 'cancelled'
+          // updated_at is typically auto-managed, so we don't set it explicitly
         };
 
         const { data: oldUpdated, error: oldError } = await supabase
@@ -751,13 +790,19 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
           .single();
 
         if (oldError) {
-          console.error('[Cancel Subscription] Error:', oldError);
+          console.error('[Cancel Subscription] Old schema update error:', {
+            error: oldError.message,
+            code: oldError.code,
+            details: oldError.details
+          });
           return res.status(500).json({ 
             error: 'Failed to cancel subscription',
-            details: oldError.message || 'Unknown error'
+            details: oldError.message || 'Unknown error',
+            code: oldError.code
           });
         }
 
+        console.log(`[Cancel Subscription] ✅ Subscription ${subscriptionId} cancelled (old schema) by ${req.user!.role} (${req.user!.id})`);
         return res.json({
           success: true,
           message: 'Package subscription cancelled successfully',
@@ -765,10 +810,19 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
         });
       }
 
-      console.error('[Cancel Subscription] Error:', updateError);
       return res.status(500).json({ 
         error: 'Failed to cancel subscription',
-        details: updateError.message || 'Unknown error'
+        details: updateError.message || 'Unknown error',
+        code: updateError.code,
+        hint: updateError.hint
+      });
+    }
+
+    if (!updatedSubscription) {
+      console.error(`[Cancel Subscription] Update succeeded but no data returned`);
+      return res.status(500).json({ 
+        error: 'Failed to cancel subscription',
+        details: 'Update succeeded but no subscription data returned'
       });
     }
 
@@ -781,6 +835,11 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
     });
 
   } catch (error: any) {
+    console.error(`[Cancel Subscription] Exception:`, {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     const context = logger.extractContext(req);
     logger.error('Cancel package subscription error', error, context);
     res.status(500).json({ 

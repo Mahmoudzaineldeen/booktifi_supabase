@@ -242,8 +242,23 @@ export function PackageSubscribersPage() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || errorData.details || 'Failed to cancel subscription');
+        let errorMessage = 'Failed to cancel subscription';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.details || errorData.message || errorMessage;
+          console.error('[Cancel Subscription] Server error:', {
+            status: response.status,
+            error: errorData.error,
+            details: errorData.details,
+            code: errorData.code,
+            hint: errorData.hint
+          });
+        } catch (parseError) {
+          const text = await response.text();
+          console.error('[Cancel Subscription] Non-JSON error response:', text.substring(0, 200));
+          errorMessage = `Server error (${response.status}): ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
