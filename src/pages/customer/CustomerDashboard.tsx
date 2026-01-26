@@ -141,13 +141,38 @@ export function CustomerDashboard() {
         },
       });
 
-      if (!response.ok) throw new Error('Failed to fetch packages');
+      if (!response.ok) {
+        // Try to get detailed error from response
+        let errorMessage = 'Failed to fetch packages';
+        let errorDetails: any = null;
+        
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            errorDetails = await response.json();
+            errorMessage = errorDetails.error || errorDetails.message || errorMessage;
+            if (errorDetails.details) {
+              errorMessage += `: ${errorDetails.details}`;
+            }
+            console.error('[CustomerDashboard] Package fetch error details:', errorDetails);
+          } else {
+            const text = await response.text();
+            console.error('[CustomerDashboard] Non-JSON error response:', text.substring(0, 200));
+            errorMessage = `Server error (${response.status}): ${response.statusText}`;
+          }
+        } catch (parseError) {
+          console.error('[CustomerDashboard] Error parsing error response:', parseError);
+        }
+        
+        throw new Error(errorMessage);
+      }
 
       const data = await response.json();
       console.log('[CustomerDashboard] Fetched packages:', data.length, 'packages');
       setPackages(data || []);
-    } catch (err) {
-      console.error('Error fetching packages:', err);
+    } catch (err: any) {
+      console.error('[CustomerDashboard] Error fetching packages:', err);
+      console.error('[CustomerDashboard] Error message:', err.message);
       setPackages([]);
     } finally {
       setPackagesLoading(false);

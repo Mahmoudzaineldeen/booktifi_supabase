@@ -344,101 +344,96 @@ router.get('/packages', authenticate, async (req, res) => {
     // Fetch package subscriptions - try new schema first, fallback to old schema
     let subscriptions: any[] = [];
     let subscriptionsError: any = null;
+    let usedOldSchema = false;
 
     // Try new schema first (with total_quantity, remaining_quantity, is_active)
     // Start with a simple query to test if columns exist
-    let newSchemaQuery = supabase
-      .from('package_subscriptions')
-      .select('id, package_id, total_quantity, remaining_quantity, is_active, created_at')
-      .eq('customer_id', customerData.id)
-      .eq('tenant_id', tenantId)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
-
-    const newSchemaResult = await newSchemaQuery;
-    subscriptions = newSchemaResult.data || [];
-    subscriptionsError = newSchemaResult.error;
-
-    // If basic query succeeded, fetch package details separately
-    if (!subscriptionsError && subscriptions.length > 0) {
-      const packageIds = subscriptions.map((s: any) => s.package_id);
-      const { data: packageDetails, error: packageError } = await supabase
-        .from('service_packages')
-        .select('id, name, name_ar, description, description_ar, total_price, image_url')
-        .in('id', packageIds);
-
-      if (!packageError && packageDetails) {
-        // Merge package details into subscriptions
-        subscriptions = subscriptions.map((sub: any) => {
-          const pkg = packageDetails.find((p: any) => p.id === sub.package_id);
-          return {
-            ...sub,
-            service_packages: pkg || null
-          };
-        });
-      }
-    }
-
-    console.log('[Get Packages] New schema query result:', {
-      hasData: !!subscriptions,
-      dataLength: subscriptions.length,
-      hasError: !!subscriptionsError,
-      errorCode: subscriptionsError?.code,
-      errorMessage: subscriptionsError?.message
-    });
-
-    // If new schema fails due to missing columns, try old schema
-    if (subscriptionsError && (
-      (subscriptionsError.message?.includes('column') || 
-       subscriptionsError.code === '42703' ||
-       subscriptionsError.code === 'PGRST116') && 
-      (subscriptionsError.message?.includes('total_quantity') || 
-       subscriptionsError.message?.includes('remaining_quantity') ||
-       subscriptionsError.message?.includes('is_active') ||
-       subscriptionsError.message?.includes('does not exist'))
-    )) {
-      console.warn('[Get Packages] New schema columns not found, trying old schema...');
-      console.warn('[Get Packages] Error was:', subscriptionsError.message);
-      
-      // Try old schema with simple query first
-      const oldSchemaSimpleResult = await supabase
+    try {
+      const newSchemaResult = await supabase
         .from('package_subscriptions')
-        .select('id, package_id, status, subscribed_at, created_at')
+        .select('id, package_id, total_quantity, remaining_quantity, is_active, created_at')
         .eq('customer_id', customerData.id)
         .eq('tenant_id', tenantId)
-        .eq('status', 'active')
+        .eq('is_active', true)
         .order('created_at', { ascending: false });
 
-      subscriptions = oldSchemaSimpleResult.data || [];
-      subscriptionsError = oldSchemaSimpleResult.error;
-      
-      // If basic query succeeded, fetch package details separately
-      if (!subscriptionsError && subscriptions.length > 0) {
-        const packageIds = subscriptions.map((s: any) => s.package_id);
-        const { data: packageDetails, error: packageError } = await supabase
-          .from('service_packages')
-          .select('id, name, name_ar, description, description_ar, total_price, image_url')
-          .in('id', packageIds);
+      subscriptions = newSchemaResult.data || [];
+      subscriptionsError = newSchemaResult.error;
 
-        if (!packageError && packageDetails) {
-          // Merge package details into subscriptions
-          subscriptions = subscriptions.map((sub: any) => {
-            const pkg = packageDetails.find((p: any) => p.id === sub.package_id);
-            return {
-              ...sub,
-              service_packages: pkg || null
-            };
-          });
-        }
-      }
-      
-      console.log('[Get Packages] Old schema query result:', {
+      console.log('[Get Packages] New schema query result:', {
         hasData: !!subscriptions,
         dataLength: subscriptions.length,
         hasError: !!subscriptionsError,
         errorCode: subscriptionsError?.code,
         errorMessage: subscriptionsError?.message
       });
+
+      // If new schema fails due to missing columns, try old schema
+      // Only try old schema if there's an actual error (not just empty results)
+      if (subscriptionsError && (
+        (subscriptionsError.message?.includes('column') || 
+         subscriptionsError.code === '42703' ||
+         subscriptionsError.code === 'PGRST116') && 
+        (subscriptionsError.message?.includes('total_quantity') || 
+         subscriptionsError.message?.includes('remaining_quantity') ||
+         subscriptionsError.message?.includes('is_active') ||
+         subscriptionsError.message?.includes('does not exist'))
+      )) {
+        console.warn('[Get Packages] New schema columns not found, trying old schema...');
+        console.warn('[Get Packages] Error was:', subscriptionsError.message);
+        
+        // Try old schema with simple query first
+        const oldSchemaSimpleResult = await supabase
+          .from('package_subscriptions')
+          .select('id, package_id, status, subscribed_at, created_at')
+          .eq('customer_id', customerData.id)
+          .eq('tenant_id', tenantId)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false });
+
+        subscriptions = oldSchemaSimpleResult.data || [];
+        subscriptionsError = oldSchemaSimpleResult.error;
+        usedOldSchema = true;
+        
+        console.log('[Get Packages] Old schema query result:', {
+          hasData: !!subscriptions,
+          dataLength: subscriptions.length,
+          hasError: !!subscriptionsError,
+          errorCode: subscriptionsError?.code,
+          errorMessage: subscriptionsError?.message
+        });
+      }
+    } catch (err: any) {
+      console.error('[Get Packages] Exception in schema detection:', err);
+      subscriptionsError = err;
+    }
+
+    // If we have subscriptions, fetch package details separately (works for both schemas)
+    if (!subscriptionsError && subscriptions.length > 0) {
+      try {
+        const packageIds = subscriptions.map((s: any) => s.package_id).filter((id: any) => id);
+        if (packageIds.length > 0) {
+          const { data: packageDetails, error: packageError } = await supabase
+            .from('service_packages')
+            .select('id, name, name_ar, description, description_ar, total_price, image_url')
+            .in('id', packageIds);
+
+          if (packageError) {
+            console.warn('[Get Packages] Error fetching package details (non-fatal):', packageError.message);
+          } else if (packageDetails) {
+            // Merge package details into subscriptions
+            subscriptions = subscriptions.map((sub: any) => {
+              const pkg = packageDetails.find((p: any) => p.id === sub.package_id);
+              return {
+                ...sub,
+                service_packages: pkg || null
+              };
+            });
+          }
+        }
+      } catch (err: any) {
+        console.warn('[Get Packages] Exception fetching package details (non-fatal):', err.message);
+      }
     }
 
     if (subscriptionsError) {
@@ -465,68 +460,78 @@ router.get('/packages', authenticate, async (req, res) => {
         
         // Try to fetch usage data (might not exist in old schema)
         try {
+          // First, fetch usage records without foreign key relationship
           const { data: usageData, error: usageError } = await supabase
             .from('package_subscription_usage')
-            .select(`
-              service_id,
-              original_quantity,
-              remaining_quantity,
-              used_quantity,
-              services:service_id (
-                id,
-                name,
-                name_ar
-              )
-            `)
+            .select('service_id, original_quantity, remaining_quantity, used_quantity')
             .eq('subscription_id', sub.id);
 
           if (usageError) {
             // If table doesn't exist or has different structure, log but don't fail
             if (usageError.message?.includes('does not exist') || 
                 usageError.message?.includes('column') ||
-                usageError.code === '42P01') {
+                usageError.code === '42P01' ||
+                usageError.code === '42703') {
               console.warn(`[Get Packages] Usage table not available for subscription ${sub.id}:`, usageError.message);
               usage = [];
             } else {
-              console.error(`Error fetching usage for subscription ${sub.id}:`, usageError);
+              console.error(`[Get Packages] Error fetching usage for subscription ${sub.id}:`, usageError);
               usage = [];
             }
-          } else {
-            usage = (usageData || []).map((u: any) => ({
-              service_id: u.service_id,
-              service_name: u.services?.name || '',
-              service_name_ar: u.services?.name_ar || '',
-              original_quantity: u.original_quantity || 0,
-              remaining_quantity: u.remaining_quantity || 0,
-              used_quantity: u.used_quantity || 0,
-            }));
+          } else if (usageData && usageData.length > 0) {
+            // Fetch service details separately
+            const serviceIds = usageData.map((u: any) => u.service_id).filter((id: any) => id);
+            let serviceDetails: any[] = [];
+            
+            if (serviceIds.length > 0) {
+              const { data: services, error: servicesError } = await supabase
+                .from('services')
+                .select('id, name, name_ar')
+                .in('id', serviceIds);
+              
+              if (!servicesError && services) {
+                serviceDetails = services;
+              }
+            }
+            
+            // Merge usage data with service details
+            usage = usageData.map((u: any) => {
+              const service = serviceDetails.find((s: any) => s.id === u.service_id);
+              return {
+                service_id: u.service_id,
+                service_name: service?.name || '',
+                service_name_ar: service?.name_ar || '',
+                original_quantity: u.original_quantity || 0,
+                remaining_quantity: u.remaining_quantity || 0,
+                used_quantity: u.used_quantity || 0,
+              };
+            });
           }
         } catch (err: any) {
           console.warn(`[Get Packages] Error fetching usage for subscription ${sub.id}:`, err.message);
+          console.warn(`[Get Packages] Error stack:`, err.stack);
           usage = [];
         }
 
         // Handle both schemas - new schema has total_quantity/remaining_quantity, old schema doesn't
-        const isNewSchema = 'total_quantity' in sub || 'remaining_quantity' in sub;
-        const isOldSchema = 'status' in sub;
-
+        // Safely access all properties with fallbacks
         return {
-          id: sub.id,
-          package_id: sub.package_id,
-          package_name: sub.service_packages?.name || '',
-          package_name_ar: sub.service_packages?.name_ar || '',
-          package_description: sub.service_packages?.description || '',
-          package_description_ar: sub.service_packages?.description_ar || '',
-          package_image_url: sub.service_packages?.image_url || null,
-          // New schema fields
-          total_quantity: sub.total_quantity || null,
-          remaining_quantity: sub.remaining_quantity || null,
-          is_active: sub.is_active !== undefined ? sub.is_active : (sub.status === 'active'),
+          id: sub?.id || '',
+          package_id: sub?.package_id || '',
+          package_name: sub?.service_packages?.name || '',
+          package_name_ar: sub?.service_packages?.name_ar || '',
+          package_description: sub?.service_packages?.description || '',
+          package_description_ar: sub?.service_packages?.description_ar || '',
+          package_image_url: sub?.service_packages?.image_url || null,
+          // New schema fields (with safe access)
+          total_quantity: sub?.total_quantity ?? null,
+          remaining_quantity: sub?.remaining_quantity ?? null,
+          is_active: sub?.is_active !== undefined ? sub.is_active : (sub?.status === 'active'),
           // Old schema fields (for compatibility)
-          status: sub.status || 'active',
-          subscribed_at: sub.subscribed_at || sub.created_at,
-          created_at: sub.created_at || sub.subscribed_at,
-          usage,
+          status: sub?.status || 'active',
+          subscribed_at: sub?.subscribed_at || sub?.created_at || null,
+          created_at: sub?.created_at || sub?.subscribed_at || null,
+          usage: usage || [],
         };
       })
     );
