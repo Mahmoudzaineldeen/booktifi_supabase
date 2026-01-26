@@ -302,6 +302,121 @@ router.get('/invoices/latest', authenticate, async (req, res) => {
   }
 });
 
+// Get customer's package subscriptions with usage
+router.get('/packages', authenticate, async (req, res) => {
+  try {
+    const userId = req.user!.id;
+    const tenantId = req.user!.tenant_id;
+
+    // Get customer record - customer_id in package_subscriptions references customers.id
+    // We need to find the customer by user_id
+    const { data: customerData, error: customerError } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (customerError) {
+      console.error('Error fetching customer:', customerError);
+      return res.status(500).json({ error: 'Failed to fetch customer data' });
+    }
+
+    if (!customerData) {
+      // No customer record means no packages - return empty array
+      return res.json([]);
+    }
+
+    // Fetch package subscriptions
+    const { data: subscriptions, error: subscriptionsError } = await supabase
+      .from('package_subscriptions')
+      .select(`
+        id,
+        package_id,
+        total_quantity,
+        remaining_quantity,
+        is_active,
+        created_at,
+        service_packages:package_id (
+          id,
+          name,
+          name_ar,
+          description,
+          description_ar,
+          total_price,
+          image_url
+        )
+      `)
+      .eq('customer_id', customerData.id)
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+
+    if (subscriptionsError) {
+      console.error('Error fetching subscriptions:', subscriptionsError);
+      return res.status(500).json({ error: 'Failed to fetch package subscriptions' });
+    }
+
+    // Fetch usage data for each subscription
+    const subscriptionsWithUsage = await Promise.all(
+      (subscriptions || []).map(async (sub: any) => {
+        const { data: usageData, error: usageError } = await supabase
+          .from('package_subscription_usage')
+          .select(`
+            service_id,
+            original_quantity,
+            remaining_quantity,
+            used_quantity,
+            services:service_id (
+              id,
+              name,
+              name_ar
+            )
+          `)
+          .eq('subscription_id', sub.id);
+
+        if (usageError) {
+          console.error(`Error fetching usage for subscription ${sub.id}:`, usageError);
+          return {
+            ...sub,
+            usage: [],
+          };
+        }
+
+        const usage = (usageData || []).map((u: any) => ({
+          service_id: u.service_id,
+          service_name: u.services?.name || '',
+          service_name_ar: u.services?.name_ar || '',
+          original_quantity: u.original_quantity,
+          remaining_quantity: u.remaining_quantity,
+          used_quantity: u.used_quantity,
+        }));
+
+        return {
+          id: sub.id,
+          package_id: sub.package_id,
+          package_name: sub.service_packages?.name || '',
+          package_name_ar: sub.service_packages?.name_ar || '',
+          package_description: sub.service_packages?.description || '',
+          package_description_ar: sub.service_packages?.description_ar || '',
+          package_image_url: sub.service_packages?.image_url || null,
+          total_quantity: sub.total_quantity,
+          remaining_quantity: sub.remaining_quantity,
+          is_active: sub.is_active,
+          created_at: sub.created_at,
+          usage,
+        };
+      })
+    );
+
+    res.json(subscriptionsWithUsage);
+  } catch (error: any) {
+    console.error('Error fetching customer packages:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
 export { router as customerRoutes };
 
 

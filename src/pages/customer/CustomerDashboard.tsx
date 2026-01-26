@@ -6,7 +6,7 @@ import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
-import { Calendar, Clock, LogOut, Star, MessageSquare, Package, CalendarOff, UserCircle, CheckCircle, XCircle, User, FileText } from 'lucide-react';
+import { Calendar, Clock, LogOut, Star, MessageSquare, Package, CalendarOff, UserCircle, CheckCircle, XCircle, User, FileText, TrendingUp, BarChart3 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ReviewForm } from '../../components/reviews/ReviewForm';
 import { Modal } from '../../components/ui/Modal';
@@ -37,6 +37,9 @@ export function CustomerDashboard() {
   const [tenant, setTenant] = useState<any>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [showReviewForm, setShowReviewForm] = useState(false);
+  const [activeTab, setActiveTab] = useState<'bookings' | 'packages'>('bookings');
+  const [packages, setPackages] = useState<any[]>([]);
+  const [packagesLoading, setPackagesLoading] = useState(false);
 
   useEffect(() => {
     // Wait for AuthContext to finish loading before checking authentication
@@ -68,7 +71,10 @@ export function CustomerDashboard() {
     // User is authenticated and is a customer, proceed
     fetchTenant();
     fetchBookings();
-  }, [userProfile, tenantSlug, authLoading, navigate]);
+    if (activeTab === 'packages') {
+      fetchPackages();
+    }
+  }, [userProfile, tenantSlug, authLoading, navigate, activeTab]);
 
   async function fetchTenant() {
     try {
@@ -118,6 +124,33 @@ export function CustomerDashboard() {
       console.error('Error fetching bookings:', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchPackages() {
+    if (!userProfile) return;
+
+    try {
+      setPackagesLoading(true);
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+
+      const response = await fetch(`${API_URL}/customers/packages`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch packages');
+
+      const data = await response.json();
+      console.log('[CustomerDashboard] Fetched packages:', data.length, 'packages');
+      setPackages(data || []);
+    } catch (err) {
+      console.error('Error fetching packages:', err);
+      setPackages([]);
+    } finally {
+      setPackagesLoading(false);
     }
   }
 
@@ -479,8 +512,243 @@ export function CustomerDashboard() {
           </p>
         </div>
 
-        {/* Upcoming Bookings */}
-        {upcomingBookings.length > 0 && (
+        {/* Tab Navigation */}
+        <div className="mb-8 flex gap-4 border-b-2" style={{ borderColor: `${primaryColor}20` }}>
+          <button
+            onClick={() => setActiveTab('bookings')}
+            className={`px-6 py-3 font-semibold text-lg transition-all duration-300 border-b-2 ${
+              activeTab === 'bookings'
+                ? 'text-white'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+            style={{
+              borderColor: activeTab === 'bookings' ? primaryColor : 'transparent',
+              backgroundColor: activeTab === 'bookings' ? primaryColor : 'transparent',
+              borderRadius: activeTab === 'bookings' ? '8px 8px 0 0' : '0',
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <Calendar className="w-5 h-5" />
+              {i18n.language === 'ar' ? 'حجوزاتي' : 'My Bookings'}
+            </div>
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('packages');
+              if (packages.length === 0 && !packagesLoading) {
+                fetchPackages();
+              }
+            }}
+            className={`px-6 py-3 font-semibold text-lg transition-all duration-300 border-b-2 ${
+              activeTab === 'packages'
+                ? 'text-white'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+            style={{
+              borderColor: activeTab === 'packages' ? primaryColor : 'transparent',
+              backgroundColor: activeTab === 'packages' ? primaryColor : 'transparent',
+              borderRadius: activeTab === 'packages' ? '8px 8px 0 0' : '0',
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <Package className="w-5 h-5" />
+              {i18n.language === 'ar' ? 'حزمي' : 'My Packages'}
+            </div>
+          </button>
+        </div>
+
+        {/* My Packages Tab Content */}
+        {activeTab === 'packages' && (
+          <div>
+            {packagesLoading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto mb-4" style={{ borderColor: primaryColor }}></div>
+                <p className="text-gray-600">{i18n.language === 'ar' ? 'جاري التحميل...' : 'Loading packages...'}</p>
+              </div>
+            ) : packages.length > 0 ? (
+              <div className="space-y-6">
+                {packages.map((pkg: any) => {
+                  const totalUsed = pkg.usage?.reduce((sum: number, u: any) => sum + (u.used_quantity || 0), 0) || 0;
+                  const totalRemaining = pkg.usage?.reduce((sum: number, u: any) => sum + (u.remaining_quantity || 0), 0) || 0;
+                  const totalOriginal = pkg.usage?.reduce((sum: number, u: any) => sum + (u.original_quantity || 0), 0) || 0;
+                  const usagePercentage = totalOriginal > 0 ? Math.round((totalUsed / totalOriginal) * 100) : 0;
+
+                  return (
+                    <Card key={pkg.id} className="border-2 hover:shadow-xl transition-all duration-300" style={{ borderColor: `${primaryColor}20` }}>
+                      <CardHeader className="pb-4" style={{ borderBottom: `2px solid ${primaryColor}20` }}>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <CardTitle className="text-2xl font-bold mb-2" style={{ color: primaryColor }}>
+                              {i18n.language === 'ar' ? pkg.package_name_ar : pkg.package_name}
+                            </CardTitle>
+                            {pkg.package_description && (
+                              <p className="text-gray-600 text-sm">
+                                {i18n.language === 'ar' ? pkg.package_description_ar : pkg.package_description}
+                              </p>
+                            )}
+                          </div>
+                          {pkg.package_image_url && (
+                            <img
+                              src={pkg.package_image_url}
+                              alt={i18n.language === 'ar' ? pkg.package_name_ar : pkg.package_name}
+                              className="w-24 h-24 rounded-lg object-cover ml-4"
+                            />
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pt-6">
+                        {/* Overall Usage Summary */}
+                        <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: `${primaryColor}08` }}>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <BarChart3 className="w-5 h-5" style={{ color: primaryColor }} />
+                              <span className="font-semibold text-gray-700">
+                                {i18n.language === 'ar' ? 'إجمالي الاستهلاك' : 'Total Consumption'}
+                              </span>
+                            </div>
+                            <span className="text-lg font-bold" style={{ color: primaryColor }}>
+                              {usagePercentage}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
+                            <div
+                              className="h-3 rounded-full transition-all duration-300"
+                              style={{
+                                width: `${usagePercentage}%`,
+                                backgroundColor: primaryColor,
+                              }}
+                            ></div>
+                          </div>
+                          <div className="flex items-center justify-between text-sm text-gray-600">
+                            <span>
+                              {i18n.language === 'ar' ? 'مستخدم' : 'Used'}: {totalUsed} / {totalOriginal}
+                            </span>
+                            <span>
+                              {i18n.language === 'ar' ? 'متبقي' : 'Remaining'}: {totalRemaining}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Service-wise Usage */}
+                        <div>
+                          <h3 className="text-lg font-semibold mb-4" style={{ color: primaryColor }}>
+                            {i18n.language === 'ar' ? 'الاستهلاك حسب الخدمة' : 'Consumption by Service'}
+                          </h3>
+                          <div className="space-y-4">
+                            {pkg.usage && pkg.usage.length > 0 ? (
+                              pkg.usage.map((usage: any, index: number) => {
+                                const serviceUsagePercentage = usage.original_quantity > 0
+                                  ? Math.round((usage.used_quantity / usage.original_quantity) * 100)
+                                  : 0;
+                                
+                                return (
+                                  <div key={usage.service_id || index} className="p-4 border rounded-lg" style={{ borderColor: `${primaryColor}20` }}>
+                                    <div className="flex items-center justify-between mb-3">
+                                      <h4 className="font-semibold text-gray-900">
+                                        {i18n.language === 'ar' ? usage.service_name_ar : usage.service_name}
+                                      </h4>
+                                      <span className="text-sm font-medium" style={{ color: primaryColor }}>
+                                        {serviceUsagePercentage}%
+                                      </span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+                                      <div
+                                        className="h-2 rounded-full transition-all duration-300"
+                                        style={{
+                                          width: `${serviceUsagePercentage}%`,
+                                          backgroundColor: primaryColor,
+                                        }}
+                                      ></div>
+                                    </div>
+                                    <div className="flex items-center justify-between text-sm text-gray-600">
+                                      <div className="flex items-center gap-4">
+                                        <span>
+                                          <TrendingUp className="w-4 h-4 inline mr-1" style={{ color: primaryColor }} />
+                                          {i18n.language === 'ar' ? 'مستخدم' : 'Used'}: {usage.used_quantity}
+                                        </span>
+                                        <span>
+                                          <Package className="w-4 h-4 inline mr-1" style={{ color: primaryColor }} />
+                                          {i18n.language === 'ar' ? 'متبقي' : 'Remaining'}: {usage.remaining_quantity}
+                                        </span>
+                                      </div>
+                                      <span className="text-gray-500">
+                                        {i18n.language === 'ar' ? 'الإجمالي' : 'Total'}: {usage.original_quantity}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <p className="text-gray-500 text-center py-4">
+                                {i18n.language === 'ar' ? 'لا توجد خدمات في هذه الحزمة' : 'No services in this package'}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Package Status */}
+                        <div className="mt-6 pt-4 border-t flex items-center justify-between" style={{ borderColor: `${primaryColor}20` }}>
+                          <div className="flex items-center gap-2">
+                            {pkg.is_active ? (
+                              <CheckCircle className="w-5 h-5 text-green-600" />
+                            ) : (
+                              <XCircle className="w-5 h-5 text-gray-400" />
+                            )}
+                            <span className="text-sm font-medium text-gray-700">
+                              {pkg.is_active
+                                ? (i18n.language === 'ar' ? 'نشط' : 'Active')
+                                : (i18n.language === 'ar' ? 'غير نشط' : 'Inactive')}
+                            </span>
+                          </div>
+                          <span className="text-sm text-gray-500">
+                            {i18n.language === 'ar' ? 'تم الشراء في' : 'Purchased on'}: {format(new Date(pkg.created_at), 'MMM dd, yyyy')}
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            ) : (
+              <Card className="border-2" style={{ borderColor: `${primaryColor}20` }}>
+                <CardContent className="text-center py-16">
+                  <div className="w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center" style={{ backgroundColor: `${primaryColor}15` }}>
+                    <Package className="w-10 h-10" style={{ color: primaryColor }} />
+                  </div>
+                  <div className="flex items-center justify-center gap-2 mb-3">
+                    <Package className="w-6 h-6" style={{ color: primaryColor }} />
+                    <h3 className="text-2xl font-bold" style={{ color: primaryColor }}>
+                      {i18n.language === 'ar' ? 'لا توجد حزم' : 'No Packages'}
+                    </h3>
+                  </div>
+                  <p className="text-gray-600 mb-6 text-lg">
+                    {i18n.language === 'ar' 
+                      ? 'لم تقم بشراء أي حزم بعد. ابدأ بشراء حزمة للحصول على خصومات!' 
+                      : "You haven't purchased any packages yet. Start by purchasing a package to get discounts!"}
+                  </p>
+                  <Button 
+                    onClick={() => navigate(`/${tenantSlug}/book`)}
+                    className="font-semibold px-8 py-3 text-lg"
+                    style={{ 
+                      backgroundColor: primaryColor,
+                      color: 'white',
+                      borderColor: primaryColor
+                    }}
+                  >
+                    <Package className="w-5 h-5 mr-2" />
+                    {i18n.language === 'ar' ? 'تصفح الحزم' : 'Browse Packages'}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* My Bookings Tab Content */}
+        {activeTab === 'bookings' && (
+          <>
+            {/* Upcoming Bookings */}
+            {upcomingBookings.length > 0 && (
           <div className="mb-12">
             <div className="flex items-center gap-3 mb-6">
               <Calendar className="w-6 h-6" style={{ color: primaryColor }} />
@@ -597,35 +865,37 @@ export function CustomerDashboard() {
           </div>
         )}
 
-        {bookings.length === 0 && (
-          <Card className="border-2" style={{ borderColor: `${primaryColor}20` }}>
-            <CardContent className="text-center py-16">
-              <div className="w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center" style={{ backgroundColor: `${primaryColor}15` }}>
-                <CalendarOff className="w-10 h-10" style={{ color: primaryColor }} />
-              </div>
-              <div className="flex items-center justify-center gap-2 mb-3">
-                <CalendarOff className="w-6 h-6" style={{ color: primaryColor }} />
-                <h3 className="text-2xl font-bold" style={{ color: primaryColor }}>
-                  No Bookings
-                </h3>
-              </div>
-              <p className="text-gray-600 mb-6 text-lg">
-                Start by booking a service
-              </p>
-              <Button 
-                onClick={() => navigate(`/${tenantSlug}/book`)}
-                className="font-semibold px-8 py-3 text-lg"
-                style={{ 
-                  backgroundColor: primaryColor,
-                  color: 'white',
-                  borderColor: primaryColor
-                }}
-              >
-                <Package className="w-5 h-5 mr-2" />
-                Book Service
-              </Button>
-            </CardContent>
-          </Card>
+            {bookings.length === 0 && (
+              <Card className="border-2" style={{ borderColor: `${primaryColor}20` }}>
+                <CardContent className="text-center py-16">
+                  <div className="w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center" style={{ backgroundColor: `${primaryColor}15` }}>
+                    <CalendarOff className="w-10 h-10" style={{ color: primaryColor }} />
+                  </div>
+                  <div className="flex items-center justify-center gap-2 mb-3">
+                    <CalendarOff className="w-6 h-6" style={{ color: primaryColor }} />
+                    <h3 className="text-2xl font-bold" style={{ color: primaryColor }}>
+                      {i18n.language === 'ar' ? 'لا توجد حجوزات' : 'No Bookings'}
+                    </h3>
+                  </div>
+                  <p className="text-gray-600 mb-6 text-lg">
+                    {i18n.language === 'ar' ? 'ابدأ بحجز خدمة' : 'Start by booking a service'}
+                  </p>
+                  <Button 
+                    onClick={() => navigate(`/${tenantSlug}/book`)}
+                    className="font-semibold px-8 py-3 text-lg"
+                    style={{ 
+                      backgroundColor: primaryColor,
+                      color: 'white',
+                      borderColor: primaryColor
+                    }}
+                  >
+                    <Package className="w-5 h-5 mr-2" />
+                    {i18n.language === 'ar' ? 'احجز خدمة' : 'Book Service'}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </>
         )}
       </div>
 
