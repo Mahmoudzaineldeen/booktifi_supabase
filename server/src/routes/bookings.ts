@@ -712,6 +712,10 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       });
     }
 
+    // Calculate adult/child counts - use provided values or default to visitor_count for adults
+    const finalAdultCount = adult_count !== undefined ? adult_count : visitor_count;
+    const finalChildCount = child_count !== undefined ? child_count : 0;
+
     // ============================================================================
     // PACKAGE CAPACITY CHECK - Auto-apply package if capacity exists
     // ============================================================================
@@ -1542,6 +1546,10 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
         error: 'visitor_count must be at least 1'
       });
     }
+
+    // Calculate adult/child counts - use provided values or default to visitor_count for adults
+    const finalAdultCount = adult_count !== undefined ? adult_count : visitor_count;
+    const finalChildCount = child_count !== undefined ? child_count : 0;
 
     // ============================================================================
     // PACKAGE CAPACITY CHECK - Auto-apply package if capacity exists
