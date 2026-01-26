@@ -327,8 +327,12 @@ router.get('/packages', authenticate, async (req, res) => {
       return res.json([]);
     }
 
-    // Fetch package subscriptions
-    const { data: subscriptions, error: subscriptionsError } = await supabase
+    // Fetch package subscriptions - try new schema first, fallback to old schema
+    let subscriptions: any[] = [];
+    let subscriptionsError: any = null;
+
+    // Try new schema first (with total_quantity, remaining_quantity, is_active)
+    const newSchemaQuery = supabase
       .from('package_subscriptions')
       .select(`
         id,
@@ -349,49 +353,110 @@ router.get('/packages', authenticate, async (req, res) => {
       `)
       .eq('customer_id', customerData.id)
       .eq('tenant_id', tenantId)
-      .eq('status', 'active')
       .eq('is_active', true)
       .order('created_at', { ascending: false });
 
+    const newSchemaResult = await newSchemaQuery;
+    subscriptions = newSchemaResult.data || [];
+    subscriptionsError = newSchemaResult.error;
+
+    // If new schema fails due to missing columns, try old schema
+    if (subscriptionsError && (
+      (subscriptionsError.message?.includes('column') || 
+       subscriptionsError.code === '42703') && 
+      (subscriptionsError.message?.includes('total_quantity') || 
+       subscriptionsError.message?.includes('remaining_quantity') ||
+       subscriptionsError.message?.includes('is_active') ||
+       subscriptionsError.message?.includes('does not exist'))
+    )) {
+      console.warn('[Get Packages] New schema columns not found, trying old schema...');
+      
+      const oldSchemaResult = await supabase
+        .from('package_subscriptions')
+        .select(`
+          id,
+          package_id,
+          status,
+          subscribed_at,
+          created_at,
+          service_packages:package_id (
+            id,
+            name,
+            name_ar,
+            description,
+            description_ar,
+            total_price,
+            image_url
+          )
+        `)
+        .eq('customer_id', customerData.id)
+        .eq('tenant_id', tenantId)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
+
+      subscriptions = oldSchemaResult.data || [];
+      subscriptionsError = oldSchemaResult.error;
+    }
+
     if (subscriptionsError) {
       console.error('Error fetching subscriptions:', subscriptionsError);
-      return res.status(500).json({ error: 'Failed to fetch package subscriptions' });
+      return res.status(500).json({ 
+        error: 'Failed to fetch package subscriptions',
+        details: subscriptionsError.message || subscriptionsError.error
+      });
     }
 
     // Fetch usage data for each subscription
     const subscriptionsWithUsage = await Promise.all(
       (subscriptions || []).map(async (sub: any) => {
-        const { data: usageData, error: usageError } = await supabase
-          .from('package_subscription_usage')
-          .select(`
-            service_id,
-            original_quantity,
-            remaining_quantity,
-            used_quantity,
-            services:service_id (
-              id,
-              name,
-              name_ar
-            )
-          `)
-          .eq('subscription_id', sub.id);
+        let usage: any[] = [];
+        
+        // Try to fetch usage data (might not exist in old schema)
+        try {
+          const { data: usageData, error: usageError } = await supabase
+            .from('package_subscription_usage')
+            .select(`
+              service_id,
+              original_quantity,
+              remaining_quantity,
+              used_quantity,
+              services:service_id (
+                id,
+                name,
+                name_ar
+              )
+            `)
+            .eq('subscription_id', sub.id);
 
-        if (usageError) {
-          console.error(`Error fetching usage for subscription ${sub.id}:`, usageError);
-          return {
-            ...sub,
-            usage: [],
-          };
+          if (usageError) {
+            // If table doesn't exist or has different structure, log but don't fail
+            if (usageError.message?.includes('does not exist') || 
+                usageError.message?.includes('column') ||
+                usageError.code === '42P01') {
+              console.warn(`[Get Packages] Usage table not available for subscription ${sub.id}:`, usageError.message);
+              usage = [];
+            } else {
+              console.error(`Error fetching usage for subscription ${sub.id}:`, usageError);
+              usage = [];
+            }
+          } else {
+            usage = (usageData || []).map((u: any) => ({
+              service_id: u.service_id,
+              service_name: u.services?.name || '',
+              service_name_ar: u.services?.name_ar || '',
+              original_quantity: u.original_quantity || 0,
+              remaining_quantity: u.remaining_quantity || 0,
+              used_quantity: u.used_quantity || 0,
+            }));
+          }
+        } catch (err: any) {
+          console.warn(`[Get Packages] Error fetching usage for subscription ${sub.id}:`, err.message);
+          usage = [];
         }
 
-        const usage = (usageData || []).map((u: any) => ({
-          service_id: u.service_id,
-          service_name: u.services?.name || '',
-          service_name_ar: u.services?.name_ar || '',
-          original_quantity: u.original_quantity,
-          remaining_quantity: u.remaining_quantity,
-          used_quantity: u.used_quantity,
-        }));
+        // Handle both schemas - new schema has total_quantity/remaining_quantity, old schema doesn't
+        const isNewSchema = 'total_quantity' in sub || 'remaining_quantity' in sub;
+        const isOldSchema = 'status' in sub;
 
         return {
           id: sub.id,
@@ -401,10 +466,14 @@ router.get('/packages', authenticate, async (req, res) => {
           package_description: sub.service_packages?.description || '',
           package_description_ar: sub.service_packages?.description_ar || '',
           package_image_url: sub.service_packages?.image_url || null,
-          total_quantity: sub.total_quantity,
-          remaining_quantity: sub.remaining_quantity,
-          is_active: sub.is_active,
-          created_at: sub.created_at,
+          // New schema fields
+          total_quantity: sub.total_quantity || null,
+          remaining_quantity: sub.remaining_quantity || null,
+          is_active: sub.is_active !== undefined ? sub.is_active : (sub.status === 'active'),
+          // Old schema fields (for compatibility)
+          status: sub.status || 'active',
+          subscribed_at: sub.subscribed_at || sub.created_at,
+          created_at: sub.created_at || sub.subscribed_at,
           usage,
         };
       })
