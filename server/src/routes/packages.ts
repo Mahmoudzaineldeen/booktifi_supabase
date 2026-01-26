@@ -165,6 +165,42 @@ function authenticateSubscriptionManager(req: express.Request, res: express.Resp
   }
 }
 
+// Middleware to authenticate receptionist (read-only access to packages)
+function authenticateReceptionist(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token provided' });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+
+    if (!decoded.tenant_id) {
+      return res.status(403).json({ error: 'User does not belong to a tenant' });
+    }
+
+    // Only allow receptionist role for read-only package access
+    if (decoded.role !== 'receptionist') {
+      return res.status(403).json({ 
+        error: 'Access denied',
+        details: 'Only receptionists can access this endpoint'
+      });
+    }
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      tenant_id: decoded.tenant_id,
+    };
+
+    next();
+  } catch (error: any) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
 // ============================================================================
 // Create Package (Atomic Transaction)
 // NOTE: Minimum requirement is 1 service (updated from 2 services)
@@ -1224,6 +1260,415 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
     res.status(500).json({ 
       error: error.message || 'Internal server error',
       details: 'An unexpected error occurred while cancelling the subscription'
+    });
+  }
+});
+
+// ============================================================================
+// RECEPTIONIST PACKAGE MANAGEMENT ENDPOINTS
+// Receptionists can view packages and subscribe customers, but NOT edit/delete
+// ============================================================================
+
+// ============================================================================
+// GET /receptionist/packages - List packages with search (receptionist only)
+// ============================================================================
+router.get('/receptionist/packages', authenticateReceptionist, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const { search, service_id } = req.query;
+
+    // Build query
+    let query = supabase
+      .from('service_packages')
+      .select(`
+        id,
+        name,
+        name_ar,
+        description,
+        description_ar,
+        total_price,
+        original_price,
+        discount_percentage,
+        is_active,
+        package_services (
+          service_id,
+          capacity_total,
+          services (
+            id,
+            name,
+            name_ar
+          )
+        )
+      `)
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .order('name');
+
+    // Search by package name
+    if (search && typeof search === 'string' && search.trim()) {
+      const searchTerm = search.trim();
+      query = query.or(`name.ilike.%${searchTerm}%,name_ar.ilike.%${searchTerm}%`);
+    }
+
+    // Filter by service if provided
+    if (service_id && typeof service_id === 'string') {
+      // Get packages that include this service
+      const { data: packageServices } = await supabase
+        .from('package_services')
+        .select('package_id')
+        .eq('service_id', service_id);
+
+      if (packageServices && packageServices.length > 0) {
+        const packageIds = packageServices.map(ps => ps.package_id);
+        query = query.in('id', packageIds);
+      } else {
+        // No packages found with this service
+        return res.json({ packages: [] });
+      }
+    }
+
+    const { data: packages, error } = await query;
+
+    if (error) {
+      console.error('[Receptionist Packages] Error:', error);
+      return res.status(500).json({ 
+        error: 'Failed to fetch packages',
+        details: error.message 
+      });
+    }
+
+    // Format response
+    const formattedPackages = (packages || []).map((pkg: any) => ({
+      id: pkg.id,
+      name: pkg.name,
+      name_ar: pkg.name_ar,
+      description: pkg.description,
+      description_ar: pkg.description_ar,
+      total_price: pkg.total_price,
+      original_price: pkg.original_price,
+      discount_percentage: pkg.discount_percentage,
+      is_active: pkg.is_active,
+      services: (pkg.package_services || []).map((ps: any) => ({
+        service_id: ps.service_id,
+        service_name: ps.services?.name || '',
+        service_name_ar: ps.services?.name_ar || '',
+        capacity: ps.capacity_total || 0
+      }))
+    }));
+
+    res.json({ packages: formattedPackages });
+
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Receptionist get packages error', error, context);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ============================================================================
+// GET /receptionist/subscribers - List package subscribers with search (receptionist only)
+// ============================================================================
+router.get('/receptionist/subscribers', authenticateReceptionist, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const { search, search_type, page = 1, limit = 50 } = req.query;
+
+    const pageNum = parseInt(page as string) || 1;
+    const limitNum = parseInt(limit as string) || 50;
+    const offset = (pageNum - 1) * limitNum;
+
+    // Fetch all subscriptions first (we'll filter after fetching related data)
+    // Note: We fetch all because Supabase doesn't support filtering on nested relations directly
+    // This is acceptable for receptionist use cases as the dataset is typically manageable
+    const { data: allSubscriptions, error: fetchError } = await supabase
+      .from('package_subscriptions')
+      .select(`
+        id,
+        customer_id,
+        package_id,
+        status,
+        subscribed_at
+      `)
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active')
+      .eq('is_active', true)
+      .order('subscribed_at', { ascending: false });
+
+    if (fetchError) {
+      console.error('[Receptionist Subscribers] Error:', fetchError);
+      return res.status(500).json({ 
+        error: 'Failed to fetch subscribers',
+        details: fetchError.message 
+      });
+    }
+
+    if (!allSubscriptions || allSubscriptions.length === 0) {
+      return res.json({
+        subscribers: [],
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: 0,
+          total_pages: 0
+        }
+      });
+    }
+
+    // Fetch related data for all subscriptions
+    const customerIds = [...new Set(allSubscriptions.map(s => s.customer_id))];
+    const packageIds = [...new Set(allSubscriptions.map(s => s.package_id))];
+
+    // Fetch customers
+    const { data: customersData } = await supabase
+      .from('customers')
+      .select('id, name, phone, email')
+      .in('id', customerIds);
+
+    // Fetch packages
+    const { data: packagesData } = await supabase
+      .from('service_packages')
+      .select('id, name, name_ar')
+      .in('id', packageIds);
+
+    // Fetch usage for all subscriptions
+    const subscriptionIds = allSubscriptions.map(s => s.id);
+    const { data: usageData } = await supabase
+      .from('package_subscription_usage')
+      .select(`
+        subscription_id,
+        service_id,
+        original_quantity,
+        remaining_quantity,
+        used_quantity,
+        services (
+          name,
+          name_ar
+        )
+      `)
+      .in('subscription_id', subscriptionIds);
+
+    // Build subscribers with related data
+    let subscribersWithData = allSubscriptions.map(sub => {
+      const customer = customersData?.find(c => c.id === sub.customer_id);
+      const packageData = packagesData?.find(p => p.id === sub.package_id);
+      const usage = (usageData || []).filter(u => u.subscription_id === sub.id).map((u: any) => ({
+        service_id: u.service_id,
+        service_name: u.services?.name || '',
+        service_name_ar: u.services?.name_ar || '',
+        original_quantity: u.original_quantity,
+        remaining_quantity: u.remaining_quantity,
+        used_quantity: u.used_quantity
+      }));
+
+      return {
+        id: sub.id,
+        customer_id: sub.customer_id,
+        package_id: sub.package_id,
+        customer,
+        package: packageData,
+        usage,
+        subscribed_at: sub.subscribed_at,
+        status: sub.status
+      };
+    });
+
+    // Apply search filters
+    if (search && typeof search === 'string' && search.trim()) {
+      const searchTerm = search.trim().toLowerCase();
+      const searchType = search_type as string || 'all';
+
+      subscribersWithData = subscribersWithData.filter(sub => {
+        if (!sub.customer || !sub.package) return false;
+
+        if (searchType === 'customer_name' || searchType === 'all') {
+          if (sub.customer.name?.toLowerCase().includes(searchTerm)) return true;
+        }
+        if (searchType === 'customer_phone' || searchType === 'all') {
+          if (sub.customer.phone?.toLowerCase().includes(searchTerm)) return true;
+        }
+        if (searchType === 'package_name' || searchType === 'all') {
+          if (sub.package.name?.toLowerCase().includes(searchTerm) ||
+              sub.package.name_ar?.toLowerCase().includes(searchTerm)) return true;
+        }
+        if (searchType === 'service_name' || searchType === 'all') {
+          if (sub.usage.some(u => 
+            u.service_name?.toLowerCase().includes(searchTerm) ||
+            u.service_name_ar?.toLowerCase().includes(searchTerm)
+          )) return true;
+        }
+        return false;
+      });
+    }
+
+    // Apply pagination
+    const total = subscribersWithData.length;
+    const paginatedSubscribers = subscribersWithData.slice(offset, offset + limitNum);
+
+    // Format response
+    const formattedSubscribers = paginatedSubscribers.map(sub => ({
+      id: sub.id,
+      customer_id: sub.customer_id,
+      package_id: sub.package_id,
+      customer: sub.customer,
+      package: sub.package,
+      usage: sub.usage,
+      subscribed_at: sub.subscribed_at,
+      status: sub.status
+    }));
+
+    res.json({
+      subscribers: formattedSubscribers,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        total_pages: Math.ceil(total / limitNum)
+      }
+    });
+
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Receptionist get subscribers error', error, context);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ============================================================================
+// POST /receptionist/subscriptions - Subscribe customer to package (receptionist only)
+// ============================================================================
+router.post('/receptionist/subscriptions', authenticateReceptionist, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const { package_id, customer_id } = req.body;
+
+    // Validation
+    if (!package_id) {
+      return res.status(400).json({ error: 'Package ID is required' });
+    }
+
+    if (!customer_id) {
+      return res.status(400).json({ error: 'Customer ID is required' });
+    }
+
+    // Verify package exists and belongs to tenant
+    const { data: packageData, error: packageError } = await supabase
+      .from('service_packages')
+      .select('id, tenant_id, total_price, name, name_ar, is_active')
+      .eq('id', package_id)
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .single();
+
+    if (packageError || !packageData) {
+      return res.status(404).json({ error: 'Package not found or inactive' });
+    }
+
+    // Verify customer exists and belongs to tenant
+    const { data: customerData, error: customerError } = await supabase
+      .from('customers')
+      .select('id, tenant_id, name, phone, email')
+      .eq('id', customer_id)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (customerError || !customerData) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Check if subscription already exists
+    const { data: existingSubscription } = await supabase
+      .from('package_subscriptions')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('customer_id', customer_id)
+      .eq('package_id', package_id)
+      .eq('status', 'active')
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (existingSubscription) {
+      return res.status(400).json({ 
+        error: 'Subscription already exists',
+        details: 'This customer already has an active subscription for this package'
+      });
+    }
+
+    // Get package services to initialize usage
+    const { data: packageServices, error: servicesError } = await supabase
+      .from('package_services')
+      .select('service_id, capacity_total')
+      .eq('package_id', package_id);
+
+    if (servicesError) {
+      return res.status(500).json({ 
+        error: 'Failed to fetch package services',
+        details: servicesError.message 
+      });
+    }
+
+    if (!packageServices || packageServices.length === 0) {
+      return res.status(400).json({ error: 'Package has no services' });
+    }
+
+    // Create subscription
+    const { data: subscription, error: subscriptionError } = await supabase
+      .from('package_subscriptions')
+      .insert({
+        tenant_id: tenantId,
+        customer_id: customer_id,
+        package_id: package_id,
+        status: 'active',
+        is_active: true
+      })
+      .select()
+      .single();
+
+    if (subscriptionError || !subscription) {
+      return res.status(500).json({ 
+        error: 'Failed to create subscription',
+        details: subscriptionError?.message 
+      });
+    }
+
+    // Initialize usage records for each service
+    const usageRecords = packageServices.map(ps => ({
+      subscription_id: subscription.id,
+      service_id: ps.service_id,
+      original_quantity: ps.capacity_total,
+      remaining_quantity: ps.capacity_total,
+      used_quantity: 0
+    }));
+
+    const { error: usageError } = await supabase
+      .from('package_subscription_usage')
+      .insert(usageRecords);
+
+    if (usageError) {
+      console.error('[Receptionist Subscribe] Error creating usage records:', usageError);
+      // Don't fail - subscription is created, usage can be fixed later
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Customer subscribed to package successfully',
+      subscription: {
+        id: subscription.id,
+        customer: customerData,
+        package: {
+          id: packageData.id,
+          name: packageData.name,
+          name_ar: packageData.name_ar
+        },
+        subscribed_at: subscription.subscribed_at
+      }
+    });
+
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Receptionist subscribe customer error', error, context);
+    res.status(500).json({ 
+      error: error.message || 'Internal server error',
+      details: 'An unexpected error occurred while subscribing customer to package'
     });
   }
 });

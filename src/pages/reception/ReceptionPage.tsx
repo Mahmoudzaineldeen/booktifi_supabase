@@ -10,7 +10,8 @@ import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
-import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Edit, CalendarClock } from 'lucide-react';
+import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Edit, CalendarClock, Users } from 'lucide-react';
+import { ReceptionPackagesPage } from './ReceptionPackagesPage';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { format, addDays, startOfWeek, isSameDay, parseISO, startOfDay, endOfDay, addMinutes, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -132,6 +133,7 @@ export function ReceptionPage() {
   const [selectedSlot, setSelectedSlot] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'today' | 'all'>('today');
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [currentView, setCurrentView] = useState<'bookings' | 'packages'>('bookings');
   const [selectedBookingForDetails, setSelectedBookingForDetails] = useState<Booking | null>(null);
   const [isEditBookingModalOpen, setIsEditBookingModalOpen] = useState(false);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
@@ -3443,13 +3445,29 @@ export function ReceptionPage() {
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Button
+                variant={currentView === 'bookings' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setCurrentView('bookings')}
+              >
+                <Calendar className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">{i18n.language === 'ar' ? 'الحجوزات' : 'Bookings'}</span>
+              </Button>
+              <Button
+                variant={currentView === 'packages' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setCurrentView('packages')}
+              >
+                <Package className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">{i18n.language === 'ar' ? 'الباقات' : 'Packages'}</span>
+              </Button>
+              <Button
                 variant="outline"
                 size="sm"
                 icon={<Package className="w-4 h-4" />}
                 onClick={() => setIsSubscriptionModalOpen(true)}
+                className="hidden sm:flex"
               >
                 <span className="hidden sm:inline">{t('packages.addSubscription')}</span>
-                <span className="sm:hidden">{t('common.add')}</span>
               </Button>
               <LanguageToggle />
               <Button
@@ -3466,6 +3484,14 @@ export function ReceptionPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Packages View */}
+        {currentView === 'packages' && (
+          <ReceptionPackagesPage />
+        )}
+
+        {/* Bookings View */}
+        {currentView === 'bookings' && (
+          <>
         {/* Search Bar with Type Selector */}
         <div className="mb-6 space-y-3">
           <div className="flex flex-col sm:flex-row gap-3">
@@ -3840,9 +3866,8 @@ export function ReceptionPage() {
             </div>
           </div>
         )}
-      </div>
 
-      <Modal
+          <Modal
         isOpen={isModalOpen}
         onClose={() => {
           setIsModalOpen(false);
@@ -5758,6 +5783,9 @@ export function ReceptionPage() {
         </div>
       </Modal>
       )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

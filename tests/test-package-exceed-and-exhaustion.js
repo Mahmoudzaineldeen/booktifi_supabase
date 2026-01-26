@@ -260,21 +260,8 @@ async function getOrCreateSlot(tenantId, serviceId) {
   tomorrow.setDate(tomorrow.getDate() + 1);
   const slotDate = tomorrow.toISOString().split('T')[0];
   
-  const { data: slots } = await supabase
-    .from('slots')
-    .select('id, available_capacity')
-    .eq('tenant_id', tenantId)
-    .eq('service_id', serviceId)
-    .eq('slot_date', slotDate)
-    .gte('available_capacity', 10)
-    .limit(1);
-  
-  if (slots && slots.length > 0) {
-    return slots[0].id;
-  }
-  
-  // Create a shift first
-  const { data: shifts } = await supabase
+  // First, get or create shift for this service
+  let { data: shifts } = await supabase
     .from('shifts')
     .select('id')
     .eq('service_id', serviceId)
@@ -285,7 +272,7 @@ async function getOrCreateSlot(tenantId, serviceId) {
   if (shifts && shifts.length > 0) {
     shiftId = shifts[0].id;
   } else {
-    // Create shift
+    // Create shift if it doesn't exist
     const { data: newShift, error: shiftError } = await supabase
       .from('shifts')
       .insert({
@@ -302,22 +289,84 @@ async function getOrCreateSlot(tenantId, serviceId) {
     shiftId = newShift.id;
   }
   
-  // Create slot
-  const { data: newSlot, error: slotError } = await supabase
+  // Try to find existing slot for this shift (query through shift_id, not service_id)
+  const { data: slots } = await supabase
     .from('slots')
-    .insert({
-      tenant_id: tenantId,
-      service_id: serviceId,
-      shift_id: shiftId,
-      slot_date: slotDate,
-      start_time: '10:00:00',
-      end_time: '11:00:00',
-      original_capacity: 20,
-      available_capacity: 20,
-      is_available: true
-    })
-    .select()
-    .single();
+    .select('id, available_capacity')
+    .eq('tenant_id', tenantId)
+    .eq('shift_id', shiftId)
+    .eq('slot_date', slotDate)
+    .gte('available_capacity', 10)
+    .limit(1);
+  
+  if (slots && slots.length > 0) {
+    return slots[0].id;
+  }
+  
+  // Calculate UTC times for the slot
+  const startTime = '10:00:00';
+  const endTime = '11:00:00';
+  const startTimeUTC = new Date(`${slotDate}T${startTime}`);
+  const endTimeUTC = new Date(`${slotDate}T${endTime}`);
+  
+  // Create slot - try with service_id first, fallback to without if column doesn't exist
+  let newSlot;
+  let slotError;
+  
+  try {
+    const result = await supabase
+      .from('slots')
+      .insert({
+        tenant_id: tenantId,
+        service_id: serviceId,
+        shift_id: shiftId,
+        slot_date: slotDate,
+        start_time: startTime,
+        end_time: endTime,
+        start_time_utc: startTimeUTC.toISOString(),
+        end_time_utc: endTimeUTC.toISOString(),
+        original_capacity: 20,
+        total_capacity: 20,
+        remaining_capacity: 20,
+        available_capacity: 20,
+        booked_count: 0,
+        is_available: true
+      })
+      .select()
+      .single();
+    
+    newSlot = result.data;
+    slotError = result.error;
+  } catch (err) {
+    // If service_id column doesn't exist, try without it
+    if (err.message?.includes('service_id') || err.code === 'PGRST204') {
+      console.log('⚠️  service_id column not found in slots, creating without it...');
+      const result = await supabase
+        .from('slots')
+        .insert({
+          tenant_id: tenantId,
+          shift_id: shiftId,
+          slot_date: slotDate,
+          start_time: startTime,
+          end_time: endTime,
+          start_time_utc: startTimeUTC.toISOString(),
+          end_time_utc: endTimeUTC.toISOString(),
+          original_capacity: 20,
+          total_capacity: 20,
+          remaining_capacity: 20,
+          available_capacity: 20,
+          booked_count: 0,
+          is_available: true
+        })
+        .select()
+        .single();
+      
+      newSlot = result.data;
+      slotError = result.error;
+    } else {
+      throw err;
+    }
+  }
   
   if (slotError) throw slotError;
   return newSlot.id;
