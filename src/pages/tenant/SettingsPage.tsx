@@ -1042,9 +1042,19 @@ export function SettingsPage() {
         ? formData.tickets_enabled 
         : true; // Default to true if somehow undefined (shouldn't happen)
 
-      const { error } = await db
-        .from('tenants')
-        .update({
+      // Use backend API endpoint instead of direct database update
+      const { getApiUrl } = await import('../../lib/apiUrl');
+      const API_URL = getApiUrl();
+      const session = await db.auth.getSession();
+      const token = session.data.session?.access_token;
+
+      const response = await fetch(`${API_URL}/tenants/settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
           name: formData.name,
           name_ar: formData.name_ar,
           contact_email: formData.contact_email,
@@ -1052,32 +1062,35 @@ export function SettingsPage() {
           maintenance_mode: formData.maintenance_mode,
           tickets_enabled: ticketsEnabledValue,
         })
-        .eq('id', tenant.id);
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to update settings' }));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
 
-      // CRITICAL: Refresh tenant data from database to ensure UI is in sync
-      // This ensures the checkbox reflects the actual persisted value after save
-      const { data: refreshedTenant } = await db
-        .from('tenants')
-        .select('tickets_enabled')
-        .eq('id', tenant.id)
-        .single();
-      
-      if (refreshedTenant) {
-        // Update formData with the actual persisted value from database
+      const result = await response.json();
+
+      // Update formData with the actual persisted values from the response
+      if (result.tenant) {
         setFormData(prev => ({
           ...prev,
-          tickets_enabled: refreshedTenant.tickets_enabled !== undefined 
-            ? refreshedTenant.tickets_enabled 
+          name: result.tenant.name || prev.name,
+          name_ar: result.tenant.name_ar || prev.name_ar,
+          contact_email: result.tenant.contact_email || prev.contact_email,
+          tenant_time_zone: result.tenant.tenant_time_zone || prev.tenant_time_zone,
+          maintenance_mode: result.tenant.maintenance_mode !== undefined ? result.tenant.maintenance_mode : prev.maintenance_mode,
+          tickets_enabled: result.tenant.tickets_enabled !== undefined 
+            ? result.tenant.tickets_enabled 
             : true // Fallback only if field doesn't exist (backward compatibility)
         }));
       }
 
       alert(t('settings.settingsSavedSuccessfully'));
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving settings:', err);
-      alert(t('settings.errorSavingSettings'));
+      const errorMessage = err.message || t('settings.errorSavingSettings');
+      alert(errorMessage);
     } finally {
       setLoading(false);
     }

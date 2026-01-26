@@ -1457,6 +1457,97 @@ router.get('/currency', authenticateTenantAdmin, async (req, res) => {
   }
 });
 
+// ============================================================================
+// Update Tenant Settings (General Settings)
+// ============================================================================
+router.put('/settings', authenticateTenantAdmin, async (req, res) => {
+  // Block restricted roles from accessing settings
+  if (req.user?.role === 'customer_admin' || req.user?.role === 'admin_user') {
+    return res.status(403).json({ 
+      error: 'Access denied. This role does not have permission to access settings.',
+      userRole: req.user.role
+    });
+  }
+  
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const { 
+      name, 
+      name_ar, 
+      contact_email, 
+      tenant_time_zone, 
+      maintenance_mode, 
+      tickets_enabled 
+    } = req.body;
+
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID not found' });
+    }
+
+    // Validate required fields
+    if (!name) {
+      return res.status(400).json({ error: 'Tenant name is required' });
+    }
+
+    // Prepare update data
+    const updateData: any = {
+      name,
+      updated_at: new Date().toISOString()
+    };
+
+    // Add optional fields if provided
+    if (name_ar !== undefined) updateData.name_ar = name_ar;
+    if (contact_email !== undefined) updateData.contact_email = contact_email;
+    if (tenant_time_zone !== undefined) updateData.tenant_time_zone = tenant_time_zone;
+    if (maintenance_mode !== undefined) updateData.maintenance_mode = maintenance_mode === true;
+    if (tickets_enabled !== undefined) updateData.tickets_enabled = tickets_enabled === true;
+
+    // Update tenant settings
+    const { data: updatedTenant, error: updateError } = await supabase
+      .from('tenants')
+      .update(updateData)
+      .eq('id', tenantId)
+      .select('id, name, name_ar, contact_email, tenant_time_zone, maintenance_mode, tickets_enabled')
+      .single();
+
+    if (updateError) {
+      console.error('[Tenant Settings] Error updating tenant:', updateError);
+      
+      // Check if it's a "column does not exist" error
+      if (updateError.code === '42703' || updateError.message?.includes('does not exist')) {
+        return res.status(500).json({
+          error: 'Database migration required',
+          hint: 'One or more columns do not exist in the tenants table. Please run the required migrations.',
+          code: 'MIGRATION_REQUIRED'
+        });
+      }
+      
+      return res.status(500).json({
+        error: 'Failed to update tenant settings',
+        details: updateError.message
+      });
+    }
+
+    if (!updatedTenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    console.log(`[Tenant Settings] ✅ Tenant settings updated for tenant ${tenantId}`);
+
+    res.json({
+      success: true,
+      message: 'Settings updated successfully',
+      tenant: updatedTenant
+    });
+  } catch (error: any) {
+    console.error('[Tenant Settings] Unexpected error:', error);
+    res.status(500).json({ 
+      error: error.message || 'Internal server error',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
 // Update currency settings (Tenant Provider only)
 router.put('/currency', authenticateTenantAdminOnly, async (req, res) => {
   try {
