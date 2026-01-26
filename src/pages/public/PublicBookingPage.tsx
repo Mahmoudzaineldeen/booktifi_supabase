@@ -563,7 +563,17 @@ export function PublicBookingPage() {
             })
           );
 
-          setPackages(packagesWithServices);
+          // Filter out packages without services - they cannot be purchased
+          const validPackages = packagesWithServices.filter((pkg: any) => 
+            pkg.services && Array.isArray(pkg.services) && pkg.services.length > 0
+          );
+
+          if (validPackages.length < packagesWithServices.length) {
+            const invalidCount = packagesWithServices.length - validPackages.length;
+            console.warn(`Filtered out ${invalidCount} package(s) without services`);
+          }
+
+          setPackages(validPackages);
         } else if (packagesError) {
           console.warn('Error fetching packages:', packagesError);
           setPackages([]);
