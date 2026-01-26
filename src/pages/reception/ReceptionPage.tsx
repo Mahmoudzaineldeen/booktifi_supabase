@@ -1320,9 +1320,7 @@ export function ReceptionPage() {
             visitor_count: quantity,
             total_price: totalPrice,
             notes: bookingForm.notes || null,
-            status: 'confirmed',
-            payment_status: 'unpaid',
-            created_by_user_id: userProfile!.id,
+            // Removed: status, payment_status, created_by_user_id - backend handles these automatically
             booking_group_id: bookingGroupId,
             language: i18n.language
           })
@@ -1624,6 +1622,8 @@ export function ReceptionPage() {
           const bookingPrice = usePackage ? 0 : (priceForBooking * bookingVisitorCount);
 
           // Insert booking via API
+          // NOTE: Backend calculates package_subscription_id, package_covered_quantity, and paid_quantity automatically
+          // Do NOT send status, payment_status, package_subscription_id, or created_by_user_id - backend handles these
           try {
             const bookingData = await createBookingViaAPI({
               tenant_id: userProfile.tenant_id!,
@@ -1637,11 +1637,12 @@ export function ReceptionPage() {
               visitor_count: bookingVisitorCount,
               total_price: bookingPrice,
               notes: bookingForm.notes || null,
-              status: 'confirmed',
-              payment_status: usePackage ? 'paid' : 'unpaid',
-              package_subscription_id: usePackage && customerPackage ? customerPackage.id : null,
-              created_by_user_id: userProfile.id,
-              booking_group_id: bookingGroupId
+              // Removed: status, payment_status, package_subscription_id, created_by_user_id
+              // Backend will:
+              // - Auto-detect package and calculate package_covered_quantity/paid_quantity
+              // - Set status based on payment
+              // - Use authenticated user for created_by_user_id
+              booking_group_id: bookingGroupId || undefined
             });
 
             console.log('Booking created:', bookingData);
@@ -1986,10 +1987,8 @@ export function ReceptionPage() {
           customer_email: bookingForm.customer_email || null,
           visitor_count: typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1,
           total_price: totalPrice,
-          notes: bookingForm.notes || null,
-          status: 'confirmed',
-          payment_status: 'unpaid',
-          created_by_user_id: userProfile.id
+          notes: bookingForm.notes || null
+          // Removed: status, payment_status, created_by_user_id - backend handles these automatically
         });
 
         // Note: Slot capacity is updated by the backend API

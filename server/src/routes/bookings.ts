@@ -672,6 +672,8 @@ router.post('/lock/:lock_id/release', authenticate, async (req, res) => {
 // TASK 5: Receptionist and tenant_admin can create bookings (not cashier)
 router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) => {
   try {
+    // Extract only expected fields (ignore extra fields like status, payment_status, created_by_user_id, package_subscription_id)
+    // These are handled automatically by the backend
     const {
       slot_id,
       service_id,
@@ -688,8 +690,17 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
       lock_id,
       session_id,
       offer_id, // Optional: ID of selected service offer
-      language = 'en' // Customer preferred language ('en' or 'ar')
+      language = 'en', // Customer preferred language ('en' or 'ar')
+      booking_group_id // Optional: for grouping related bookings
     } = req.body;
+    
+    // Log warning if unexpected fields are sent (but don't fail)
+    const unexpectedFields = ['status', 'payment_status', 'created_by_user_id', 'package_subscription_id'];
+    const sentUnexpectedFields = unexpectedFields.filter(field => req.body[field] !== undefined);
+    if (sentUnexpectedFields.length > 0) {
+      console.warn(`[Booking Creation] ⚠️  Unexpected fields sent (will be ignored): ${sentUnexpectedFields.join(', ')}`);
+      console.warn(`[Booking Creation]    These fields are calculated automatically by the backend`);
+    }
 
     // Validate language
     const validLanguage = (language === 'ar' || language === 'en') ? language : 'en';
@@ -1516,13 +1527,53 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     });
   } catch (error: any) {
     const context = logger.extractContext(req);
+    
+    // Log detailed error information
+    console.error('[Booking Creation] ========================================');
+    console.error('[Booking Creation] ❌ UNHANDLED EXCEPTION');
+    console.error('[Booking Creation] ========================================');
+    console.error('[Booking Creation] Error type:', error?.constructor?.name || 'Unknown');
+    console.error('[Booking Creation] Error message:', error?.message || 'No message');
+    console.error('[Booking Creation] Error code:', error?.code || 'No code');
+    if (error?.stack) {
+      console.error('[Booking Creation] Error stack:', error.stack);
+    }
+    console.error('[Booking Creation] Request body:', {
+      slot_id: req.body.slot_id,
+      service_id: req.body.service_id,
+      tenant_id: req.body.tenant_id,
+      customer_name: req.body.customer_name,
+      visitor_count: req.body.visitor_count,
+      has_package: !!req.body.package_subscription_id
+    });
+    console.error('[Booking Creation] ========================================');
+    
     logger.error('Create booking error', error, context, {
       slot_id: req.body.slot_id,
       service_id: req.body.service_id,
       tenant_id: req.body.tenant_id,
       lock_id: req.body.lock_id,
     });
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    
+    // Provide more helpful error message
+    let errorMessage = error.message || 'Internal server error';
+    
+    // Check for common issues
+    if (error.message?.includes('foreign key') || error.code === '23503') {
+      errorMessage = 'Database constraint violation. Please check that all referenced records exist (customer, service, slot, etc.).';
+    } else if (error.message?.includes('not null') || error.code === '23502') {
+      errorMessage = 'Missing required data. Please ensure all required fields are provided.';
+    } else if (error.message?.includes('unique') || error.code === '23505') {
+      errorMessage = 'Duplicate entry detected. This booking may already exist.';
+    } else if (error.message?.includes('RPC') || error.message?.includes('function')) {
+      errorMessage = 'Database function error. Please contact administrator.';
+    }
+    
+    res.status(500).json({ 
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      code: error.code
+    });
   }
 });
 
