@@ -503,7 +503,7 @@ export function PublicBookingPage() {
               try {
                 const { data: packageServices, error: packageServicesError } = await db
                   .from('package_services')
-                  .select('service_id, quantity, services (id, name, name_ar)')
+                  .select('service_id, capacity_total, quantity, services (id, name, name_ar)')
                   .eq('package_id', pkg.id);
 
                 if (packageServicesError) {
@@ -540,7 +540,8 @@ export function PublicBookingPage() {
                     service_id: ps.service_id,
                     service_name: serviceData.name || '',
                     service_name_ar: serviceData.name_ar || '',
-                    quantity: ps.quantity || 1,
+                    capacity_total: ps.capacity_total || ps.quantity || 1, // Support both old (quantity) and new (capacity_total) format
+                    quantity: ps.capacity_total || ps.quantity || 1, // Keep quantity for backward compatibility
                   };
                 }).filter((s: any) => s.service_id); // Filter out any invalid entries
 

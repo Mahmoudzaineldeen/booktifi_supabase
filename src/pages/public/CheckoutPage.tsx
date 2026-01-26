@@ -231,7 +231,7 @@ export function CheckoutPage() {
   };
 
   // Get booking data from navigation state or URL params
-  const bookingData: BookingData | null = locationState || (() => {
+  const bookingData: BookingData | null = locationState?.isPackagePurchase ? null : (locationState || (() => {
     const params = new URLSearchParams(location.search);
     if (params.get('serviceId') && params.get('slotId') && params.get('date') && params.get('time')) {
       return {
@@ -243,16 +243,19 @@ export function CheckoutPage() {
       };
     }
     return null;
-  });
+  }));
+
+  // Check if this is a package purchase (not a booking)
+  const isPackagePurchase = locationState?.isPackagePurchase === true;
 
   useEffect(() => {
-    if (!bookingData) {
+    if (!isPackagePurchase && !bookingData) {
       navigate(`/${tenantSlug}/book`);
       return;
     }
 
     fetchCheckoutData();
-  }, [tenantSlug, bookingData]);
+  }, [tenantSlug, bookingData, isPackagePurchase]);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -265,7 +268,7 @@ export function CheckoutPage() {
   }, [resendCooldown]);
 
   async function fetchCheckoutData() {
-    if (!bookingData || !tenantSlug) return;
+    if (!tenantSlug) return;
 
     try {
       setLoading(true);
@@ -284,6 +287,58 @@ export function CheckoutPage() {
       }
 
       setTenant(tenantData);
+
+      // Handle package purchase flow
+      if (isPackagePurchase) {
+        const packageId = locationState?.packageId;
+        if (!packageId) {
+          alert('Package ID is required');
+          navigate(`/${tenantSlug}/book`);
+          return;
+        }
+
+        // Fetch package
+        const { data: packageData } = await db
+          .from('service_packages')
+          .select('*')
+          .eq('id', packageId)
+          .eq('tenant_id', tenantData.id)
+          .eq('is_active', true)
+          .maybeSingle();
+
+        if (!packageData) {
+          alert('Package not found or inactive');
+          navigate(`/${tenantSlug}/book`);
+          return;
+        }
+
+        // Fetch package services
+        const { data: packageServices } = await db
+          .from('package_services')
+          .select('service_id, capacity_total, services (id, name, name_ar)')
+          .eq('package_id', packageId);
+
+        const services = (packageServices || []).map((ps: any) => ({
+          service_id: ps.service_id,
+          service_name: ps.services?.name || '',
+          service_name_ar: ps.services?.name_ar || '',
+          quantity: ps.capacity_total || 1,
+        }));
+
+        setServicePackage({
+          ...packageData,
+          services,
+        });
+
+        setLoading(false);
+        return;
+      }
+
+      // Regular booking flow - requires bookingData
+      if (!bookingData) {
+        navigate(`/${tenantSlug}/book`);
+        return;
+      }
 
       // Fetch service
       const { data: serviceData } = await db
@@ -502,21 +557,23 @@ export function CheckoutPage() {
         }
       }
 
-      // Fetch slot details including capacity
-      const { data: slotData } = await db
-        .from('slots')
-        .select('id, slot_date, start_time, end_time, available_capacity')
-        .eq('id', bookingData.slotId)
-        .maybeSingle();
+      // Fetch slot details including capacity (only for regular bookings, not package purchases)
+      if (!isPackagePurchase && bookingData?.slotId) {
+        const { data: slotData } = await db
+          .from('slots')
+          .select('id, slot_date, start_time, end_time, available_capacity')
+          .eq('id', bookingData.slotId)
+          .maybeSingle();
 
-      if (slotData) {
-        setSlot({
-          id: slotData.id,
-          slot_date: slotData.slot_date,
-          start_time: slotData.start_time,
-          end_time: slotData.end_time,
-        });
-        setSlotCapacity(slotData.available_capacity || 0);
+        if (slotData) {
+          setSlot({
+            id: slotData.id,
+            slot_date: slotData.slot_date,
+            start_time: slotData.start_time,
+            end_time: slotData.end_time,
+          });
+          setSlotCapacity(slotData.available_capacity || 0);
+        }
       }
 
       // Get visitor count from URL params if available
@@ -568,7 +625,16 @@ export function CheckoutPage() {
   let subtotal: number;
   let total: number;
   
-  if (servicePackage && packageServiceDetails.length > 0) {
+  if (isPackagePurchase && servicePackage) {
+    // Package purchase - use package total_price directly (not multiplied by visitor count)
+    subtotal = servicePackage.total_price || 0;
+    total = subtotal;
+    console.log('Package pricing (direct purchase):', {
+      packagePrice: servicePackage.total_price,
+      subtotal,
+      total
+    });
+  } else if (servicePackage && packageServiceDetails.length > 0) {
     // Package booking: sum up all services with their visitor counts
     subtotal = packageServiceDetails.reduce((sum, svc) => {
       const priceForService = svc.base_price || 0;
@@ -579,15 +645,13 @@ export function CheckoutPage() {
     }, 0);
     total = subtotal;
   } else if (servicePackage && packageServiceDetails.length === 0) {
-    // Package but service details not loaded yet - use visitor count as fallback
-    const totalVisitors = bookingDataFromState?.visitorCount || bookingDataFromState?.adultCount || visitorCount || 1;
-    const pricePerTicket = servicePackage.total_price || 0;
-    subtotal = pricePerTicket * totalVisitors;
+    // Package but service details not loaded yet - use package price as fallback
+    subtotal = servicePackage.total_price || 0;
     total = subtotal;
     console.log('Package pricing fallback (service details not loaded):', {
-      totalVisitors,
-      pricePerTicket,
-      subtotal
+      packagePrice: servicePackage.total_price,
+      subtotal,
+      total
     });
   } else {
     // Regular service booking - use offer price if selected, otherwise base_price
@@ -629,9 +693,23 @@ export function CheckoutPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!service || !slot || !customerInfo.name || !customerInfo.phone) {
+    if (!customerInfo.name || !customerInfo.phone) {
       alert(t('checkout.pleaseFillAllRequiredFields'));
       return;
+    }
+
+    // For package purchase, skip service/slot validation
+    if (!isPackagePurchase) {
+      if (!service || !slot) {
+        alert(t('checkout.pleaseFillAllRequiredFields'));
+        return;
+      }
+
+      // Ensure at least one ticket
+      if (visitorCount === 0 || visitorCount < 1) {
+        alert(t('checkout.pleaseSelectAtLeastOneTicket'));
+        return;
+      }
     }
 
     // For guest bookings, require OTP verification
@@ -648,25 +726,97 @@ export function CheckoutPage() {
       return;
     }
 
-    // Ensure at least one ticket
-    if (visitorCount === 0 || visitorCount < 1) {
-      alert(t('checkout.pleaseSelectAtLeastOneTicket'));
-      return;
-    }
-
     setSubmitting(true);
 
     try {
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
 
+      // Handle package purchase
+      if (isPackagePurchase && servicePackage) {
+        // Get customer ID if logged in
+        let customerId = null;
+        if (isLoggedIn && userProfile?.id) {
+          // Find customer by user ID
+          const { data: customerData } = await db
+            .from('customers')
+            .select('id')
+            .eq('user_id', userProfile.id)
+            .eq('tenant_id', tenant.id)
+            .maybeSingle();
+          
+          customerId = customerData?.id || null;
+        }
+
+        // Create package subscription
+        const subscriptionUrl = `${API_URL}/packages/subscriptions`;
+        const subscriptionPayload = {
+          tenant_id: tenant.id,
+          package_id: servicePackage.id,
+          customer_id: customerId,
+          customer_name: customerInfo.name,
+          customer_email: customerInfo.email || null,
+          customer_phone: customerPhoneFull || `${countryCode}${customerInfo.phone}`,
+          total_price: servicePackage.total_price,
+        };
+
+        console.log('[Checkout] Creating package subscription:', {
+          url: subscriptionUrl,
+          payload: { ...subscriptionPayload, customer_phone: '***' }, // Hide phone in logs
+        });
+
+        const subscriptionResponse = await fetch(subscriptionUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token && { Authorization: `Bearer ${token}` }),
+          },
+          body: JSON.stringify(subscriptionPayload),
+        });
+
+        if (!subscriptionResponse.ok) {
+          // Try to parse error as JSON, but handle HTML responses
+          let errorData;
+          const contentType = subscriptionResponse.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            errorData = await subscriptionResponse.json();
+          } else {
+            const text = await subscriptionResponse.text();
+            console.error('Non-JSON error response:', text.substring(0, 200));
+            throw new Error(`Server error (${subscriptionResponse.status}): ${subscriptionResponse.statusText}`);
+          }
+          throw new Error(errorData.error || 'Failed to create package subscription');
+        }
+
+        // Ensure response is JSON before parsing
+        const contentType = subscriptionResponse.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await subscriptionResponse.text();
+          console.error('Non-JSON success response:', text.substring(0, 200));
+          throw new Error('Server returned invalid response format');
+        }
+
+        const subscriptionResult = await subscriptionResponse.json();
+
+        // Navigate to success page
+        navigate(`/${tenantSlug}/book/success`, {
+          state: {
+            subscriptionId: subscriptionResult.subscription.id,
+            subscription: subscriptionResult.subscription,
+            isPackagePurchase: true,
+          },
+        });
+        return;
+      }
+
+      // Regular booking flow
       // Calculate actual visitor count
-          const actualVisitorCount = servicePackage && packageServiceDetails.length > 0
-            ? packageServiceDetails.reduce((sum, svc) => {
-                const svcVisitorCount = svc.visitorCount !== undefined && svc.visitorCount !== null ? svc.visitorCount : 1;
-                return sum + svcVisitorCount;
-              }, 0)
-            : visitorCount;
+      const actualVisitorCount = servicePackage && packageServiceDetails.length > 0
+        ? packageServiceDetails.reduce((sum, svc) => {
+            const svcVisitorCount = svc.visitorCount !== undefined && svc.visitorCount !== null ? svc.visitorCount : 1;
+            return sum + svcVisitorCount;
+          }, 0)
+        : visitorCount;
 
       // Acquire booking lock first
       const lockResponse = await fetch(`${API_URL}/bookings/lock`, {
@@ -676,7 +826,7 @@ export function CheckoutPage() {
           ...(token && { Authorization: `Bearer ${token}` }),
         },
         body: JSON.stringify({
-          slot_id: slot.id,
+          slot_id: slot!.id,
           reserved_capacity: actualVisitorCount,
         }),
       });
@@ -697,8 +847,8 @@ export function CheckoutPage() {
         },
         body: JSON.stringify({
           tenant_id: tenant.id,
-          service_id: service.id,
-          slot_id: slot.id,
+          service_id: service!.id,
+          slot_id: slot!.id,
           customer_name: customerInfo.name,
           customer_email: customerInfo.email || null,
           customer_phone: customerPhoneFull || `${countryCode}${customerInfo.phone}`, // Use full phone number
@@ -728,8 +878,8 @@ export function CheckoutPage() {
         },
       });
     } catch (error: any) {
-      console.error('Error creating booking:', error);
-      alert(error.message || 'Failed to complete booking. Please try again.');
+      console.error('Error creating booking/subscription:', error);
+      alert(error.message || 'Failed to complete purchase. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -746,22 +896,44 @@ export function CheckoutPage() {
     );
   }
 
-  if (!service || !slot || !tenant) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900">Booking information not found</h1>
-          <p className="text-gray-600 mt-2">Please select a service and time slot again.</p>
-          <Button
-            onClick={() => navigate(`/${tenantSlug}/book`)}
-            className="mt-4"
-            style={{ backgroundColor: primaryColor }}
-          >
-            Go Back
-          </Button>
+  // For package purchase, only tenant and servicePackage are required
+  // For regular booking, service, slot, and tenant are required
+  if (isPackagePurchase) {
+    if (!servicePackage || !tenant) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-gray-900">{i18n.language === 'ar' ? 'معلومات الحزمة غير موجودة' : 'Package information not found'}</h1>
+            <p className="text-gray-600 mt-2">{i18n.language === 'ar' ? 'يرجى اختيار حزمة مرة أخرى' : 'Please select a package again.'}</p>
+            <Button
+              onClick={() => navigate(`/${tenantSlug}/book`)}
+              className="mt-4"
+              style={{ backgroundColor: primaryColor }}
+            >
+              {i18n.language === 'ar' ? 'العودة' : 'Go Back'}
+            </Button>
+          </div>
         </div>
-      </div>
-    );
+      );
+    }
+  } else {
+    if (!service || !slot || !tenant) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-gray-900">{i18n.language === 'ar' ? 'معلومات الحجز غير موجودة' : 'Booking information not found'}</h1>
+            <p className="text-gray-600 mt-2">{i18n.language === 'ar' ? 'يرجى اختيار خدمة ووقت مرة أخرى' : 'Please select a service and time slot again.'}</p>
+            <Button
+              onClick={() => navigate(`/${tenantSlug}/book`)}
+              className="mt-4"
+              style={{ backgroundColor: primaryColor }}
+            >
+              {i18n.language === 'ar' ? 'العودة' : 'Go Back'}
+            </Button>
+          </div>
+        </div>
+      );
+    }
   }
 
   return (
@@ -837,17 +1009,17 @@ export function CheckoutPage() {
               <CardContent className="space-y-4">
                 {/* Service/Package Name */}
                 <div className="flex items-start gap-4">
-                  {(servicePackage?.image_url || servicePackage?.gallery_urls?.[0] || service.image_url) && (
+                  {(servicePackage?.image_url || servicePackage?.gallery_urls?.[0] || service?.image_url) && (
                     <img
                       src={
                         servicePackage?.image_url || 
                         servicePackage?.gallery_urls?.[0] || 
-                        service.image_url
+                        service?.image_url
                       }
                       alt={
                         servicePackage 
                           ? (i18n.language === 'ar' ? servicePackage.name_ar : servicePackage.name)
-                          : (i18n.language === 'ar' ? service.name_ar : service.name)
+                          : (i18n.language === 'ar' ? service?.name_ar : service?.name) || ''
                       }
                       className="w-20 h-20 rounded-lg object-cover"
                     />
@@ -858,7 +1030,7 @@ export function CheckoutPage() {
                         ? formatPackageName(servicePackage, i18n.language)
                         : selectedOffer
                         ? (i18n.language === 'ar' ? selectedOffer.name_ar || selectedOffer.name : selectedOffer.name)
-                        : (i18n.language === 'ar' ? service.name_ar : service.name)
+                        : (i18n.language === 'ar' ? service?.name_ar : service?.name) || ''
                       }
                     </h3>
                     {servicePackage && (
@@ -866,7 +1038,7 @@ export function CheckoutPage() {
                         {i18n.language === 'ar' ? servicePackage.name_ar : servicePackage.name}
                       </p>
                     )}
-                    {!servicePackage && selectedOffer && (
+                    {!servicePackage && selectedOffer && service && (
                       <p className="text-sm text-gray-500 mt-1">
                         {i18n.language === 'ar' ? service.name_ar : service.name}
                       </p>
@@ -874,27 +1046,55 @@ export function CheckoutPage() {
                   </div>
                 </div>
 
-                {/* Date & Time */}
-                <div className="grid grid-cols-2 gap-4 pt-4 border-t">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-gray-500" />
-                    <div>
-                      <p className="text-xs text-gray-500">{t('checkout.date')}</p>
-                      <p className="text-sm font-medium text-gray-900">
-                        {format(new Date(bookingData.date), 'EEEE, MMMM d, yyyy')}
-                      </p>
+                {/* Date & Time - Only show for regular bookings, not package purchases */}
+                {!isPackagePurchase && bookingData && slot && (
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-gray-500" />
+                      <div>
+                        <p className="text-xs text-gray-500">{t('checkout.date')}</p>
+                        <p className="text-sm font-medium text-gray-900">
+                          {format(new Date(bookingData.date), 'EEEE, MMMM d, yyyy')}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-gray-500" />
+                      <div>
+                        <p className="text-xs text-gray-500">{t('checkout.time')}</p>
+                        <p className="text-sm font-medium text-gray-900">
+                          {slot.start_time} - {slot.end_time}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-gray-500" />
-                    <div>
-                      <p className="text-xs text-gray-500">{t('checkout.time')}</p>
-                      <p className="text-sm font-medium text-gray-900">
-                        {slot.start_time} - {slot.end_time}
-                      </p>
-                    </div>
+                )}
+
+                {/* Package Info - Only show for package purchases */}
+                {isPackagePurchase && servicePackage && (
+                  <div className="pt-4 border-t">
+                    <p className="text-sm text-gray-600 mb-2">
+                      {i18n.language === 'ar' ? 'بعد الشراء، يمكنك حجز الخدمات في أي وقت متاح' : 'After purchase, you can book services at any available time'}
+                    </p>
+                    {servicePackage.services && servicePackage.services.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-xs text-gray-500 mb-2">
+                          {i18n.language === 'ar' ? 'الخدمات المشمولة:' : 'Included Services:'}
+                        </p>
+                        <ul className="list-disc list-inside space-y-1">
+                          {servicePackage.services.map((svc, idx) => (
+                            <li key={idx} className="text-sm text-gray-700">
+                              {i18n.language === 'ar' ? svc.service_name_ar : svc.service_name}
+                              <span className="text-gray-500 ml-1">
+                                ({svc.quantity} {i18n.language === 'ar' ? 'حجز' : 'booking(s)'})
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
 
               </CardContent>
             </Card>

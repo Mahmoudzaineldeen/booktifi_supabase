@@ -341,13 +341,21 @@ router.post('/insert/:table', async (req, res) => {
         ignoreDuplicates: false 
       });
     } else {
-      query = supabase.from(table).insert(records);
-
-    // Handle ON CONFLICT based on table
-    if (table === 'package_services') {
-      query = query.ignoreDuplicates();
-    } else if (table === 'employee_services') {
-      query = query.ignoreDuplicates();
+      // Handle ON CONFLICT based on table using upsert with ignoreDuplicates
+      if (table === 'package_services') {
+        // Use upsert with ignoreDuplicates to handle duplicate (package_id, service_id) pairs
+        query = supabase.from(table).upsert(records, { 
+          onConflict: 'package_id,service_id',
+          ignoreDuplicates: true 
+        });
+      } else if (table === 'employee_services') {
+        // Use upsert with ignoreDuplicates to handle duplicate (employee_id, service_id) pairs
+        query = supabase.from(table).upsert(records, { 
+          onConflict: 'employee_id,service_id',
+          ignoreDuplicates: true 
+        });
+      } else {
+        query = supabase.from(table).insert(records);
       }
     }
 

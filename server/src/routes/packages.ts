@@ -393,4 +393,141 @@ router.put('/:id', authenticateTenantAdmin, async (req, res) => {
   }
 });
 
+// ============================================================================
+// Create Package Subscription (Customer Purchase)
+// ============================================================================
+router.post('/subscriptions', async (req, res) => {
+  try {
+    const {
+      tenant_id,
+      package_id,
+      customer_id,
+      customer_name,
+      customer_phone,
+      customer_email,
+      total_price,
+    } = req.body;
+
+    // Validation
+    if (!tenant_id || !package_id) {
+      return res.status(400).json({ error: 'Tenant ID and Package ID are required' });
+    }
+
+    if (!customer_id && (!customer_name || !customer_phone)) {
+      return res.status(400).json({ error: 'Customer ID or customer name and phone are required' });
+    }
+
+    // Verify package exists and belongs to tenant
+    const { data: packageData, error: packageError } = await supabase
+      .from('service_packages')
+      .select('id, tenant_id, total_price')
+      .eq('id', package_id)
+      .eq('tenant_id', tenant_id)
+      .eq('is_active', true)
+      .single();
+
+    if (packageError || !packageData) {
+      return res.status(404).json({ error: 'Package not found or inactive' });
+    }
+
+    // Verify price matches
+    if (total_price !== packageData.total_price) {
+      return res.status(400).json({ error: 'Price mismatch' });
+    }
+
+    let finalCustomerId = customer_id;
+
+    // Create customer if customer_id not provided
+    if (!finalCustomerId) {
+      // Check if customer exists by phone
+      const { data: existingCustomer } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('tenant_id', tenant_id)
+        .eq('phone', customer_phone)
+        .maybeSingle();
+
+      if (existingCustomer) {
+        finalCustomerId = existingCustomer.id;
+      } else {
+        // Create new customer
+        const { data: newCustomer, error: customerError } = await supabase
+          .from('customers')
+          .insert({
+            tenant_id,
+            name: customer_name,
+            phone: customer_phone,
+            email: customer_email || null,
+          })
+          .select()
+          .single();
+
+        if (customerError || !newCustomer) {
+          return res.status(500).json({ 
+            error: 'Failed to create customer',
+            details: customerError?.message 
+          });
+        }
+
+        finalCustomerId = newCustomer.id;
+      }
+    }
+
+    // Get package services to calculate total capacity
+    const { data: packageServices, error: servicesError } = await supabase
+      .from('package_services')
+      .select('service_id, capacity_total')
+      .eq('package_id', package_id);
+
+    if (servicesError) {
+      return res.status(500).json({ 
+        error: 'Failed to fetch package services',
+        details: servicesError.message 
+      });
+    }
+
+    // Calculate total capacity (sum of all service capacities)
+    const totalCapacity = packageServices?.reduce((sum, ps) => sum + (ps.capacity_total || 1), 0) || 0;
+
+    // Create package subscription
+    const { data: subscription, error: subscriptionError } = await supabase
+      .from('package_subscriptions')
+      .insert({
+        tenant_id,
+        package_id,
+        customer_id: finalCustomerId,
+        total_quantity: totalCapacity,
+        remaining_quantity: totalCapacity,
+        is_active: true,
+      })
+      .select()
+      .single();
+
+    if (subscriptionError) {
+      console.error('[Create Subscription] Error:', subscriptionError);
+      return res.status(500).json({ 
+        error: 'Failed to create package subscription',
+        details: subscriptionError.message 
+      });
+    }
+
+    // Initialize package usage records (trigger should handle this, but ensure it exists)
+    // The trigger initialize_package_usage() should create package_subscription_usage records
+
+    res.status(201).json({
+      success: true,
+      message: 'Package subscription created successfully',
+      subscription,
+    });
+
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Create package subscription error', error, context);
+    res.status(500).json({ 
+      error: error.message || 'Internal server error',
+      details: 'An unexpected error occurred while creating the package subscription'
+    });
+  }
+});
+
 export { router as packageRoutes };

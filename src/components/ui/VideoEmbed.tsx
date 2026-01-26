@@ -8,6 +8,8 @@ interface VideoEmbedProps {
 }
 
 export function VideoEmbed({ url, className = '', aspectRatio = '16:9' }: VideoEmbedProps) {
+  const { t } = useTranslation();
+  
   if (!url || typeof url !== 'string') {
     return null;
   }

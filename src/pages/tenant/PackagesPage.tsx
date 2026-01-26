@@ -638,7 +638,7 @@ export function PackagesPage() {
 
       const { data: packageServices, error: servicesError } = await db
       .from('package_services')
-      .select('service_id, quantity')
+      .select('service_id, capacity_total')
       .eq('package_id', pkg.id);
 
       if (servicesError) {
