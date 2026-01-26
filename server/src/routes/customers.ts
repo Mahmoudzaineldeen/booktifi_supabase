@@ -308,6 +308,8 @@ router.get('/packages', authenticate, async (req, res) => {
     const userId = req.user!.id;
     const tenantId = req.user!.tenant_id;
 
+    console.log('[Get Packages] Fetching packages for user:', userId, 'tenant:', tenantId);
+
     // Get customer record - customer_id in package_subscriptions references customers.id
     // We need to find the customer by user_id
     const { data: customerData, error: customerError } = await supabase
@@ -318,39 +320,36 @@ router.get('/packages', authenticate, async (req, res) => {
       .maybeSingle();
 
     if (customerError) {
-      console.error('Error fetching customer:', customerError);
-      return res.status(500).json({ error: 'Failed to fetch customer data' });
+      console.error('[Get Packages] Error fetching customer:', customerError);
+      console.error('[Get Packages] Error details:', {
+        code: customerError.code,
+        message: customerError.message,
+        details: customerError.details,
+        hint: customerError.hint
+      });
+      return res.status(500).json({ 
+        error: 'Failed to fetch customer data',
+        details: customerError.message || customerError.error
+      });
     }
 
     if (!customerData) {
+      console.log('[Get Packages] No customer record found for user:', userId);
       // No customer record means no packages - return empty array
       return res.json([]);
     }
+
+    console.log('[Get Packages] Customer ID:', customerData.id);
 
     // Fetch package subscriptions - try new schema first, fallback to old schema
     let subscriptions: any[] = [];
     let subscriptionsError: any = null;
 
     // Try new schema first (with total_quantity, remaining_quantity, is_active)
-    const newSchemaQuery = supabase
+    // Start with a simple query to test if columns exist
+    let newSchemaQuery = supabase
       .from('package_subscriptions')
-      .select(`
-        id,
-        package_id,
-        total_quantity,
-        remaining_quantity,
-        is_active,
-        created_at,
-        service_packages:package_id (
-          id,
-          name,
-          name_ar,
-          description,
-          description_ar,
-          total_price,
-          image_url
-        )
-      `)
+      .select('id, package_id, total_quantity, remaining_quantity, is_active, created_at')
       .eq('customer_id', customerData.id)
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
@@ -360,51 +359,104 @@ router.get('/packages', authenticate, async (req, res) => {
     subscriptions = newSchemaResult.data || [];
     subscriptionsError = newSchemaResult.error;
 
+    // If basic query succeeded, fetch package details separately
+    if (!subscriptionsError && subscriptions.length > 0) {
+      const packageIds = subscriptions.map((s: any) => s.package_id);
+      const { data: packageDetails, error: packageError } = await supabase
+        .from('service_packages')
+        .select('id, name, name_ar, description, description_ar, total_price, image_url')
+        .in('id', packageIds);
+
+      if (!packageError && packageDetails) {
+        // Merge package details into subscriptions
+        subscriptions = subscriptions.map((sub: any) => {
+          const pkg = packageDetails.find((p: any) => p.id === sub.package_id);
+          return {
+            ...sub,
+            service_packages: pkg || null
+          };
+        });
+      }
+    }
+
+    console.log('[Get Packages] New schema query result:', {
+      hasData: !!subscriptions,
+      dataLength: subscriptions.length,
+      hasError: !!subscriptionsError,
+      errorCode: subscriptionsError?.code,
+      errorMessage: subscriptionsError?.message
+    });
+
     // If new schema fails due to missing columns, try old schema
     if (subscriptionsError && (
       (subscriptionsError.message?.includes('column') || 
-       subscriptionsError.code === '42703') && 
+       subscriptionsError.code === '42703' ||
+       subscriptionsError.code === 'PGRST116') && 
       (subscriptionsError.message?.includes('total_quantity') || 
        subscriptionsError.message?.includes('remaining_quantity') ||
        subscriptionsError.message?.includes('is_active') ||
        subscriptionsError.message?.includes('does not exist'))
     )) {
       console.warn('[Get Packages] New schema columns not found, trying old schema...');
+      console.warn('[Get Packages] Error was:', subscriptionsError.message);
       
-      const oldSchemaResult = await supabase
+      // Try old schema with simple query first
+      const oldSchemaSimpleResult = await supabase
         .from('package_subscriptions')
-        .select(`
-          id,
-          package_id,
-          status,
-          subscribed_at,
-          created_at,
-          service_packages:package_id (
-            id,
-            name,
-            name_ar,
-            description,
-            description_ar,
-            total_price,
-            image_url
-          )
-        `)
+        .select('id, package_id, status, subscribed_at, created_at')
         .eq('customer_id', customerData.id)
         .eq('tenant_id', tenantId)
         .eq('status', 'active')
         .order('created_at', { ascending: false });
 
-      subscriptions = oldSchemaResult.data || [];
-      subscriptionsError = oldSchemaResult.error;
+      subscriptions = oldSchemaSimpleResult.data || [];
+      subscriptionsError = oldSchemaSimpleResult.error;
+      
+      // If basic query succeeded, fetch package details separately
+      if (!subscriptionsError && subscriptions.length > 0) {
+        const packageIds = subscriptions.map((s: any) => s.package_id);
+        const { data: packageDetails, error: packageError } = await supabase
+          .from('service_packages')
+          .select('id, name, name_ar, description, description_ar, total_price, image_url')
+          .in('id', packageIds);
+
+        if (!packageError && packageDetails) {
+          // Merge package details into subscriptions
+          subscriptions = subscriptions.map((sub: any) => {
+            const pkg = packageDetails.find((p: any) => p.id === sub.package_id);
+            return {
+              ...sub,
+              service_packages: pkg || null
+            };
+          });
+        }
+      }
+      
+      console.log('[Get Packages] Old schema query result:', {
+        hasData: !!subscriptions,
+        dataLength: subscriptions.length,
+        hasError: !!subscriptionsError,
+        errorCode: subscriptionsError?.code,
+        errorMessage: subscriptionsError?.message
+      });
     }
 
     if (subscriptionsError) {
-      console.error('Error fetching subscriptions:', subscriptionsError);
+      console.error('[Get Packages] Error fetching subscriptions:', subscriptionsError);
+      console.error('[Get Packages] Error details:', {
+        code: subscriptionsError.code,
+        message: subscriptionsError.message,
+        details: subscriptionsError.details,
+        hint: subscriptionsError.hint
+      });
       return res.status(500).json({ 
         error: 'Failed to fetch package subscriptions',
-        details: subscriptionsError.message || subscriptionsError.error
+        details: subscriptionsError.message || subscriptionsError.error,
+        code: subscriptionsError.code
       });
     }
+
+    console.log('[Get Packages] Found', subscriptions.length, 'subscriptions');
 
     // Fetch usage data for each subscription
     const subscriptionsWithUsage = await Promise.all(
@@ -479,10 +531,17 @@ router.get('/packages', authenticate, async (req, res) => {
       })
     );
 
+    console.log('[Get Packages] Returning', subscriptionsWithUsage.length, 'packages with usage data');
     res.json(subscriptionsWithUsage);
   } catch (error: any) {
-    console.error('Error fetching customer packages:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    console.error('[Get Packages] Unexpected error:', error);
+    console.error('[Get Packages] Error stack:', error.stack);
+    console.error('[Get Packages] Error name:', error.name);
+    res.status(500).json({ 
+      error: error.message || 'Internal server error',
+      type: error.name || 'UnknownError',
+      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+    });
   }
 });
 
