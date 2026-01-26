@@ -30,7 +30,7 @@ interface PackageService {
   id: string;
   package_id: string;
   service_id: string;
-  quantity: number; // Keep for backward compatibility with subscriptions
+  capacity_total: number; // Total capacity (number of booking tickets) for this service in the package
   services: {
     name: string;
     name_ar: string;
@@ -68,7 +68,7 @@ export function PackagesPage() {
     image_url: '',
     gallery_urls: [] as string[],
     is_active: true,
-    selectedServices: [] as Array<{ service_id: string; quantity: number }>
+    selectedServices: [] as Array<{ service_id: string; capacity_total: number }>
   });
 
 
@@ -123,7 +123,10 @@ export function PackagesPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [packageForm.selectedServices.map(s => s.service_id).join(','), services.length]);
+  }, [
+    packageForm.selectedServices.map(s => `${s.service_id || ''}:${s.capacity_total || 1}`).join(','), 
+    services.length
+  ]);
 
   async function fetchPackages() {
     if (!userProfile?.tenant_id) {
@@ -176,18 +179,21 @@ export function PackagesPage() {
   }
 
 
-  // Calculate total price from selected services (quantity is always 1)
+  // Calculate total price from selected services (price * capacity for each service)
   function calculateTotalPrice(): number {
     let total = 0;
     packageForm.selectedServices.forEach(selected => {
-      if (!selected.service_id || selected.service_id.trim() === '') {
+      if (!selected.service_id || (typeof selected.service_id === 'string' && selected.service_id.trim() === '')) {
         return; // Skip empty selections
       }
-      const service = services.find(s => s.id === selected.service_id);
+      const serviceId = typeof selected.service_id === 'string' ? selected.service_id : String(selected.service_id);
+      const service = services.find(s => s.id === serviceId);
       if (service && service.base_price) {
         const basePrice = parseFloat(String(service.base_price)) || 0;
+        const capacity = selected.capacity_total || 1; // Default to 1 if not set
         if (typeof basePrice === 'number' && !isNaN(basePrice) && isFinite(basePrice) && basePrice > 0) {
-          total += basePrice; // quantity always 1
+          // Multiply price by capacity (number of booking tickets)
+          total += basePrice * capacity;
         }
       }
     });
@@ -225,9 +231,11 @@ export function PackagesPage() {
       return;
     }
 
-    // Require at least 2 services
-    if (packageForm.selectedServices.length < 2) {
-      alert(t('packages.selectAtLeastTwoServices') || 'Please select at least 2 services for the package');
+    // Require at least 1 service
+    if (packageForm.selectedServices.length < 1) {
+      alert(i18n.language === 'ar' 
+        ? 'يرجى اختيار خدمة واحدة على الأقل للحزمة' 
+        : 'Please select at least 1 service for the package');
       return;
     }
 
@@ -354,11 +362,13 @@ export function PackagesPage() {
           return;
         }
 
-      // Insert new package services
-      const packageServices = packageForm.selectedServices.map(s => ({
-        package_id: editingPackage.id,
+      // Insert new package services with capacity_total
+      const packageServices = packageForm.selectedServices
+        .filter(s => s.service_id && s.service_id.trim() !== '')
+        .map(s => ({
+          package_id: editingPackage.id,
           service_id: s.service_id.trim(),
-          quantity: 1 // Always 1
+          capacity_total: s.capacity_total || 5 // Default to 5 if not set
         }));
 
         // Validate service IDs before insertion (for update)
@@ -423,8 +433,13 @@ export function PackagesPage() {
         const API_URL = getApiUrl();
         const token = localStorage.getItem('auth_token');
         
-        // Extract service IDs from selected services
-        const serviceIds = packageForm.selectedServices.map(s => s.service_id.trim());
+        // Extract service data with capacity from selected services
+        const serviceData = packageForm.selectedServices
+          .filter(s => s.service_id && s.service_id.trim() !== '')
+          .map(s => ({
+            service_id: s.service_id.trim(),
+            capacity_total: s.capacity_total || 5 // Default to 5 if not set
+          }));
         
         try {
           const response = await fetch(`${API_URL}/packages`, {
@@ -435,7 +450,7 @@ export function PackagesPage() {
             },
             body: JSON.stringify({
               ...packagePayload,
-              service_ids: serviceIds,
+              services: serviceData, // Send full service data with capacity
             }),
           });
 
@@ -615,7 +630,7 @@ export function PackagesPage() {
 
       console.log('Valid package services:', validPackageServices);
 
-      // Calculate original_price from selected services (quantity is always 1)
+      // Calculate original_price from selected services (price * capacity for each service)
       const calculatedOriginalPrice = validPackageServices.reduce((sum, ps) => {
         const service = services.find(s => s.id === ps.service_id);
         if (!service) {
@@ -623,8 +638,10 @@ export function PackagesPage() {
           return sum;
         }
         const basePrice = service.base_price || 0;
+        const capacity = ps.capacity_total || 1; // Default to 1 if not set
         const validPrice = typeof basePrice === 'number' && !isNaN(basePrice) && isFinite(basePrice) ? basePrice : 0;
-        return sum + validPrice; // quantity always 1
+        // Multiply price by capacity (number of booking tickets)
+        return sum + (validPrice * capacity);
       }, 0);
 
       console.log('Calculated original price:', calculatedOriginalPrice);
@@ -653,7 +670,7 @@ export function PackagesPage() {
       // Ensure selectedServices have valid structure
       const formattedSelectedServices = validPackageServices.map(ps => ({
         service_id: ps.service_id,
-        quantity: ps.quantity || 1
+        capacity_total: ps.capacity_total || 5 // Default to 5 if not set
       }));
 
       // Ensure all numeric values are valid
@@ -716,7 +733,7 @@ export function PackagesPage() {
   function addServiceToPackage() {
     setPackageForm(prev => ({
       ...prev,
-      selectedServices: [...prev.selectedServices, { service_id: '', quantity: 1 }] // quantity always 1, not shown in UI
+      selectedServices: [...prev.selectedServices, { service_id: '', capacity_total: 5 }] // Default capacity: 5 bookings
       // Note: original_price will be updated when the service is selected via updateServiceInPackage
     }));
   }
@@ -728,18 +745,21 @@ export function PackagesPage() {
       selectedServices: prev.selectedServices.filter((_, i) => i !== index)
       };
       
-      // Recalculate original_price after removing a service
+      // Recalculate original_price after removing a service (price * capacity for each service)
       const calculatedTotal = updated.selectedServices.reduce((sum, selected) => {
-        if (!selected.service_id || selected.service_id.trim() === '') {
+        const serviceId = typeof selected.service_id === 'string' ? selected.service_id : String(selected.service_id || '');
+        if (!serviceId || serviceId.trim() === '') {
           return sum;
         }
-        const service = services.find(s => s.id === selected.service_id);
+        const service = services.find(s => s.id === serviceId);
         if (!service) {
           return sum;
         }
         const basePrice = service.base_price || 0;
+        const capacity = selected.capacity_total || 1; // Default to 1 if not set
         if (typeof basePrice === 'number' && !isNaN(basePrice) && isFinite(basePrice) && basePrice > 0) {
-          return sum + basePrice;
+          // Multiply price by capacity (number of booking tickets)
+          return sum + (basePrice * capacity);
         }
         return sum;
       }, 0);
@@ -770,27 +790,36 @@ export function PackagesPage() {
     });
   }
 
-  function updateServiceInPackage(index: number, field: 'service_id', value: string) {
+  function updateServiceInPackage(index: number, field: 'service_id' | 'capacity_total', value: string | number) {
     setPackageForm(prev => {
       const updated = {
       ...prev,
       selectedServices: prev.selectedServices.map((s, i) =>
-          i === index ? { ...s, [field]: value.trim() } : s
+          i === index ? { 
+            ...s, 
+            [field]: field === 'service_id' 
+              ? (typeof value === 'string' ? value.trim() : String(value).trim())
+              : (typeof value === 'number' ? value : parseInt(String(value), 10) || 5)
+          } : s
         )
       };
       
-      // Auto-calculate total price from all selected services (quantity is always 1)
+      // Auto-calculate total price from all selected services (when service_id OR capacity_total changes)
+      // Price = sum of (service_price * capacity) for each service
       const calculatedTotal = updated.selectedServices.reduce((sum, selected) => {
-        if (!selected.service_id || selected.service_id.trim() === '') {
+        const serviceId = typeof selected.service_id === 'string' ? selected.service_id : String(selected.service_id || '');
+        if (!serviceId || serviceId.trim() === '') {
           return sum; // Skip empty service selections
         }
-        const service = services.find(s => s.id === selected.service_id);
+        const service = services.find(s => s.id === serviceId);
         if (!service) {
           return sum; // Skip if service not found
         }
         const basePrice = service.base_price || 0;
+        const capacity = selected.capacity_total || 1; // Default to 1 if not set
         if (typeof basePrice === 'number' && !isNaN(basePrice) && isFinite(basePrice) && basePrice > 0) {
-          return sum + basePrice; // quantity always 1
+          // Multiply price by capacity (number of booking tickets)
+          return sum + (basePrice * capacity);
         }
         return sum;
       }, 0);
@@ -800,7 +829,7 @@ export function PackagesPage() {
         ? calculatedTotal 
         : 0;
       
-      // Always update original_price to be the sum of all services
+      // Always update original_price to be the sum of all services (price * capacity)
       updated.original_price = validTotal;
       
       // If total_price was equal to old original_price, update it to new calculated total
@@ -809,7 +838,7 @@ export function PackagesPage() {
       const prevTotalPrice = prev.total_price || 0;
       if (prevTotalPrice === oldOriginalPrice || prevTotalPrice === 0) {
         updated.total_price = validTotal;
-    } else {
+      } else {
         // Ensure total_price is still valid
         updated.total_price = typeof prev.total_price === 'number' && !isNaN(prev.total_price) && isFinite(prev.total_price)
           ? prev.total_price
@@ -1322,21 +1351,35 @@ export function PackagesPage() {
             </div>
           </div>
 
-          {/* Services Selection - Require at least 2 services */}
+          {/* Services Selection - Require at least 1 service */}
           <div className="bg-gray-50 rounded-lg p-4">
             <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
               <Package className="w-5 h-5 text-blue-600" />
               {t('packages.includedServices')} *
             </h3>
-            {packageForm.selectedServices.length < 2 && (
+            <p className="text-sm text-gray-600 mb-4">
+              {i18n.language === 'ar' 
+                ? 'أضف خدمة واحدة على الأقل مع تحديد السعة (عدد الحجوزات) لكل خدمة' 
+                : 'Add at least 1 service and specify the capacity (number of bookings) for each service'}
+            </p>
+            {packageForm.selectedServices.length < 1 && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
                 <p className="text-sm text-amber-800 flex items-center gap-2">
                   <span className="text-amber-600">⚠</span>
-                  {t('packages.selectAtLeastTwoServices') || 'Please select at least 2 services'}
+                  {i18n.language === 'ar' 
+                    ? 'يرجى إضافة خدمة واحدة على الأقل' 
+                    : 'Please add at least 1 service'}
                 </p>
               </div>
             )}
             <div className="space-y-3 mb-4">
+              {packageForm.selectedServices.length === 0 && (
+                <div className="text-center py-4 text-gray-500 text-sm">
+                  {i18n.language === 'ar' 
+                    ? 'انقر على "إضافة خدمة" لإضافة خدمة إلى الحزمة' 
+                    : 'Click "Add Service" to add a service to the package'}
+                </div>
+              )}
               {packageForm.selectedServices.map((selected, index) => {
                 if (!selected) {
                   console.warn('Invalid selected service at index:', index);
@@ -1344,53 +1387,100 @@ export function PackagesPage() {
                 }
                 const selectedService = services.find(s => s.id === selected.service_id);
                 return (
-                  <div key={`${selected.service_id || 'new'}-${index}`} className="flex gap-2 items-center bg-white p-3 rounded-lg border border-gray-200 hover:border-blue-300 transition-colors">
-                  <select
-                      value={selected.service_id || ''}
-                    onChange={(e) => updateServiceInPackage(index, 'service_id', e.target.value)}
-                    className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
-                    required
-                  >
-                    <option value="">{t('packages.selectService')}</option>
-                      {services && services.length > 0 ? (
-                        services
-                          .filter(service => 
-                            // Don't show services that are already selected (unless it's the current one)
-                            selected.service_id === service.id || 
-                            !packageForm.selectedServices.some(s => s.service_id === service.id && s.service_id !== selected.service_id)
-                          )
-                          .map(service => (
-                      <option key={service.id} value={service.id}>
-                              {i18n.language === 'ar' ? service.name_ar : service.name} - {formatPriceString(service.base_price || 0)}
-                      </option>
-                          ))
-                      ) : (
-                        <option value="" disabled>{i18n.language === 'ar' ? 'لا توجد خدمات متاحة' : 'No services available'}</option>
+                  <div key={`${selected.service_id || 'new'}-${index}`} className="flex gap-2 items-start bg-white p-3 rounded-lg border border-gray-200 hover:border-blue-300 transition-colors">
+                    {/* Service Selection */}
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-600 font-medium mb-1">
+                        {i18n.language === 'ar' ? 'الخدمة' : 'Service'}
+                      </label>
+                      <select
+                        value={selected.service_id || ''}
+                        onChange={(e) => updateServiceInPackage(index, 'service_id', e.target.value)}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
+                        required
+                      >
+                        <option value="">{t('packages.selectService') || 'Select Service'}</option>
+                        {services && services.length > 0 ? (
+                          services
+                            .filter(service => 
+                              // Don't show services that are already selected (unless it's the current one)
+                              selected.service_id === service.id || 
+                              !packageForm.selectedServices.some(s => s.service_id === service.id && s.service_id !== selected.service_id)
+                            )
+                            .map(service => (
+                              <option key={service.id} value={service.id}>
+                                {i18n.language === 'ar' ? service.name_ar : service.name} - {formatPriceString(service.base_price || 0)}
+                              </option>
+                            ))
+                        ) : (
+                          <option value="" disabled>{i18n.language === 'ar' ? 'لا توجد خدمات متاحة' : 'No services available'}</option>
+                        )}
+                      </select>
+                      {selected.service_id && !selectedService && (
+                        <span className="text-xs text-red-500 mt-1 block">
+                          {i18n.language === 'ar' ? 'خدمة غير موجودة' : 'Service not found'}
+                        </span>
                       )}
-                  </select>
-                    {selected.service_id && !selectedService && (
-                      <span className="text-xs text-red-500 self-center px-2 whitespace-nowrap">
-                        {i18n.language === 'ar' ? 'خدمة غير موجودة' : 'Service not found'}
-                      </span>
-                    )}
-                  {selectedService && (
-                    <div className="px-3 py-2 bg-blue-50 rounded-lg border border-blue-200 min-w-[120px] text-center">
-                      <span className="text-sm font-semibold text-blue-700">
-                        {formatPrice(selectedService.base_price || 0)}
-                      </span>
                     </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => removeServiceFromPackage(index)}
-                    className="px-3 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg border border-red-200 transition-colors flex items-center justify-center min-w-[40px]"
-                    title={i18n.language === 'ar' ? 'حذف الخدمة' : 'Remove service'}
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              );
-            })}
+                    
+                    {/* Price Display */}
+                    {selectedService && (
+                      <div className="min-w-[140px]">
+                        <label className="block text-xs text-gray-600 font-medium mb-1">
+                          {i18n.language === 'ar' ? 'السعر' : 'Price'}
+                        </label>
+                        <div className="px-3 py-2 bg-blue-50 rounded-lg border border-blue-200 text-center">
+                          <div className="text-sm font-semibold text-blue-700">
+                            {formatPrice(selectedService.base_price || 0)}
+                          </div>
+                          {selected.capacity_total && selected.capacity_total > 1 && (
+                            <div className="text-xs text-gray-600 mt-1">
+                              × {selected.capacity_total} = {formatPrice((selectedService.base_price || 0) * (selected.capacity_total || 1))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Capacity field - ALWAYS VISIBLE */}
+                    <div className="min-w-[120px]">
+                      <label className="block text-xs text-gray-600 font-medium mb-1">
+                        {i18n.language === 'ar' ? 'السعة (عدد الحجوزات)' : 'Capacity (Bookings)'} *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={selected.capacity_total || 5}
+                        onChange={(e) => {
+                          const capacity = parseInt(e.target.value, 10);
+                          if (!isNaN(capacity) && capacity > 0 && capacity <= 100) {
+                            updateServiceInPackage(index, 'capacity_total', capacity);
+                          }
+                        }}
+                        className="w-full px-3 py-2.5 text-sm border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium"
+                        title={i18n.language === 'ar' ? 'عدد الحجوزات المتاحة لهذه الخدمة في الحزمة' : 'Number of booking tickets available for this service in the package'}
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        {i18n.language === 'ar' ? 'عدد التذاكر' : 'tickets'}
+                      </p>
+                    </div>
+                    
+                    {/* Remove Button */}
+                    <div className="flex items-end">
+                      <button
+                        type="button"
+                        onClick={() => removeServiceFromPackage(index)}
+                        className="px-3 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg border border-red-200 transition-colors flex items-center justify-center min-w-[40px] h-[42px]"
+                        title={i18n.language === 'ar' ? 'حذف الخدمة' : 'Remove service'}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           
           <Button 

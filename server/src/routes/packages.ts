@@ -50,6 +50,7 @@ function authenticateTenantAdmin(req: express.Request, res: express.Response, ne
 
 // ============================================================================
 // Create Package (Atomic Transaction)
+// NOTE: Minimum requirement is 1 service (updated from 2 services)
 // ============================================================================
 router.post('/', authenticateTenantAdmin, async (req, res) => {
   try {
@@ -65,7 +66,8 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       image_url,
       gallery_urls,
       is_active = true,
-      service_ids, // Array of service IDs to include in package
+      service_ids, // Array of service IDs (backward compatibility)
+      services, // Array of { service_id, capacity_total } objects (new format)
     } = req.body;
 
     // Validation
@@ -77,12 +79,38 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Package name in Arabic is required' });
     }
 
-    if (!Array.isArray(service_ids) || service_ids.length < 2) {
+    // Support both old format (service_ids) and new format (services with capacity)
+    // NOTE: Minimum requirement is 1 service (changed from 2)
+    let serviceData: Array<{ service_id: string; capacity_total: number }> = [];
+    
+    if (services && Array.isArray(services) && services.length > 0) {
+      // New format: services array with capacity_total
+      serviceData = services.map((s: any) => ({
+        service_id: typeof s === 'string' ? s : s.service_id,
+        capacity_total: typeof s === 'object' && s.capacity_total ? s.capacity_total : 5
+      }));
+    } else if (service_ids && Array.isArray(service_ids) && service_ids.length > 0) {
+      // Old format: just service IDs (backward compatibility)
+      serviceData = service_ids.map((id: string) => ({
+        service_id: id,
+        capacity_total: 5 // Default capacity
+      }));
+    }
+
+    // Validate: Require at least 1 service (minimum changed from 2 to 1)
+    console.log('[Create Package] Service data count:', serviceData.length);
+    if (serviceData.length < 1) {
+      console.log('[Create Package] Validation failed: Need at least 1 service, got:', serviceData.length);
       return res.status(400).json({ 
-        error: 'At least 2 services are required for a package',
-        hint: 'Please select at least 2 services'
+        error: 'At least 1 service is required for a package',
+        hint: 'Please select at least 1 service'
       });
     }
+    
+    // Log for debugging
+    console.log('[Create Package] ✅ Validation passed: Package will be created with', serviceData.length, 'service(s)');
+
+    const serviceIds = serviceData.map(s => s.service_id);
 
     if (typeof total_price !== 'number' || total_price < 0) {
       return res.status(400).json({ error: 'Total price must be a non-negative number' });
@@ -154,11 +182,11 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       return res.status(500).json({ error: 'Package creation failed - no ID returned' });
     }
 
-    // Create package_services entries
-    const packageServices = service_ids.map((serviceId: string) => ({
+    // Create package_services entries with capacity_total
+    const packageServices = serviceData.map((s) => ({
       package_id: newPackage.id,
-      service_id: serviceId.trim(),
-      quantity: 1,
+      service_id: s.service_id.trim(),
+      capacity_total: s.capacity_total || 5, // Default to 5 if not provided
     }));
 
     const { data: insertedServices, error: servicesInsertError } = await supabase
@@ -211,8 +239,8 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
     }
 
     // Verify all services were inserted
-    if (insertedServices.length !== service_ids.length) {
-      console.warn(`[Create Package] Warning: Expected ${service_ids.length} services, inserted ${insertedServices.length}`);
+    if (insertedServices.length !== serviceData.length) {
+      console.warn(`[Create Package] Warning: Expected ${serviceData.length} services, inserted ${insertedServices.length}`);
     }
 
     // Fetch complete package with services

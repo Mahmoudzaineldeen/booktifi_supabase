@@ -54,7 +54,8 @@ CREATE INDEX IF NOT EXISTS idx_package_exhaustion_notifications_subscription
   ON package_exhaustion_notifications(subscription_id, service_id);
 
 -- Step 5: Create the core capacity resolution function
-CREATE OR REPLACE FUNCTION resolveCustomerServiceCapacity(
+-- Note: Function name is quoted to preserve case for PostgREST compatibility
+CREATE OR REPLACE FUNCTION "resolveCustomerServiceCapacity"(
   p_customer_id uuid,
   p_service_id uuid
 )
@@ -138,12 +139,13 @@ BEGIN
 END;
 $$;
 
--- Add comment
-COMMENT ON FUNCTION resolveCustomerServiceCapacity(uuid, uuid) IS 
+-- Add comment (use quoted name to match function definition)
+COMMENT ON FUNCTION "resolveCustomerServiceCapacity"(uuid, uuid) IS 
   'Resolves total remaining capacity for a customer and service across all active packages. Returns total capacity, source package IDs, and exhaustion status.';
 
 -- Step 6: Create function to check if exhaustion notification should be sent
-CREATE OR REPLACE FUNCTION shouldNotifyPackageExhaustion(
+-- Note: Function name is quoted to preserve case for PostgREST compatibility
+CREATE OR REPLACE FUNCTION "shouldNotifyPackageExhaustion"(
   p_subscription_id uuid,
   p_service_id uuid
 )
@@ -244,14 +246,24 @@ CREATE INDEX IF NOT EXISTS idx_package_usage_subscription_service
 -- Step 9: Enable RLS on new table
 ALTER TABLE package_exhaustion_notifications ENABLE ROW LEVEL SECURITY;
 
--- RLS Policy for package_exhaustion_notifications
-CREATE POLICY "Users can view exhaustion notifications in their tenant"
-  ON package_exhaustion_notifications FOR SELECT
-  TO authenticated
-  USING (
-    subscription_id IN (
-      SELECT id FROM package_subscriptions WHERE tenant_id IN (
-        SELECT tenant_id FROM users WHERE id = auth.uid()
-      )
-    )
-  );
+-- RLS Policy for package_exhaustion_notifications (create only if doesn't exist)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies 
+    WHERE schemaname = 'public' 
+      AND tablename = 'package_exhaustion_notifications'
+      AND policyname = 'Users can view exhaustion notifications in their tenant'
+  ) THEN
+    CREATE POLICY "Users can view exhaustion notifications in their tenant"
+      ON package_exhaustion_notifications FOR SELECT
+      TO authenticated
+      USING (
+        subscription_id IN (
+          SELECT id FROM package_subscriptions WHERE tenant_id IN (
+            SELECT tenant_id FROM users WHERE id = auth.uid()
+          )
+        )
+      );
+  END IF;
+END $$;
