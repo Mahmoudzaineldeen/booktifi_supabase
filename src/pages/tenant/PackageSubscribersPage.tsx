@@ -233,7 +233,7 @@ export function PackageSubscribersPage() {
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
 
-      const response = await fetch(`${API_URL}/api/packages/subscriptions/${subscriptionId}/cancel`, {
+      const response = await fetch(`${API_URL}/packages/subscriptions/${subscriptionId}/cancel`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
