@@ -1178,10 +1178,19 @@ class ZohoService {
       console.log(`   Package covered: ${packageCoveredQty}`);
       console.log(`   Paid quantity: ${paidQty}`);
       
-      // Only create invoice line items if there's a paid portion
+      // ============================================================================
+      // STRICT BILLING: Only create invoice line items if there's a paid portion
+      // ============================================================================
       if (paidQty > 0) {
         // Use the actual total_price from booking (which already accounts for paid portion)
         const totalPrice = parseFloat(booking.total_price.toString());
+        
+        // DOUBLE-CHECK: Ensure total_price > 0 (should never happen if paidQty > 0, but safety check)
+        if (totalPrice <= 0) {
+          console.warn(`[ZohoService] ⚠️ WARNING: paidQty > 0 but total_price = ${totalPrice}`);
+          console.warn(`[ZohoService]    This should not happen - skipping invoice creation`);
+          throw new Error('Invalid invoice data: paid quantity > 0 but total price = 0');
+        }
         
         // Build item name - include offer name if offer is used
         let itemName = serviceName;
@@ -1216,10 +1225,12 @@ class ZohoService {
           unit: 'ticket',
         });
         
-        console.log(`[ZohoService] ✅ Invoice line item created for ${paidQty} paid ticket(s)`);
+        console.log(`[ZohoService] ✅ Invoice line item created for ${paidQty} paid ticket(s) at ${pricePerTicket} each = ${totalPrice}`);
       } else {
-        console.log(`[ZohoService] ℹ️ No paid quantity - invoice will be empty (fully covered by package)`);
-        // Still create an empty invoice structure for consistency, but it won't be sent
+        // This should never happen if the check above works, but add safety
+        console.warn(`[ZohoService] ⚠️ WARNING: No paid quantity but reached line item creation`);
+        console.warn(`[ZohoService]    This indicates a logic error - invoice should not be created`);
+        throw new Error('Cannot create invoice: paid quantity is 0 or total price is 0');
       }
 
       // Format date
@@ -1411,9 +1422,26 @@ class ZohoService {
       console.log(`   Total package covered: ${totalPackageCoveredQty}`);
       console.log(`   Total paid: ${totalPaidQty}`);
 
-      // Only create invoice if there's a paid portion
-      if (totalPaidQty <= 0) {
-        console.log(`[ZohoService] ℹ️ Bulk booking is fully covered by package (totalPaidQty = ${totalPaidQty}) - skipping invoice creation`);
+      // ============================================================================
+      // STRICT BILLING RULE: Invoice ONLY when real money is owed
+      // ============================================================================
+      // CRITICAL: Do NOT create invoice if:
+      // 1. totalPaidQty <= 0 (fully covered by package)
+      // 2. totalAmount <= 0 (no money owed)
+      // ============================================================================
+      
+      // Calculate total amount first to double-check
+      const calculatedTotalAmount = bookings.reduce((sum, b) => {
+        return sum + parseFloat(String(b.total_price || 0));
+      }, 0);
+      
+      // STRICT CHECK: Only create invoice if there's actual money owed
+      if (totalPaidQty <= 0 || calculatedTotalAmount <= 0) {
+        console.log(`[ZohoService] ℹ️ STRICT BILLING: Bulk invoice NOT created (package-covered booking)`);
+        console.log(`[ZohoService]    Total paid quantity: ${totalPaidQty} (must be > 0)`);
+        console.log(`[ZohoService]    Total amount: ${calculatedTotalAmount} (must be > 0)`);
+        console.log(`[ZohoService]    Total package covered: ${totalPackageCoveredQty}`);
+        console.log(`[ZohoService]    → This is CORRECT: No invoice for free bookings`);
         return {
           invoiceId: '',
           success: true, // Not an error - just no invoice needed
@@ -1740,9 +1768,26 @@ class ZohoService {
       console.log(`   Paid quantity: ${paidQty}`);
       console.log(`   Package covered: ${packageCoveredQty}`);
       
-      // Only create invoice if there's a paid portion
-      if (paidQty <= 0) {
-        console.log(`[ZohoService] ℹ️ Booking is fully covered by package (paidQty = ${paidQty}) - skipping invoice creation`);
+      // ============================================================================
+      // STRICT BILLING RULE: Invoice ONLY when real money is owed
+      // ============================================================================
+      // CRITICAL: Do NOT create invoice if:
+      // 1. paidQty <= 0 (fully covered by package)
+      // 2. total_price <= 0 (no money owed)
+      // ============================================================================
+      
+      // Get total_price to double-check
+      const bookingTotalPrice = bookingWithPaidQty?.total_price 
+        ? parseFloat(bookingWithPaidQty.total_price.toString()) 
+        : 0;
+      
+      // STRICT CHECK: Only create invoice if there's actual money owed
+      if (paidQty <= 0 || bookingTotalPrice <= 0) {
+        console.log(`[ZohoService] ℹ️ STRICT BILLING: Invoice NOT created (package-covered booking)`);
+        console.log(`[ZohoService]    Paid quantity: ${paidQty} (must be > 0)`);
+        console.log(`[ZohoService]    Total price: ${bookingTotalPrice} (must be > 0)`);
+        console.log(`[ZohoService]    Package covered: ${packageCoveredQty}`);
+        console.log(`[ZohoService]    → This is CORRECT: No invoice for free bookings`);
         return {
           invoiceId: '',
           success: true, // Not an error - just no invoice needed

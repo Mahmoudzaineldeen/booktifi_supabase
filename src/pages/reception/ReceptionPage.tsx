@@ -36,6 +36,9 @@ interface Booking {
   booking_group_id: string | null;
   zoho_invoice_id?: string | null;
   zoho_invoice_created_at?: string | null;
+  package_covered_quantity?: number; // Number of tickets covered by package
+  paid_quantity?: number; // Number of tickets that must be paid
+  package_subscription_id?: string | null; // Package subscription ID if used
   services: {
     name: string;
     name_ar: string;
@@ -876,6 +879,9 @@ export function ReceptionPage() {
           qr_scanned_by_user_id,
           zoho_invoice_id,
           zoho_invoice_created_at,
+          package_covered_quantity,
+          paid_quantity,
+          package_subscription_id,
           services (name, name_ar),
           slots (slot_date, start_time, end_time),
           users:employee_id (id, full_name, full_name_ar)
@@ -3139,7 +3145,31 @@ export function ReceptionPage() {
                   <span className="text-gray-500">{t('booking.visitorCount')}:</span>
                   <div className="font-medium">
                     {(booking as any).groupCount || booking.visitor_count} • {formatPrice((booking as any).grouped_total_price || booking.total_price)}
+                    {/* Show only paid amount if package is used */}
+                    {booking.package_covered_quantity !== undefined && booking.package_covered_quantity > 0 && booking.paid_quantity !== undefined && booking.paid_quantity > 0 && (
+                      <span className="text-xs text-gray-500 ml-2">
+                        ({i18n.language === 'ar' ? 'مدفوع فقط' : 'paid only'})
+                      </span>
+                    )}
                   </div>
+                  {/* Package Coverage Badge */}
+                  {booking.package_covered_quantity !== undefined && booking.package_covered_quantity > 0 && (
+                    <div className="mt-2 flex items-center gap-2">
+                      {booking.package_covered_quantity === booking.visitor_count ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-300">
+                          <Package className="w-3 h-3" />
+                          {i18n.language === 'ar' ? 'مغطى بالباقة' : 'Covered by Package'}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300">
+                          <Package className="w-3 h-3" />
+                          {i18n.language === 'ar' 
+                            ? `الباقة: ${booking.package_covered_quantity} | مدفوع: ${booking.paid_quantity || 0}`
+                            : `Package: ${booking.package_covered_quantity} | Paid: ${booking.paid_quantity || 0}`}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               {booking.notes && (
@@ -3772,6 +3802,24 @@ export function ReceptionPage() {
                                   <div className="text-xs text-gray-600 truncate">
                                     {i18n.language === 'ar' ? booking.services?.name_ar : booking.services?.name}
                                   </div>
+                                  {/* Package Coverage Badge (Calendar View) */}
+                                  {booking.package_covered_quantity !== undefined && booking.package_covered_quantity > 0 && (
+                                    <div className="mt-0.5">
+                                      {booking.package_covered_quantity === booking.visitor_count ? (
+                                        <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold bg-green-200 text-green-800">
+                                          <Package className="w-2.5 h-2.5" />
+                                          {i18n.language === 'ar' ? 'باقة' : 'Package'}
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold bg-blue-200 text-blue-800">
+                                          <Package className="w-2.5 h-2.5" />
+                                          {i18n.language === 'ar' 
+                                            ? `${booking.package_covered_quantity}/${booking.visitor_count}`
+                                            : `${booking.package_covered_quantity}/${booking.visitor_count}`}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
                                   {(booking as any).employees && (booking as any).employees.length > 0 && (
                                     <div className="text-xs text-gray-500 truncate mt-1">
                                       {(booking as any).employees.map((emp: any, idx: number) =>

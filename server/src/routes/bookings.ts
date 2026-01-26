@@ -871,6 +871,42 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
             } else {
               finalTotalPrice = 0; // Fully covered by package
               console.log(`[Booking Creation] ✅ Full package coverage: ${packageCoveredQty} tickets free`);
+              console.log(`[Booking Creation]    → NO invoice will be created (fully covered by package)`);
+            }
+            
+            // Check if package will be exhausted after this booking
+            const packageWillBeExhausted = totalRemaining <= packageCoveredQty;
+            if (packageWillBeExhausted && packageSubscriptionId) {
+              console.log(`[Booking Creation] 🔔 Package will be exhausted after this booking`);
+              console.log(`[Booking Creation]    Subscription: ${packageSubscriptionId}`);
+              console.log(`[Booking Creation]    Remaining before: ${totalRemaining}, Using: ${packageCoveredQty}`);
+              console.log(`[Booking Creation]    Remaining after: ${totalRemaining - packageCoveredQty}`);
+              
+              // Create one-time exhaustion notification
+              try {
+                const { error: notifError } = await supabase
+                  .from('package_exhaustion_notifications')
+                  .upsert({
+                    subscription_id: packageSubscriptionId,
+                    service_id: service_id,
+                    tenant_id: tenant_id,
+                    customer_id: customerIdForPackage,
+                    notified_at: new Date().toISOString(),
+                    is_read: false
+                  }, {
+                    onConflict: 'subscription_id,service_id',
+                    ignoreDuplicates: false
+                  });
+                
+                if (notifError) {
+                  console.warn(`[Booking Creation] ⚠️ Failed to create exhaustion notification:`, notifError);
+                } else {
+                  console.log(`[Booking Creation] ✅ Exhaustion notification created`);
+                }
+              } catch (notifErr: any) {
+                console.warn(`[Booking Creation] ⚠️ Exception creating exhaustion notification:`, notifErr);
+                // Don't fail booking if notification fails
+              }
             }
           } else {
             // No capacity - full booking is paid
@@ -1413,13 +1449,31 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     console.log(`[Booking Creation]    Will Create Invoice: ${!!(normalizedPhone || customer_phone || customer_email)}`);
     console.log(`[Booking Creation] ========================================`);
     
-    // Delivery: Email (if email provided), WhatsApp (if phone provided), or both
-    // CRITICAL: Only create invoice if there's a paid portion (paidQty > 0)
-    // If booking is fully covered by package (paidQty = 0), skip invoice creation
-    // CRITICAL: Execute invoice creation BEFORE sending response to ensure it completes
-    // This prevents Railway container restarts from interrupting invoice creation
-    if ((normalizedPhone || customer_phone || customer_email) && paidQty > 0) {
-      console.log(`[Booking Creation] ✅ Customer contact available and paid quantity > 0 (${paidQty}) - proceeding with invoice creation`);
+    // ============================================================================
+    // STRICT BILLING RULE: Invoice ONLY when real money is owed
+    // ============================================================================
+    // CRITICAL RULES:
+    // 1. Invoice MUST be created when: paidQty > 0 AND total_price > 0
+    // 2. Invoice MUST NOT be created when: paidQty = 0 OR total_price = 0
+    // 3. Package-covered bookings (paidQty = 0) are NEVER invoiced
+    // 4. Booking is ALWAYS created regardless of payment status
+    // ============================================================================
+    
+    // Calculate final price after package coverage
+    const finalPriceAfterPackage = finalTotalPrice; // This already accounts for package coverage
+    
+    // STRICT CHECK: Only create invoice if there's actual money owed
+    const shouldCreateInvoice = (normalizedPhone || customer_phone || customer_email) 
+      && paidQty > 0 
+      && finalPriceAfterPackage > 0;
+    
+    if (shouldCreateInvoice) {
+      console.log(`[Booking Creation] ✅ Invoice creation conditions met:`);
+      console.log(`[Booking Creation]    - Customer contact: ${normalizedPhone || customer_phone || customer_email ? 'YES' : 'NO'}`);
+      console.log(`[Booking Creation]    - Paid quantity: ${paidQty} (must be > 0)`);
+      console.log(`[Booking Creation]    - Total price: ${finalPriceAfterPackage} (must be > 0)`);
+      console.log(`[Booking Creation]    - Package covered: ${packageCoveredQty}`);
+      console.log(`[Booking Creation]    → Proceeding with invoice creation`);
       
       // CRITICAL: Execute invoice creation immediately and await it before sending response
       // This ensures invoice is created even if Railway container restarts
@@ -1665,9 +1719,22 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
         // The error was already logged in the inner try-catch
       }
     } else {
-      console.log(`[Booking Creation] ⚠️ Invoice not created (no customer email or phone provided)`);
-      console.log(`[Booking Creation]    At least one contact method (email or phone) is required for invoice delivery`);
-      console.log(`[Booking Creation]    Booking was created successfully, but invoice will not be generated`);
+      // Log why invoice was not created
+      const reasons: string[] = [];
+      if (!normalizedPhone && !customer_phone && !customer_email) {
+        reasons.push('no customer contact (email/phone)');
+      }
+      if (paidQty <= 0) {
+        reasons.push(`fully covered by package (paidQty = ${paidQty})`);
+      }
+      if (finalPriceAfterPackage <= 0) {
+        reasons.push(`total price is 0 (price = ${finalPriceAfterPackage})`);
+      }
+      
+      console.log(`[Booking Creation] ⚠️ Invoice NOT created - ${reasons.join(', ')}`);
+      console.log(`[Booking Creation]    This is CORRECT behavior for package-covered bookings`);
+      console.log(`[Booking Creation]    Booking was created successfully (ticket rule: always create booking)`);
+      console.log(`[Booking Creation]    Package coverage: ${packageCoveredQty} tickets, Paid: ${paidQty} tickets`);
     }
 
     // ============================================================================
@@ -1679,7 +1746,10 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     console.log(`[Booking Creation]    Booking ID: ${bookingId}`);
     console.log(`[Booking Creation]    Customer: ${customer_name}`);
     console.log(`[Booking Creation]    Total Price: ${actualBooking?.total_price || 'N/A'}`);
-    console.log(`[Booking Creation]    Invoice Creation: ${(normalizedPhone || customer_phone || customer_email) ? 'COMPLETED' : 'SKIPPED (no contact)'}`);
+    console.log(`[Booking Creation]    Package Coverage: ${actualBooking?.package_covered_quantity || 0} tickets`);
+    console.log(`[Booking Creation]    Paid Quantity: ${actualBooking?.paid_quantity || 0} tickets`);
+    console.log(`[Booking Creation]    Invoice Creation: ${shouldCreateInvoice ? 'COMPLETED' : 'SKIPPED (package-covered or no contact)'}`);
+    console.log(`[Booking Creation]    Ticket Rule: ✅ Booking ALWAYS created (even if free)`);
     console.log(`[Booking Creation] ========================================`);
 
     // Return the booking with proper structure
@@ -1843,17 +1913,37 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
     let paidQty = visitor_count; // Default: all tickets are paid
 
     // Look up customer by phone if customer_id not provided
-    let customerIdForPackage = req.user?.id || req.body.customer_id;
+    // CRITICAL: Do NOT use req.user.id - that's a user ID (users table), not customer ID (customers table)
+    let customerIdForPackage: string | null = req.body.customer_id || null;
+    
     if (!customerIdForPackage && normalizedPhone) {
-      const { data: customerData } = await supabase
+      const { data: customerData, error: customerLookupError } = await supabase
         .from('customers')
         .select('id')
         .eq('phone', normalizedPhone)
         .eq('tenant_id', tenant_id)
         .maybeSingle();
       
-      if (customerData) {
+      if (customerLookupError) {
+        console.error('[Bulk Booking Creation] ⚠️ Error looking up customer:', customerLookupError);
+        customerIdForPackage = null;
+      } else if (customerData) {
         customerIdForPackage = customerData.id;
+      }
+    }
+    
+    // Validate customer_id exists in customers table
+    if (customerIdForPackage) {
+      const { data: customerExists } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('id', customerIdForPackage)
+        .eq('tenant_id', tenant_id)
+        .maybeSingle();
+      
+      if (!customerExists) {
+        console.warn('[Bulk Booking Creation] ⚠️ Customer ID does not exist, setting to NULL');
+        customerIdForPackage = null;
       }
     }
 
@@ -1915,6 +2005,41 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
             } else {
               finalTotalPrice = 0; // Fully covered by package
               console.log(`[Bulk Booking Creation] ✅ Full package coverage: ${packageCoveredQty} tickets free`);
+              console.log(`[Bulk Booking Creation]    → NO invoice will be created (fully covered by package)`);
+            }
+            
+            // Check if package will be exhausted after this booking
+            const packageWillBeExhausted = totalRemaining <= packageCoveredQty;
+            if (packageWillBeExhausted && packageSubscriptionId) {
+              console.log(`[Bulk Booking Creation] 🔔 Package will be exhausted after this booking`);
+              console.log(`[Bulk Booking Creation]    Subscription: ${packageSubscriptionId}`);
+              console.log(`[Bulk Booking Creation]    Remaining before: ${totalRemaining}, Using: ${packageCoveredQty}`);
+              
+              // Create one-time exhaustion notification
+              try {
+                const { error: notifError } = await supabase
+                  .from('package_exhaustion_notifications')
+                  .upsert({
+                    subscription_id: packageSubscriptionId,
+                    service_id: service_id,
+                    tenant_id: tenant_id,
+                    customer_id: customerIdForPackage,
+                    notified_at: new Date().toISOString(),
+                    is_read: false
+                  }, {
+                    onConflict: 'subscription_id,service_id',
+                    ignoreDuplicates: false
+                  });
+                
+                if (notifError) {
+                  console.warn(`[Bulk Booking Creation] ⚠️ Failed to create exhaustion notification:`, notifError);
+                } else {
+                  console.log(`[Bulk Booking Creation] ✅ Exhaustion notification created`);
+                }
+              } catch (notifErr: any) {
+                console.warn(`[Bulk Booking Creation] ⚠️ Exception creating exhaustion notification:`, notifErr);
+                // Don't fail booking if notification fails
+              }
             }
           } else {
             // No capacity - full booking is paid
@@ -2089,14 +2214,27 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
     console.log(`[Bulk Booking Creation]    Bookings: ${bookings.length}`);
     console.log(`[Bulk Booking Creation]    Customer: ${customer_name}`);
 
-    // Generate ONE invoice for all bookings (asynchronously)
-    if (normalizedPhone || customer_phone || customer_email) {
+    // ============================================================================
+    // STRICT BILLING RULE: Invoice ONLY when real money is owed
+    // ============================================================================
+    // CRITICAL: Only create invoice if there's actual money owed
+    const shouldCreateBulkInvoice = (normalizedPhone || customer_phone || customer_email) 
+      && paidQty > 0 
+      && finalTotalPrice > 0;
+    
+    if (shouldCreateBulkInvoice) {
       Promise.resolve().then(async () => {
         try {
           console.log(`[Bulk Booking Creation] 🧾 Generating ONE invoice for booking group ${bookingGroupId}...`);
+          console.log(`[Bulk Booking Creation]    Paid quantity: ${paidQty} (must be > 0)`);
+          console.log(`[Bulk Booking Creation]    Total price: ${finalTotalPrice} (must be > 0)`);
+          console.log(`[Bulk Booking Creation]    Package covered: ${packageCoveredQty}`);
+          console.log(`[Bulk Booking Creation]    → Proceeding with invoice creation`);
+          
           const { zohoService } = await import('../services/zohoService.js');
           
           // Generate invoice for the booking group (uses first booking ID as reference)
+          // The generateReceiptForBookingGroup function will check paid_quantity internally
           const invoiceResult = await zohoService.generateReceiptForBookingGroup(bookingGroupId);
           if (invoiceResult.success) {
             console.log(`[Bulk Booking Creation] ✅ Invoice created: ${invoiceResult.invoiceId}`);
@@ -2110,6 +2248,23 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
         console.error(`[Bulk Booking Creation] ❌ CRITICAL: Unhandled error in invoice generation promise`);
         console.error(`[Bulk Booking Creation]    Error:`, error);
       });
+    } else {
+      // Log why invoice was not created
+      const reasons: string[] = [];
+      if (!normalizedPhone && !customer_phone && !customer_email) {
+        reasons.push('no customer contact (email/phone)');
+      }
+      if (paidQty <= 0) {
+        reasons.push(`fully covered by package (paidQty = ${paidQty})`);
+      }
+      if (finalTotalPrice <= 0) {
+        reasons.push(`total price is 0 (price = ${finalTotalPrice})`);
+      }
+      
+      console.log(`[Bulk Booking Creation] ⚠️ Invoice NOT created - ${reasons.join(', ')}`);
+      console.log(`[Bulk Booking Creation]    This is CORRECT behavior for package-covered bookings`);
+      console.log(`[Bulk Booking Creation]    Bookings were created successfully (ticket rule: always create bookings)`);
+      console.log(`[Bulk Booking Creation]    Package coverage: ${packageCoveredQty} tickets, Paid: ${paidQty} tickets`);
     }
 
     // Check if tickets are enabled for this tenant

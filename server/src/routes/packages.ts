@@ -6,6 +6,86 @@ import { logger } from '../utils/logger';
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
+/**
+ * Normalize phone number to international format
+ * Handles Egyptian numbers specially: +2001032560826 -> +201032560826 (removes leading 0 after +20)
+ * @param phone - Phone number in any format
+ * @returns Normalized phone number in E.164 format or null if invalid
+ */
+function normalizePhoneNumber(phone: string): string | null {
+  if (!phone || typeof phone !== 'string') {
+    return null;
+  }
+
+  // Remove all spaces, dashes, and parentheses
+  let cleaned = phone.replace(/[\s\-\(\)]/g, '');
+
+  // If already in international format with +
+  if (cleaned.startsWith('+')) {
+    // Special handling for Egypt: +2001032560826 -> +201032560826
+    if (cleaned.startsWith('+20')) {
+      const afterCode = cleaned.substring(3); // Get number after +20
+      // If starts with 0, remove it (Egyptian numbers: +2001032560826 -> +201032560826)
+      if (afterCode.startsWith('0') && afterCode.length >= 10) {
+        const withoutZero = afterCode.substring(1);
+        // Validate it's a valid Egyptian mobile number (starts with 1, 2, or 5)
+        if (withoutZero.startsWith('1') || withoutZero.startsWith('2') || withoutZero.startsWith('5')) {
+          return `+20${withoutZero}`;
+        }
+      }
+      // If already correct format (+201032560826), return as is
+      return cleaned;
+    }
+    // For other countries, return as is
+    return cleaned;
+  }
+
+  // If starts with 00, replace with +
+  if (cleaned.startsWith('00')) {
+    cleaned = '+' + cleaned.substring(2);
+    // Apply Egypt normalization if needed
+    if (cleaned.startsWith('+20')) {
+      const afterCode = cleaned.substring(3);
+      if (afterCode.startsWith('0') && afterCode.length >= 10) {
+        const withoutZero = afterCode.substring(1);
+        if (withoutZero.startsWith('1') || withoutZero.startsWith('2') || withoutZero.startsWith('5')) {
+          return `+20${withoutZero}`;
+        }
+      }
+    }
+    return cleaned;
+  }
+
+  // Egyptian numbers: 01XXXXXXXX (11 digits) -> +201XXXXXXXX
+  if (cleaned.startsWith('0') && cleaned.length === 11) {
+    const withoutZero = cleaned.substring(1);
+    if (withoutZero.startsWith('1') || withoutZero.startsWith('2') || withoutZero.startsWith('5')) {
+      return `+20${withoutZero}`;
+    }
+  }
+
+  // If starts with 20 (country code without +), add +
+  if (cleaned.startsWith('20') && cleaned.length >= 12) {
+    // Check if it has leading 0 after 20 (2001032560826 -> 201032560826)
+    const afterCode = cleaned.substring(2);
+    if (afterCode.startsWith('0') && afterCode.length >= 10) {
+      const withoutZero = afterCode.substring(1);
+      if (withoutZero.startsWith('1') || withoutZero.startsWith('2') || withoutZero.startsWith('5')) {
+        return `+20${withoutZero}`;
+      }
+    }
+    return `+${cleaned}`;
+  }
+
+  // If it's 10 digits starting with 1, 2, or 5 (Egyptian mobile without 0), add +20
+  if (cleaned.length === 10 && (cleaned.startsWith('1') || cleaned.startsWith('2') || cleaned.startsWith('5'))) {
+    return `+20${cleaned}`;
+  }
+
+  // Return null if we can't determine the format
+  return null;
+}
+
 // Extend Express Request type
 declare global {
   namespace Express {
@@ -817,7 +897,36 @@ router.post('/subscriptions', async (req, res) => {
                 // Email can be sent manually from Zoho if needed
               }
             } else {
-              console.warn('[Create Subscription] ⚠️  No customer email provided - invoice created but not sent');
+              console.warn('[Create Subscription] ⚠️  No customer email provided - invoice created but not sent via email');
+            }
+
+            // Send invoice via WhatsApp if customer phone is available
+            const phoneToSend = invoiceData.customer_phone || customer_phone;
+            if (phoneToSend) {
+              // Normalize phone number before sending
+              const normalizedPhone = normalizePhoneNumber(phoneToSend);
+              if (normalizedPhone) {
+                console.log('[Create Subscription] Step 7: Sending invoice via WhatsApp...');
+                console.log('[Create Subscription]    Phone (original):', phoneToSend);
+                console.log('[Create Subscription]    Phone (normalized):', normalizedPhone);
+                try {
+                  await zohoService.sendInvoiceViaWhatsApp(tenant_id, zohoInvoiceId, normalizedPhone);
+                  console.log('[Create Subscription] ✅ Step 7 SUCCESS: Invoice sent to customer WhatsApp');
+                } catch (whatsappError: any) {
+                  console.error('[Create Subscription] ⚠️  Failed to send invoice via WhatsApp:', whatsappError.message);
+                  // Don't fail the subscription creation - invoice was created successfully
+                  // WhatsApp can be sent manually from Zoho if needed
+                }
+              } else {
+                console.warn('[Create Subscription] ⚠️  Invalid phone number format - cannot send via WhatsApp:', phoneToSend);
+              }
+            } else {
+              console.warn('[Create Subscription] ⚠️  No customer phone provided - invoice created but not sent via WhatsApp');
+            }
+
+            // Log final status
+            if (!emailToSend && !phoneToSend) {
+              console.warn('[Create Subscription] ⚠️  No customer contact (email/phone) provided - invoice created but not sent');
               console.warn('[Create Subscription] 💡 Invoice can be sent manually from Zoho Invoice dashboard');
             }
 
@@ -906,10 +1015,16 @@ router.post('/subscriptions', async (req, res) => {
       console.log('[Create Subscription] ✅ SUCCESS: Invoice created');
       console.log('[Create Subscription] Invoice ID:', zohoInvoiceId);
       const emailSent = customerData?.email || customer_email;
+      const phoneSent = customerData?.phone || customer_phone;
       if (emailSent) {
         console.log('[Create Subscription] ✅ Email sent to:', emailSent);
       } else {
         console.warn('[Create Subscription] ⚠️  No email sent (customer email not provided)');
+      }
+      if (phoneSent) {
+        console.log('[Create Subscription] ✅ WhatsApp sent to:', phoneSent);
+      } else {
+        console.warn('[Create Subscription] ⚠️  No WhatsApp sent (customer phone not provided)');
       }
     } else {
       console.warn('[Create Subscription] ⚠️  FAILED: No invoice created');
