@@ -497,10 +497,25 @@ router.post('/subscriptions', async (req, res) => {
 
     // Check if package has any services
     if (!packageServices || packageServices.length === 0) {
-      console.error('[Create Subscription] Package has no services:', { package_id });
+      console.error('[Create Subscription] Package has no services:', { 
+        package_id,
+        tenant_id,
+        package_name: packageData.name || 'Unknown'
+      });
+      
+      // Try to get package name for better error message
+      const { data: pkgInfo } = await supabase
+        .from('service_packages')
+        .select('name, name_ar')
+        .eq('id', package_id)
+        .single();
+      
       return res.status(400).json({ 
         error: 'Package has no services',
-        details: 'Package must have at least one service. Please add services to the package before creating a subscription.'
+        details: 'This package does not have any services configured. Please contact the administrator to add services to this package before purchasing.',
+        package_id,
+        package_name: pkgInfo?.name || 'Unknown',
+        hint: 'The package may have been created incorrectly or services may have been removed. Please verify the package configuration in the admin panel.'
       });
     }
 

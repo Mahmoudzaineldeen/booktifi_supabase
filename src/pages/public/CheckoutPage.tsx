@@ -313,10 +313,19 @@ export function CheckoutPage() {
         }
 
         // Fetch package services
-        const { data: packageServices } = await db
+        const { data: packageServices, error: packageServicesError } = await db
           .from('package_services')
           .select('service_id, capacity_total, services (id, name, name_ar)')
           .eq('package_id', packageId);
+
+        if (packageServicesError) {
+          console.error('Error fetching package services:', packageServicesError);
+          alert(i18n.language === 'ar' 
+            ? 'خطأ في جلب خدمات الحزمة' 
+            : 'Error fetching package services');
+          navigate(`/${tenantSlug}/book`);
+          return;
+        }
 
         const services = (packageServices || []).map((ps: any) => ({
           service_id: ps.service_id,
@@ -324,6 +333,16 @@ export function CheckoutPage() {
           service_name_ar: ps.services?.name_ar || '',
           quantity: ps.capacity_total || 1,
         }));
+
+        // Validate that package has services
+        if (!services || services.length === 0) {
+          console.error('Package has no services:', { packageId, tenantId: tenantData.id });
+          alert(i18n.language === 'ar' 
+            ? 'هذه الحزمة لا تحتوي على خدمات. يرجى الاتصال بالمسؤول.' 
+            : 'This package has no services configured. Please contact the administrator.');
+          navigate(`/${tenantSlug}/book`);
+          return;
+        }
 
         setServicePackage({
           ...packageData,

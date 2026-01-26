@@ -203,6 +203,16 @@ export function PackageSchedulePage() {
 
       setPackageServices(services);
 
+      // Validate that package has services
+      if (!services || services.length === 0) {
+        console.error('Package has no services:', { packageId, tenantId: tenantData.id });
+        alert(i18n.language === 'ar' 
+          ? 'هذه الحزمة لا تحتوي على خدمات. يرجى الاتصال بالمسؤول.' 
+          : 'This package has no services. Please contact the administrator.');
+        navigate(`/${tenantSlug}/book`);
+        return;
+      }
+
       // Parse gallery_urls
       let galleryUrls: string[] = [];
       if (pkgData.gallery_urls) {
