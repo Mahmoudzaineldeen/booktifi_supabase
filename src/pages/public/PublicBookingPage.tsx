@@ -503,7 +503,7 @@ export function PublicBookingPage() {
               try {
                 const { data: packageServices, error: packageServicesError } = await db
                   .from('package_services')
-                  .select('service_id, capacity_total, quantity, services (id, name, name_ar)')
+                  .select('service_id, capacity_total, services (id, name, name_ar)')
                   .eq('package_id', pkg.id);
 
                 if (packageServicesError) {
