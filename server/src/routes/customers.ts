@@ -310,16 +310,60 @@ router.get('/packages', authenticate, async (req, res) => {
 
     console.log('[Get Packages] Fetching packages for user:', userId, 'tenant:', tenantId);
 
-    // Get customer record - customer_id in package_subscriptions references customers.id
-    // We need to find the customer by user_id
-    const { data: customerData, error: customerError } = await supabase
-      .from('customers')
-      .select('id')
-      .eq('user_id', userId)
+    // Get user's email and phone to find matching customer record
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('email, phone')
+      .eq('id', userId)
       .eq('tenant_id', tenantId)
-      .maybeSingle();
+      .single();
 
-    if (customerError) {
+    if (userError || !userData) {
+      console.error('[Get Packages] Error fetching user data:', userError);
+      return res.status(500).json({ 
+        error: 'Failed to fetch user data',
+        details: userError?.message || 'User not found'
+      });
+    }
+
+    // Find customer record by email or phone (customers table doesn't have user_id)
+    let customerData: any = null;
+    let customerError: any = null;
+
+    // Try to find by email first
+    if (userData.email) {
+      const { data: customerByEmail, error: emailError } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('email', userData.email)
+        .maybeSingle();
+
+      if (!emailError && customerByEmail) {
+        customerData = customerByEmail;
+      } else {
+        customerError = emailError;
+      }
+    }
+
+    // If not found by email, try by phone
+    if (!customerData && userData.phone) {
+      const { data: customerByPhone, error: phoneError } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('phone', userData.phone)
+        .maybeSingle();
+
+      if (!phoneError && customerByPhone) {
+        customerData = customerByPhone;
+        customerError = null;
+      } else if (!customerData) {
+        customerError = phoneError;
+      }
+    }
+
+    if (customerError && !customerData) {
       console.error('[Get Packages] Error fetching customer:', customerError);
       console.error('[Get Packages] Error details:', {
         code: customerError.code,
@@ -327,10 +371,9 @@ router.get('/packages', authenticate, async (req, res) => {
         details: customerError.details,
         hint: customerError.hint
       });
-      return res.status(500).json({ 
-        error: 'Failed to fetch customer data',
-        details: customerError.message || customerError.error
-      });
+      // Don't return error - just return empty array if customer not found
+      console.log('[Get Packages] No customer record found for user:', userId, 'email:', userData.email, 'phone:', userData.phone);
+      return res.json([]);
     }
 
     if (!customerData) {
