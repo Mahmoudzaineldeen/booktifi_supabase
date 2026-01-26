@@ -116,6 +116,14 @@ export function ReceptionPackagesPage() {
   const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [subscribing, setSubscribing] = useState(false);
+
+  // Debug: Log modal state changes
+  useEffect(() => {
+    console.log('[ReceptionPackagesPage] Modal state changed:', {
+      isSubscribeModalOpen,
+      selectedPackageForSubscribe
+    });
+  }, [isSubscribeModalOpen, selectedPackageForSubscribe]);
   
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -337,11 +345,13 @@ export function ReceptionPackagesPage() {
   }
 
   function openSubscribeModal(packageId?: string) {
+    console.log('[ReceptionPackagesPage] Opening subscribe modal for package:', packageId);
     setSelectedPackageForSubscribe(packageId || null);
     setSelectedCustomer(null);
     setCustomerSearchQuery('');
     setCustomerSearchResults([]);
     setIsSubscribeModalOpen(true);
+    console.log('[ReceptionPackagesPage] Modal state set to open');
   }
 
   return (
@@ -494,8 +504,14 @@ export function ReceptionPackagesPage() {
                         )}
                       </div>
                       <Button
+                        type="button"
                         size="sm"
-                        onClick={() => openSubscribeModal(pkg.id)}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('[ReceptionPackagesPage] Subscribe button clicked for package:', pkg.id);
+                          openSubscribeModal(pkg.id);
+                        }}
                       >
                         {i18n.language === 'ar' ? 'اشترك عميل' : 'Subscribe Customer'}
                       </Button>
