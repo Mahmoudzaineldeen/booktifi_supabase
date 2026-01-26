@@ -139,6 +139,8 @@ export function CheckoutPage() {
   const [countryCode, setCountryCode] = useState('+966'); // Default to Saudi Arabia (kept for backward compatibility)
   const [customerPhoneFull, setCustomerPhoneFull] = useState(userProfile?.phone || ''); // Full phone number with country code
   const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [packageCapacity, setPackageCapacity] = useState<{ remaining: number; total: number } | null>(null); // Package capacity info
+  const [packageCapacityLoading, setPackageCapacityLoading] = useState(false);
   
   // OTP verification state for guest bookings
   const [otpStep, setOtpStep] = useState<'phone' | 'otp' | 'verified'>('phone'); // 'phone' | 'otp' | 'verified'
@@ -593,7 +595,88 @@ export function CheckoutPage() {
           });
           setSlotCapacity(slotData.available_capacity || 0);
         }
+
+        // Fetch package capacity for logged-in customers
+        if (isLoggedIn && userProfile?.id && bookingData?.serviceId) {
+          await fetchPackageCapacity(userProfile.id, bookingData.serviceId);
+        }
       }
+
+  // Fetch package capacity for a customer and service
+  async function fetchPackageCapacity(customerId: string, serviceId: string) {
+    try {
+      setPackageCapacityLoading(true);
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+
+      // First, find customer record by user email/phone
+      const { data: userData } = await db
+        .from('users')
+        .select('email, phone')
+        .eq('id', customerId)
+        .maybeSingle();
+
+      if (!userData) {
+        setPackageCapacity(null);
+        return;
+      }
+
+      // Find customer by email or phone
+      let customerRecordId: string | null = null;
+      if (userData.email) {
+        const { data: customerByEmail } = await db
+          .from('customers')
+          .select('id')
+          .eq('email', userData.email)
+          .eq('tenant_id', tenant?.id)
+          .maybeSingle();
+        
+        if (customerByEmail) {
+          customerRecordId = customerByEmail.id;
+        }
+      }
+
+      if (!customerRecordId && userData.phone) {
+        const { data: customerByPhone } = await db
+          .from('customers')
+          .select('id')
+          .eq('phone', userData.phone)
+          .eq('tenant_id', tenant?.id)
+          .maybeSingle();
+        
+        if (customerByPhone) {
+          customerRecordId = customerByPhone.id;
+        }
+      }
+
+      if (!customerRecordId) {
+        setPackageCapacity(null);
+        return;
+      }
+
+      // Fetch capacity
+      const response = await fetch(`${API_URL}/bookings/capacity/${customerRecordId}/${serviceId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setPackageCapacity({
+          remaining: data.total_remaining_capacity || 0,
+          total: data.total_remaining_capacity || 0, // We don't have total, just use remaining
+        });
+      } else {
+        setPackageCapacity(null);
+      }
+    } catch (err) {
+      console.error('Error fetching package capacity:', err);
+      setPackageCapacity(null);
+    } finally {
+      setPackageCapacityLoading(false);
+    }
+  }
 
       // Get visitor count from URL params if available
       const params = new URLSearchParams(location.search);
@@ -754,17 +837,46 @@ export function CheckoutPage() {
       // Handle package purchase
       if (isPackagePurchase && servicePackage) {
         // Get customer ID if logged in
+        // Note: customers table doesn't have user_id, so we match by email/phone
         let customerId = null;
         if (isLoggedIn && userProfile?.id) {
-          // Find customer by user ID
-          const { data: customerData } = await db
-            .from('customers')
-            .select('id')
-            .eq('user_id', userProfile.id)
+          // Get user's email and phone to find matching customer record
+          const { data: userData } = await db
+            .from('users')
+            .select('email, phone')
+            .eq('id', userProfile.id)
             .eq('tenant_id', tenant.id)
             .maybeSingle();
           
-          customerId = customerData?.id || null;
+          if (userData) {
+            // Try to find customer by email first
+            if (userData.email) {
+              const { data: customerByEmail } = await db
+                .from('customers')
+                .select('id')
+                .eq('tenant_id', tenant.id)
+                .eq('email', userData.email)
+                .maybeSingle();
+              
+              if (customerByEmail) {
+                customerId = customerByEmail.id;
+              }
+            }
+            
+            // If not found by email, try by phone
+            if (!customerId && userData.phone) {
+              const { data: customerByPhone } = await db
+                .from('customers')
+                .select('id')
+                .eq('tenant_id', tenant.id)
+                .eq('phone', userData.phone)
+                .maybeSingle();
+              
+              if (customerByPhone) {
+                customerId = customerByPhone.id;
+              }
+            }
+          }
         }
 
         // Create package subscription
@@ -1582,6 +1694,44 @@ export function CheckoutPage() {
                     </div>
                   ) : null;
                 })()}
+
+                {/* Package Partial Coverage Warning */}
+                {!isPackagePurchase && packageCapacity && packageCapacity.remaining > 0 && packageCapacity.remaining < visitorCount && (
+                  <div className="mt-4 p-4 bg-yellow-50 border border-yellow-300 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <Package className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-yellow-800 mb-1">
+                          {i18n.language === 'ar' ? 'تنبيه التغطية الجزئية' : 'Partial Package Coverage'}
+                        </p>
+                        <p className="text-sm text-yellow-700">
+                          {i18n.language === 'ar' 
+                            ? `حزمتك تغطي ${packageCapacity.remaining} حجز. سيتم دفع ${visitorCount - packageCapacity.remaining} حجز بشكل طبيعي.`
+                            : `Your package covers ${packageCapacity.remaining} booking${packageCapacity.remaining !== 1 ? 's' : ''}. The remaining ${visitorCount - packageCapacity.remaining} booking${(visitorCount - packageCapacity.remaining) !== 1 ? 's will' : ' will'} be charged normally.`}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Package Exhausted Warning */}
+                {!isPackagePurchase && packageCapacity && packageCapacity.remaining === 0 && (
+                  <div className="mt-4 p-4 bg-blue-50 border border-blue-300 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <Package className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-blue-800 mb-1">
+                          {i18n.language === 'ar' ? 'تنبيه الحزمة' : 'Package Notice'}
+                        </p>
+                        <p className="text-sm text-blue-700">
+                          {i18n.language === 'ar' 
+                            ? 'حزمتك لهذه الخدمة مستخدمة بالكامل. سيتم دفع هذا الحجز بشكل طبيعي.'
+                            : 'Your package for this service is fully used. This booking will be charged normally.'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* CTA Button */}
                 <Button

@@ -1166,32 +1166,61 @@ class ZohoService {
         pricePerTicket = parseFloat(booking.base_price?.toString() || '0');
       }
 
-      // Single line item for total price
-      // Use the actual total_price from booking (which already accounts for offers)
-      const totalPrice = parseFloat(booking.total_price.toString());
-      const visitorCount = booking.visitor_count || 1;
+      // Use paid_quantity for invoice (only invoice the paid portion)
+      // If paid_quantity is null/undefined, fallback to visitor_count (for backward compatibility)
+      const paidQty = booking.paid_quantity !== null && booking.paid_quantity !== undefined 
+        ? booking.paid_quantity 
+        : (booking.visitor_count || 1);
+      const packageCoveredQty = booking.package_covered_quantity || 0;
       
-      // Build item name - include offer name if offer is used
-      let itemName = serviceName;
-      if (booking.offer_id && booking.offer_name) {
-        const offerName = language === 'ar' && booking.offer_name_ar 
-          ? booking.offer_name_ar 
-          : booking.offer_name;
-        // Only add offer name if it's different from service name
-        if (offerName !== serviceName) {
-            itemName = `${serviceName} - ${offerName}`;
-          } else {
-            itemName = `${serviceName} (Offer)`;
+      console.log(`[ZohoService] 📊 Partial coverage check:`);
+      console.log(`   Total tickets: ${booking.visitor_count || 1}`);
+      console.log(`   Package covered: ${packageCoveredQty}`);
+      console.log(`   Paid quantity: ${paidQty}`);
+      
+      // Only create invoice line items if there's a paid portion
+      if (paidQty > 0) {
+        // Use the actual total_price from booking (which already accounts for paid portion)
+        const totalPrice = parseFloat(booking.total_price.toString());
+        
+        // Build item name - include offer name if offer is used
+        let itemName = serviceName;
+        if (booking.offer_id && booking.offer_name) {
+          const offerName = language === 'ar' && booking.offer_name_ar 
+            ? booking.offer_name_ar 
+            : booking.offer_name;
+          // Only add offer name if it's different from service name
+          if (offerName !== serviceName) {
+              itemName = `${serviceName} - ${offerName}`;
+            } else {
+              itemName = `${serviceName} (Offer)`;
+            }
           }
+
+        // Add note about package coverage if applicable
+        let itemDescription = serviceDescription;
+        if (packageCoveredQty > 0) {
+          const coverageNote = language === 'ar' 
+            ? ` (${packageCoveredQty} تذكرة مغطاة بالباقة)`
+            : ` (${packageCoveredQty} tickets covered by package)`;
+          itemDescription = serviceDescription 
+            ? `${serviceDescription}${coverageNote}`
+            : coverageNote.trim();
         }
 
-      lineItems.push({
-        name: itemName,
-        description: serviceDescription,
-        rate: pricePerTicket,
-        quantity: visitorCount,
-        unit: 'ticket',
-      });
+        lineItems.push({
+          name: itemName,
+          description: itemDescription,
+          rate: pricePerTicket,
+          quantity: paidQty, // Only invoice paid tickets
+          unit: 'ticket',
+        });
+        
+        console.log(`[ZohoService] ✅ Invoice line item created for ${paidQty} paid ticket(s)`);
+      } else {
+        console.log(`[ZohoService] ℹ️ No paid quantity - invoice will be empty (fully covered by package)`);
+        // Still create an empty invoice structure for consistency, but it won't be sent
+      }
 
       // Format date
       const bookingDate = new Date(booking.created_at);
@@ -1264,7 +1293,7 @@ class ZohoService {
    */
   async generateReceiptForBookingGroup(bookingGroupId: string): Promise<{ invoiceId: string; success: boolean; error?: string }> {
     try {
-      // Fetch all bookings in the group
+      // Fetch all bookings in the group (include paid_quantity and package_covered_quantity)
       const { data: bookings, error: bookingError } = await supabase
         .from('bookings')
         .select(`
@@ -1274,6 +1303,9 @@ class ZohoService {
           customer_phone,
           customer_email,
           total_price,
+          paid_quantity,
+          package_covered_quantity,
+          visitor_count,
           zoho_invoice_id,
           services (
             name,
@@ -1370,7 +1402,26 @@ class ZohoService {
         }
       }
 
-      // Aggregate all bookings into invoice line items
+      // Check if there's any paid quantity across all bookings
+      const totalPaidQty = bookings.reduce((sum, b) => sum + (b.paid_quantity || 0), 0);
+      const totalPackageCoveredQty = bookings.reduce((sum, b) => sum + (b.package_covered_quantity || 0), 0);
+
+      console.log(`[ZohoService] 📊 Bulk booking partial coverage check:`);
+      console.log(`   Total bookings: ${bookings.length}`);
+      console.log(`   Total package covered: ${totalPackageCoveredQty}`);
+      console.log(`   Total paid: ${totalPaidQty}`);
+
+      // Only create invoice if there's a paid portion
+      if (totalPaidQty <= 0) {
+        console.log(`[ZohoService] ℹ️ Bulk booking is fully covered by package (totalPaidQty = ${totalPaidQty}) - skipping invoice creation`);
+        return {
+          invoiceId: '',
+          success: true, // Not an error - just no invoice needed
+          error: undefined
+        };
+      }
+
+      // Aggregate paid bookings into invoice line items
       const lineItems: Array<{
         name: string;
         description?: string;
@@ -1382,34 +1433,73 @@ class ZohoService {
       let totalAmount = 0;
       const language = 'en'; // Default to English for invoice
 
+      // Group bookings by service for cleaner invoice
+      const serviceGroups = new Map<string, typeof bookings>();
       for (const booking of bookings) {
-        const serviceName = language === 'ar' && booking.services.name_ar
-          ? booking.services.name_ar
-          : booking.services.name;
+        const serviceId = booking.services?.id || 'unknown';
+        if (!serviceGroups.has(serviceId)) {
+          serviceGroups.set(serviceId, []);
+        }
+        serviceGroups.get(serviceId)!.push(booking);
+      }
 
-        const serviceDescription = language === 'ar' && booking.services.description_ar
-          ? booking.services.description_ar
-          : booking.services.description;
+      for (const [serviceId, serviceBookings] of serviceGroups.entries()) {
+        const firstBooking = serviceBookings[0];
+        const serviceName = language === 'ar' && firstBooking.services.name_ar
+          ? firstBooking.services.name_ar
+          : firstBooking.services.name;
 
-        const slotDate = booking.slots.slot_date;
-        const startTime = booking.slots.start_time;
-        const endTime = booking.slots.end_time;
-        const timeSlot = `${slotDate} ${startTime} - ${endTime}`;
+        const serviceDescription = language === 'ar' && firstBooking.services.description_ar
+          ? firstBooking.services.description_ar
+          : firstBooking.services.description;
 
-        // Create line item for this booking
-        const itemDescription = serviceDescription 
-          ? `${serviceDescription}\n${timeSlot}`
-          : timeSlot;
+        // Sum paid quantities for this service
+        const paidQtyForService = serviceBookings.reduce((sum, b) => sum + (b.paid_quantity || 0), 0);
+        const packageCoveredQtyForService = serviceBookings.reduce((sum, b) => sum + (b.package_covered_quantity || 0), 0);
 
-        lineItems.push({
-          name: serviceName,
-          description: itemDescription,
-          rate: parseFloat(String(booking.total_price)),
-          quantity: 1,
-          unit: 'ticket'
-        });
+        if (paidQtyForService > 0) {
+          // Calculate price per paid ticket
+          const pricePerTicket = parseFloat(String(firstBooking.services.base_price || 0));
+          const totalPriceForService = serviceBookings.reduce((sum, b) => sum + parseFloat(String(b.total_price || 0)), 0);
 
-        totalAmount += parseFloat(String(booking.total_price));
+          // Build description with slot info and package coverage note
+          const slotInfo = serviceBookings.map(b => {
+            const slotDate = b.slots?.slot_date;
+            const startTime = b.slots?.start_time;
+            const endTime = b.slots?.end_time;
+            return slotDate && startTime && endTime ? `${slotDate} ${startTime}-${endTime}` : '';
+          }).filter(Boolean).join(', ');
+
+          let itemDescription = serviceDescription || '';
+          if (slotInfo) {
+            itemDescription = itemDescription ? `${itemDescription}\n${slotInfo}` : slotInfo;
+          }
+          if (packageCoveredQtyForService > 0) {
+            const coverageNote = language === 'ar' 
+              ? ` (${packageCoveredQtyForService} تذكرة مغطاة بالباقة)`
+              : ` (${packageCoveredQtyForService} tickets covered by package)`;
+            itemDescription = itemDescription ? `${itemDescription}${coverageNote}` : coverageNote.trim();
+          }
+
+          lineItems.push({
+            name: serviceName,
+            description: itemDescription || undefined,
+            rate: pricePerTicket,
+            quantity: paidQtyForService, // Only invoice paid tickets
+            unit: 'ticket'
+          });
+
+          totalAmount += totalPriceForService;
+        }
+      }
+
+      if (lineItems.length === 0) {
+        console.log(`[ZohoService] ℹ️ No paid bookings in group - invoice will be empty (fully covered by package)`);
+        return {
+          invoiceId: '',
+          success: true,
+          error: undefined
+        };
       }
 
       // Prepare invoice data
@@ -1509,9 +1599,10 @@ class ZohoService {
         }
         
         // Query booking - use maybeSingle to avoid throwing error if not found
+        // Include paid_quantity and package_covered_quantity for partial coverage support
         const { data: bookingData, error: bookingError } = await supabase
           .from('bookings')
-          .select('zoho_invoice_id, tenant_id, customer_email, customer_phone, customer_name')
+          .select('zoho_invoice_id, tenant_id, customer_email, customer_phone, customer_name, paid_quantity, package_covered_quantity')
           .eq('id', bookingId)
           .maybeSingle(); // Use maybeSingle to avoid throwing error if not found
         
@@ -1634,11 +1725,46 @@ class ZohoService {
       
       console.log(`[ZohoService] ✅ All preconditions verified - proceeding with invoice creation`);
 
+      // Check if booking has paid quantity before creating invoice
+      // Fetch paid_quantity to determine if invoice should be created
+      const { data: bookingWithPaidQty, error: paidQtyError } = await supabase
+        .from('bookings')
+        .select('paid_quantity, package_covered_quantity, visitor_count')
+        .eq('id', bookingId)
+        .maybeSingle();
+      
+      const paidQty = bookingWithPaidQty?.paid_quantity ?? (bookingWithPaidQty?.visitor_count || 0);
+      const packageCoveredQty = bookingWithPaidQty?.package_covered_quantity ?? 0;
+      
+      console.log(`[ZohoService] 📊 Partial coverage check for invoice:`);
+      console.log(`   Paid quantity: ${paidQty}`);
+      console.log(`   Package covered: ${packageCoveredQty}`);
+      
+      // Only create invoice if there's a paid portion
+      if (paidQty <= 0) {
+        console.log(`[ZohoService] ℹ️ Booking is fully covered by package (paidQty = ${paidQty}) - skipping invoice creation`);
+        return {
+          invoiceId: '',
+          success: true, // Not an error - just no invoice needed
+          error: undefined
+        };
+      }
+
       // Map booking to invoice data (needed for delivery even if invoice exists)
       let invoiceData: ZohoInvoiceData;
       try {
         invoiceData = await this.mapBookingToInvoice(bookingId);
         console.log(`[ZohoService] ✅ Booking mapped to invoice data successfully`);
+        
+        // Verify invoice has line items (should have paidQty items)
+        if (!invoiceData.line_items || invoiceData.line_items.length === 0) {
+          console.log(`[ZohoService] ℹ️ No line items in invoice data - booking fully covered by package`);
+          return {
+            invoiceId: '',
+            success: true, // Not an error - just no invoice needed
+            error: undefined
+          };
+        }
       } catch (mapError: any) {
         const errorMsg = `Failed to map booking to invoice data: ${mapError.message || 'Unknown error'}`;
         console.error(`[ZohoService] ❌ ${errorMsg}`);

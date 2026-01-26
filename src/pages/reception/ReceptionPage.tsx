@@ -2847,23 +2847,35 @@ export function ReceptionPage() {
   }
 
   // Calculate booking price considering package availability AND already selected services in current session
-  function calculateBookingPrice(serviceId: string, quantity: number, alreadySelectedCount: number = 0): { price: number; usePackage: boolean; canUsePackage: boolean } {
+  // Now supports partial coverage: uses package for available capacity, rest is paid
+  function calculateBookingPrice(serviceId: string, quantity: number, alreadySelectedCount: number = 0): { 
+    price: number; 
+    usePackage: boolean; 
+    canUsePackage: boolean;
+    packageCoveredQty: number;
+    paidQty: number;
+  } {
     const service = services.find(s => s.id === serviceId);
-    if (!service) return { price: 0, usePackage: false, canUsePackage: false };
+    if (!service) return { price: 0, usePackage: false, canUsePackage: false, packageCoveredQty: 0, paidQty: quantity };
 
     const packageCheck = checkServiceInPackage(serviceId);
 
     // Calculate remaining after accounting for already selected services in this session
     const effectiveRemaining = packageCheck.remaining - alreadySelectedCount;
 
-    if (packageCheck.available && effectiveRemaining >= quantity) {
-      return { price: 0, usePackage: true, canUsePackage: true };
-    }
+    // Calculate partial coverage
+    const packageCoveredQty = Math.max(0, Math.min(quantity, effectiveRemaining));
+    const paidQty = quantity - packageCoveredQty;
+
+    // Calculate price only for paid portion
+    const price = paidQty > 0 ? (service.base_price * paidQty) : 0;
 
     return {
-      price: service.base_price * quantity,
-      usePackage: false,
-      canUsePackage: effectiveRemaining > 0
+      price,
+      usePackage: packageCoveredQty > 0,
+      canUsePackage: effectiveRemaining > 0,
+      packageCoveredQty,
+      paidQty
     };
   }
 
@@ -4167,6 +4179,55 @@ export function ReceptionPage() {
                   return null;
                 })()}
               </p>
+
+              {/* Package Partial Coverage Warning */}
+              {selectedService && bookingForm.visitor_count && (() => {
+                const packageCheck = checkServiceInPackage(selectedService);
+                const quantity = typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1;
+                
+                if (packageCheck.remaining > 0 && packageCheck.remaining < quantity) {
+                  const paidQty = quantity - packageCheck.remaining;
+                  return (
+                    <div className="mt-3 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <Package className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-yellow-800 mb-1">
+                            {i18n.language === 'ar' ? 'تنبيه التغطية الجزئية' : 'Partial Package Coverage'}
+                          </p>
+                          <p className="text-sm text-yellow-700">
+                            {i18n.language === 'ar' 
+                              ? `حزمة العميل تغطي ${packageCheck.remaining} حجز. سيتم دفع ${paidQty} حجز بشكل طبيعي.`
+                              : `Customer's package covers ${packageCheck.remaining} booking${packageCheck.remaining !== 1 ? 's' : ''}. The remaining ${paidQty} booking${paidQty !== 1 ? 's will' : ' will'} be charged normally.`}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                
+                if (packageCheck.remaining === 0 && customerPackage) {
+                  return (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-300 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <Package className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-blue-800 mb-1">
+                            {i18n.language === 'ar' ? 'تنبيه الحزمة' : 'Package Notice'}
+                          </p>
+                          <p className="text-sm text-blue-700">
+                            {i18n.language === 'ar' 
+                              ? 'حزمة العميل لهذه الخدمة مستخدمة بالكامل. سيتم دفع هذا الحجز بشكل طبيعي.'
+                              : 'Customer\'s package for this service is fully used. This booking will be charged normally.'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                
+                return null;
+              })()}
             </div>
           )}
 

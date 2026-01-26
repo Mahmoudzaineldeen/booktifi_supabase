@@ -10,13 +10,12 @@ export function PackageSubscribersPageWrapper() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Only tenant_admin can access package subscribers page
+    // Allow tenant_admin, admin_user, and customer_admin to access package subscribers page
     if (!authLoading && userProfile) {
-      if (userProfile.role !== 'tenant_admin') {
+      const allowedRoles = ['tenant_admin', 'admin_user', 'customer_admin'];
+      if (!allowedRoles.includes(userProfile.role)) {
         // Redirect to appropriate page based on role
-        if (userProfile.role === 'customer_admin' || userProfile.role === 'admin_user') {
-          navigate(`/${tenantSlug}/admin/bookings`);
-        } else if (userProfile.role === 'cashier' || userProfile.role === 'receptionist') {
+        if (userProfile.role === 'cashier' || userProfile.role === 'receptionist') {
           navigate(`/${tenantSlug}/reception`);
         } else {
           navigate(`/${tenantSlug}/admin`);
@@ -25,9 +24,12 @@ export function PackageSubscribersPageWrapper() {
     }
   }, [userProfile, authLoading, tenantSlug, navigate]);
 
-  // Don't render if user is not tenant_admin
-  if (!authLoading && userProfile && userProfile.role !== 'tenant_admin') {
-    return null;
+  // Don't render if user is not in allowed roles
+  if (!authLoading && userProfile) {
+    const allowedRoles = ['tenant_admin', 'admin_user', 'customer_admin'];
+    if (!allowedRoles.includes(userProfile.role)) {
+      return null;
+    }
   }
 
   // Check session in localStorage before redirecting

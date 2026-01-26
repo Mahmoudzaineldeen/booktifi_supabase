@@ -722,6 +722,8 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     let packageSubscriptionId: string | null = null;
     let finalTotalPrice = total_price || 0;
     let shouldUsePackage = false;
+    let packageCoveredQty = 0;
+    let paidQty = visitor_count; // Default: all tickets are paid
 
     // Look up customer by phone if customer_id not provided (for receptionist bookings)
     let customerIdForPackage = req.user?.id || req.body.customer_id;
@@ -752,30 +754,56 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
           const totalRemaining = capacityResult.total_remaining_capacity || 0;
           const exhaustionStatus = capacityResult.exhaustion_status || [];
 
-          // If we have enough capacity for the requested visitor count
-          if (totalRemaining >= visitor_count) {
-            shouldUsePackage = true;
-            finalTotalPrice = 0; // Package booking is free
+          // Calculate partial coverage (store in outer scope variables)
+          packageCoveredQty = Math.min(visitor_count, totalRemaining);
+          paidQty = visitor_count - packageCoveredQty;
 
+          console.log(`[Booking Creation] Package capacity check:`, {
+            requestedQty: visitor_count,
+            remainingCapacity: totalRemaining,
+            packageCoveredQty,
+            paidQty
+          });
+
+          // If we have any capacity, use it (even if partial)
+          if (totalRemaining > 0) {
+            shouldUsePackage = true;
+            
             // Find the subscription ID to use
             // Priority: use the one with most remaining capacity
             if (exhaustionStatus.length > 0) {
               const availableSubscriptions = exhaustionStatus
-                .filter((s: any) => !s.is_exhausted && s.remaining >= visitor_count)
+                .filter((s: any) => !s.is_exhausted && s.remaining > 0)
                 .sort((a: any, b: any) => b.remaining - a.remaining);
 
               if (availableSubscriptions.length > 0) {
-                // Use the subscription_id directly from the exhaustion status
-                // (it's already in the result from resolveCustomerServiceCapacity)
                 packageSubscriptionId = availableSubscriptions[0].subscription_id;
                 console.log(`[Booking Creation] ✅ Using package subscription: ${packageSubscriptionId} (remaining: ${availableSubscriptions[0].remaining})`);
               }
             }
-          } else if (totalRemaining > 0) {
-            // Partial capacity - booking becomes paid (no partial usage)
-            console.log(`[Booking Creation] ⚠️ Partial package capacity (${totalRemaining}/${visitor_count}) - booking will be paid`);
+
+            // Calculate price only for paid portion
+            if (paidQty > 0) {
+              // Get service price for paid tickets
+              const { data: serviceData } = await supabase
+                .from('services')
+                .select('base_price')
+                .eq('id', service_id)
+                .single();
+              
+              const servicePrice = serviceData?.base_price || 0;
+              finalTotalPrice = paidQty * servicePrice;
+              
+              console.log(`[Booking Creation] ⚠️ Partial package coverage: ${packageCoveredQty} free, ${paidQty} paid (${finalTotalPrice})`);
+            } else {
+              finalTotalPrice = 0; // Fully covered by package
+              console.log(`[Booking Creation] ✅ Full package coverage: ${packageCoveredQty} tickets free`);
+            }
           } else {
-            // No capacity - check if we should notify about exhaustion
+            // No capacity - full booking is paid
+            packageCoveredQty = 0;
+            paidQty = visitor_count;
+            console.log(`[Booking Creation] ℹ️ No package capacity - full booking will be paid`);
             const exhaustedPackages = exhaustionStatus.filter((s: any) => s.is_exhausted);
             if (exhaustedPackages.length > 0) {
               console.log(`[Booking Creation] ℹ️ Package capacity exhausted for ${exhaustedPackages.length} package(s)`);
@@ -791,6 +819,7 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     // Use RPC for transaction - handles all validation, lock checking, and booking creation
     console.log(`[Booking Creation] Calling create_booking_with_lock RPC function...`);
     console.log(`[Booking Creation]    Package: ${shouldUsePackage ? 'YES' : 'NO'}, Price: ${finalTotalPrice}`);
+    console.log(`[Booking Creation]    Coverage: ${packageCoveredQty} package, ${paidQty} paid`);
     const { data: booking, error: createError } = await supabase
       .rpc('create_booking_with_lock', {
         p_slot_id: slot_id,
@@ -810,7 +839,9 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
         p_customer_id: customerIdForPackage || null,
         p_offer_id: offer_id || null,
         p_language: validLanguage,
-        p_package_subscription_id: packageSubscriptionId // NEW: Pass package subscription
+        p_package_subscription_id: packageSubscriptionId,
+        p_package_covered_quantity: packageCoveredQty,
+        p_paid_quantity: paidQty
       });
 
     if (createError) {
@@ -1209,11 +1240,12 @@ router.post('/create', authenticateReceptionistOrTenantAdmin, async (req, res) =
     console.log(`[Booking Creation] ========================================`);
     
     // Delivery: Email (if email provided), WhatsApp (if phone provided), or both
-    // Note: Payment status is not used - invoices are created for all bookings
+    // CRITICAL: Only create invoice if there's a paid portion (paidQty > 0)
+    // If booking is fully covered by package (paidQty = 0), skip invoice creation
     // CRITICAL: Execute invoice creation BEFORE sending response to ensure it completes
     // This prevents Railway container restarts from interrupting invoice creation
-    if (normalizedPhone || customer_phone || customer_email) {
-      console.log(`[Booking Creation] ✅ Customer contact available - proceeding with invoice creation`);
+    if ((normalizedPhone || customer_phone || customer_email) && paidQty > 0) {
+      console.log(`[Booking Creation] ✅ Customer contact available and paid quantity > 0 (${paidQty}) - proceeding with invoice creation`);
       
       // CRITICAL: Execute invoice creation immediately and await it before sending response
       // This ensures invoice is created even if Railway container restarts
@@ -1555,10 +1587,12 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
     // PACKAGE CAPACITY CHECK - Auto-apply package if capacity exists
     // ============================================================================
     // Note: For bulk bookings, we check capacity per slot (each slot = 1 visitor)
-    // If package capacity exists, we'll use it for as many slots as possible
+    // Support partial coverage: use package for available capacity, rest is paid
     let packageSubscriptionId: string | null = null;
     let finalTotalPrice = total_price || 0;
     let shouldUsePackage = false;
+    let packageCoveredQty = 0;
+    let paidQty = visitor_count; // Default: all tickets are paid
 
     // Look up customer by phone if customer_id not provided
     let customerIdForPackage = req.user?.id || req.body.customer_id;
@@ -1590,17 +1624,25 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
           const totalRemaining = capacityResult.total_remaining_capacity || 0;
           const exhaustionStatus = capacityResult.exhaustion_status || [];
 
-          // For bulk bookings, we can use package for up to totalRemaining slots
-          // But per requirements: "No partial package usage in a single booking"
-          // So if we have enough for ALL slots, use package. Otherwise, paid.
-          if (totalRemaining >= visitor_count) {
-            shouldUsePackage = true;
-            finalTotalPrice = 0; // Package booking is free
+          // Calculate partial coverage for bulk bookings
+          packageCoveredQty = Math.min(visitor_count, totalRemaining);
+          paidQty = visitor_count - packageCoveredQty;
 
+          console.log(`[Bulk Booking Creation] Package capacity check:`, {
+            requestedQty: visitor_count,
+            remainingCapacity: totalRemaining,
+            packageCoveredQty,
+            paidQty
+          });
+
+          // If we have any capacity, use it (even if partial)
+          if (totalRemaining > 0) {
+            shouldUsePackage = true;
+            
             // Find the subscription ID to use
             if (exhaustionStatus.length > 0) {
               const availableSubscriptions = exhaustionStatus
-                .filter((s: any) => !s.is_exhausted && s.remaining >= visitor_count)
+                .filter((s: any) => !s.is_exhausted && s.remaining > 0)
                 .sort((a: any, b: any) => b.remaining - a.remaining);
 
               if (availableSubscriptions.length > 0) {
@@ -1608,8 +1650,29 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
                 console.log(`[Bulk Booking Creation] ✅ Using package subscription: ${packageSubscriptionId}`);
               }
             }
+
+            // Calculate price only for paid portion
+            if (paidQty > 0) {
+              // Get service price for paid tickets
+              const { data: serviceData } = await supabase
+                .from('services')
+                .select('base_price')
+                .eq('id', service_id)
+                .single();
+              
+              const servicePrice = serviceData?.base_price || 0;
+              finalTotalPrice = paidQty * servicePrice;
+              
+              console.log(`[Bulk Booking Creation] ⚠️ Partial package coverage: ${packageCoveredQty} free, ${paidQty} paid (${finalTotalPrice})`);
+            } else {
+              finalTotalPrice = 0; // Fully covered by package
+              console.log(`[Bulk Booking Creation] ✅ Full package coverage: ${packageCoveredQty} tickets free`);
+            }
           } else {
-            console.log(`[Bulk Booking Creation] ⚠️ Insufficient package capacity (${totalRemaining}/${visitor_count}) - booking will be paid`);
+            // No capacity - full booking is paid
+            packageCoveredQty = 0;
+            paidQty = visitor_count;
+            console.log(`[Bulk Booking Creation] ℹ️ No package capacity - full booking will be paid`);
           }
         }
       } catch (packageError: any) {
@@ -1694,7 +1757,8 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
 
     // Use RPC for atomic transaction - validates ALL slots before creating any bookings
     console.log(`[Bulk Booking Creation] Calling create_bulk_booking RPC function...`);
-    console.log(`[Bulk Booking Creation]    Slots: ${slot_ids.length}, Visitors: ${visitor_count}, Total Price: ${total_price}`);
+    console.log(`[Bulk Booking Creation]    Slots: ${slot_ids.length}, Visitors: ${visitor_count}, Total Price: ${finalTotalPrice}`);
+    console.log(`[Bulk Booking Creation]    Coverage: ${packageCoveredQty} package, ${paidQty} paid`);
     
     const { data: bulkBookingResult, error: createError } = await supabase
       .rpc('create_bulk_booking', {
@@ -1707,7 +1771,7 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
         p_visitor_count: visitor_count,
         p_adult_count: finalAdultCount,
         p_child_count: finalChildCount,
-        p_total_price: finalTotalPrice, // Use calculated price (0 if using package)
+        p_total_price: finalTotalPrice, // Use calculated price (only for paid portion)
         p_notes: notes || null,
         p_employee_id: employee_id || null,
         p_session_id: req.user?.id || session_id || null,
@@ -1715,7 +1779,9 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
         p_offer_id: offer_id || null,
         p_language: validLanguage,
         p_booking_group_id: booking_group_id || null,
-        p_package_subscription_id: packageSubscriptionId // Pass package subscription if using package
+        p_package_subscription_id: packageSubscriptionId,
+        p_package_covered_quantity: packageCoveredQty,
+        p_paid_quantity: paidQty
       });
 
     if (createError) {

@@ -56,7 +56,10 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       href: `/${tenantSlug}/admin/package-subscribers`,
       icon: UserCheck,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/package-subscribers`),
-      visible: (features?.packages_enabled ?? true) && userProfile?.role === 'tenant_admin', // Only tenant_admin
+      visible: (features?.packages_enabled ?? true) && 
+               (userProfile?.role === 'tenant_admin' || 
+                userProfile?.role === 'admin_user' || 
+                userProfile?.role === 'customer_admin'), // Allow admin_user, customer_admin, and tenant_admin
     },
     {
       name: t('navigation.offers'),

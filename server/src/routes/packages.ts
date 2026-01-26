@@ -48,6 +48,43 @@ function authenticateTenantAdmin(req: express.Request, res: express.Response, ne
   }
 }
 
+// Middleware to authenticate admin user, customer admin, or tenant admin
+function authenticateSubscriptionManager(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token provided' });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+
+    if (!decoded.tenant_id) {
+      return res.status(403).json({ error: 'User does not belong to a tenant' });
+    }
+
+    // Allow admin_user, customer_admin, tenant_admin, and receptionist
+    const allowedRoles = ['admin_user', 'customer_admin', 'tenant_admin', 'receptionist'];
+    if (!allowedRoles.includes(decoded.role)) {
+      return res.status(403).json({ 
+        error: 'Access denied',
+        details: 'Only admin users, customer admins, tenant admins, and receptionists can manage subscriptions'
+      });
+    }
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      tenant_id: decoded.tenant_id,
+    };
+
+    next();
+  } catch (error: any) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
 // ============================================================================
 // Create Package (Atomic Transaction)
 // NOTE: Minimum requirement is 1 service (updated from 2 services)
@@ -639,6 +676,116 @@ router.post('/subscriptions', async (req, res) => {
     res.status(500).json({ 
       error: error.message || 'Internal server error',
       details: 'An unexpected error occurred while creating the package subscription'
+    });
+  }
+});
+
+// ============================================================================
+// Cancel Package Subscription
+// Allowed roles: admin_user, customer_admin, tenant_admin, receptionist
+// ============================================================================
+router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionManager, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const { subscriptionId } = req.params;
+
+    if (!subscriptionId) {
+      return res.status(400).json({ error: 'Subscription ID is required' });
+    }
+
+    // Verify subscription exists and belongs to tenant
+    const { data: subscription, error: fetchError } = await supabase
+      .from('package_subscriptions')
+      .select('id, tenant_id, status, is_active')
+      .eq('id', subscriptionId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (fetchError || !subscription) {
+      return res.status(404).json({ 
+        error: 'Subscription not found',
+        details: 'The subscription does not exist or does not belong to your tenant'
+      });
+    }
+
+    // Check if already cancelled
+    if (subscription.status === 'cancelled' || subscription.is_active === false) {
+      return res.status(400).json({ 
+        error: 'Subscription already cancelled',
+        details: 'This subscription has already been cancelled'
+      });
+    }
+
+    // Update subscription to cancelled
+    // Try new schema first (status and is_active)
+    const updateData: any = {
+      status: 'cancelled',
+      is_active: false,
+      updated_at: new Date().toISOString()
+    };
+
+    const { data: updatedSubscription, error: updateError } = await supabase
+      .from('package_subscriptions')
+      .update(updateData)
+      .eq('id', subscriptionId)
+      .eq('tenant_id', tenantId)
+      .select()
+      .single();
+
+    if (updateError) {
+      // If error is about missing columns, try with old schema (status only)
+      if (updateError.message?.includes('column') && updateError.message?.includes('is_active')) {
+        console.warn('[Cancel Subscription] is_active column not found, trying old schema...');
+        
+        const oldSchemaUpdate = {
+          status: 'cancelled',
+          updated_at: new Date().toISOString()
+        };
+
+        const { data: oldUpdated, error: oldError } = await supabase
+          .from('package_subscriptions')
+          .update(oldSchemaUpdate)
+          .eq('id', subscriptionId)
+          .eq('tenant_id', tenantId)
+          .select()
+          .single();
+
+        if (oldError) {
+          console.error('[Cancel Subscription] Error:', oldError);
+          return res.status(500).json({ 
+            error: 'Failed to cancel subscription',
+            details: oldError.message || 'Unknown error'
+          });
+        }
+
+        return res.json({
+          success: true,
+          message: 'Package subscription cancelled successfully',
+          subscription: oldUpdated
+        });
+      }
+
+      console.error('[Cancel Subscription] Error:', updateError);
+      return res.status(500).json({ 
+        error: 'Failed to cancel subscription',
+        details: updateError.message || 'Unknown error'
+      });
+    }
+
+    console.log(`[Cancel Subscription] ✅ Subscription ${subscriptionId} cancelled by ${req.user!.role} (${req.user!.id})`);
+
+    res.json({
+      success: true,
+      message: 'Package subscription cancelled successfully',
+      subscription: updatedSubscription
+    });
+
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Cancel package subscription error', error, context);
+    res.status(500).json({ 
+      error: error.message || 'Internal server error',
+      details: 'An unexpected error occurred while cancelling the subscription'
     });
   }
 });

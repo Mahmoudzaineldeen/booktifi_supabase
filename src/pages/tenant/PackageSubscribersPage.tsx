@@ -4,8 +4,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
-import { Package, Users, Search, X, Calendar, Filter, FileSearch, Phone, Mail, CheckCircle, Briefcase, TrendingUp, TrendingDown, Hash } from 'lucide-react';
+import { Package, Users, Search, X, Calendar, Filter, FileSearch, Phone, Mail, CheckCircle, Briefcase, TrendingUp, TrendingDown, Hash, XCircle, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
+import { getApiUrl } from '../../lib/apiUrl';
 
 interface PackageSubscriber {
   id: string;
@@ -50,6 +51,7 @@ export function PackageSubscribersPage() {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchValidationError, setSearchValidationError] = useState<string>('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSubscribers();
@@ -217,6 +219,54 @@ export function PackageSubscribersPage() {
     }
   }
 
+  async function handleCancelSubscription(subscriptionId: string) {
+    if (!window.confirm(
+      i18n.language === 'ar' 
+        ? 'هل أنت متأكد من إلغاء هذه الاشتراك؟ لا يمكن التراجع عن هذا الإجراء.'
+        : 'Are you sure you want to cancel this subscription? This action cannot be undone.'
+    )) {
+      return;
+    }
+
+    try {
+      setCancellingId(subscriptionId);
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+
+      const response = await fetch(`${API_URL}/api/packages/subscriptions/${subscriptionId}/cancel`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || errorData.details || 'Failed to cancel subscription');
+      }
+
+      const result = await response.json();
+      alert(
+        i18n.language === 'ar' 
+          ? 'تم إلغاء الاشتراك بنجاح'
+          : 'Subscription cancelled successfully'
+      );
+
+      // Refresh the list
+      await fetchSubscribers();
+    } catch (error: any) {
+      console.error('Error cancelling subscription:', error);
+      alert(
+        i18n.language === 'ar' 
+          ? `خطأ في إلغاء الاشتراك: ${error.message}`
+          : `Error cancelling subscription: ${error.message}`
+      );
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
   const displayData = showSearchResults ? searchResults : subscribers;
 
   if (loading) {
@@ -373,9 +423,29 @@ export function PackageSubscribersPage() {
                         locale: i18n.language === 'ar' ? require('date-fns/locale/ar') : undefined
                       })}
                     </div>
-                    <div className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-                      <CheckCircle className="w-3 h-3" />
-                      {t('packages.subscribers.active', 'Active')}
+                    <div className="flex items-center gap-2 justify-end">
+                      <div className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+                        <CheckCircle className="w-3 h-3" />
+                        {t('packages.subscribers.active', 'Active')}
+                      </div>
+                      <button
+                        onClick={() => handleCancelSubscription(subscriber.id)}
+                        disabled={cancellingId === subscriber.id}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        title={i18n.language === 'ar' ? 'إلغاء الاشتراك' : 'Cancel Subscription'}
+                      >
+                        {cancellingId === subscriber.id ? (
+                          <>
+                            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-red-800"></div>
+                            {i18n.language === 'ar' ? 'جاري الإلغاء...' : 'Cancelling...'}
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-3 h-3" />
+                            {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>
