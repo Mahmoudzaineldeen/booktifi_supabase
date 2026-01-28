@@ -218,6 +218,10 @@ async function createInvoiceForPackageSubscription(
   const customer_phone = options?.customer_phone ?? customerData.phone ?? undefined;
   const customer_email = options?.customer_email ?? customerData.email ?? undefined;
 
+  if (isVerboseLogging()) {
+    logger.info('Package subscription invoice: attempting', {}, {}, { tenant_id, subscriptionId: subscription.id, package_id, customer: customerData.name });
+  }
+
   try {
     const { data: tenantData } = await supabase
       .from('tenants')
@@ -234,6 +238,7 @@ async function createInvoiceForPackageSubscription(
 
     if (zohoConfigError || !zohoConfig?.client_id) {
       invoiceError = 'Zoho Invoice not configured for this tenant.';
+      logger.warn('Package subscription invoice: skipped (Zoho not configured)', zohoConfigError || undefined, {}, { tenant_id, subscriptionId: subscription.id });
       return { zohoInvoiceId, invoiceError };
     }
 
@@ -245,6 +250,7 @@ async function createInvoiceForPackageSubscription(
 
     if (tokenError || !zohoToken) {
       invoiceError = 'Zoho OAuth tokens not found. Complete OAuth in Settings → Zoho Integration.';
+      logger.warn('Package subscription invoice: skipped (no Zoho tokens)', tokenError || undefined, {}, { tenant_id, subscriptionId: subscription.id });
       return { zohoInvoiceId, invoiceError };
     }
 
@@ -271,6 +277,9 @@ async function createInvoiceForPackageSubscription(
 
     if (invoiceResponse.invoice?.invoice_id) {
       zohoInvoiceId = invoiceResponse.invoice.invoice_id;
+      if (isVerboseLogging()) {
+        logger.info('Package subscription invoice: created', {}, {}, { subscriptionId: subscription.id, zohoInvoiceId });
+      }
       if (invoiceData.customer_email) {
         try {
           await zohoService.sendInvoiceEmail(tenant_id, zohoInvoiceId, invoiceData.customer_email);
@@ -284,19 +293,33 @@ async function createInvoiceForPackageSubscription(
           } catch (_e) { /* non-blocking */ }
         }
       }
-      const { error: updateErr } = await supabase
+      let updateErr: any = null;
+      const { error: err1 } = await supabase
         .from('package_subscriptions')
         .update({ zoho_invoice_id: zohoInvoiceId, payment_status: 'paid' })
         .eq('id', subscription.id);
-      if (updateErr && isVerboseLogging()) {
-        logger.warn('Create invoice: failed to update subscription with invoice id', updateErr, {}, { subscriptionId: subscription.id });
+      updateErr = err1;
+      if (updateErr) {
+        const isColumnError = String(updateErr.message || '').includes('column');
+        if (isColumnError) {
+          const { error: err2 } = await supabase
+            .from('package_subscriptions')
+            .update({ zoho_invoice_id: zohoInvoiceId })
+            .eq('id', subscription.id);
+          if (!err2) updateErr = null;
+        }
+        if (updateErr && isVerboseLogging()) {
+          logger.warn('Create invoice: failed to update subscription with invoice id', updateErr, {}, { subscriptionId: subscription.id });
+        }
       }
       // Do not set invoiceError — invoice was created and possibly sent; only DB link may have failed
     } else {
       invoiceError = invoiceResponse.message || 'Failed to create invoice';
+      logger.warn('Package subscription invoice: Zoho returned no invoice_id', undefined, {}, { subscriptionId: subscription.id, message: invoiceError });
     }
   } catch (err: any) {
     invoiceError = err?.message || 'Failed to create invoice';
+    logger.error('Package subscription invoice: exception', err, {}, { tenant_id, subscriptionId: subscription.id });
   }
   return { zohoInvoiceId, invoiceError };
 }
@@ -875,135 +898,28 @@ router.post('/subscriptions', async (req, res) => {
     // Initialize package usage records (trigger should handle this, but ensure it exists)
     // The trigger initialize_package_usage() should create package_subscription_usage records
 
-    // PART 1: Create Zoho invoice for package purchase (prepaid)
+    // Create Zoho invoice for package purchase (prepaid) — same path as receptionist/admin subscribe
     let zohoInvoiceId: string | null = null;
     let invoiceError: string | null = null;
-    let customerData: any = null;
+    const { data: customerDataForInvoice } = await supabase
+      .from('customers')
+      .select('name, email, phone')
+      .eq('id', finalCustomerId)
+      .single();
 
-    try {
-      const { data: fetchedCustomerData, error: customerFetchError } = await supabase
-        .from('customers')
-        .select('name, email, phone')
-        .eq('id', finalCustomerId)
-        .single();
-
-      if (customerFetchError || !fetchedCustomerData) {
-        invoiceError = `Failed to fetch customer details for invoice: ${customerFetchError?.message || 'Customer not found'}`;
-      } else {
-        customerData = fetchedCustomerData;
-        const { data: tenantData } = await supabase
-          .from('tenants')
-          .select('currency_code')
-          .eq('id', tenant_id)
-          .single();
-
-        const currencyCode = tenantData?.currency_code || 'SAR';
-        const { zohoService } = await import('../services/zohoService.js');
-        let zohoConfigured = false;
-        const { data: zohoConfig, error: zohoConfigError } = await supabase
-          .from('tenant_zoho_configs')
-          .select('client_id, client_secret, redirect_uri')
-          .eq('tenant_id', tenant_id)
-          .single();
-
-        if (zohoConfigError || !zohoConfig || !zohoConfig.client_id) {
-          invoiceError = 'Zoho Invoice not configured for this tenant. Please configure Zoho in Settings → Zoho Integration';
-          zohoConfigured = false;
-        } else {
-          const { data: zohoToken, error: tokenError } = await supabase
-            .from('zoho_tokens')
-            .select('id')
-            .eq('tenant_id', tenant_id)
-            .single();
-          if (tokenError || !zohoToken) {
-            invoiceError = 'Zoho OAuth tokens not found. Please complete OAuth flow in Settings → Zoho Integration';
-            zohoConfigured = false;
-          } else {
-            zohoConfigured = true;
-          }
-        }
-
-        if (zohoConfigured) {
-          const packageName = packageData.name || packageData.name_ar || 'Service Package';
-          const invoiceData = {
-            customer_name: customerData.name,
-            customer_email: customerData.email || customer_email || undefined,
-            customer_phone: customerData.phone || customer_phone || undefined,
-            line_items: [{
-              name: packageName,
-              description: `Prepaid package subscription - ${packageName}`,
-              rate: total_price,
-              quantity: 1,
-              unit: 'package'
-            }],
-            date: new Date().toISOString().split('T')[0],
-            due_date: new Date().toISOString().split('T')[0],
-            currency_code: currencyCode,
-            notes: `Package Subscription ID: ${subscription.id}\nPackage ID: ${package_id}`
-          };
-
-          const invoiceResponse = await zohoService.createInvoice(tenant_id, invoiceData);
-
-          if (invoiceResponse.invoice && invoiceResponse.invoice.invoice_id) {
-            zohoInvoiceId = invoiceResponse.invoice.invoice_id;
-            const emailToSend = invoiceData.customer_email;
-            if (emailToSend) {
-              try {
-                await zohoService.sendInvoiceEmail(tenant_id, zohoInvoiceId, emailToSend);
-              } catch (_e) { /* non-blocking */ }
-            }
-            const phoneToSend = invoiceData.customer_phone || customer_phone;
-            if (phoneToSend) {
-              const normalizedPhone = normalizePhoneNumber(phoneToSend);
-              if (normalizedPhone) {
-                try {
-                  await zohoService.sendInvoiceViaWhatsApp(tenant_id, zohoInvoiceId, normalizedPhone);
-                } catch (_e) { /* non-blocking */ }
-                }
-              }
-            }
-
-            // Update subscription with invoice ID and mark as paid
-            // Try to update with new schema columns first, fall back to old schema if columns don't exist
-            const updateData: any = {};
-            
-            // Check if zoho_invoice_id column exists by trying to update it
-            const testUpdate = await supabase
-              .from('package_subscriptions')
-              .update({ zoho_invoice_id: zohoInvoiceId })
-              .eq('id', subscription.id)
-              .select('zoho_invoice_id')
-              .single();
-            
-            if (testUpdate.error && isVerboseLogging()) {
-              logger.warn('Create Subscription: update subscription with invoice ID failed', testUpdate.error, {}, { subscriptionId: subscription.id });
-            } else if (!testUpdate.error) {
-              await supabase
-                .from('package_subscriptions')
-                .update({ payment_status: 'paid' })
-                .eq('id', subscription.id);
-              
-              // Refresh subscription data to include invoice ID
-              const { data: updatedSubscription } = await supabase
-                .from('package_subscriptions')
-                .select()
-                .eq('id', subscription.id)
-                .single();
-              
-              if (updatedSubscription) {
-                subscription = updatedSubscription;
-              }
-            }
-          } else {
-            invoiceError = invoiceResponse.message || 'Failed to create invoice';
-          }
-        }
-      }
-    } catch (invoiceErr: any) {
-      invoiceError = invoiceErr?.message || 'Failed to create invoice';
-      if (isVerboseLogging()) {
-        logger.error('Create Subscription: invoice creation exception', invoiceErr, {}, { subscriptionId: subscription?.id });
-      }
+    if (!customerDataForInvoice) {
+      invoiceError = 'Customer not found for invoice';
+    } else {
+      const result = await createInvoiceForPackageSubscription(
+        tenant_id,
+        subscription,
+        package_id,
+        { name: packageData.name, name_ar: packageData.name_ar, total_price: packageData.total_price },
+        { name: customerDataForInvoice.name, email: customerDataForInvoice.email ?? undefined, phone: customerDataForInvoice.phone ?? undefined },
+        { customer_phone: customer_phone, customer_email: customer_email || undefined }
+      );
+      zohoInvoiceId = result.zohoInvoiceId;
+      invoiceError = result.invoiceError;
     }
 
     // Return success even if invoice creation failed (subscription is created)
@@ -1579,9 +1495,12 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
       // Don't fail - subscription is created, usage can be fixed later
     }
 
-    // Create Zoho invoice (same as customer purchase flow)
+    // Create Zoho invoice (same as customer purchase flow) — always attempt so subscription gets an invoice when Zoho is configured
     const customer_phone_raw = req.body.customer_phone as string | undefined;
     const customer_email_raw = req.body.customer_email as string | undefined;
+    if (isVerboseLogging()) {
+      logger.info('Receptionist subscribe: creating package subscription invoice', {}, {}, { subscriptionId: subscription.id, packageId: package_id });
+    }
     const { zohoInvoiceId, invoiceError } = await createInvoiceForPackageSubscription(
       tenantId,
       subscription,
@@ -1590,6 +1509,9 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
       { name: customerData.name, email: customerData.email ?? undefined, phone: customerData.phone ?? undefined },
       { customer_phone: customer_phone_raw, customer_email: customer_email_raw }
     );
+    if (invoiceError && isVerboseLogging()) {
+      logger.warn('Receptionist subscribe: invoice creation failed (subscription still created)', undefined, {}, { subscriptionId: subscription.id, invoiceError });
+    }
 
     res.status(201).json({
       success: true,
