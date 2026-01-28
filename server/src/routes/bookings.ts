@@ -2817,13 +2817,13 @@ router.post('/validate-qr', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Allow cashiers, receptionists, and tenant admins to scan QR codes
-    const allowedRoles = ['cashier', 'receptionist', 'tenant_admin'];
+    // Allow cashiers, receptionists, tenant admins, and admins to scan QR codes
+    const allowedRoles = ['cashier', 'receptionist', 'tenant_admin', 'admin_user'];
     if (!allowedRoles.includes(userData.role)) {
-      return res.status(403).json({ 
-        error: 'Access denied. Only cashiers, receptionists, and tenant admins can scan QR codes.',
+      return res.status(403).json({
+        error: 'Access denied. Only cashiers, receptionists, tenant admins, and admins can scan QR codes.',
         userRole: userData.role,
-        hint: 'You must be logged in as a cashier, receptionist, or tenant admin to scan QR codes.'
+        hint: 'You must be logged in as a cashier, receptionist, tenant admin, or admin to scan QR codes.'
       });
     }
 

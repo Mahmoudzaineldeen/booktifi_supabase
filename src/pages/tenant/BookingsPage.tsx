@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { safeTranslateStatus, safeTranslate } from '../../lib/safeTranslation';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X } from 'lucide-react';
+import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X, Plus } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
@@ -41,7 +42,10 @@ interface Booking {
 
 export function BookingsPage() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const { tenantSlug } = useParams<{ tenantSlug?: string }>();
   const { userProfile, tenant } = useAuth();
+  const canCreateBooking = ['receptionist', 'admin_user', 'tenant_admin', 'customer_admin'].includes(userProfile?.role || '');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
@@ -1006,7 +1010,17 @@ export function BookingsPage() {
             </div>
           </div>
         </div>
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+        <div className="flex flex-wrap items-center gap-2">
+          {canCreateBooking && tenantSlug && (
+            <Button
+              onClick={() => navigate(`/${tenantSlug}/reception`)}
+              className="flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              {t('reception.createNewBooking', 'Add booking')}
+            </Button>
+          )}
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
           <button
             onClick={() => {
               setViewMode('list');
@@ -1053,6 +1067,7 @@ export function BookingsPage() {
             <Calendar className="w-4 h-4 inline-block mr-2" />
             Calendar View
           </button>
+        </div>
         </div>
       </div>
 

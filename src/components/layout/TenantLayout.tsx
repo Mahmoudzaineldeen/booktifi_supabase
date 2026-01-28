@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck } from 'lucide-react';
+import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface TenantLayoutProps {
@@ -74,6 +74,13 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       icon: Calendar,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/bookings`),
       visible: true, // All roles can see bookings
+    },
+    {
+      name: t('navigation.reception', 'Reception'),
+      href: `/${tenantSlug}/reception`,
+      icon: ClipboardList,
+      current: location.pathname === `/${tenantSlug}/reception`,
+      visible: userProfile?.role === 'receptionist' || userProfile?.role === 'admin_user', // Same UI as receptionist: create bookings + package subscriptions
     },
     {
       name: t('navigation.employees'),

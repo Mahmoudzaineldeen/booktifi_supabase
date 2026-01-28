@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
-import { Package, Users, Search, X, Calendar, Filter, FileSearch, Phone, Mail, CheckCircle, Briefcase, TrendingUp, TrendingDown, Hash, XCircle, AlertTriangle } from 'lucide-react';
+import { Button } from '../../components/ui/Button';
+import { Package, Users, Search, X, Calendar, Filter, FileSearch, Phone, Mail, CheckCircle, Briefcase, TrendingUp, TrendingDown, Hash, XCircle, AlertTriangle, Plus } from 'lucide-react';
 import { format } from 'date-fns';
 import { getApiUrl } from '../../lib/apiUrl';
 
@@ -39,7 +41,10 @@ type SearchType = 'customer_name' | 'customer_phone' | 'service_name' | 'package
 
 export function PackageSubscribersPage() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const { tenantSlug } = useParams<{ tenantSlug?: string }>();
   const { userProfile } = useAuth();
+  const canAddSubscription = ['receptionist', 'admin_user', 'tenant_admin', 'customer_admin'].includes(userProfile?.role || '');
   const [subscribers, setSubscribers] = useState<PackageSubscriber[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -313,6 +318,15 @@ export function PackageSubscribersPage() {
             </div>
           </div>
         </div>
+        {canAddSubscription && tenantSlug && (
+          <Button
+            onClick={() => navigate(`/${tenantSlug}/reception`)}
+            className="flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            {t('packages.addSubscription', 'Add subscription')}
+          </Button>
+        )}
       </div>
 
       {/* Search Section */}

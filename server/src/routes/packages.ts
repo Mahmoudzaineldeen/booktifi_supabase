@@ -165,8 +165,8 @@ function authenticateSubscriptionManager(req: express.Request, res: express.Resp
   }
 }
 
-// Middleware to authenticate receptionist (read-only access to packages)
-function authenticateReceptionist(req: express.Request, res: express.Response, next: express.NextFunction) {
+// Middleware to authenticate receptionist OR admin (same package/subscription capabilities, no duplicated logic)
+function authenticateReceptionistOrAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -180,11 +180,12 @@ function authenticateReceptionist(req: express.Request, res: express.Response, n
       return res.status(403).json({ error: 'User does not belong to a tenant' });
     }
 
-    // Only allow receptionist role for read-only package access
-    if (decoded.role !== 'receptionist') {
-      return res.status(403).json({ 
+    // Allow receptionist or admin_user — same endpoints, same validations, no permission gaps
+    const allowedRoles = ['receptionist', 'admin_user'];
+    if (!allowedRoles.includes(decoded.role)) {
+      return res.status(403).json({
         error: 'Access denied',
-        details: 'Only receptionists can access this endpoint'
+        details: 'Only receptionists and admins can access this endpoint'
       });
     }
 
@@ -1305,7 +1306,7 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
 // ============================================================================
 // GET /receptionist/packages - List packages with search (receptionist only)
 // ============================================================================
-router.get('/receptionist/packages', authenticateReceptionist, async (req, res) => {
+router.get('/receptionist/packages', authenticateReceptionistOrAdmin, async (req, res) => {
   try {
     const tenantId = req.user!.tenant_id!;
     const { search, service_id } = req.query;
@@ -1401,7 +1402,7 @@ router.get('/receptionist/packages', authenticateReceptionist, async (req, res) 
 // ============================================================================
 // GET /receptionist/subscribers - List package subscribers with search (receptionist only)
 // ============================================================================
-router.get('/receptionist/subscribers', authenticateReceptionist, async (req, res) => {
+router.get('/receptionist/subscribers', authenticateReceptionistOrAdmin, async (req, res) => {
   try {
     const tenantId = req.user!.tenant_id!;
     const { search, search_type, page = 1, limit = 50 } = req.query;
@@ -1569,7 +1570,7 @@ router.get('/receptionist/subscribers', authenticateReceptionist, async (req, re
 // ============================================================================
 // POST /receptionist/subscriptions - Subscribe customer to package (receptionist only)
 // ============================================================================
-router.post('/receptionist/subscriptions', authenticateReceptionist, async (req, res) => {
+router.post('/receptionist/subscriptions', authenticateReceptionistOrAdmin, async (req, res) => {
   try {
     const tenantId = req.user!.tenant_id!;
     const { package_id, customer_id } = req.body;

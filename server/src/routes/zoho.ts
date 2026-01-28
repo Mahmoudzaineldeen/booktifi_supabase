@@ -673,10 +673,10 @@ router.get('/invoices/:invoiceId/download', async (req, res) => {
 
     const bookingTenantId = booking.tenant_id;
     
-    // TASK 7: If user is authenticated, verify they belong to the same tenant (for receptionist/tenant_admin)
-    if (userTenantId && userRole && (userRole === 'receptionist' || userRole === 'tenant_admin')) {
+    // TASK 7: If user is authenticated, verify they belong to the same tenant (receptionist, tenant_admin, admin)
+    if (userTenantId && userRole && (userRole === 'receptionist' || userRole === 'tenant_admin' || userRole === 'admin_user')) {
       if (userTenantId !== bookingTenantId) {
-        return res.status(403).json({ 
+        return res.status(403).json({
           error: 'Access denied. This invoice belongs to a different tenant.',
           hint: 'You can only download invoices for your own tenant.'
         });
