@@ -650,39 +650,45 @@ export function ReceptionPage() {
       alert(t('packages.customerPhoneRequired') || 'Customer phone is required');
       return;
     }
-
-    let customerId = subscriptionCustomerLookup?.id;
+    if (!subscriptionForm.customer_name?.trim()) {
+      alert(t('packages.customerNameRequired') || 'Customer name is required');
+      return;
+    }
+    if (!subscriptionForm.package_id) {
+      alert(t('packages.selectPackage') || 'Please select a package');
+      return;
+    }
 
     try {
-      if (!customerId) {
-        const { data: newCustomer } = await db
-          .from('customers')
-          .insert({
-            tenant_id: userProfile.tenant_id,
-            phone: fullPhone,
-            name: subscriptionForm.customer_name,
-            email: subscriptionForm.customer_email || null
-          })
-          .select()
-          .single();
-
-        if (newCustomer) {
-          customerId = newCustomer.id;
-        }
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+      const body: Record<string, string | undefined> = {
+        package_id: subscriptionForm.package_id,
+        customer_phone: fullPhone.trim(),
+        customer_name: subscriptionForm.customer_name.trim(),
+        customer_email: subscriptionForm.customer_email?.trim() || undefined
+      };
+      if (subscriptionCustomerLookup?.id) {
+        body.customer_id = subscriptionCustomerLookup.id;
       }
-
-      if (customerId) {
-        await db.from('package_subscriptions').insert({
-          tenant_id: userProfile.tenant_id,
-          customer_id: customerId,
-          package_id: subscriptionForm.package_id,
-          status: 'active'
-        });
-
-        alert(t('packages.subscriptionSuccess'));
-        setIsSubscriptionModalOpen(false);
-        resetSubscriptionForm();
+      const response = await fetch(`${API_URL}/packages/receptionist/subscriptions`, {
+        method: 'POST',
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to subscribe customer');
       }
+      const successMsg = data.invoice_error
+        ? `${t('packages.subscriptionSuccess')}\n\n${t('packages.invoiceNotCreated') || 'Invoice was not created or sent'}: ${data.invoice_error}`
+        : (t('packages.subscriptionSuccess') as string);
+      alert(successMsg);
+      setIsSubscriptionModalOpen(false);
+      resetSubscriptionForm();
     } catch (err: any) {
       console.error('Error creating subscription:', err);
       alert(`Error: ${err.message}`);
