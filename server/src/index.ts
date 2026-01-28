@@ -28,9 +28,8 @@ const __dirname = dirname(__filename);
 dotenv.config({ path: join(__dirname, '..', '.env') });
 
 const app = express();
-// PORT: Railway uses PORT env var, local dev can use 3001 if needed
-// For Railway deployment, PORT is set by Railway (typically 8080 or dynamic)
-const PORT = process.env.PORT || (process.env.NODE_ENV === 'production' ? undefined : 3001);
+// PORT: Railway sets process.env.PORT; must be numeric. Bind to 0.0.0.0 so healthcheck can reach the app.
+const PORT = Number(process.env.PORT) || (process.env.NODE_ENV === 'production' ? 8080 : 3001);
 
 // CORS configuration - Allow all origins for development
 // This fixes CORS issues with localhost and ngrok
@@ -98,7 +97,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   // Check database configuration
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const databaseInfo = supabaseUrl 
