@@ -196,6 +196,8 @@ export function ReceptionPage() {
   const [searchValidationError, setSearchValidationError] = useState<string>('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const isCoordinator = userProfile?.role === 'coordinator';
+
   // Track if initial auth check has been completed
   const [initialAuthDone, setInitialAuthDone] = useState(false);
   const initialLoadRef = useRef(false); // Use ref to prevent multiple loads
@@ -221,10 +223,10 @@ export function ReceptionPage() {
       return;
     }
 
-    // Allow receptionist, tenant_admin, customer_admin, and admin_user to access reception page for booking creation
-    const allowedRoles = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user'];
+    // Allow receptionist, coordinator, tenant_admin, customer_admin, and admin_user (coordinator is view + confirm only)
+    const allowedRoles = ['receptionist', 'coordinator', 'tenant_admin', 'customer_admin', 'admin_user'];
     if (!allowedRoles.includes(userProfile.role)) {
-      console.log('ReceptionPage: Wrong role, redirecting. Expected: receptionist, tenant_admin, customer_admin, or admin_user, Got:', userProfile.role);
+      console.log('ReceptionPage: Wrong role, redirecting. Expected: receptionist, coordinator, tenant_admin, customer_admin, or admin_user, Got:', userProfile.role);
       if (userProfile.role === 'cashier') {
         // Redirect cashiers to their own page
         const tenantSlug = window.location.pathname.split('/')[1];
@@ -2065,12 +2067,21 @@ export function ReceptionPage() {
 
   async function updateBookingStatus(bookingId: string, status: string) {
     try {
-      const { error } = await db
-        .from('bookings')
-        .update({ status, status_changed_at: new Date().toISOString() })
-        .eq('id', bookingId);
-
-      if (error) throw error;
+      // Coordinator must use API so backend enforces confirm-only; receptionist/admin can use API for consistency
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/bookings/${bookingId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `Failed to update status (${response.status})`);
+      }
       fetchBookings();
     } catch (err: any) {
       console.error('Error updating booking:', err);
@@ -3313,26 +3324,32 @@ export function ReceptionPage() {
                             {t('common.confirm')}
                           </Button>
                         )}
-                        {booking.status === 'confirmed' && (
-                          <Button
-                            size="sm"
-                            onClick={() => updateBookingStatus(booking.id, 'completed')}
-                            icon={<CheckCircle className="w-3 h-3" />}
-                          >
-                            {t('reception.complete')}
-                          </Button>
+                        {!isCoordinator && (
+                          <>
+                            {booking.status === 'confirmed' && (
+                              <Button
+                                size="sm"
+                                onClick={() => updateBookingStatus(booking.id, 'completed')}
+                                icon={<CheckCircle className="w-3 h-3" />}
+                              >
+                                {t('reception.complete')}
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              onClick={() => updateBookingStatus(booking.id, 'cancelled')}
+                              icon={<XCircle className="w-3 h-3" />}
+                            >
+                              {t('common.cancel')}
+                            </Button>
+                          </>
                         )}
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          onClick={() => updateBookingStatus(booking.id, 'cancelled')}
-                          icon={<XCircle className="w-3 h-3" />}
-                        >
-                          {t('common.cancel')}
-                        </Button>
                       </>
                     )}
                   </div>
+                  {!isCoordinator && (
+                  <>
                   {(booking.payment_status === 'unpaid' || booking.payment_status === 'awaiting_payment') && (
                     <Button
                       size="sm"
@@ -3388,7 +3405,7 @@ export function ReceptionPage() {
                     </div>
                   )}
 
-                  {/* Edit and Reschedule Buttons - Always visible for receptionists */}
+                  {/* Edit and Reschedule Buttons - hidden for coordinator */}
                   <Button
                     size="sm"
                     variant="secondary"
@@ -3412,6 +3429,8 @@ export function ReceptionPage() {
                       {t('bookings.changeTime') || 'Change Time'}
                     </Button>
                   )}
+                  </>
+                  )}
                 </div>
               )}
             </div>
@@ -3421,8 +3440,8 @@ export function ReceptionPage() {
     );
   }
 
-  // Early return if user is not a receptionist (prevent rendering)
-  const allowedReceptionRoles = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user'];
+  // Early return if user is not allowed on reception page (receptionist, coordinator, admin)
+  const allowedReceptionRoles = ['receptionist', 'coordinator', 'tenant_admin', 'customer_admin', 'admin_user'];
   if (!authLoading && userProfile && !allowedReceptionRoles.includes(userProfile.role)) {
     // Redirect will happen in useEffect, but don't render anything
     return (
@@ -3493,6 +3512,8 @@ export function ReceptionPage() {
                 <Calendar className="w-4 h-4 mr-2" />
                 <span className="hidden sm:inline">{i18n.language === 'ar' ? 'الحجوزات' : 'Bookings'}</span>
               </Button>
+              {!isCoordinator && (
+              <>
               <Button
                 variant={currentView === 'packages' ? 'primary' : 'secondary'}
                 size="sm"
@@ -3510,6 +3531,8 @@ export function ReceptionPage() {
               >
                 <span className="hidden sm:inline">{t('packages.addSubscription')}</span>
               </Button>
+              </>
+              )}
               <LanguageToggle />
               <Button
                 variant="secondary"
@@ -3696,6 +3719,7 @@ export function ReceptionPage() {
                 <span className="hidden sm:inline">Calendar</span>
               </Button>
             </div>
+            {!isCoordinator && (
             <Button
               onClick={() => setIsModalOpen(true)}
               icon={<Plus className="w-4 h-4" />}
@@ -3704,6 +3728,7 @@ export function ReceptionPage() {
               <span className="hidden sm:inline">{t('booking.newBooking')}</span>
               <span className="sm:hidden">New</span>
             </Button>
+            )}
             {tenant?.tickets_enabled !== false && (
               <Button
                 onClick={() => {
@@ -5228,9 +5253,24 @@ export function ReceptionPage() {
               </div>
             )}
 
-            {/* Action Buttons */}
+            {/* Action Buttons - coordinator only sees Confirm when pending */}
             <div className="flex flex-col gap-2 pt-4 border-t">
-              {/* Edit and Reschedule - Edit always visible, Reschedule only for active bookings */}
+              {selectedBookingForDetails.status === 'pending' && (
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    updateBookingStatus(selectedBookingForDetails.id, 'confirmed');
+                    setSelectedBookingForDetails(null);
+                  }}
+                  icon={<CheckCircle className="w-4 h-4" />}
+                  fullWidth
+                >
+                  {t('common.confirm')}
+                </Button>
+              )}
+              {!isCoordinator && (
+              <>
+              {/* Edit and Reschedule - hidden for coordinator */}
               <div className="flex gap-2">
                 <Button
                   variant="secondary"
@@ -5288,7 +5328,6 @@ export function ReceptionPage() {
                   </Button>
                 </div>
               )}
-            </div>
 
             {(selectedBookingForDetails.payment_status === 'unpaid' || selectedBookingForDetails.payment_status === 'awaiting_payment') && (
               <Button
@@ -5303,6 +5342,9 @@ export function ReceptionPage() {
                 Mark as Paid
               </Button>
             )}
+              </>
+              )}
+            </div>
 
             <Button
               variant="secondary"

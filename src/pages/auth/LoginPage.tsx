@@ -83,11 +83,11 @@ export function LoginPage() {
       return;
     }
 
-    // Handle tenant-based roles (tenant_admin, receptionist, cashier, etc.)
+    // Handle tenant-based roles (tenant_admin, receptionist, coordinator, cashier, etc.)
     if (tenant && tenant.slug) {
       if (userProfile.role === 'tenant_admin') {
         navigate(`/${tenant.slug}/admin`);
-      } else if (userProfile.role === 'receptionist') {
+      } else if (userProfile.role === 'receptionist' || userProfile.role === 'coordinator') {
         navigate(`/${tenant.slug}/reception`);
       } else if (userProfile.role === 'cashier') {
         navigate(`/${tenant.slug}/cashier`);
@@ -111,7 +111,7 @@ export function LoginPage() {
         } else if (tenantData && tenantData.slug) {
           if (userProfile.role === 'tenant_admin') {
             navigate(`/${tenantData.slug}/admin`);
-          } else if (userProfile.role === 'receptionist') {
+          } else if (userProfile.role === 'receptionist' || userProfile.role === 'coordinator') {
             navigate(`/${tenantData.slug}/reception`);
           } else if (userProfile.role === 'cashier') {
             navigate(`/${tenantData.slug}/cashier`);

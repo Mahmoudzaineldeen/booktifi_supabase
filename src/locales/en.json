@@ -283,6 +283,7 @@
     "roles": {
       "employee": "Employee",
       "receptionist": "Receptionist",
+      "coordinator": "Coordinator",
       "cashier": "Cashier",
       "tenant_admin": "Tenant Admin",
       "customer_admin": "Customer Admin",

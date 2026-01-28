@@ -74,14 +74,14 @@ export function EmployeesPage() {
     full_name_ar: '',
     email: '',
     phone: '',
-    role: 'employee' as 'employee' | 'receptionist' | 'cashier' | 'customer_admin' | 'admin_user',
+    role: 'employee' as 'employee' | 'receptionist' | 'coordinator' | 'cashier' | 'customer_admin' | 'admin_user',
     assigned_services: [] as string[],
     service_shift_assignments: [] as ServiceShiftAssignment[],
   });
   const [serviceCapacitySettings, setServiceCapacitySettings] = useState<Record<string, { duration: number; capacity: number }>>({});
   const [phoneFull, setPhoneFull] = useState<string>(''); // Full phone number with country code
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'all' | 'employee' | 'cashier' | 'receptionist' | 'customer_admin' | 'admin_user'>('all');
+  const [selectedRole, setSelectedRole] = useState<'all' | 'employee' | 'cashier' | 'receptionist' | 'coordinator' | 'customer_admin' | 'admin_user'>('all');
 
   useEffect(() => {
     fetchServices();
@@ -137,7 +137,7 @@ export function EmployeesPage() {
           )
         `)
         .eq('tenant_id', userProfile.tenant_id)
-        .in('role', ['employee', 'receptionist', 'cashier', 'customer_admin', 'admin_user'])
+        .in('role', ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'])
         .order('full_name');
 
       if (error) throw error;
@@ -340,7 +340,7 @@ export function EmployeesPage() {
       full_name_ar: employee.full_name_ar || '',
       email: employee.email || '',
       phone: employee.phone || '',
-      role: employee.role as 'employee' | 'receptionist' | 'cashier' | 'customer_admin' | 'admin_user',
+      role: employee.role as 'employee' | 'receptionist' | 'coordinator' | 'cashier' | 'customer_admin' | 'admin_user',
       assigned_services: uniqueServiceIds,
       service_shift_assignments: serviceShiftMap,
     });
@@ -548,6 +548,13 @@ export function EmployeesPage() {
               onClick={() => setSelectedRole('receptionist')}
             >
               {t('employee.roles.receptionist')} ({employees.filter(e => e.role === 'receptionist').length})
+            </Button>
+            <Button
+              variant={selectedRole === 'coordinator' ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={() => setSelectedRole('coordinator')}
+            >
+              {t('employee.roles.coordinator')} ({employees.filter(e => e.role === 'coordinator').length})
             </Button>
             <Button
               variant={selectedRole === 'customer_admin' ? 'primary' : 'secondary'}
@@ -775,11 +782,12 @@ export function EmployeesPage() {
             <select
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               value={formData.role}
-              onChange={(e) => setFormData({ ...formData, role: e.target.value as 'employee' | 'receptionist' | 'cashier' | 'customer_admin' | 'admin_user' })}
+              onChange={(e) => setFormData({ ...formData, role: e.target.value as 'employee' | 'receptionist' | 'coordinator' | 'cashier' | 'customer_admin' | 'admin_user' })}
               required
             >
               <option value="employee">{t('employee.roles.employee')}</option>
               <option value="receptionist">{t('employee.roles.receptionist')}</option>
+              <option value="coordinator">{t('employee.roles.coordinator')}</option>
               <option value="cashier">{t('employee.roles.cashier')}</option>
               <option value="customer_admin">{t('employee.roles.customer_admin')}</option>
               <option value="admin_user">{t('employee.roles.admin_user')}</option>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
@@ -23,6 +23,13 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
 
   // Get tenantSlug from props, URL params, or tenant slug
   const tenantSlug = propTenantSlug || params.tenantSlug || tenant?.slug || '';
+
+  // Coordinator can only access reception page; redirect to reception if they hit any admin route
+  useEffect(() => {
+    if (userProfile?.role === 'coordinator' && tenantSlug && location.pathname.startsWith(`/${tenantSlug}/admin`)) {
+      navigate(`/${tenantSlug}/reception`, { replace: true });
+    }
+  }, [userProfile?.role, tenantSlug, location.pathname, navigate]);
 
   // Determine restricted roles
   const isRestrictedRole = userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user';
@@ -106,6 +113,11 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
   ];
 
   const navigation = baseNavigation.filter((item) => item.visible);
+
+  // Coordinator must not see admin layout; redirect is done in useEffect; avoid flashing content
+  if (userProfile?.role === 'coordinator' && tenantSlug && location.pathname.startsWith(`/${tenantSlug}/admin`)) {
+    return null;
+  }
 
   async function handleLogout() {
     await signOut();

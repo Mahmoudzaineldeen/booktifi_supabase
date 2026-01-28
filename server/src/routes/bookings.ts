@@ -334,7 +334,7 @@ function authenticateReceptionistOrTenantAdmin(req: express.Request, res: expres
       });
     }
     
-    // TASK 5: Allow receptionist, tenant_admin, customer_admin, or admin_user (but not cashier)
+    // TASK 5: Allow receptionist, tenant_admin, customer_admin, or admin_user (but not cashier, not coordinator for create/edit)
     const allowedRoles = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user'];
     if (!allowedRoles.includes(decoded.role)) {
       return res.status(403).json({ 
@@ -358,6 +358,100 @@ function authenticateReceptionistOrTenantAdmin(req: express.Request, res: expres
       tenant_id: decoded.tenant_id,
     };
     
+    next();
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Authentication error', hint: error.message });
+  }
+}
+
+// Coordinator + receptionist/admin: view bookings and search only. Coordinator cannot create/edit/cancel.
+const RECEPTIONIST_OR_COORDINATOR_VIEW_ROLES = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user', 'coordinator'];
+function authenticateReceptionistOrCoordinatorForView(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        error: 'Authorization header required',
+        hint: 'Please provide a valid Bearer token in the Authorization header'
+      });
+    }
+    const token = authHeader.replace('Bearer ', '');
+    if (!token || token.trim() === '') {
+      return res.status(401).json({ error: 'Token is required' });
+    }
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (jwtError: any) {
+      if (jwtError.name === 'TokenExpiredError') {
+        return res.status(401).json({ error: 'Token has expired', hint: 'Please log in again to get a new token' });
+      }
+      return res.status(401).json({ error: 'Token verification failed', hint: jwtError.message || 'Please log in again' });
+    }
+    if (!RECEPTIONIST_OR_COORDINATOR_VIEW_ROLES.includes(decoded.role)) {
+      return res.status(403).json({ 
+        error: 'Access denied.',
+        userRole: decoded.role,
+        hint: 'Only receptionist, coordinator, or admin roles can view bookings.'
+      });
+    }
+    if (!decoded.tenant_id) {
+      return res.status(403).json({ error: 'Access denied. No tenant associated with your account.' });
+    }
+    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id };
+    next();
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Authentication error', hint: error.message });
+  }
+}
+
+// Receptionist/admin can full-edit; coordinator can ONLY set status to 'confirmed'.
+function authenticateReceptionistOrCoordinatorForPatch(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        error: 'Authorization header required',
+        hint: 'Please provide a valid Bearer token in the Authorization header'
+      });
+    }
+    const token = authHeader.replace('Bearer ', '');
+    if (!token || token.trim() === '') {
+      return res.status(401).json({ error: 'Token is required' });
+    }
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (jwtError: any) {
+      if (jwtError.name === 'TokenExpiredError') {
+        return res.status(401).json({ error: 'Token has expired', hint: 'Please log in again to get a new token' });
+      }
+      return res.status(401).json({ error: 'Token verification failed', hint: jwtError.message || 'Please log in again' });
+    }
+    if (!RECEPTIONIST_OR_COORDINATOR_VIEW_ROLES.includes(decoded.role)) {
+      return res.status(403).json({ 
+        error: 'Access denied.',
+        userRole: decoded.role,
+        hint: 'Only receptionist, coordinator, or admin roles can update bookings.'
+      });
+    }
+    if (!decoded.tenant_id) {
+      return res.status(403).json({ error: 'Access denied. No tenant associated with your account.' });
+    }
+    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id };
+    // Coordinator: only allow PATCH when body is strictly { status: 'confirmed' }
+    if (decoded.role === 'coordinator') {
+      const body = req.body || {};
+      const keys = Object.keys(body).filter(k => k !== 'updated_at' && k !== 'status_changed_at');
+      const onlyStatus = keys.length === 1 && keys[0] === 'status' && body.status === 'confirmed';
+      if (!onlyStatus) {
+        return res.status(403).json({ 
+          error: 'Access denied. Coordinator can only confirm bookings (set status to confirmed).',
+          userRole: 'coordinator',
+          hint: 'You cannot edit, cancel, or change other booking details.'
+        });
+      }
+    }
     next();
   } catch (error: any) {
     return res.status(500).json({ error: 'Authentication error', hint: error.message });
@@ -3389,15 +3483,15 @@ router.post('/locks', async (req, res) => {
 });
 
 // ============================================================================
-// Update booking details (Service Provider only)
+// Update booking details (Service Provider only). Coordinator can only set status to 'confirmed'.
 // ============================================================================
-// TASK 5: Receptionist and tenant_admin can edit bookings (not cashier)
-router.patch('/:id', authenticateReceptionistOrTenantAdmin, async (req, res) => {
+router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, res) => {
   try {
     const bookingId = req.params.id;
     const userId = req.user!.id;
     const tenantId = req.user!.tenant_id!;
     const updateData = req.body;
+    const isCoordinator = req.user!.role === 'coordinator';
 
     // Get current booking to verify ownership and get old values
     const { data: currentBooking, error: fetchError } = await supabase
@@ -4770,11 +4864,11 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
 });
 
 // ============================================================================
-// Search bookings (Receptionist and Tenant Admin only)
+// Search bookings (Receptionist, Coordinator, and Tenant Admin)
 // ============================================================================
 // CRITICAL: Only accepts ONE search parameter at a time
 // Valid parameters: phone, customer_name, date, service_name, booking_id
-router.get('/search', authenticateReceptionistOrTenantAdmin, async (req, res) => {
+router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, res) => {
   try {
     const userId = req.user!.id;
     const tenantId = req.user!.tenant_id!;

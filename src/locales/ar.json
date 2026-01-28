@@ -654,6 +654,7 @@
     "roles": {
       "employee": "موظف",
       "receptionist": "موظف استقبال",
+      "coordinator": "منسق",
       "cashier": "أمين صندوق",
       "tenant_admin": "مسؤول المنشأة",
       "customer_admin": "مسؤول العملاء",

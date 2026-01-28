@@ -69,9 +69,9 @@ function authenticateTenantAdmin(req: express.Request, res: express.Response, ne
       }
     }
     
-    // Allow tenant_admin, receptionist, cashier, solution_owner, customer_admin, and admin_user
-    // Note: customer_admin and admin_user have restricted access (bookings only) enforced at route level
-    const allowedRoles = ['tenant_admin', 'receptionist', 'cashier', 'solution_owner', 'customer_admin', 'admin_user'];
+    // Allow tenant_admin, receptionist, coordinator, cashier, solution_owner, customer_admin, and admin_user
+    // Note: customer_admin and admin_user have restricted access (bookings only) enforced at route level; coordinator is reception view+confirm only
+    const allowedRoles = ['tenant_admin', 'receptionist', 'coordinator', 'cashier', 'solution_owner', 'customer_admin', 'admin_user'];
     if (!decoded.role) {
       console.error('[Auth] Token missing role:', { decoded });
       return res.status(403).json({ 

@@ -212,7 +212,7 @@ router.post('/signin', async (req, res) => {
       tenant = tenantData || null;
 
       // Check if tenant account is active (for tenant-based roles)
-      if (tenant && (user.role === 'tenant_admin' || user.role === 'receptionist' || user.role === 'cashier')) {
+      if (tenant && (user.role === 'tenant_admin' || user.role === 'receptionist' || user.role === 'cashier' || user.role === 'coordinator')) {
         if (tenant.is_active === false) {
           return res.status(403).json({ error: 'This service provider account has been deactivated. Please contact support.' });
         }
