@@ -164,6 +164,7 @@ export function BookingsPage() {
     return () => { cancelled = true; };
   }, [createServiceId, createDate, userProfile?.tenant_id]);
 
+  // Same backend as Reception: POST /bookings/create — slot checks, package resolution, invoice & ticket logic run server-side.
   async function handleCreateBooking(e: React.FormEvent) {
     e.preventDefault();
     if (!userProfile?.tenant_id || !createServiceId || !createSlotId || !createDate) return;
@@ -183,6 +184,7 @@ export function BookingsPage() {
     try {
       const session = await db.auth.getSession();
       const token = session.data.session?.access_token || localStorage.getItem('auth_token');
+      // Same payload shape as reception: backend looks up customer by phone, applies package capacity, slot limits, invoice/ticket logic.
       const res = await fetch(`${getApiUrl()}/bookings/create`, {
         method: 'POST',
         headers: {

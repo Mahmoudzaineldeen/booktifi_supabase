@@ -130,6 +130,7 @@ export function PackageSubscribersPage() {
     };
   }, [addSubCustomerSearchQuery, userProfile?.tenant_id]);
 
+  // Same backend as Reception: POST /packages/receptionist/subscriptions — same capacity init, same validation.
   async function handleAddSubscription(e: React.FormEvent) {
     e.preventDefault();
     if (!addSubSelectedCustomer || !addSubSelectedPackageId) return;
