@@ -3913,32 +3913,32 @@ export function ReceptionPage() {
         title={showPreview ? t('reception.bookingPreview') : t('reception.createNewBooking')}
       >
         {showPreview ? (
-          <div className="space-y-6">
+          <div className="space-y-6" dir={i18n.language === 'ar' ? 'rtl' : 'ltr'}>
             {/* Booking Preview Ticket */}
             <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-6 shadow-lg">
               <div className="text-center mb-6">
-                <h3 className="text-2xl font-bold text-gray-900">Booking Summary</h3>
-                <p className="text-sm text-gray-600 mt-1">Please review before confirming</p>
+                <h3 className="text-2xl font-bold text-gray-900">{t('reception.bookingSummary')}</h3>
+                <p className="text-sm text-gray-600 mt-1">{t('reception.reviewBeforeConfirm')}</p>
               </div>
 
               {/* Customer Information */}
               <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
                 <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                   <User className="w-4 h-4" />
-                  Customer Information
+                  {t('reception.customerInformation')}
                 </h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <span className="text-gray-500">Name:</span>
+                    <span className="text-gray-500">{t('reception.nameLabel')}</span>
                     <div className="font-medium text-gray-900">{bookingForm.customer_name}</div>
                   </div>
                   <div>
-                    <span className="text-gray-500">Phone:</span>
+                    <span className="text-gray-500">{t('reception.phoneLabel')}</span>
                     <div className="font-medium text-gray-900">{countryCode}{bookingForm.customer_phone}</div>
                   </div>
                   {bookingForm.customer_email && (
                     <div className="col-span-2">
-                      <span className="text-gray-500">Email:</span>
+                      <span className="text-gray-500">{t('reception.emailLabel')}</span>
                       <div className="font-medium text-gray-900">{bookingForm.customer_email}</div>
                     </div>
                   )}
@@ -3947,7 +3947,7 @@ export function ReceptionPage() {
 
               {/* Service Information */}
               <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
-                <h4 className="text-sm font-semibold text-gray-700 mb-3">Service Details</h4>
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">{t('reception.serviceDetails')}</h4>
                 {(() => {
                   const service = services.find(s => s.id === selectedService);
                   if (!service) return null;
@@ -3960,9 +3960,7 @@ export function ReceptionPage() {
                             {i18n.language === 'ar' ? service.name_ar : service.name}
                           </div>
                           <div className="text-sm text-gray-600">
-                            {(() => {
-                              return `Quantity: ${bookingForm.visitor_count}`;
-                            })()}
+                            {t('reception.quantityCount', { count: bookingForm.visitor_count })}
                           </div>
                         </div>
                         <div className="text-right">
@@ -3971,7 +3969,7 @@ export function ReceptionPage() {
                               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                                 <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                               </svg>
-                              Package Service
+                              {t('reception.packageService')}
                             </span>
                           ) : (
                             <span className="font-bold text-gray-900">
@@ -3996,7 +3994,7 @@ export function ReceptionPage() {
               <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
                 <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                   <Clock className="w-4 h-4" />
-                  Schedule & Employees
+                  {t('reception.scheduleAndEmployees')}
                 </h4>
                 <div className="space-y-2">
                   {selectedSlots.length > 0 ? (
@@ -4006,7 +4004,7 @@ export function ReceptionPage() {
                         <div key={idx} className="flex justify-between items-center py-2 border-b last:border-b-0">
                           <div>
                             <div className="text-sm font-medium text-gray-900">
-                              {format(parseISO(slot.slot_date), 'MMM dd, yyyy')}
+                              {format(parseISO(slot.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}
                             </div>
                             <div className="text-xs text-gray-600">
                               {slot.start_time} - {slot.end_time}
@@ -4024,7 +4022,7 @@ export function ReceptionPage() {
                     <div className="flex justify-between items-center py-2">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
-                          {format(parseISO(selectedTimeSlot.slot_date), 'MMM dd, yyyy')}
+                          {format(parseISO(selectedTimeSlot.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}
                         </div>
                         <div className="text-xs text-gray-600">
                           {selectedTimeSlot.start_time} - {selectedTimeSlot.end_time}
@@ -4035,7 +4033,7 @@ export function ReceptionPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="text-sm text-gray-500">No time slot selected</div>
+                    <div className="text-sm text-gray-500">{t('reception.noTimeSlotSelected')}</div>
                   )}
                 </div>
               </div>
@@ -4043,7 +4041,7 @@ export function ReceptionPage() {
               {/* Notes */}
               {bookingForm.notes && (
                 <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-2">Notes</h4>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('reception.notesLabel')}</h4>
                   <p className="text-sm text-gray-600">{bookingForm.notes}</p>
                 </div>
               )}
@@ -4051,14 +4049,14 @@ export function ReceptionPage() {
               {/* Total Price */}
               <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 text-white">
                 <div className="flex justify-between items-center">
-                  <span className="text-lg font-semibold">Total Price:</span>
+                  <span className="text-lg font-semibold">{t('reception.totalPrice')}</span>
                   <span className="text-2xl font-bold">
                     {(() => {
                       const service = services.find(s => s.id === selectedService);
                       if (!service) return formatPrice(0);
                       const packageCheck = checkServiceInPackage(service.id);
                       if (packageCheck.available && packageCheck.remaining >= (bookingForm.visitor_count as number)) {
-                        return `Package Service (${formatPrice(0)})`;
+                        return t('reception.packageServiceTotal', { price: formatPrice(0) });
                       }
                       const price = service.base_price || 0;
                       const visitorCount = typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1;
@@ -4077,7 +4075,7 @@ export function ReceptionPage() {
                 fullWidth
                 onClick={() => setShowPreview(false)}
               >
-                Edit Booking
+                {t('reception.editBooking')}
               </Button>
               <Button
                 type="button"
@@ -4089,7 +4087,7 @@ export function ReceptionPage() {
                   await handleSubmit(submitEvent as any);
                 }}
               >
-                Confirm Booking
+                {t('reception.confirmBooking')}
               </Button>
             </div>
           </div>
