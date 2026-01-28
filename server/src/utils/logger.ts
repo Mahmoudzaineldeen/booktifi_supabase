@@ -2,6 +2,10 @@ interface LogContext {
   [key: string]: any;
 }
 
+/** Only true when LOG_LEVEL=debug or NODE_ENV is not production. Use to gate verbose logs and avoid Railway rate limits. */
+export const isVerboseLogging = () =>
+  process.env.LOG_LEVEL === 'debug' || process.env.NODE_ENV !== 'production';
+
 export const logger = {
   info: (message: string, error?: any, context?: LogContext, metadata?: LogContext) => {
     const logData = {

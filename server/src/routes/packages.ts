@@ -1,7 +1,7 @@
 import express from 'express';
 import { supabase } from '../db';
 import jwt from 'jsonwebtoken';
-import { logger } from '../utils/logger';
+import { logger, isVerboseLogging } from '../utils/logger';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -201,6 +201,100 @@ function authenticateReceptionistOrAdmin(req: express.Request, res: express.Resp
   }
 }
 
+/** Create Zoho invoice for a package subscription (used by customer purchase and receptionist/admin subscribe). */
+async function createInvoiceForPackageSubscription(
+  tenant_id: string,
+  subscription: { id: string },
+  package_id: string,
+  packageData: { name: string; name_ar?: string; total_price: number },
+  customerData: { name: string; email?: string | null; phone?: string | null },
+  options?: { customer_phone?: string; customer_email?: string }
+): Promise<{ zohoInvoiceId: string | null; invoiceError: string | null }> {
+  let zohoInvoiceId: string | null = null;
+  let invoiceError: string | null = null;
+  const total_price = packageData.total_price;
+  const customer_phone = options?.customer_phone ?? customerData.phone ?? undefined;
+  const customer_email = options?.customer_email ?? customerData.email ?? undefined;
+
+  try {
+    const { data: tenantData } = await supabase
+      .from('tenants')
+      .select('currency_code')
+      .eq('id', tenant_id)
+      .single();
+    const currencyCode = tenantData?.currency_code || 'SAR';
+
+    const { data: zohoConfig, error: zohoConfigError } = await supabase
+      .from('tenant_zoho_configs')
+      .select('client_id, client_secret, redirect_uri')
+      .eq('tenant_id', tenant_id)
+      .single();
+
+    if (zohoConfigError || !zohoConfig?.client_id) {
+      invoiceError = 'Zoho Invoice not configured for this tenant.';
+      return { zohoInvoiceId, invoiceError };
+    }
+
+    const { data: zohoToken, error: tokenError } = await supabase
+      .from('zoho_tokens')
+      .select('id')
+      .eq('tenant_id', tenant_id)
+      .single();
+
+    if (tokenError || !zohoToken) {
+      invoiceError = 'Zoho OAuth tokens not found. Complete OAuth in Settings → Zoho Integration.';
+      return { zohoInvoiceId, invoiceError };
+    }
+
+    const { zohoService } = await import('../services/zohoService.js');
+    const packageName = packageData.name || packageData.name_ar || 'Service Package';
+    const invoiceData = {
+      customer_name: customerData.name,
+      customer_email: customer_email || undefined,
+      customer_phone: customer_phone || undefined,
+      line_items: [{
+        name: packageName,
+        description: `Prepaid package subscription - ${packageName}`,
+        rate: total_price,
+        quantity: 1,
+        unit: 'package'
+      }],
+      date: new Date().toISOString().split('T')[0],
+      due_date: new Date().toISOString().split('T')[0],
+      currency_code: currencyCode,
+      notes: `Package Subscription ID: ${subscription.id}\nPackage ID: ${package_id}`
+    };
+
+    const invoiceResponse = await zohoService.createInvoice(tenant_id, invoiceData);
+
+    if (invoiceResponse.invoice?.invoice_id) {
+      zohoInvoiceId = invoiceResponse.invoice.invoice_id;
+      if (invoiceData.customer_email) {
+        try {
+          await zohoService.sendInvoiceEmail(tenant_id, zohoInvoiceId, invoiceData.customer_email);
+        } catch (_e) { /* non-blocking */ }
+      }
+      if (invoiceData.customer_phone) {
+        const normalizedPhone = normalizePhoneNumber(invoiceData.customer_phone);
+        if (normalizedPhone) {
+          try {
+            await zohoService.sendInvoiceViaWhatsApp(tenant_id, zohoInvoiceId, normalizedPhone);
+          } catch (_e) { /* non-blocking */ }
+        }
+      }
+      await supabase
+        .from('package_subscriptions')
+        .update({ zoho_invoice_id: zohoInvoiceId, payment_status: 'paid' })
+        .eq('id', subscription.id);
+    } else {
+      invoiceError = invoiceResponse.message || 'Failed to create invoice';
+    }
+  } catch (err: any) {
+    invoiceError = err?.message || 'Failed to create invoice';
+  }
+  return { zohoInvoiceId, invoiceError };
+}
+
 // ============================================================================
 // Create Package (Atomic Transaction)
 // NOTE: Minimum requirement is 1 service (updated from 2 services)
@@ -251,9 +345,7 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
     }
 
     // Validate: Require at least 1 service (minimum changed from 2 to 1)
-    console.log('[Create Package] Service data count:', serviceData.length);
     if (serviceData.length < 1) {
-      console.log('[Create Package] Validation failed: Need at least 1 service, got:', serviceData.length);
       return res.status(400).json({ 
         error: 'At least 1 service is required for a package',
         hint: 'Please select at least 1 service'
@@ -261,8 +353,6 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
     }
     
     // Log for debugging
-    console.log('[Create Package] ✅ Validation passed: Package will be created with', serviceData.length, 'service(s)');
-    console.log('[Create Package] Service data:', JSON.stringify(serviceData, null, 2));
 
     // Extract and validate service IDs
     const serviceIds = serviceData
@@ -273,7 +363,7 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       .filter(id => id && id.length > 0);
     
     if (serviceIds.length === 0) {
-      console.error('[Create Package] No valid service IDs extracted from serviceData:', serviceData);
+      if (isVerboseLogging()) logger.warn('Create Package: no valid service IDs', undefined, {}, { serviceDataLength: serviceData?.length });
       return res.status(400).json({ 
         error: 'No valid service IDs found',
         hint: 'Please ensure all services have valid service IDs',
@@ -285,7 +375,7 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const invalidUuids = serviceIds.filter(id => !uuidRegex.test(id));
     if (invalidUuids.length > 0) {
-      console.error('[Create Package] Invalid UUID format:', invalidUuids);
+      if (isVerboseLogging()) logger.warn('Create Package: invalid UUIDs', undefined, {}, { invalidUuids });
       return res.status(400).json({ 
         error: 'Invalid service ID format',
         hint: 'Service IDs must be valid UUIDs',
@@ -293,8 +383,6 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       });
     }
 
-    console.log('[Create Package] Extracted service IDs:', serviceIds);
-    console.log('[Create Package] Validating services for tenant:', tenantId);
 
     if (typeof total_price !== 'number' || total_price < 0) {
       return res.status(400).json({ error: 'Total price must be a non-negative number' });
@@ -308,15 +396,13 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       .eq('tenant_id', tenantId);
 
     if (servicesError) {
-      console.error('[Create Package] Error validating services:', servicesError);
+      if (isVerboseLogging()) logger.error('Create Package: validate services', servicesError, {}, {});
       return res.status(500).json({ 
         error: 'Failed to validate services',
         details: servicesError.message 
       });
     }
 
-    console.log('[Create Package] Valid services found:', validServices?.length || 0);
-    console.log('[Create Package] Valid service IDs:', validServices?.map(s => s.id) || []);
 
     if (!validServices || validServices.length === 0) {
       // Get all services for this tenant to help debug
@@ -326,7 +412,6 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
         .eq('tenant_id', tenantId)
         .limit(10);
       
-      console.log('[Create Package] Available services for tenant:', allTenantServices?.map(s => ({ id: s.id, name: s.name })) || []);
       
       return res.status(400).json({ 
         error: 'No valid services found',
@@ -342,7 +427,7 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
     if (validServices.length !== serviceIds.length) {
       const foundIds = new Set(validServices.map(s => s.id));
       const missingIds = serviceIds.filter(id => !foundIds.has(id));
-      console.warn('[Create Package] Some services are invalid:', missingIds);
+      if (isVerboseLogging()) logger.warn('Create Package: some services invalid', undefined, {}, { missingIds });
       return res.status(400).json({ 
         error: 'Some services are invalid',
         details: `The following service IDs are invalid or do not belong to your tenant: ${missingIds.join(', ')}`,
@@ -373,7 +458,7 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       .single();
 
     if (packageError) {
-      console.error('[Create Package] Error creating package:', packageError);
+      if (isVerboseLogging()) logger.error('Create Package: insert failed', packageError, {}, {});
       return res.status(500).json({ 
         error: 'Failed to create package',
         details: packageError.message || packageError.code || 'Unknown error'
@@ -381,7 +466,7 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
     }
 
     if (!newPackage || !newPackage.id) {
-      console.error('[Create Package] Package creation returned no data or missing ID');
+      if (isVerboseLogging()) logger.error('Create Package: no data returned', undefined, {}, {});
       return res.status(500).json({ error: 'Package creation failed - no ID returned' });
     }
 
@@ -398,7 +483,7 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       .select();
 
     if (servicesInsertError) {
-      console.error('[Create Package] Error inserting package services:', servicesInsertError);
+      if (isVerboseLogging()) logger.error('Create Package: insert services failed', servicesInsertError, {}, {});
       
       // CRITICAL: Rollback - delete the package
       const { error: deleteError } = await supabase
@@ -408,7 +493,7 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
         .select();
 
       if (deleteError) {
-        console.error('[Create Package] CRITICAL: Failed to rollback package deletion:', deleteError);
+        if (isVerboseLogging()) logger.error('Create Package: rollback failed', deleteError, {}, {});
         return res.status(500).json({ 
           error: 'Failed to create package services and rollback failed',
           details: `Service insertion error: ${servicesInsertError.message || servicesInsertError.code}. Rollback error: ${deleteError.message || deleteError.code}`,
@@ -423,7 +508,7 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
     }
 
     if (!insertedServices || insertedServices.length === 0) {
-      console.error('[Create Package] CRITICAL: No services were inserted despite no error!');
+      if (isVerboseLogging()) logger.error('Create Package: no services inserted', undefined, {}, {});
       
       // Rollback
       const { error: deleteError } = await supabase
@@ -432,7 +517,7 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
         .eq('id', newPackage.id);
 
       if (deleteError) {
-        console.error('[Create Package] CRITICAL: Failed to rollback:', deleteError);
+        if (isVerboseLogging()) logger.error('Create Package: rollback failed', deleteError, {}, {});
       }
 
       return res.status(500).json({ 
@@ -443,7 +528,7 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
 
     // Verify all services were inserted
     if (insertedServices.length !== serviceData.length) {
-      console.warn(`[Create Package] Warning: Expected ${serviceData.length} services, inserted ${insertedServices.length}`);
+      if (isVerboseLogging()) logger.warn('Create Package: service count mismatch', undefined, {}, { expected: serviceData.length, inserted: insertedServices.length });
     }
 
     // Fetch complete package with services
@@ -467,11 +552,11 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       .single();
 
     if (fetchError) {
-      console.warn('[Create Package] Warning: Could not fetch complete package:', fetchError);
+      if (isVerboseLogging()) logger.warn('Create Package: fetch package failed', fetchError, {}, {});
       // Still return success since package and services were created
     }
 
-    console.log(`[Create Package] ✅ Successfully created package ${newPackage.id} with ${insertedServices.length} service(s)`);
+    if (isVerboseLogging()) logger.info('Create Package success', undefined, { packageId: newPackage.id, servicesCount: insertedServices.length });
 
     res.status(201).json({
       success: true,
@@ -526,7 +611,7 @@ router.put('/:id', authenticateTenantAdmin, async (req, res) => {
       .single();
 
     if (updateError) {
-      console.error('[Update Package] Error:', updateError);
+      if (isVerboseLogging()) logger.error('Update Package failed', updateError, {}, {});
       return res.status(500).json({ 
         error: 'Failed to update package',
         details: updateError.message || updateError.code || 'Unknown error'
@@ -666,28 +751,16 @@ router.post('/subscriptions', async (req, res) => {
       .eq('package_id', package_id);
 
     if (servicesError) {
-      console.error('[Create Subscription] Error fetching package services:', servicesError);
+      if (isVerboseLogging()) logger.error('Create Subscription: fetch package services', servicesError, {}, {});
       return res.status(500).json({ 
         error: 'Failed to fetch package services',
         details: servicesError.message 
       });
     }
 
-    console.log('[Create Subscription] Package services fetched:', {
-      count: packageServices?.length || 0,
-      services: packageServices?.map(ps => ({
-        service_id: ps.service_id,
-        capacity_total: ps.capacity_total
-      })) || []
-    });
-
     // Check if package has any services
     if (!packageServices || packageServices.length === 0) {
-      console.error('[Create Subscription] Package has no services:', { 
-        package_id,
-        tenant_id,
-        package_name: packageData.name || 'Unknown'
-      });
+      if (isVerboseLogging()) logger.error('Create Subscription: package has no services', undefined, {}, { package_id, package_name: packageData?.name });
       
       // Try to get package name for better error message
       const { data: pkgInfo } = await supabase
@@ -709,20 +782,12 @@ router.post('/subscriptions', async (req, res) => {
     // Use capacity_total if available, otherwise default to 1 per service
     const totalCapacity = packageServices.reduce((sum, ps) => {
       const capacity = ps.capacity_total;
-      // Handle null, undefined, or 0 values - default to 1 if invalid
       const validCapacity = (capacity && typeof capacity === 'number' && capacity > 0) ? capacity : 1;
-      console.log(`[Create Subscription] Service ${ps.service_id}: capacity_total=${capacity}, using=${validCapacity}`);
       return sum + validCapacity;
     }, 0);
 
-    console.log('[Create Subscription] Total capacity calculated:', totalCapacity);
-
     if (totalCapacity === 0) {
-      console.error('[Create Subscription] Total capacity is 0 after calculation:', {
-        package_id,
-        services_count: packageServices.length,
-        services: packageServices
-      });
+      if (isVerboseLogging()) logger.error('Create Subscription: total capacity 0', undefined, {}, { package_id, services_count: packageServices?.length });
       return res.status(400).json({ 
         error: 'Package has no capacity',
         details: 'Package must have at least one service with capacity > 0. Please check the package configuration.'
@@ -744,11 +809,6 @@ router.post('/subscriptions', async (req, res) => {
     subscriptionData.is_active = true;
     subscriptionData.status = 'active'; // For old schema compatibility
 
-    console.log('[Create Subscription] Inserting subscription with data:', {
-      ...subscriptionData,
-      customer_id: '***', // Hide customer_id in logs
-    });
-
     let subscription;
     let subscriptionError;
 
@@ -768,7 +828,7 @@ router.post('/subscriptions', async (req, res) => {
       (subscriptionError.message?.includes('total_quantity') || 
        subscriptionError.message?.includes('remaining_quantity'))
     )) {
-      console.warn('[Create Subscription] New schema columns not found, trying old schema...');
+      if (isVerboseLogging()) logger.warn('Create Subscription: trying old schema', undefined, {}, {});
       
       // Retry with old schema (status only, no total_quantity/remaining_quantity)
       const oldSchemaData = {
@@ -789,11 +849,7 @@ router.post('/subscriptions', async (req, res) => {
     }
 
     if (subscriptionError) {
-      console.error('[Create Subscription] Error:', subscriptionError);
-      console.error('[Create Subscription] Error code:', subscriptionError.code);
-      console.error('[Create Subscription] Error message:', subscriptionError.message);
-      console.error('[Create Subscription] Error details:', subscriptionError.details);
-      console.error('[Create Subscription] Error hint:', subscriptionError.hint);
+      if (isVerboseLogging()) logger.error('Create Subscription: insert failed', subscriptionError, {}, { code: subscriptionError?.code });
       
       return res.status(500).json({ 
         error: 'Failed to create package subscription',
@@ -814,21 +870,11 @@ router.post('/subscriptions', async (req, res) => {
     // The trigger initialize_package_usage() should create package_subscription_usage records
 
     // PART 1: Create Zoho invoice for package purchase (prepaid)
-    // Packages are prepaid, so invoice must be created at purchase time
     let zohoInvoiceId: string | null = null;
     let invoiceError: string | null = null;
-    let customerData: any = null; // Store customer data for final status logging
-
-    console.log('[Create Subscription] ========================================');
-    console.log('[Create Subscription] 📋 STARTING INVOICE CREATION PROCESS');
-    console.log('[Create Subscription] Subscription ID:', subscription.id);
-    console.log('[Create Subscription] Customer ID:', finalCustomerId);
-    console.log('[Create Subscription] Package price:', total_price);
-    console.log('[Create Subscription] ========================================');
+    let customerData: any = null;
 
     try {
-      // Get customer details for invoice
-      console.log('[Create Subscription] Step 1: Fetching customer data...');
       const { data: fetchedCustomerData, error: customerFetchError } = await supabase
         .from('customers')
         .select('name, email, phone')
@@ -836,24 +882,9 @@ router.post('/subscriptions', async (req, res) => {
         .single();
 
       if (customerFetchError || !fetchedCustomerData) {
-        console.error('[Create Subscription] ❌ Step 1 FAILED: Failed to fetch customer for invoice');
-        console.error('[Create Subscription] Error details:', customerFetchError);
         invoiceError = `Failed to fetch customer details for invoice: ${customerFetchError?.message || 'Customer not found'}`;
       } else {
-        customerData = fetchedCustomerData; // Store for later use
-        console.log('[Create Subscription] ✅ Step 1 SUCCESS: Customer data fetched');
-        console.log('[Create Subscription] Customer:', {
-          name: customerData.name,
-          email: customerData.email || 'no email',
-          phone: customerData.phone || 'no phone'
-        });
-        console.log('[Create Subscription] ✅ Customer data fetched:', {
-          name: customerData.name,
-          email: customerData.email || 'no email',
-          phone: customerData.phone || 'no phone'
-        });
-        // Get tenant currency
-        console.log('[Create Subscription] Step 2: Fetching tenant currency...');
+        customerData = fetchedCustomerData;
         const { data: tenantData } = await supabase
           .from('tenants')
           .select('currency_code')
@@ -861,15 +892,7 @@ router.post('/subscriptions', async (req, res) => {
           .single();
 
         const currencyCode = tenantData?.currency_code || 'SAR';
-        console.log('[Create Subscription] ✅ Step 2 SUCCESS: Currency code:', currencyCode);
-
-        // Import ZohoService dynamically
-        console.log('[Create Subscription] Step 3: Importing ZohoService...');
         const { zohoService } = await import('../services/zohoService.js');
-        console.log('[Create Subscription] ✅ Step 3 SUCCESS: ZohoService imported');
-
-        // Pre-check: Verify Zoho is configured before attempting invoice creation
-        console.log('[Create Subscription] Step 3.5: Checking Zoho configuration...');
         let zohoConfigured = false;
         const { data: zohoConfig, error: zohoConfigError } = await supabase
           .from('tenant_zoho_configs')
@@ -878,38 +901,23 @@ router.post('/subscriptions', async (req, res) => {
           .single();
 
         if (zohoConfigError || !zohoConfig || !zohoConfig.client_id) {
-          console.warn('[Create Subscription] ⚠️  Zoho not configured for this tenant');
-          console.warn('[Create Subscription] ⚠️  Invoice creation will be skipped');
-          console.warn('[Create Subscription] 💡 To enable invoices: Configure Zoho in Settings → Zoho Integration');
           invoiceError = 'Zoho Invoice not configured for this tenant. Please configure Zoho in Settings → Zoho Integration';
           zohoConfigured = false;
         } else {
-          console.log('[Create Subscription] ✅ Step 3.5 SUCCESS: Zoho configuration found');
-          
-          // Check if OAuth tokens exist
           const { data: zohoToken, error: tokenError } = await supabase
             .from('zoho_tokens')
             .select('id')
             .eq('tenant_id', tenant_id)
             .single();
-
           if (tokenError || !zohoToken) {
-            console.warn('[Create Subscription] ⚠️  Zoho OAuth tokens not found');
-            console.warn('[Create Subscription] 💡 To enable invoices: Complete OAuth flow in Settings → Zoho Integration → Connect Zoho');
             invoiceError = 'Zoho OAuth tokens not found. Please complete OAuth flow in Settings → Zoho Integration';
             zohoConfigured = false;
           } else {
-            console.log('[Create Subscription] ✅ Step 3.5 SUCCESS: Zoho OAuth tokens found');
             zohoConfigured = true;
           }
         }
 
-        // Skip invoice creation if Zoho is not configured
-        if (!zohoConfigured) {
-          console.log('[Create Subscription] ⏭️  Skipping invoice creation - Zoho not configured');
-        } else {
-          // Create invoice data
-          console.log('[Create Subscription] Step 4: Preparing invoice data...');
+        if (zohoConfigured) {
           const packageName = packageData.name || packageData.name_ar || 'Service Package';
           const invoiceData = {
             customer_name: customerData.name,
@@ -928,75 +936,25 @@ router.post('/subscriptions', async (req, res) => {
             notes: `Package Subscription ID: ${subscription.id}\nPackage ID: ${package_id}`
           };
 
-          console.log('[Create Subscription] ✅ Step 4 SUCCESS: Invoice data prepared');
-          console.log('[Create Subscription] Invoice details:', {
-            customer_name: invoiceData.customer_name,
-            customer_email: invoiceData.customer_email || 'none',
-            total_price: total_price,
-            currency: currencyCode,
-            line_items_count: invoiceData.line_items.length
-          });
-
-          // Create invoice in Zoho
-          console.log('[Create Subscription] Step 5: Calling zohoService.createInvoice...');
-          console.log('[Create Subscription] ⚠️  This may fail if Zoho is not configured for this tenant');
           const invoiceResponse = await zohoService.createInvoice(tenant_id, invoiceData);
-          console.log('[Create Subscription] ✅ Step 5 COMPLETE: Invoice response received');
-          console.log('[Create Subscription] Response details:', {
-            hasInvoice: !!invoiceResponse.invoice,
-            invoiceId: invoiceResponse.invoice?.invoice_id || 'none',
-            message: invoiceResponse.message || 'no message',
-            success: invoiceResponse.success || false
-          });
 
           if (invoiceResponse.invoice && invoiceResponse.invoice.invoice_id) {
             zohoInvoiceId = invoiceResponse.invoice.invoice_id;
-            console.log('[Create Subscription] ✅ Zoho invoice created:', zohoInvoiceId);
-
-            // Send invoice via email if customer email is available
             const emailToSend = invoiceData.customer_email;
             if (emailToSend) {
-              console.log('[Create Subscription] Step 6: Sending invoice via email...');
               try {
                 await zohoService.sendInvoiceEmail(tenant_id, zohoInvoiceId, emailToSend);
-                console.log('[Create Subscription] ✅ Step 6 SUCCESS: Invoice sent to customer email');
-              } catch (emailError: any) {
-                console.error('[Create Subscription] ⚠️  Failed to send invoice email:', emailError.message);
-                // Don't fail the subscription creation - invoice was created successfully
-                // Email can be sent manually from Zoho if needed
-              }
-            } else {
-              console.warn('[Create Subscription] ⚠️  No customer email provided - invoice created but not sent via email');
+              } catch (_e) { /* non-blocking */ }
             }
-
-            // Send invoice via WhatsApp if customer phone is available
             const phoneToSend = invoiceData.customer_phone || customer_phone;
             if (phoneToSend) {
-              // Normalize phone number before sending
               const normalizedPhone = normalizePhoneNumber(phoneToSend);
               if (normalizedPhone) {
-                console.log('[Create Subscription] Step 7: Sending invoice via WhatsApp...');
-                console.log('[Create Subscription]    Phone (original):', phoneToSend);
-                console.log('[Create Subscription]    Phone (normalized):', normalizedPhone);
                 try {
                   await zohoService.sendInvoiceViaWhatsApp(tenant_id, zohoInvoiceId, normalizedPhone);
-                  console.log('[Create Subscription] ✅ Step 7 SUCCESS: Invoice sent to customer WhatsApp');
-                } catch (whatsappError: any) {
-                  console.error('[Create Subscription] ⚠️  Failed to send invoice via WhatsApp:', whatsappError.message);
-                  // Don't fail the subscription creation - invoice was created successfully
-                  // WhatsApp can be sent manually from Zoho if needed
+                } catch (_e) { /* non-blocking */ }
                 }
-              } else {
-                console.warn('[Create Subscription] ⚠️  Invalid phone number format - cannot send via WhatsApp:', phoneToSend);
               }
-            } else {
-              console.warn('[Create Subscription] ⚠️  No customer phone provided - invoice created but not sent via WhatsApp');
-            }
-
-            // Log final status
-            if (!emailToSend && !phoneToSend) {
-              console.warn('[Create Subscription] ⚠️  No customer contact (email/phone) provided - invoice created but not sent');
-              console.warn('[Create Subscription] 💡 Invoice can be sent manually from Zoho Invoice dashboard');
             }
 
             // Update subscription with invoice ID and mark as paid
@@ -1011,28 +969,13 @@ router.post('/subscriptions', async (req, res) => {
               .select('zoho_invoice_id')
               .single();
             
-            if (testUpdate.error) {
-              // Column might not exist - log warning but continue
-              if (testUpdate.error.message?.includes('column') && testUpdate.error.message?.includes('zoho_invoice_id')) {
-                console.warn('[Create Subscription] ⚠️ zoho_invoice_id column not found - migration may not be applied');
-                console.warn('[Create Subscription] ⚠️ Please run migration: 20260131000006_add_package_invoice_fields.sql');
-              } else {
-                console.error('[Create Subscription] Failed to update subscription with invoice ID:', testUpdate.error);
-              }
-            } else {
-              // Column exists, try to update payment_status too
-              const paymentStatusUpdate = await supabase
+            if (testUpdate.error && isVerboseLogging()) {
+              logger.warn('Create Subscription: update subscription with invoice ID failed', testUpdate.error, {}, { subscriptionId: subscription.id });
+            } else if (!testUpdate.error) {
+              await supabase
                 .from('package_subscriptions')
                 .update({ payment_status: 'paid' })
                 .eq('id', subscription.id);
-              
-              if (paymentStatusUpdate.error) {
-                if (paymentStatusUpdate.error.message?.includes('column') && paymentStatusUpdate.error.message?.includes('payment_status')) {
-                  console.warn('[Create Subscription] ⚠️ payment_status column not found - migration may not be applied');
-                } else {
-                  console.error('[Create Subscription] Failed to update payment_status:', paymentStatusUpdate.error);
-                }
-              }
               
               // Refresh subscription data to include invoice ID
               const { data: updatedSubscription } = await supabase
@@ -1047,63 +990,15 @@ router.post('/subscriptions', async (req, res) => {
             }
           } else {
             invoiceError = invoiceResponse.message || 'Failed to create invoice';
-            console.error('[Create Subscription] ❌ Invoice creation failed:', invoiceError);
-            console.error('[Create Subscription] Invoice response:', JSON.stringify(invoiceResponse, null, 2));
           }
-        } // End of else block for Zoho configuration check
+        }
       }
     } catch (invoiceErr: any) {
-      console.error('[Create Subscription] ========================================');
-      console.error('[Create Subscription] ❌ EXCEPTION IN INVOICE CREATION');
-      console.error('[Create Subscription] ========================================');
-      console.error('[Create Subscription] Error type:', invoiceErr?.constructor?.name || 'Unknown');
-      console.error('[Create Subscription] Error message:', invoiceErr?.message || 'No message');
-      console.error('[Create Subscription] Error code:', invoiceErr?.code || 'No code');
-      
-      // Check for specific Zoho configuration errors
-      if (invoiceErr?.message?.includes('Zoho') || invoiceErr?.message?.includes('token') || invoiceErr?.message?.includes('OAuth')) {
-        console.error('[Create Subscription] 🔍 DIAGNOSIS: Zoho configuration issue detected');
-        console.error('[Create Subscription] 💡 SOLUTION: Configure Zoho in Settings → Zoho Integration');
-        console.error('[Create Subscription] 💡 Required: client_id, client_secret, redirect_uri, and OAuth connection');
-      }
-      
-      if (invoiceErr?.stack) {
-        console.error('[Create Subscription] Error stack:', invoiceErr.stack);
-      }
-      
-      invoiceError = invoiceErr.message || 'Failed to create invoice';
-      console.error('[Create Subscription] ========================================');
-      // Don't fail the subscription creation - invoice can be created later
-    }
-    
-    // Log final invoice status
-    console.log('[Create Subscription] ========================================');
-    console.log('[Create Subscription] 📊 FINAL INVOICE STATUS');
-    console.log('[Create Subscription] ========================================');
-    if (zohoInvoiceId) {
-      console.log('[Create Subscription] ✅ SUCCESS: Invoice created');
-      console.log('[Create Subscription] Invoice ID:', zohoInvoiceId);
-      const emailSent = customerData?.email || customer_email;
-      const phoneSent = customerData?.phone || customer_phone;
-      if (emailSent) {
-        console.log('[Create Subscription] ✅ Email sent to:', emailSent);
-      } else {
-        console.warn('[Create Subscription] ⚠️  No email sent (customer email not provided)');
-      }
-      if (phoneSent) {
-        console.log('[Create Subscription] ✅ WhatsApp sent to:', phoneSent);
-      } else {
-        console.warn('[Create Subscription] ⚠️  No WhatsApp sent (customer phone not provided)');
-      }
-    } else {
-      console.warn('[Create Subscription] ⚠️  FAILED: No invoice created');
-      if (invoiceError) {
-        console.warn('[Create Subscription] Error reason:', invoiceError);
-      } else {
-        console.warn('[Create Subscription] No error message available (check logs above)');
+      invoiceError = invoiceErr?.message || 'Failed to create invoice';
+      if (isVerboseLogging()) {
+        logger.error('Create Subscription: invoice creation exception', invoiceErr, {}, { subscriptionId: subscription?.id });
       }
     }
-    console.log('[Create Subscription] ========================================');
 
     // Return success even if invoice creation failed (subscription is created)
     // Invoice error will be logged but won't block the subscription
@@ -1137,13 +1032,6 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
     const tenantId = req.user!.tenant_id!;
     const { subscriptionId } = req.params;
 
-    console.log(`[Cancel Subscription] Request received:`, {
-      subscriptionId,
-      tenantId,
-      userId: req.user!.id,
-      role: req.user!.role
-    });
-
     if (!subscriptionId) {
       return res.status(400).json({ error: 'Subscription ID is required' });
     }
@@ -1157,12 +1045,6 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
       .single();
 
     if (fetchError) {
-      console.error(`[Cancel Subscription] Error fetching subscription:`, {
-        error: fetchError.message,
-        code: fetchError.code,
-        details: fetchError.details,
-        hint: fetchError.hint
-      });
       return res.status(404).json({ 
         error: 'Subscription not found',
         details: fetchError.message || 'The subscription does not exist or does not belong to your tenant'
@@ -1170,18 +1052,11 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
     }
 
     if (!subscription) {
-      console.error(`[Cancel Subscription] Subscription not found:`, { subscriptionId, tenantId });
       return res.status(404).json({ 
         error: 'Subscription not found',
         details: 'The subscription does not exist or does not belong to your tenant'
       });
     }
-
-    console.log(`[Cancel Subscription] Found subscription:`, {
-      id: subscription.id,
-      status: subscription.status,
-      is_active: subscription.is_active
-    });
 
     // Check if already cancelled
     if (subscription.status === 'cancelled' || subscription.is_active === false) {
@@ -1202,8 +1077,6 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
       updateData.is_active = false;
     }
 
-    console.log(`[Cancel Subscription] Updating with data:`, updateData);
-
     const { data: updatedSubscription, error: updateError } = await supabase
       .from('package_subscriptions')
       .update(updateData)
@@ -1213,16 +1086,8 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
       .single();
 
     if (updateError) {
-      console.error(`[Cancel Subscription] Update error:`, {
-        error: updateError.message,
-        code: updateError.code,
-        details: updateError.details,
-        hint: updateError.hint
-      });
-
       // If error is about missing columns, try with old schema (status only)
       if (updateError.message?.includes('column') && updateError.message?.includes('is_active')) {
-        console.warn('[Cancel Subscription] is_active column not found, trying old schema...');
         
         const oldSchemaUpdate = {
           status: 'cancelled'
@@ -1238,11 +1103,6 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
           .single();
 
         if (oldError) {
-          console.error('[Cancel Subscription] Old schema update error:', {
-            error: oldError.message,
-            code: oldError.code,
-            details: oldError.details
-          });
           return res.status(500).json({ 
             error: 'Failed to cancel subscription',
             details: oldError.message || 'Unknown error',
@@ -1250,7 +1110,6 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
           });
         }
 
-        console.log(`[Cancel Subscription] ✅ Subscription ${subscriptionId} cancelled (old schema) by ${req.user!.role} (${req.user!.id})`);
         return res.json({
           success: true,
           message: 'Package subscription cancelled successfully',
@@ -1267,14 +1126,11 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
     }
 
     if (!updatedSubscription) {
-      console.error(`[Cancel Subscription] Update succeeded but no data returned`);
       return res.status(500).json({ 
         error: 'Failed to cancel subscription',
         details: 'Update succeeded but no subscription data returned'
       });
     }
-
-    console.log(`[Cancel Subscription] ✅ Subscription ${subscriptionId} cancelled by ${req.user!.role} (${req.user!.id})`);
 
     res.json({
       success: true,
@@ -1283,11 +1139,6 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
     });
 
   } catch (error: any) {
-    console.error(`[Cancel Subscription] Exception:`, {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
-    });
     const context = logger.extractContext(req);
     logger.error('Cancel package subscription error', error, context);
     res.status(500).json({ 
@@ -1362,7 +1213,7 @@ async function handleGetPackagesForReceptionOrTenant(req: express.Request, res: 
     const { data: packages, error } = await query;
 
     if (error) {
-      console.error('[Get Packages] Error:', error);
+      if (isVerboseLogging()) logger.error('Get Packages failed', error, {}, {});
       return res.status(500).json({
         error: 'Failed to fetch packages',
         details: error.message,
@@ -1428,7 +1279,7 @@ router.get('/receptionist/subscribers', authenticateSubscriptionManager, async (
       .order('subscribed_at', { ascending: false });
 
     if (fetchError) {
-      console.error('[Receptionist Subscribers] Error:', fetchError);
+      if (isVerboseLogging()) logger.error('Receptionist Subscribers failed', fetchError, {}, {});
       return res.status(500).json({ 
         error: 'Failed to fetch subscribers',
         details: fetchError.message 
@@ -1718,9 +1569,21 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
       .insert(usageRecords);
 
     if (usageError) {
-      console.error('[Receptionist Subscribe] Error creating usage records:', usageError);
+      if (isVerboseLogging()) logger.error('Receptionist Subscribe: usage records failed', usageError, {}, {});
       // Don't fail - subscription is created, usage can be fixed later
     }
+
+    // Create Zoho invoice (same as customer purchase flow)
+    const customer_phone_raw = req.body.customer_phone as string | undefined;
+    const customer_email_raw = req.body.customer_email as string | undefined;
+    const { zohoInvoiceId, invoiceError } = await createInvoiceForPackageSubscription(
+      tenantId,
+      subscription,
+      package_id,
+      { name: packageData.name, name_ar: packageData.name_ar, total_price: packageData.total_price },
+      { name: customerData.name, email: customerData.email ?? undefined, phone: customerData.phone ?? undefined },
+      { customer_phone: customer_phone_raw, customer_email: customer_email_raw }
+    );
 
     res.status(201).json({
       success: true,
@@ -1734,7 +1597,9 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
           name_ar: packageData.name_ar
         },
         subscribed_at: subscription.subscribed_at
-      }
+      },
+      invoice: zohoInvoiceId ? { id: zohoInvoiceId, status: 'created' } : null,
+      invoice_error: invoiceError ?? undefined
     });
 
   } catch (error: any) {

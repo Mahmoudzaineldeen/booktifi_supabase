@@ -5,12 +5,13 @@
  * API: GET /packages/receptionist/packages, POST /packages/receptionist/subscriptions (accepts phone/name/email or customer_id).
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
 import { getApiUrl } from '../../lib/apiUrl';
+import { db } from '../../lib/db';
 import { Button } from '../ui/Button';
 import { PhoneInput } from '../ui/PhoneInput';
 import { Modal } from '../ui/Modal';
@@ -49,7 +50,10 @@ export function ReceptionSubscribeModal({
   const [customerPhoneFull, setCustomerPhoneFull] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
+  const [customerLookup, setCustomerLookup] = useState<{ id: string; name: string; email?: string; phone: string } | null>(null);
+  const [isLookingUpCustomer, setIsLookingUpCustomer] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
+  const lookupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Pre-select package when opening with initialPackageId
   useEffect(() => {
@@ -85,11 +89,75 @@ export function ReceptionSubscribeModal({
     };
   }, [isOpen, userProfile?.tenant_id]);
 
+  // Look up customer by phone and autofill name/email (same as receptionist Add Subscription)
+  const lookupCustomerByPhone = useCallback(
+    async (fullPhoneNumber: string) => {
+      if (!fullPhoneNumber || fullPhoneNumber.length < 10 || !userProfile?.tenant_id) {
+        setCustomerLookup(null);
+        setIsLookingUpCustomer(false);
+        return;
+      }
+      setIsLookingUpCustomer(true);
+      setCustomerLookup(null);
+      try {
+        const { data, error } = await db
+          .from('customers')
+          .select('id, name, email, phone')
+          .eq('tenant_id', userProfile.tenant_id)
+          .eq('phone', fullPhoneNumber)
+          .maybeSingle();
+
+        if (error) {
+          console.error('Error looking up customer:', error);
+          setCustomerLookup(null);
+          setCustomerName('');
+          setCustomerEmail('');
+          return;
+        }
+        if (data) {
+          setCustomerLookup(data);
+          setCustomerName(data.name || '');
+          setCustomerEmail(data.email || '');
+        } else {
+          setCustomerLookup(null);
+          setCustomerName('');
+          setCustomerEmail('');
+        }
+      } catch (err) {
+        console.error('Lookup customer error:', err);
+        setCustomerLookup(null);
+      } finally {
+        setIsLookingUpCustomer(false);
+      }
+    },
+    [userProfile?.tenant_id]
+  );
+
+  function handlePhoneChange(value: string) {
+    setCustomerPhoneFull(value);
+    if (customerLookup) setCustomerLookup(null);
+    if (lookupTimeoutRef.current) {
+      clearTimeout(lookupTimeoutRef.current);
+      lookupTimeoutRef.current = null;
+    }
+    if (value.length >= 10) {
+      lookupTimeoutRef.current = setTimeout(() => lookupCustomerByPhone(value), 350);
+    } else {
+      setCustomerName('');
+      setCustomerEmail('');
+    }
+  }
+
+  useEffect(() => () => {
+    if (lookupTimeoutRef.current) clearTimeout(lookupTimeoutRef.current);
+  }, []);
+
   function handleClose() {
     setSelectedPackageId(initialPackageId || null);
     setCustomerPhoneFull('');
     setCustomerName('');
     setCustomerEmail('');
+    setCustomerLookup(null);
     onClose();
   }
 
@@ -149,17 +217,38 @@ export function ReceptionSubscribeModal({
       title={i18n.language === 'ar' ? 'إضافة اشتراك' : 'Add Subscription'}
     >
       <div className="space-y-4">
-        {/* Customer Phone — same PhoneInput and country list as receptionist page */}
-        <div>
+        {/* Customer Phone with auto-fill (same as receptionist Add Subscription) */}
+        <div className="relative">
           <PhoneInput
             label={i18n.language === 'ar' ? 'هاتف العميل' : 'Customer Phone'}
             value={customerPhoneFull}
-            onChange={setCustomerPhoneFull}
+            onChange={handlePhoneChange}
             defaultCountry={defaultCountryCode}
             required
             language={i18n.language === 'ar' ? 'ar' : 'en'}
           />
+          {isLookingUpCustomer && (
+            <div className="absolute right-3 top-[38px]">
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent" />
+            </div>
+          )}
         </div>
+        {customerLookup && (
+          <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+            <p className="text-sm text-green-700 flex items-center gap-1">
+              <CheckCircle className="w-4 h-4 shrink-0" />
+              <span>
+                {i18n.language === 'ar' ? 'عميل موجود' : 'Existing customer'}: <strong>{customerLookup.name}</strong>
+                {customerLookup.email && ` (${customerLookup.email})`}
+              </span>
+            </p>
+          </div>
+        )}
+        {customerPhoneFull.length >= 10 && !customerLookup && !isLookingUpCustomer && (
+          <p className="text-sm text-blue-600">
+            {i18n.language === 'ar' ? 'عميل جديد' : 'New customer'}
+          </p>
+        )}
 
         {/* Customer Name — required */}
         <div>

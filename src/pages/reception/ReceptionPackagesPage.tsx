@@ -25,6 +25,7 @@ import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { getApiUrl } from '../../lib/apiUrl';
 import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Package, Users, Search, X, CheckCircle, AlertCircle, Phone, Mail } from 'lucide-react';
 import { ReceptionSubscribeModal } from '../../components/reception/ReceptionSubscribeModal';
