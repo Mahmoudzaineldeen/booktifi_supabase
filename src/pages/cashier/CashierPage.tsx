@@ -40,7 +40,7 @@ interface Booking {
 
 export function CashierPage() {
   const { t, i18n } = useTranslation();
-  const { userProfile, signOut, loading: authLoading } = useAuth();
+  const { userProfile, tenant, signOut, loading: authLoading } = useAuth();
   const { formatPrice } = useCurrency();
   const navigate = useNavigate();
   const [scannedBooking, setScannedBooking] = useState<Booking | null>(null);
@@ -302,75 +302,93 @@ export function CashierPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* QR Scanner Section */}
-        <Card className="mb-6">
-          <CardContent className="py-6">
-            <div className="text-center mb-6">
-              <QrCode className="w-16 h-16 text-blue-600 mx-auto mb-4" />
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">
-                {t('cashier.scanQRCode')}
-              </h2>
-              <p className="text-gray-600">
-                {i18n.language === 'ar' 
-                  ? 'امسح رمز QR للحجز لعرض التفاصيل وتحديث حالة الدفع'
-                  : 'Scan the booking QR code to view details and update payment status'}
-              </p>
-            </div>
-
-            <div className="flex justify-center mb-4">
-              <Button
-                onClick={() => {
-                  setIsQRScannerOpen(true);
-                  setQrInputValue('');
-                  setQrValidationResult(null);
-                  setScannedBooking(null);
-                }}
-                icon={<Scan className="w-4 h-4" />}
-                size="lg"
-                variant="primary"
-              >
-                {t('cashier.openQRScanner')}
-              </Button>
-            </div>
-
-            {/* Manual Entry */}
-            <div className="max-w-md mx-auto">
-              <form onSubmit={handleQRSubmit} className="flex gap-2">
-                <input
-                  type="text"
-                  value={qrInputValue}
-                  onChange={(e) => setQrInputValue(e.target.value)}
-                  placeholder={t('cashier.enterBookingIdManually')}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <Button
-                  type="submit"
-                  disabled={qrValidating || !qrInputValue.trim()}
-                  variant="secondary"
-                >
-                  {qrValidating 
-                    ? (i18n.language === 'ar' ? 'جاري التحقق...' : 'Validating...')
-                    : t('cashier.validate')}
-                </Button>
-              </form>
-            </div>
-
-            {/* QR Validation Result */}
-            {qrValidationResult && (
-              <div className={`mt-4 p-4 rounded-lg ${
-                qrValidationResult.success 
-                  ? 'bg-green-50 border border-green-200' 
-                  : 'bg-red-50 border border-red-200'
-              }`}>
-                <p className={`text-sm ${
-                  qrValidationResult.success ? 'text-green-800' : 'text-red-800'
-                }`}>
-                  {qrValidationResult.message}
+        {/* QR Scanner Section - only when tickets are enabled */}
+        {tenant?.tickets_enabled !== false ? (
+          <Card className="mb-6">
+            <CardContent className="py-6">
+              <div className="text-center mb-6">
+                <QrCode className="w-16 h-16 text-blue-600 mx-auto mb-4" />
+                <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                  {t('cashier.scanQRCode')}
+                </h2>
+                <p className="text-gray-600">
+                  {i18n.language === 'ar' 
+                    ? 'امسح رمز QR للحجز لعرض التفاصيل وتحديث حالة الدفع'
+                    : 'Scan the booking QR code to view details and update payment status'}
                 </p>
               </div>
-            )}
-          </CardContent>
-        </Card>
+
+              <div className="flex justify-center mb-4">
+                <Button
+                  onClick={() => {
+                    setIsQRScannerOpen(true);
+                    setQrInputValue('');
+                    setQrValidationResult(null);
+                    setScannedBooking(null);
+                  }}
+                  icon={<Scan className="w-4 h-4" />}
+                  size="lg"
+                  variant="primary"
+                >
+                  {t('cashier.openQRScanner')}
+                </Button>
+              </div>
+
+              {/* Manual Entry */}
+              <div className="max-w-md mx-auto">
+                <form onSubmit={handleQRSubmit} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={qrInputValue}
+                    onChange={(e) => setQrInputValue(e.target.value)}
+                    placeholder={t('cashier.enterBookingIdManually')}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <Button
+                    type="submit"
+                    disabled={qrValidating || !qrInputValue.trim()}
+                    variant="secondary"
+                  >
+                    {qrValidating 
+                      ? (i18n.language === 'ar' ? 'جاري التحقق...' : 'Validating...')
+                      : t('cashier.validate')}
+                  </Button>
+                </form>
+              </div>
+
+              {/* QR Validation Result */}
+              {qrValidationResult && (
+                <div className={`mt-4 p-4 rounded-lg ${
+                  qrValidationResult.success 
+                    ? 'bg-green-50 border border-green-200' 
+                    : 'bg-red-50 border border-red-200'
+                }`}>
+                  <p className={`text-sm ${
+                    qrValidationResult.success ? 'text-green-800' : 'text-red-800'
+                  }`}>
+                    {qrValidationResult.message}
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="mb-6">
+            <CardContent className="py-6">
+              <div className="text-center">
+                <QrCode className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h2 className="text-lg font-semibold text-gray-700 mb-2">
+                  {i18n.language === 'ar' ? 'مسح QR معطل' : 'QR scanning disabled'}
+                </h2>
+                <p className="text-gray-600 text-sm">
+                  {i18n.language === 'ar' 
+                    ? 'التذاكر معطلة في الإعدادات. لتفعيل مسح QR، قم بتشغيل التذاكر من الإعدادات → العمليات.'
+                    : 'Tickets are disabled in settings. To enable QR scanning, turn on tickets in Settings → Operations.'}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Scanned Booking Details */}
         {scannedBooking && (
@@ -513,8 +531,8 @@ export function CashierPage() {
         )}
       </div>
 
-      {/* QR Scanner Modal */}
-      {isQRScannerOpen && (
+      {/* QR Scanner Modal - only when tickets are enabled */}
+      {isQRScannerOpen && tenant?.tickets_enabled !== false && (
         <Modal
           isOpen={isQRScannerOpen}
           onClose={() => {

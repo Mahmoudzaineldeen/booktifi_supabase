@@ -3350,8 +3350,8 @@ export function ReceptionPage() {
                     </Button>
                   )}
                   
-                  {/* QR Code Validation Button */}
-                  {booking.status !== 'cancelled' && !(booking as any).qr_scanned && (
+                  {/* QR Code Validation Button - only when tickets are enabled */}
+                  {tenant?.tickets_enabled !== false && booking.status !== 'cancelled' && !(booking as any).qr_scanned && (
                     <Button
                       size="sm"
                       variant="primary"
@@ -3367,8 +3367,8 @@ export function ReceptionPage() {
                     </Button>
                   )}
                   
-                  {/* QR Already Scanned Indicator */}
-                  {(booking as any).qr_scanned && (
+                  {/* QR Already Scanned Indicator - only when tickets are enabled */}
+                  {tenant?.tickets_enabled !== false && (booking as any).qr_scanned && (
                     <div className="w-full p-2 bg-green-50 border border-green-200 rounded-lg text-center">
                       <div className="flex items-center justify-center gap-2 text-green-800 text-xs">
                         <CheckCircle className="w-4 h-4" />
@@ -3698,19 +3698,21 @@ export function ReceptionPage() {
               <span className="hidden sm:inline">{t('booking.newBooking')}</span>
               <span className="sm:hidden">New</span>
             </Button>
-            <Button
-              onClick={() => {
-                setIsQRScannerOpen(true);
-                setQrInputValue('');
-                setQrValidationResult(null);
-              }}
-              icon={<Scan className="w-4 h-4" />}
-              size="sm"
-              variant="secondary"
-            >
-              <span className="hidden sm:inline">{t('reception.scanQR')}</span>
-              <span className="sm:hidden">QR</span>
-            </Button>
+            {tenant?.tickets_enabled !== false && (
+              <Button
+                onClick={() => {
+                  setIsQRScannerOpen(true);
+                  setQrInputValue('');
+                  setQrValidationResult(null);
+                }}
+                icon={<Scan className="w-4 h-4" />}
+                size="sm"
+                variant="secondary"
+              >
+                <span className="hidden sm:inline">{t('reception.scanQR')}</span>
+                <span className="sm:hidden">QR</span>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -5666,8 +5668,8 @@ export function ReceptionPage() {
         </form>
       </Modal>
 
-      {/* QR Code Scanner Modal with Camera */}
-      {isQRScannerOpen && (
+      {/* QR Code Scanner Modal with Camera - only when tickets are enabled */}
+      {isQRScannerOpen && tenant?.tickets_enabled !== false && (
         <QRScanner
           title={t('reception.scanQR')}
           onScanSuccess={(decodedText) => {
