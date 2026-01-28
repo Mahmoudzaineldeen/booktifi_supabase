@@ -191,11 +191,19 @@ export function ReceptionSubscribeModal({
         throw new Error(data.error || 'Failed to subscribe customer');
       }
       const pkgName = packages.find((p) => p.id === selectedPackageId)?.name_ar || packages.find((p) => p.id === selectedPackageId)?.name || '';
-      alert(
+      const successMsg =
         i18n.language === 'ar'
           ? `تم الاشتراك بنجاح: ${customerName} → ${pkgName}`
-          : `Successfully subscribed: ${customerName} → ${pkgName}`
-      );
+          : `Successfully subscribed: ${customerName} → ${pkgName}`;
+      if (data.invoice_error) {
+        const invoiceNote =
+          i18n.language === 'ar'
+            ? `\n\nلم يتم إنشاء الفاتورة أو إرسالها: ${data.invoice_error}`
+            : `\n\nInvoice was not created or sent: ${data.invoice_error}`;
+        alert(successMsg + invoiceNote);
+      } else {
+        alert(successMsg);
+      }
       handleClose();
       onSuccess?.();
     } catch (error: any) {

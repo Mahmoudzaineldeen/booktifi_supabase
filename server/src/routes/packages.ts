@@ -212,7 +212,9 @@ async function createInvoiceForPackageSubscription(
 ): Promise<{ zohoInvoiceId: string | null; invoiceError: string | null }> {
   let zohoInvoiceId: string | null = null;
   let invoiceError: string | null = null;
-  const total_price = packageData.total_price;
+  const total_price = typeof packageData.total_price === 'number' && !Number.isNaN(packageData.total_price)
+    ? packageData.total_price
+    : Number(packageData.total_price) || 0;
   const customer_phone = options?.customer_phone ?? customerData.phone ?? undefined;
   const customer_email = options?.customer_email ?? customerData.email ?? undefined;
 
@@ -282,10 +284,14 @@ async function createInvoiceForPackageSubscription(
           } catch (_e) { /* non-blocking */ }
         }
       }
-      await supabase
+      const { error: updateErr } = await supabase
         .from('package_subscriptions')
         .update({ zoho_invoice_id: zohoInvoiceId, payment_status: 'paid' })
         .eq('id', subscription.id);
+      if (updateErr && isVerboseLogging()) {
+        logger.warn('Create invoice: failed to update subscription with invoice id', updateErr, {}, { subscriptionId: subscription.id });
+      }
+      // Do not set invoiceError — invoice was created and possibly sent; only DB link may have failed
     } else {
       invoiceError = invoiceResponse.message || 'Failed to create invoice';
     }
