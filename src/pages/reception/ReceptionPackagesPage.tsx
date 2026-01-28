@@ -18,7 +18,7 @@
  * - Delete packages
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
@@ -26,9 +26,8 @@ import { db } from '../../lib/db';
 import { getApiUrl } from '../../lib/apiUrl';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
-import { Modal } from '../../components/ui/Modal';
-import { Input } from '../../components/ui/Input';
 import { Package, Users, Search, X, CheckCircle, AlertCircle, Phone, Mail } from 'lucide-react';
+import { ReceptionSubscribeModal } from '../../components/reception/ReceptionSubscribeModal';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
@@ -79,13 +78,6 @@ interface PackageSubscriber {
   status: string;
 }
 
-interface Customer {
-  id: string;
-  name: string;
-  phone: string;
-  email?: string;
-}
-
 type TabType = 'packages' | 'subscribers';
 
 export function ReceptionPackagesPage() {
@@ -109,33 +101,9 @@ export function ReceptionPackagesPage() {
   const [subscriberPage, setSubscriberPage] = useState(1);
   const [subscriberTotalPages, setSubscriberTotalPages] = useState(1);
   
-  // Subscribe Customer Modal
+  // Subscribe Customer Modal — uses shared ReceptionSubscribeModal (same UI + logic as admin)
   const [isSubscribeModalOpen, setIsSubscribeModalOpen] = useState(false);
   const [selectedPackageForSubscribe, setSelectedPackageForSubscribe] = useState<string | null>(null);
-  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
-  const [customerSearchResults, setCustomerSearchResults] = useState<Customer[]>([]);
-  const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [subscribing, setSubscribing] = useState(false);
-
-  // Debug: Log modal state changes
-  useEffect(() => {
-    console.log('[ReceptionPackagesPage] Modal state changed:', {
-      isSubscribeModalOpen,
-      selectedPackageForSubscribe,
-      componentMounted: true
-    });
-    
-    // Also check if modal element exists in DOM
-    if (isSubscribeModalOpen) {
-      setTimeout(() => {
-        const modalElement = document.querySelector('[data-modal="subscribe-customer"]');
-        console.log('[ReceptionPackagesPage] Modal element in DOM:', !!modalElement, modalElement);
-      }, 50);
-    }
-  }, [isSubscribeModalOpen, selectedPackageForSubscribe]);
-  
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch services for search filter
   useEffect(() => {
@@ -259,117 +227,9 @@ export function ReceptionPackagesPage() {
     }
   }
 
-  // Search customers for subscribe modal
-  async function searchCustomers(query: string) {
-    if (!userProfile?.tenant_id || !query.trim()) {
-      setCustomerSearchResults([]);
-      return;
-    }
-
-    setIsSearchingCustomers(true);
-    
-    // Clear previous timeout
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
-    // Debounce search
-    searchTimeoutRef.current = setTimeout(async () => {
-      try {
-        const { data, error } = await db
-          .from('customers')
-          .select('id, name, phone, email')
-          .eq('tenant_id', userProfile.tenant_id)
-          .or(`name.ilike.%${query}%,phone.ilike.%${query}%`)
-          .limit(10);
-
-        if (error) {
-          console.error('Error searching customers:', error);
-          setCustomerSearchResults([]);
-        } else {
-          setCustomerSearchResults(data || []);
-        }
-      } catch (error) {
-        console.error('Error searching customers:', error);
-        setCustomerSearchResults([]);
-      } finally {
-        setIsSearchingCustomers(false);
-      }
-    }, 300);
-  }
-
-  async function handleSubscribeCustomer() {
-    if (!selectedCustomer || !selectedPackageForSubscribe) {
-      return;
-    }
-
-    try {
-      setSubscribing(true);
-      const token = localStorage.getItem('auth_token');
-
-      const response = await fetch(`${getApiUrl()}/packages/receptionist/subscriptions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          package_id: selectedPackageForSubscribe,
-          customer_id: selectedCustomer.id
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to subscribe customer');
-      }
-
-      const data = await response.json();
-      
-      // Show success message
-      alert(i18n.language === 'ar' 
-        ? `تم الاشتراك بنجاح: ${selectedCustomer.name} → ${data.subscription?.package?.name || ''}`
-        : `Successfully subscribed: ${selectedCustomer.name} → ${data.subscription?.package?.name || ''}`
-      );
-
-      // Reset modal
-      setIsSubscribeModalOpen(false);
-      setSelectedPackageForSubscribe(null);
-      setSelectedCustomer(null);
-      setCustomerSearchQuery('');
-      setCustomerSearchResults([]);
-
-      // Refresh subscribers if on that tab
-      if (activeTab === 'subscribers') {
-        fetchSubscribers();
-      }
-    } catch (error: any) {
-      console.error('Error subscribing customer:', error);
-      alert(i18n.language === 'ar' 
-        ? `خطأ في الاشتراك: ${error.message}`
-        : `Error subscribing customer: ${error.message}`
-      );
-    } finally {
-      setSubscribing(false);
-    }
-  }
-
   function openSubscribeModal(packageId?: string) {
-    console.log('[ReceptionPackagesPage] Opening subscribe modal for package:', packageId);
-    console.log('[ReceptionPackagesPage] Current modal state before:', isSubscribeModalOpen);
-    
     setSelectedPackageForSubscribe(packageId || null);
-    setSelectedCustomer(null);
-    setCustomerSearchQuery('');
-    setCustomerSearchResults([]);
     setIsSubscribeModalOpen(true);
-    
-    // Force a re-render check
-    setTimeout(() => {
-      console.log('[ReceptionPackagesPage] Modal state after setState (async check):', isSubscribeModalOpen);
-    }, 100);
-    
-    console.log('[ReceptionPackagesPage] Modal state set to open');
   }
 
   return (
@@ -740,142 +600,18 @@ export function ReceptionPackagesPage() {
         </div>
       )}
 
-      {/* Subscribe Customer Modal */}
-      <Modal
+      {/* Subscribe Customer Modal — shared component (exact same UI + logic as admin) */}
+      <ReceptionSubscribeModal
         isOpen={isSubscribeModalOpen}
         onClose={() => {
-          console.log('[ReceptionPackagesPage] Modal onClose called');
           setIsSubscribeModalOpen(false);
           setSelectedPackageForSubscribe(null);
-          setSelectedCustomer(null);
-          setCustomerSearchQuery('');
-          setCustomerSearchResults([]);
         }}
-        title={i18n.language === 'ar' ? 'اشترك عميل في باقة' : 'Subscribe Customer to Package'}
-      >
-        <div className="space-y-4">
-          {/* Package Selection */}
-          {!selectedPackageForSubscribe && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {i18n.language === 'ar' ? 'اختر الباقة' : 'Select Package'}
-              </label>
-              <select
-                value={selectedPackageForSubscribe || ''}
-                onChange={(e) => setSelectedPackageForSubscribe(e.target.value || null)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">{i18n.language === 'ar' ? '-- اختر الباقة --' : '-- Select Package --'}</option>
-                {packages.map(pkg => (
-                  <option key={pkg.id} value={pkg.id}>
-                    {i18n.language === 'ar' ? pkg.name_ar || pkg.name : pkg.name} - {formatPrice(pkg.total_price)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Customer Search */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {i18n.language === 'ar' ? 'ابحث عن العميل' : 'Search Customer'}
-            </label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <Input
-                type="text"
-                value={customerSearchQuery}
-                onChange={(e) => {
-                  setCustomerSearchQuery(e.target.value);
-                  searchCustomers(e.target.value);
-                }}
-                placeholder={i18n.language === 'ar' ? 'اسم العميل أو رقم الهاتف...' : 'Customer name or phone...'}
-                className="pl-10"
-              />
-            </div>
-
-            {/* Customer Search Results */}
-            {customerSearchQuery && customerSearchResults.length > 0 && (
-              <div className="mt-2 border border-gray-200 rounded-lg max-h-48 overflow-y-auto">
-                {customerSearchResults.map(customer => (
-                  <button
-                    key={customer.id}
-                    onClick={() => {
-                      setSelectedCustomer(customer);
-                      setCustomerSearchQuery(customer.name);
-                      setCustomerSearchResults([]);
-                    }}
-                    className={`w-full text-left px-4 py-2 hover:bg-gray-50 border-b last:border-b-0 ${
-                      selectedCustomer?.id === customer.id ? 'bg-blue-50' : ''
-                    }`}
-                  >
-                    <p className="font-medium text-gray-900">{customer.name}</p>
-                    <p className="text-sm text-gray-500">{customer.phone}</p>
-                    {customer.email && (
-                      <p className="text-sm text-gray-500">{customer.email}</p>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {isSearchingCustomers && (
-              <p className="mt-2 text-sm text-gray-500">{i18n.language === 'ar' ? 'جاري البحث...' : 'Searching...'}</p>
-            )}
-
-            {customerSearchQuery && !isSearchingCustomers && customerSearchResults.length === 0 && (
-              <p className="mt-2 text-sm text-gray-500">
-                {i18n.language === 'ar' ? 'لم يتم العثور على عملاء' : 'No customers found'}
-              </p>
-            )}
-          </div>
-
-          {/* Selected Customer Display */}
-          {selectedCustomer && (
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm font-medium text-gray-900">
-                {i18n.language === 'ar' ? 'العميل المحدد' : 'Selected Customer'}:
-              </p>
-              <p className="text-sm text-gray-700">{selectedCustomer.name}</p>
-              <p className="text-sm text-gray-600">{selectedCustomer.phone}</p>
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex gap-3 pt-4">
-            <Button
-              fullWidth
-              onClick={handleSubscribeCustomer}
-              disabled={!selectedCustomer || !selectedPackageForSubscribe || subscribing}
-            >
-              {subscribing ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  {i18n.language === 'ar' ? 'جاري الاشتراك...' : 'Subscribing...'}
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  {i18n.language === 'ar' ? 'اشترك' : 'Subscribe'}
-                </>
-              )}
-            </Button>
-            <Button
-              variant="secondary"
-              fullWidth
-              onClick={() => {
-                setIsSubscribeModalOpen(false);
-                setSelectedPackageForSubscribe(null);
-                setSelectedCustomer(null);
-                setCustomerSearchQuery('');
-                setCustomerSearchResults([]);
-              }}
-            >
-              {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        onSuccess={() => {
+          if (activeTab === 'subscribers') fetchSubscribers();
+        }}
+        initialPackageId={selectedPackageForSubscribe}
+      />
     </div>
   );
 }

@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { safeTranslateStatus, safeTranslate } from '../../lib/safeTranslation';
@@ -8,20 +7,41 @@ import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
-import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X, Plus, Package } from 'lucide-react';
+import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X, Plus, Package, CalendarDays } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { fetchAvailableSlots, Slot } from '../../lib/bookingAvailability';
 import { Input } from '../../components/ui/Input';
+import { PhoneInput } from '../../components/ui/PhoneInput';
+import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
+import { countryCodes } from '../../lib/countryCodes';
 
 interface AdminService {
   id: string;
   name: string;
   name_ar?: string;
   base_price: number;
-  offers?: { id: string; name: string; name_ar?: string; price: number }[];
+  original_price?: number | null;
+  offers?: { id: string; name: string; name_ar?: string; price: number; discount_percentage?: number }[];
+}
+
+interface PackageUsage {
+  service_id: string;
+  original_quantity: number;
+  remaining_quantity: number;
+  used_quantity: number;
+  services: { name: string; name_ar?: string };
+}
+
+interface CustomerPackage {
+  id: string;
+  package_id: string;
+  status: string;
+  expires_at: string | null;
+  service_packages: { name: string; name_ar?: string; total_price: number };
+  usage: PackageUsage[];
 }
 
 interface Booking {
@@ -52,23 +72,27 @@ interface Booking {
   // ARCHIVED: users (employee) field removed
 }
 
+type SearchType = 'phone' | 'customer_name' | 'date' | 'service_name' | 'booking_id' | '';
+
 export function BookingsPage() {
   const { t, i18n } = useTranslation();
-  const { tenantSlug } = useParams<{ tenantSlug?: string }>();
   const { userProfile, tenant } = useAuth();
-  const { formatPrice, formatPriceString } = useCurrency();
+  const { formatPrice } = useCurrency();
+  const tenantDefaultCountry = useTenantDefaultCountry();
   const canCreateBooking = ['receptionist', 'admin_user', 'tenant_admin', 'customer_admin'].includes(userProfile?.role || '');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Admin create booking modal (same APIs as reception, no redirect)
+  // Admin create booking modal (same APIs as reception, no redirect) — UI matches reception: Phone first, then name, email, service, date/slot, etc.
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createCustomerPhoneFull, setCreateCustomerPhoneFull] = useState('');
   const [createForm, setCreateForm] = useState({
     customer_name: '',
     customer_phone: '',
     customer_email: '',
     visitor_count: 1,
     notes: '',
+    booking_option: 'consecutive' as 'consecutive' | 'parallel',
   });
   const [createServiceId, setCreateServiceId] = useState('');
   const [createDate, setCreateDate] = useState('');
@@ -78,6 +102,14 @@ export function BookingsPage() {
   const [loadingCreateSlots, setLoadingCreateSlots] = useState(false);
   const [creatingBooking, setCreatingBooking] = useState(false);
   const [createOfferId, setCreateOfferId] = useState('');
+  const [createShowFullCalendar, setCreateShowFullCalendar] = useState(false);
+  const [isLookingUpCustomer, setIsLookingUpCustomer] = useState(false);
+  const [createCustomerPackage, setCreateCustomerPackage] = useState<CustomerPackage | null>(null);
+  const [createCountryCode, setCreateCountryCode] = useState(tenantDefaultCountry);
+  const [createSelectedSlots, setCreateSelectedSlots] = useState<Array<{ slot_id: string; start_time: string; end_time: string; employee_id: string; slot_date: string }>>([]);
+  const [createSelectedTimeSlot, setCreateSelectedTimeSlot] = useState<{ start_time: string; end_time: string; slot_date: string } | null>(null);
+  const [createShowPreview, setCreateShowPreview] = useState(false);
+  const [createSelectedServices, setCreateSelectedServices] = useState<Array<{ service: AdminService; slot: Slot; employeeId: string }>>([]);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
@@ -134,7 +166,7 @@ export function BookingsPage() {
     }
   }
 
-  // Fetch available slots when service and date selected (same logic as reception)
+  // Fetch available slots when service and date selected — same filter as Receptionist (ReceptionPage): exclude past, locked, zero-capacity
   useEffect(() => {
     if (!createServiceId || !createDate || !userProfile?.tenant_id) {
       setCreateSlots([]);
@@ -148,9 +180,9 @@ export function BookingsPage() {
       tenantId: userProfile.tenant_id,
       serviceId: createServiceId,
       date,
-      includePastSlots: true,
-      includeZeroCapacity: false,
-      includeLockedSlots: false,
+      includePastSlots: false, // Same as reception: filter out past slots (customer-facing behavior)
+      includeZeroCapacity: false, // Same as reception: filter out fully booked slots
+      includeLockedSlots: false, // Same as reception: filter out locked slots
     }).then(({ slots }) => {
       if (!cancelled) {
         setCreateSlots(slots.filter(s => s.available_capacity > 0));
@@ -164,12 +196,170 @@ export function BookingsPage() {
     return () => { cancelled = true; };
   }, [createServiceId, createDate, userProfile?.tenant_id]);
 
-  // Same backend as Reception: POST /bookings/create — slot checks, package resolution, invoice & ticket logic run server-side.
-  async function handleCreateBooking(e: React.FormEvent) {
-    e.preventDefault();
-    if (!userProfile?.tenant_id || !createServiceId || !createSlotId || !createDate) return;
-    const slot = createSlots.find(s => s.id === createSlotId);
-    if (!slot) return;
+  useEffect(() => {
+    setCreateSelectedSlots([]);
+  }, [createServiceId, createDate, createForm.visitor_count, createForm.booking_option]);
+
+  // Look up customer by phone and auto-fill name/email + package (same as reception)
+  async function lookupCustomerByPhone(fullPhoneNumber: string) {
+    if (!fullPhoneNumber || fullPhoneNumber.length < 8 || !userProfile?.tenant_id) return;
+    setIsLookingUpCustomer(true);
+    setCreateCustomerPackage(null);
+    try {
+      const { data: customerData, error: customerError } = await db
+        .from('customers')
+        .select('id, name, email, phone')
+        .eq('tenant_id', userProfile.tenant_id)
+        .eq('phone', fullPhoneNumber)
+        .maybeSingle();
+      if (customerError) throw customerError;
+      if (customerData) {
+        setCreateForm(prev => ({
+          ...prev,
+          customer_name: prev.customer_name || customerData.name || '',
+          customer_email: prev.customer_email || (customerData.email ?? ''),
+        }));
+        const { data: subscriptionData } = await db
+          .from('package_subscriptions')
+          .select('id, package_id, status, expires_at, service_packages(name, name_ar, total_price)')
+          .eq('customer_id', customerData.id)
+          .eq('status', 'active')
+          .maybeSingle();
+        if (subscriptionData) {
+          const isExpired = subscriptionData.expires_at && new Date(subscriptionData.expires_at) < new Date();
+          if (!isExpired) {
+            const { data: usageData } = await db
+              .from('package_subscription_usage')
+              .select('service_id, original_quantity, remaining_quantity, used_quantity, services(name, name_ar)')
+              .eq('subscription_id', subscriptionData.id);
+            setCreateCustomerPackage({ ...subscriptionData, usage: usageData || [] } as CustomerPackage);
+          }
+        }
+        return;
+      }
+      const { data: bookingData, error: bookingError } = await db
+        .from('bookings')
+        .select('customer_name, customer_email, customer_phone')
+        .eq('tenant_id', userProfile.tenant_id)
+        .eq('customer_phone', fullPhoneNumber)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!bookingError && bookingData) {
+        setCreateForm(prev => ({
+          ...prev,
+          customer_name: prev.customer_name || bookingData.customer_name || '',
+          customer_email: prev.customer_email || (bookingData.customer_email ?? ''),
+        }));
+      }
+    } catch (err) {
+      console.error('Error looking up customer:', err);
+    } finally {
+      setIsLookingUpCustomer(false);
+    }
+  }
+
+  function checkServiceInPackage(serviceId: string): { available: boolean; remaining: number } {
+    if (!createCustomerPackage) return { available: false, remaining: 0 };
+    const usage = createCustomerPackage.usage.find(u => u.service_id === serviceId);
+    if (!usage) return { available: false, remaining: 0 };
+    return { available: usage.remaining_quantity > 0, remaining: usage.remaining_quantity };
+  }
+
+  function getRequiredSlotsCount(): number {
+    if (createForm.visitor_count <= 1) return 1;
+    if (createForm.booking_option === 'consecutive') return createForm.visitor_count;
+    return 1;
+  }
+
+  function validateSlotSelection(): { valid: boolean; message: string } {
+    if (createForm.visitor_count > 1 && createSelectedTimeSlot) {
+      const slotsAtTime = createSlots.filter(
+        s =>
+          s.start_time === createSelectedTimeSlot.start_time &&
+          s.end_time === createSelectedTimeSlot.end_time &&
+          s.available_capacity > 0
+      );
+      const slotWithEnough = slotsAtTime.find(s => s.available_capacity >= createForm.visitor_count);
+      if (slotWithEnough) return { valid: true, message: t('reception.allTicketsSameSlot', 'All tickets can be booked in the same time slot') };
+    }
+    const required = getRequiredSlotsCount();
+    if (createSelectedSlots.length < required) {
+      return { valid: false, message: `${required - createSelectedSlots.length} ${t('reception.moreSlotsRequired', 'more slot(s) required')}` };
+    }
+    if (createSelectedSlots.length > required) {
+      return { valid: false, message: t('reception.tooManySlots', { count: required }) || `Too many slots. Only ${required} needed.` };
+    }
+    if (createForm.booking_option === 'consecutive' && createSelectedSlots.length > 1) {
+      const firstId = createSelectedSlots[0].employee_id;
+      const allSame = createSelectedSlots.every(s => s.employee_id === firstId);
+      if (!allSame) {
+        return { valid: false, message: t('reception.sameEmployeeConsecutive', 'Please select slots from the same employee for consecutive booking') };
+      }
+    }
+    return { valid: true, message: t('reception.allRequiredSlotsSelected', 'All required slots selected') };
+  }
+
+  function handleCreateSlotClick(slot: Slot, event?: React.MouseEvent) {
+    const isRemove = event?.ctrlKey || event?.metaKey || event?.button === 2;
+    if (isRemove) {
+      const idx = createSelectedSlots.map(s => s.slot_id).lastIndexOf(slot.id);
+      if (idx !== -1) {
+        setCreateSelectedSlots(prev => {
+          const next = [...prev];
+          next.splice(idx, 1);
+          return next;
+        });
+      }
+      return;
+    }
+    const required = getRequiredSlotsCount();
+    const maxSlots = createForm.visitor_count > 1 ? createForm.visitor_count : required;
+    if (createSelectedSlots.length >= maxSlots) {
+      const sameCount = createSelectedSlots.filter(s => s.slot_id === slot.id).length;
+      const cap = slot.available_capacity || 0;
+      if (sameCount >= cap) {
+        alert(t('reception.maxCapacityReached', { cap }) || `Maximum capacity reached. Available: ${cap}`);
+        return;
+      }
+      if (sameCount === 0) {
+        alert(t('reception.selectUpToSlots', { n: maxSlots }) || `You can select up to ${maxSlots} slot(s). Remove a slot first or click the same slot multiple times.`);
+        return;
+      }
+    }
+    setCreateSelectedSlots(prev => [
+      ...prev,
+      { slot_id: slot.id, start_time: slot.start_time, end_time: slot.end_time, employee_id: slot.employee_id || '', slot_date: slot.slot_date },
+    ]);
+    if (createSelectedSlots.length === 0) {
+      setCreateSelectedTimeSlot({ start_time: slot.start_time, end_time: slot.end_time, slot_date: slot.slot_date });
+    }
+  }
+
+  function resetCreateForm() {
+    setCreateCustomerPhoneFull('');
+    setCreateForm({ customer_name: '', customer_phone: '', customer_email: '', visitor_count: 1, notes: '', booking_option: 'consecutive' });
+    setCreateServiceId('');
+    setCreateDate('');
+    setCreateSlotId('');
+    setCreateOfferId('');
+    setCreateShowFullCalendar(false);
+    setCreateCustomerPackage(null);
+    setCreateCountryCode(tenantDefaultCountry);
+    setCreateSelectedSlots([]);
+    setCreateSelectedTimeSlot(null);
+    setCreateShowPreview(false);
+    setCreateSelectedServices([]);
+  }
+
+  function getNext8Days() {
+    return Array.from({ length: 8 }, (_, i) => addDays(new Date(), i));
+  }
+
+  // Same backend as Reception: POST /bookings/create or create-bulk — slot checks, package resolution, invoice & ticket logic run server-side.
+  async function handleCreateBooking(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!userProfile?.tenant_id || !createServiceId || !createDate) return;
     const service = createServices.find(s => s.id === createServiceId);
     if (!service) return;
     let price = service.base_price;
@@ -179,43 +369,72 @@ export function BookingsPage() {
     }
     const visitorCount = Math.max(1, createForm.visitor_count);
     const totalPrice = price * visitorCount;
-    const fullPhone = createForm.customer_phone.startsWith('+') ? createForm.customer_phone : `+966${createForm.customer_phone.replace(/^0+/, '')}`;
+    const fullPhone = createCustomerPhoneFull.trim().startsWith('+') ? createCustomerPhoneFull.trim() : `${createCountryCode}${(createCustomerPhoneFull.trim() || createForm.customer_phone).replace(/^0+/, '')}`;
+
+    const slotIds: string[] = [];
+    if (createSelectedSlots.length > 0) {
+      slotIds.push(...createSelectedSlots.map(s => s.slot_id));
+    } else if (createSlotId) {
+      slotIds.push(createSlotId);
+    }
+    if (slotIds.length === 0) return;
+
     setCreatingBooking(true);
     try {
       const session = await db.auth.getSession();
       const token = session.data.session?.access_token || localStorage.getItem('auth_token');
-      // Same payload shape as reception: backend looks up customer by phone, applies package capacity, slot limits, invoice/ticket logic.
-      const res = await fetch(`${getApiUrl()}/bookings/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` }),
-        },
-        body: JSON.stringify({
-          tenant_id: userProfile.tenant_id,
-          service_id: createServiceId,
-          slot_id: createSlotId,
-          employee_id: slot.employee_id || null,
-          offer_id: createOfferId || null,
-          customer_name: createForm.customer_name.trim(),
-          customer_phone: fullPhone,
-          customer_email: createForm.customer_email?.trim() || null,
-          visitor_count: visitorCount,
-          total_price: totalPrice,
-          notes: createForm.notes?.trim() || null,
-          language: i18n.language,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || err.message || 'Failed to create booking');
+      const headers = { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) };
+
+      if (slotIds.length === 1) {
+        const slot = createSlots.find(s => s.id === slotIds[0]);
+        const res = await fetch(`${getApiUrl()}/bookings/create`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            tenant_id: userProfile.tenant_id,
+            service_id: createServiceId,
+            slot_id: slotIds[0],
+            employee_id: slot?.employee_id || null,
+            offer_id: createOfferId || null,
+            customer_name: createForm.customer_name.trim(),
+            customer_phone: fullPhone,
+            customer_email: createForm.customer_email?.trim() || null,
+            visitor_count: visitorCount,
+            total_price: totalPrice,
+            notes: createForm.notes?.trim() || null,
+            language: i18n.language,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || err.message || 'Failed to create booking');
+        }
+        alert(t('reception.bookingCreatedSuccess', 'Booking created successfully! Confirmation sent to customer.'));
+      } else {
+        const res = await fetch(`${getApiUrl()}/bookings/create-bulk`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            tenant_id: userProfile.tenant_id,
+            service_id: createServiceId,
+            slot_ids: slotIds,
+            customer_name: createForm.customer_name.trim(),
+            customer_phone: fullPhone,
+            customer_email: createForm.customer_email?.trim() || null,
+            visitor_count: visitorCount,
+            total_price: totalPrice,
+            notes: createForm.notes?.trim() || null,
+            language: i18n.language,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || err.message || 'Failed to create booking');
+        }
+        alert(t('reception.bookingsCreatedSuccess', 'Bookings created successfully!'));
       }
       setIsCreateModalOpen(false);
-      setCreateForm({ customer_name: '', customer_phone: '', customer_email: '', visitor_count: 1, notes: '' });
-      setCreateServiceId('');
-      setCreateDate('');
-      setCreateSlotId('');
-      setCreateOfferId('');
+      resetCreateForm();
       fetchBookings();
     } catch (err: any) {
       alert(err.message || t('reception.errorCreatingBooking', { message: err.message }));
@@ -1166,11 +1385,7 @@ export function BookingsPage() {
               onClick={() => {
                 setIsCreateModalOpen(true);
                 fetchCreateServices();
-                setCreateForm({ customer_name: '', customer_phone: '', customer_email: '', visitor_count: 1, notes: '' });
-                setCreateServiceId('');
-                setCreateDate('');
-                setCreateSlotId('');
-                setCreateOfferId('');
+                resetCreateForm();
               }}
               className="flex items-center gap-2"
             >
@@ -1659,7 +1874,9 @@ export function BookingsPage() {
                                 <div className="text-xs text-gray-600 truncate flex items-center gap-1">
                                   {i18n.language === 'ar' ? booking.services?.name_ar : booking.services?.name}
                                   {((booking.package_covered_quantity ?? 0) > 0 || booking.package_subscription_id) && (
-                                    <Package className="w-3 h-3 text-emerald-600 shrink-0" title={t('bookings.coveredByPackage', 'Covered by Package')} />
+                                    <span title={t('bookings.coveredByPackage', 'Covered by Package')}>
+                                      <Package className="w-3 h-3 text-emerald-600 shrink-0" />
+                                    </span>
                                   )}
                                 </div>
                               </div>
@@ -1676,123 +1893,483 @@ export function BookingsPage() {
         </div>
       )}
 
-      {/* Admin Create Booking Modal - same backend as reception, no redirect */}
+      {/* Admin Create Booking Modal — same layout, field order, validation and preview as Receptionist (ReceptionPage) */}
       <Modal
         isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        title={t('reception.createNewBooking', 'Add booking')}
-        size="lg"
+        onClose={() => { setIsCreateModalOpen(false); resetCreateForm(); }}
+        title={createShowPreview ? t('reception.bookingPreview') : t('reception.createNewBooking', 'Create New Booking')}
+        size="md"
       >
-        <form onSubmit={handleCreateBooking} className="space-y-4">
+        {createShowPreview ? (
+          <div className="space-y-6" dir={i18n.language === 'ar' ? 'rtl' : 'ltr'}>
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-6 shadow-lg">
+              <div className="text-center mb-6">
+                <h3 className="text-2xl font-bold text-gray-900">{t('reception.bookingSummary')}</h3>
+                <p className="text-sm text-gray-600 mt-1">{t('reception.reviewBeforeConfirm')}</p>
+              </div>
+              <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                  <User className="w-4 h-4" />
+                  {t('reception.customerInformation')}
+                </h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-500">{t('reception.nameLabel')}</span>
+                    <div className="font-medium text-gray-900">{createForm.customer_name}</div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">{t('reception.phoneLabel')}</span>
+                    <div className="font-medium text-gray-900">{createCountryCode}{createForm.customer_phone}</div>
+                  </div>
+                  {createForm.customer_email && (
+                    <div className="col-span-2">
+                      <span className="text-gray-500">{t('reception.emailLabel')}</span>
+                      <div className="font-medium text-gray-900">{createForm.customer_email}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">{t('reception.serviceDetails')}</h4>
+                {(() => {
+                  const svc = createServices.find(s => s.id === createServiceId);
+                  if (!svc) return null;
+                  const pkgCheck = checkServiceInPackage(svc.id);
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-medium text-gray-900">{i18n.language === 'ar' ? svc.name_ar : svc.name}</div>
+                          <div className="text-sm text-gray-600">{t('reception.quantityCount', { count: createForm.visitor_count })}</div>
+                        </div>
+                        <div className="text-right">
+                          {pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count ? (
+                            <span className="text-green-600 font-semibold text-sm flex items-center gap-1">
+                              <Package className="w-4 h-4" />
+                              {t('reception.packageService')}
+                            </span>
+                          ) : (
+                            <span className="font-bold text-gray-900">{formatPrice((svc.base_price || 0) * createForm.visitor_count)}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+              <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  {t('reception.scheduleAndEmployees')}
+                </h4>
+                <div className="space-y-2">
+                  {createSelectedSlots.length > 0 ? (
+                    createSelectedSlots.map((s, idx) => (
+                      <div key={idx} className="flex justify-between items-center py-2 border-b last:border-b-0">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">{format(parseISO(s.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}</div>
+                          <div className="text-xs text-gray-600">{s.start_time} - {s.end_time}</div>
+                        </div>
+                      </div>
+                    ))
+                  ) : createSlotId ? (() => {
+                    const slot = createSlots.find(s => s.id === createSlotId);
+                    return slot ? (
+                      <div className="flex justify-between items-center py-2">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">{format(parseISO(createDate), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}</div>
+                          <div className="text-xs text-gray-600">{slot.start_time} - {slot.end_time}</div>
+                        </div>
+                      </div>
+                    ) : null;
+                  })() : (
+                    <div className="text-sm text-gray-500">{t('reception.noTimeSlotSelected')}</div>
+                  )}
+                </div>
+              </div>
+              {createForm.notes && (
+                <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('reception.notesLabel')}</h4>
+                  <p className="text-sm text-gray-600">{createForm.notes}</p>
+                </div>
+              )}
+              <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 text-white">
+                <div className="flex justify-between items-center">
+                  <span className="text-lg font-semibold">{t('reception.totalPrice')}</span>
+                  <span className="text-2xl font-bold">
+                    {(() => {
+                      const svc = createServices.find(s => s.id === createServiceId);
+                      if (!svc) return formatPrice(0);
+                      const pkgCheck = checkServiceInPackage(svc.id);
+                      if (pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count) return t('reception.packageServiceTotal', { price: formatPrice(0) });
+                      return formatPrice((svc.base_price || 0) * createForm.visitor_count);
+                    })()}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 pt-4 border-t">
+              <Button type="button" variant="secondary" fullWidth onClick={() => setCreateShowPreview(false)}>
+                {t('reception.editBooking')}
+              </Button>
+              <Button type="button" fullWidth onClick={() => handleCreateBooking()} disabled={creatingBooking}>
+                {creatingBooking ? t('common.loading') : t('reception.confirmBooking')}
+              </Button>
+            </div>
+          </div>
+        ) : (
+        <form onSubmit={(e) => { e.preventDefault(); setCreateShowPreview(true); }} className="space-y-4">
+          {/* 1. Customer Phone */}
+          <div className="relative">
+            <PhoneInput
+              label={t('booking.customerPhone')}
+              value={createCustomerPhoneFull}
+              onChange={(value) => {
+                setCreateCustomerPhoneFull(value);
+                let phoneNumber = value;
+                let code = tenantDefaultCountry;
+                for (const country of countryCodes) {
+                  if (value.startsWith(country.code)) {
+                    code = country.code;
+                    phoneNumber = value.replace(country.code, '').trim();
+                    break;
+                  }
+                }
+                setCreateCountryCode(code);
+                setCreateForm(f => ({ ...f, customer_phone: phoneNumber }));
+                if (value.length >= 8) lookupCustomerByPhone(value);
+              }}
+              defaultCountry={tenantDefaultCountry}
+              required
+            />
+            {isLookingUpCustomer && (
+              <div className="absolute right-3 top-[38px]">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+              </div>
+            )}
+          </div>
+          {/* 2. Customer Name */}
+          <Input
+            label={`${t('booking.customerName')} *`}
+            value={createForm.customer_name}
+            onChange={(e) => setCreateForm(f => ({ ...f, customer_name: e.target.value }))}
+            required
+            placeholder={t('booking.customerName')}
+          />
+          {/* 3. Customer Email */}
+          <Input
+            label={t('booking.customerEmail')}
+            type="email"
+            value={createForm.customer_email}
+            onChange={(e) => setCreateForm(f => ({ ...f, customer_email: e.target.value }))}
+            placeholder={t('booking.customerEmail')}
+          />
+          {/* Package Information Display — same as Reception */}
+          {createCustomerPackage && (
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Package className="w-5 h-5 text-green-600" />
+                <h4 className="font-semibold text-green-900">
+                  {t('packages.activePackage')}: {i18n.language === 'ar' ? createCustomerPackage.service_packages.name_ar : createCustomerPackage.service_packages.name}
+                </h4>
+              </div>
+              <div className="space-y-2 text-sm">
+                {createCustomerPackage.usage.map((usage) => (
+                  <div key={usage.service_id} className="flex justify-between items-center py-1">
+                    <span className={usage.remaining_quantity === 0 ? 'text-gray-400 line-through' : 'text-gray-700'}>
+                      {i18n.language === 'ar' ? usage.services?.name_ar : usage.services?.name}
+                    </span>
+                    <span className={`font-medium ${usage.remaining_quantity > 5 ? 'text-green-600' : usage.remaining_quantity > 0 ? 'text-amber-600' : 'text-red-600'}`}>
+                      {usage.remaining_quantity} / {usage.original_quantity} {t('packages.remaining')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {createCustomerPackage.expires_at && (
+                <p className="text-xs text-gray-600 mt-2">{t('packages.expiresOn')}: {new Date(createCustomerPackage.expires_at).toLocaleDateString()}</p>
+              )}
+            </div>
+          )}
+          {/* 4. Select Service */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.selectService')} *</label>
             <select
               value={createServiceId}
               onChange={(e) => { setCreateServiceId(e.target.value); setCreateSlotId(''); setCreateOfferId(''); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               required
+              disabled={loadingCreateSlots}
             >
-              <option value="">{t('reception.chooseService')}</option>
-              {createServices.map((s) => (
-                <option key={s.id} value={s.id}>{i18n.language === 'ar' ? s.name_ar : s.name} – {formatPriceString(s.base_price)}</option>
-              ))}
+              <option value="">{createServices.length === 0 && !loadingCreateSlots ? t('reception.noServicesAvailable') : t('reception.chooseService')}</option>
+              {createServices.map((s) => {
+                const pkgCheck = checkServiceInPackage(s.id);
+                return (
+                  <option key={s.id} value={s.id}>
+                    {i18n.language === 'ar' ? s.name_ar : s.name} - {formatPrice(s.base_price)}
+                    {pkgCheck.available && ` 🎁 (${pkgCheck.remaining} ${t('packages.remaining')})`}
+                  </option>
+                );
+              })}
             </select>
+            {createServices.length === 0 && !loadingCreateSlots && (
+              <p className="mt-1 text-sm text-amber-600">⚠️ {t('reception.noServicesFound')}</p>
+            )}
           </div>
+          {/* 4b. Select Offer (if service has offers) */}
           {createServiceId && createServices.find(s => s.id === createServiceId)?.offers?.length ? (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.basePrice')} / {t('reception.offers')}</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{i18n.language === 'ar' ? 'اختر العرض (اختياري)' : 'Select Offer (Optional)'}</label>
               <select
                 value={createOfferId}
                 onChange={(e) => setCreateOfferId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                <option value="">{formatPriceString(createServices.find(s => s.id === createServiceId)!.base_price)}</option>
+                <option value="">{t('reception.basePrice')} ({formatPrice(createServices.find(s => s.id === createServiceId)?.base_price ?? 0)})</option>
                 {createServices.find(s => s.id === createServiceId)!.offers!.map((o) => (
-                  <option key={o.id} value={o.id}>{i18n.language === 'ar' ? o.name_ar : o.name} – {formatPriceString(o.price)}</option>
+                  <option key={o.id} value={o.id}>{i18n.language === 'ar' ? o.name_ar : o.name} - {formatPrice(o.price)}</option>
                 ))}
               </select>
             </div>
           ) : null}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.date')} *</label>
-            <Input
-              type="date"
-              value={createDate}
-              onChange={(e) => setCreateDate(e.target.value)}
-              min={format(new Date(), 'yyyy-MM-dd')}
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.selectSlot')} *</label>
-            <select
-              value={createSlotId}
-              onChange={(e) => setCreateSlotId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              required
-              disabled={loadingCreateSlots}
+          {/* 5. Visitor Count */}
+          {createServiceId && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t('booking.visitorCount')} *</label>
+              <Input
+                type="number"
+                min={1}
+                value={createForm.visitor_count}
+                onChange={(e) => setCreateForm(f => ({ ...f, visitor_count: parseInt(e.target.value, 10) || 1 }))}
+                required
+                placeholder="Enter number of tickets"
+              />
+              <p className="text-xs text-gray-600 mt-1">
+                {formatPrice(createServices.find(s => s.id === createServiceId)?.base_price ?? 0)} per ticket
+              </p>
+              {createServiceId && createForm.visitor_count && (() => {
+                const pkgCheck = checkServiceInPackage(createServiceId);
+                const qty = createForm.visitor_count;
+                if (pkgCheck.remaining > 0 && pkgCheck.remaining < qty) {
+                  const paidQty = qty - pkgCheck.remaining;
+                  return (
+                    <div className="mt-3 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <Package className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-yellow-800 mb-1">{i18n.language === 'ar' ? 'تنبيه التغطية الجزئية' : 'Partial Package Coverage'}</p>
+                          <p className="text-sm text-yellow-700">
+                            {i18n.language === 'ar'
+                              ? `حزمة العميل تغطي ${pkgCheck.remaining} حجز. سيتم دفع ${paidQty} حجز بشكل طبيعي.`
+                              : `Customer's package covers ${pkgCheck.remaining} booking${pkgCheck.remaining !== 1 ? 's' : ''}. The remaining ${paidQty} booking${paidQty !== 1 ? 's will' : ' will'} be charged normally.`}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                if (pkgCheck.remaining === 0 && createCustomerPackage) {
+                  return (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-300 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <Package className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-blue-800 mb-1">{i18n.language === 'ar' ? 'تنبيه الحزمة' : 'Package Notice'}</p>
+                          <p className="text-sm text-blue-700">{i18n.language === 'ar' ? 'حزمة العميل لهذه الخدمة مستخدمة بالكامل. سيتم دفع هذا الحجز بشكل طبيعي.' : "Customer's package for this service is fully used. This booking will be charged normally."}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          )}
+          {/* 6. Notes */}
+          {createServiceId && createForm.visitor_count && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t('booking.notes')}</label>
+              <textarea
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                rows={3}
+                value={createForm.notes}
+                onChange={(e) => setCreateForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder={t('booking.notes')}
+              />
+            </div>
+          )}
+          {/* 7. Select Date */}
+          {createServiceId && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-700">{t('booking.selectDate')} *</label>
+                <button
+                  type="button"
+                  onClick={() => setCreateShowFullCalendar(!createShowFullCalendar)}
+                  className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                >
+                  <CalendarDays className="w-4 h-4" />
+                  {createShowFullCalendar ? t('reception.hideCalendar') : t('reception.showFullCalendar')}
+                </button>
+              </div>
+              {!createShowFullCalendar ? (
+                <div className="grid grid-cols-4 gap-2">
+                  {getNext8Days().map((day) => {
+                    const isToday = isSameDay(day, new Date());
+                    const dayStr = format(day, 'yyyy-MM-dd');
+                    return (
+                      <button
+                        key={dayStr}
+                        type="button"
+                        onClick={() => setCreateDate(dayStr)}
+                        className={`p-2 text-center rounded-lg border ${createDate === dayStr ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'} ${isToday ? 'ring-2 ring-blue-300' : ''}`}
+                      >
+                        <div className="text-xs font-medium">{isToday ? t('dashboard.today') : format(day, 'EEE', { locale: i18n.language === 'ar' ? ar : undefined })}</div>
+                        <div className="text-lg font-bold">{format(day, 'd')}</div>
+                        <div className="text-xs text-gray-500">{format(day, 'MMM', { locale: i18n.language === 'ar' ? ar : undefined })}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="border border-gray-300 rounded-lg p-4">
+                  <input
+                    type="date"
+                    value={createDate}
+                    onChange={(e) => setCreateDate(e.target.value)}
+                    min={format(new Date(), 'yyyy-MM-dd')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          {/* 8. Available Slots — same as Reception: group by time, click to add/remove, validation */}
+          {createServiceId && createDate && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">{t('reception.availableSlots')} *</label>
+              {(() => {
+                const required = getRequiredSlotsCount();
+                if (required <= 1 && createSelectedSlots.length === 0 && !createSlotId) return null;
+                const validation = validateSlotSelection();
+                const isComplete = (createSelectedSlots.length >= required || (required === 1 && createSlotId)) && (createSelectedSlots.length > 0 ? validation.valid : true);
+                const isPartial = (createSelectedSlots.length > 0 || createSlotId) && !isComplete;
+                return (
+                  <div className={`mb-2 p-3 rounded-lg border ${isComplete ? 'bg-green-50 border-green-300' : isPartial ? 'bg-yellow-50 border-yellow-300' : 'bg-gray-50 border-gray-300'}`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-sm font-medium ${isComplete ? 'text-green-900' : isPartial ? 'text-yellow-900' : 'text-gray-900'}`}>
+                        {isComplete ? '✓' : isPartial ? '⚠' : 'ℹ'} {t('reception.slotSelection', 'Slot Selection')}
+                      </span>
+                      {(createSelectedSlots.length > 0 || createSlotId) && (
+                        <span className={`text-sm font-bold ${isComplete ? 'text-green-700' : 'text-yellow-700'}`}>
+                          {createSelectedSlots.length > 0 ? createSelectedSlots.length : 1} / {required}
+                        </span>
+                      )}
+                    </div>
+                    {createSelectedSlots.length > 0 && <div className="text-xs text-gray-600">{validation.message}</div>}
+                    <div className="text-xs mt-2 text-gray-600 italic">💡 {t('common.tip')}: {t('common.clickSlotMultiple')}</div>
+                  </div>
+                );
+              })()}
+              {loadingCreateSlots ? (
+                <p className="text-sm text-gray-500 py-4">{t('common.loading')}</p>
+              ) : createSlots.length === 0 ? (
+                <div className="text-center py-8 bg-gray-50 rounded-lg">
+                  <Clock className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                  <p className="text-gray-600">{t('reception.noSlotsAvailable')}</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                  {(() => {
+                    const timeMap = new Map<string, Slot[]>();
+                    createSlots.forEach(slot => {
+                      const key = `${slot.slot_date}-${slot.start_time}-${slot.end_time}`;
+                      if (!timeMap.has(key)) timeMap.set(key, []);
+                      timeMap.get(key)!.push(slot);
+                    });
+                    return Array.from(timeMap.entries()).map(([timeKey, grouped]) => {
+                      const first = grouped[0];
+                      const totalCap = grouped.reduce((sum, s) => sum + s.available_capacity, 0);
+                      const selCount = createSelectedSlots.filter(s => s.start_time === first.start_time && s.end_time === first.end_time).length;
+                      const isSelSingle = createForm.visitor_count <= 1 && createSlotId && grouped.some(s => s.id === createSlotId);
+                      const isSel = selCount > 0 || isSelSingle;
+                      return (
+                        <button
+                          key={timeKey}
+                          type="button"
+                          onClick={(e) => {
+                            if (createForm.visitor_count <= 1) {
+                              setCreateSlotId(prev => (grouped.some(s => s.id === prev) && prev === first.id ? '' : first.id));
+                              setCreateSelectedSlots([]);
+                            } else {
+                              handleCreateSlotClick(first, e);
+                            }
+                          }}
+                          onContextMenu={(e) => { e.preventDefault(); if (createForm.visitor_count > 1) handleCreateSlotClick(first, { ...e, button: 2 } as React.MouseEvent); }}
+                          className={`p-3 text-left rounded-lg border relative ${isSel ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                        >
+                          {createForm.visitor_count > 1 && selCount > 0 && (
+                            <div className="absolute -top-2 -right-2 bg-blue-800 text-white text-xs min-w-[24px] h-6 rounded-full font-bold flex items-center justify-center px-1">{selCount}</div>
+                          )}
+                          <div className="flex items-center gap-2 mb-1">
+                            <Clock className="w-4 h-4" />
+                            <span className="font-medium">{first.start_time} - {first.end_time}</span>
+                          </div>
+                          <div className="text-xs">{totalCap} spots left</div>
+                        </button>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+          {/* Booking Option when quantity > 1 — same as Reception */}
+          {createServiceId && createForm.visitor_count > 1 && createSelectedTimeSlot && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">{t('reception.bookingOption', 'Booking Option')} *</label>
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCreateForm(f => ({ ...f, booking_option: 'parallel' }))}
+                  className={`p-3 text-left rounded-lg border ${createForm.booking_option === 'parallel' ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:bg-gray-50'}`}
+                >
+                  <div className="font-medium">✓ Parallel - Multiple Employees</div>
+                  <div className="text-sm text-gray-600">{t('reception.bookMultipleSameTime', 'Book multiple at same time with different employees')}</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCreateForm(f => ({ ...f, booking_option: 'consecutive' }))}
+                  className={`p-3 text-left rounded-lg border ${createForm.booking_option === 'consecutive' ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:bg-gray-50'}`}
+                >
+                  <div className="font-medium">→ Consecutive - Single Employee</div>
+                  <div className="text-sm text-gray-600">{t('reception.bookConsecutiveSlots', 'Book consecutive time slots with one employee')}</div>
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="flex gap-3 pt-4 border-t mt-6">
+            <Button
+              type="submit"
+              fullWidth
+              disabled={(() => {
+                if (!createForm.customer_phone || !createForm.customer_name || !createServiceId || !createForm.visitor_count || !createDate) return true;
+                if (createForm.visitor_count <= 1) return !createSlotId && createSelectedSlots.length === 0;
+                const req = getRequiredSlotsCount();
+                const val = validateSlotSelection();
+                if (createSelectedSlots.length >= req && val.valid) return false;
+                const single = createSlotId ? createSlots.find(s => s.id === createSlotId) : null;
+                if (single && single.available_capacity >= createForm.visitor_count) return false;
+                return true;
+              })()}
             >
-              <option value="">{loadingCreateSlots ? t('common.loading') : t('reception.noSlotsAvailable')}</option>
-              {createSlots.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.start_time} – {s.end_time} {s.available_capacity > 0 ? `(${s.available_capacity} ${t('reception.visitors')})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.nameLabel')?.replace(':', '') || 'Name'} *</label>
-            <Input
-              value={createForm.customer_name}
-              onChange={(e) => setCreateForm(f => ({ ...f, customer_name: e.target.value }))}
-              placeholder={t('reception.namePlaceholder')}
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.phoneLabel')?.replace(':', '') || 'Phone'} *</label>
-            <Input
-              value={createForm.customer_phone}
-              onChange={(e) => setCreateForm(f => ({ ...f, customer_phone: e.target.value }))}
-              placeholder="+966 5xxxxxxxx"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.emailLabel')?.replace(':', '') || 'Email'}</label>
-            <Input
-              type="email"
-              value={createForm.customer_email}
-              onChange={(e) => setCreateForm(f => ({ ...f, customer_email: e.target.value }))}
-              placeholder="email@example.com"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.visitors')} *</label>
-            <Input
-              type="number"
-              min={1}
-              value={createForm.visitor_count}
-              onChange={(e) => setCreateForm(f => ({ ...f, visitor_count: parseInt(e.target.value, 10) || 1 }))}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.specialNotes')}</label>
-            <Input
-              value={createForm.notes}
-              onChange={(e) => setCreateForm(f => ({ ...f, notes: e.target.value }))}
-              placeholder={t('reception.notesLabel')}
-            />
-          </div>
-          <div className="flex gap-2 pt-2">
-            <Button type="button" variant="secondary" onClick={() => setIsCreateModalOpen(false)}>
-              {t('common.cancel')}
+              {t('reception.proceed', 'Proceed')}
             </Button>
-            <Button type="submit" disabled={creatingBooking}>
-              {creatingBooking ? t('common.loading') : t('common.create')}
+            <Button type="button" variant="secondary" fullWidth onClick={() => { setIsCreateModalOpen(false); resetCreateForm(); }}>
+              {t('common.cancel')}
             </Button>
           </div>
         </form>
+        )}
       </Modal>
 
       {/* Edit Booking Modal */}

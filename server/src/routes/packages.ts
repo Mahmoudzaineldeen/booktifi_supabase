@@ -6,6 +6,9 @@ import { logger } from '../utils/logger';
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
+/** Roles allowed to access receptionist package/subscription endpoints (reception + tenant dashboard admin). Single source of truth to avoid 403 for tenant_admin. */
+const RECEPTIONIST_OR_ADMIN_ROLES = ['receptionist', 'admin_user', 'tenant_admin', 'customer_admin'];
+
 /**
  * Normalize phone number to international format
  * Handles Egyptian numbers specially: +2001032560826 -> +201032560826 (removes leading 0 after +20)
@@ -143,9 +146,7 @@ function authenticateSubscriptionManager(req: express.Request, res: express.Resp
       return res.status(403).json({ error: 'User does not belong to a tenant' });
     }
 
-    // Allow admin_user, customer_admin, tenant_admin, and receptionist
-    const allowedRoles = ['admin_user', 'customer_admin', 'tenant_admin', 'receptionist'];
-    if (!allowedRoles.includes(decoded.role)) {
+    if (!RECEPTIONIST_OR_ADMIN_ROLES.includes(decoded.role)) {
       return res.status(403).json({ 
         error: 'Access denied',
         details: 'Only admin users, customer admins, tenant admins, and receptionists can manage subscriptions'
@@ -180,9 +181,7 @@ function authenticateReceptionistOrAdmin(req: express.Request, res: express.Resp
       return res.status(403).json({ error: 'User does not belong to a tenant' });
     }
 
-    // Allow receptionist or admin_user — same endpoints, same validations, no permission gaps
-    const allowedRoles = ['receptionist', 'admin_user'];
-    if (!allowedRoles.includes(decoded.role)) {
+    if (!RECEPTIONIST_OR_ADMIN_ROLES.includes(decoded.role)) {
       return res.status(403).json({
         error: 'Access denied',
         details: 'Only receptionists and admins can access this endpoint'
@@ -1304,9 +1303,10 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
 // ============================================================================
 
 // ============================================================================
-// GET /receptionist/packages - List packages with search (receptionist only)
+// GET /receptionist/packages and GET /tenant/packages - List packages (reception + tenant dashboard)
+// Use authenticateSubscriptionManager so tenant_admin/customer_admin are allowed (single source of truth).
 // ============================================================================
-router.get('/receptionist/packages', authenticateReceptionistOrAdmin, async (req, res) => {
+async function handleGetPackagesForReceptionOrTenant(req: express.Request, res: express.Response) {
   try {
     const tenantId = req.user!.tenant_id!;
     const { search, service_id } = req.query;
@@ -1346,17 +1346,15 @@ router.get('/receptionist/packages', authenticateReceptionistOrAdmin, async (req
 
     // Filter by service if provided
     if (service_id && typeof service_id === 'string') {
-      // Get packages that include this service
       const { data: packageServices } = await supabase
         .from('package_services')
         .select('package_id')
         .eq('service_id', service_id);
 
       if (packageServices && packageServices.length > 0) {
-        const packageIds = packageServices.map(ps => ps.package_id);
+        const packageIds = packageServices.map((ps: any) => ps.package_id);
         query = query.in('id', packageIds);
       } else {
-        // No packages found with this service
         return res.json({ packages: [] });
       }
     }
@@ -1364,14 +1362,13 @@ router.get('/receptionist/packages', authenticateReceptionistOrAdmin, async (req
     const { data: packages, error } = await query;
 
     if (error) {
-      console.error('[Receptionist Packages] Error:', error);
-      return res.status(500).json({ 
+      console.error('[Get Packages] Error:', error);
+      return res.status(500).json({
         error: 'Failed to fetch packages',
-        details: error.message 
+        details: error.message,
       });
     }
 
-    // Format response
     const formattedPackages = (packages || []).map((pkg: any) => ({
       id: pkg.id,
       name: pkg.name,
@@ -1391,18 +1388,20 @@ router.get('/receptionist/packages', authenticateReceptionistOrAdmin, async (req
     }));
 
     res.json({ packages: formattedPackages });
-
   } catch (error: any) {
     const context = logger.extractContext(req);
-    logger.error('Receptionist get packages error', error, context);
+    logger.error('Get packages error', error, context);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
-});
+}
+
+router.get('/receptionist/packages', authenticateSubscriptionManager, handleGetPackagesForReceptionOrTenant);
+router.get('/tenant/packages', authenticateSubscriptionManager, handleGetPackagesForReceptionOrTenant);
 
 // ============================================================================
-// GET /receptionist/subscribers - List package subscribers with search (receptionist only)
+// GET /receptionist/subscribers - List package subscribers with search (reception + tenant dashboard)
 // ============================================================================
-router.get('/receptionist/subscribers', authenticateReceptionistOrAdmin, async (req, res) => {
+router.get('/receptionist/subscribers', authenticateSubscriptionManager, async (req, res) => {
   try {
     const tenantId = req.user!.tenant_id!;
     const { search, search_type, page = 1, limit = 50 } = req.query;
@@ -1568,20 +1567,61 @@ router.get('/receptionist/subscribers', authenticateReceptionistOrAdmin, async (
 });
 
 // ============================================================================
-// POST /receptionist/subscriptions - Subscribe customer to package (receptionist only)
+// POST /receptionist/subscriptions - Subscribe customer to package (receptionist/admin)
+// Accepts either customer_id OR (customer_phone + customer_name, optional customer_email) — find-or-create customer
 // ============================================================================
-router.post('/receptionist/subscriptions', authenticateReceptionistOrAdmin, async (req, res) => {
+router.post('/receptionist/subscriptions', authenticateSubscriptionManager, async (req, res) => {
   try {
     const tenantId = req.user!.tenant_id!;
-    const { package_id, customer_id } = req.body;
+    const { package_id, customer_id, customer_phone, customer_name, customer_email } = req.body;
 
     // Validation
     if (!package_id) {
       return res.status(400).json({ error: 'Package ID is required' });
     }
 
-    if (!customer_id) {
-      return res.status(400).json({ error: 'Customer ID is required' });
+    let finalCustomerId = customer_id;
+
+    if (!finalCustomerId) {
+      // Require phone + name when not providing customer_id
+      if (!customer_phone || typeof customer_phone !== 'string' || !customer_name || typeof customer_name !== 'string') {
+        return res.status(400).json({ error: 'Customer ID or Customer phone and name are required' });
+      }
+      const normalizedPhone = normalizePhoneNumber(customer_phone) || customer_phone.replace(/[\s\-\(\)]/g, '');
+      if (!normalizedPhone) {
+        return res.status(400).json({ error: 'Invalid customer phone number' });
+      }
+
+      // Find or create customer by phone
+      const { data: existingCustomer } = await supabase
+        .from('customers')
+        .select('id, name, phone, email')
+        .eq('tenant_id', tenantId)
+        .eq('phone', normalizedPhone)
+        .maybeSingle();
+
+      if (existingCustomer) {
+        finalCustomerId = existingCustomer.id;
+      } else {
+        const { data: newCustomer, error: createErr } = await supabase
+          .from('customers')
+          .insert({
+            tenant_id: tenantId,
+            name: customer_name.trim(),
+            phone: normalizedPhone,
+            email: (customer_email && typeof customer_email === 'string' && customer_email.trim()) ? customer_email.trim() : null,
+          })
+          .select('id, name, phone, email')
+          .single();
+
+        if (createErr || !newCustomer) {
+          return res.status(500).json({
+            error: 'Failed to create customer',
+            details: (createErr as any)?.message || 'Unknown error',
+          });
+        }
+        finalCustomerId = newCustomer.id;
+      }
     }
 
     // Verify package exists and belongs to tenant
@@ -1601,7 +1641,7 @@ router.post('/receptionist/subscriptions', authenticateReceptionistOrAdmin, asyn
     const { data: customerData, error: customerError } = await supabase
       .from('customers')
       .select('id, tenant_id, name, phone, email')
-      .eq('id', customer_id)
+      .eq('id', finalCustomerId)
       .eq('tenant_id', tenantId)
       .single();
 
@@ -1614,7 +1654,7 @@ router.post('/receptionist/subscriptions', authenticateReceptionistOrAdmin, asyn
       .from('package_subscriptions')
       .select('id')
       .eq('tenant_id', tenantId)
-      .eq('customer_id', customer_id)
+      .eq('customer_id', finalCustomerId)
       .eq('package_id', package_id)
       .eq('status', 'active')
       .eq('is_active', true)
@@ -1649,7 +1689,7 @@ router.post('/receptionist/subscriptions', authenticateReceptionistOrAdmin, asyn
       .from('package_subscriptions')
       .insert({
         tenant_id: tenantId,
-        customer_id: customer_id,
+        customer_id: finalCustomerId,
         package_id: package_id,
         status: 'active',
         is_active: true
