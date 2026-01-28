@@ -1344,6 +1344,7 @@
   "bookings": {
     "title": "الحجوزات",
     "subtitle": "عرض وإدارة جميع الحجوزات",
+    "coveredByPackage": "مغطى بالباقة",
     "listView": "عرض القائمة",
     "calendarView": "عرض التقويم",
     "noBookingsYet": "لا توجد حجوزات بعد",

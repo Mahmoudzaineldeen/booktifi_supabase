@@ -80,7 +80,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       href: `/${tenantSlug}/reception`,
       icon: ClipboardList,
       current: location.pathname === `/${tenantSlug}/reception`,
-      visible: userProfile?.role === 'receptionist' || userProfile?.role === 'admin_user', // Same UI as receptionist: create bookings + package subscriptions
+      visible: userProfile?.role === 'receptionist', // Admin has native flows in Admin panel; receptionist uses Reception page
     },
     {
       name: t('navigation.employees'),

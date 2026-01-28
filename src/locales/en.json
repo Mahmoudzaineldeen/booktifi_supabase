@@ -736,6 +736,7 @@
   "bookings": {
     "title": "Bookings",
     "subtitle": "View and manage all bookings",
+    "coveredByPackage": "Covered by Package",
     "listView": "List View",
     "calendarView": "Calendar View",
     "noBookingsYet": "No bookings yet",

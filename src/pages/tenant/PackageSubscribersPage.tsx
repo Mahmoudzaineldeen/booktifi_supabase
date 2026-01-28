@@ -1,14 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { Modal } from '../../components/ui/Modal';
 import { Package, Users, Search, X, Calendar, Filter, FileSearch, Phone, Mail, CheckCircle, Briefcase, TrendingUp, TrendingDown, Hash, XCircle, AlertTriangle, Plus } from 'lucide-react';
 import { format } from 'date-fns';
 import { getApiUrl } from '../../lib/apiUrl';
+
+interface AddSubPackage {
+  id: string;
+  name: string;
+  name_ar?: string;
+}
+interface AddSubCustomer {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+}
 
 interface PackageSubscriber {
   id: string;
@@ -41,12 +53,21 @@ type SearchType = 'customer_name' | 'customer_phone' | 'service_name' | 'package
 
 export function PackageSubscribersPage() {
   const { t, i18n } = useTranslation();
-  const navigate = useNavigate();
-  const { tenantSlug } = useParams<{ tenantSlug?: string }>();
   const { userProfile } = useAuth();
   const canAddSubscription = ['receptionist', 'admin_user', 'tenant_admin', 'customer_admin'].includes(userProfile?.role || '');
   const [subscribers, setSubscribers] = useState<PackageSubscriber[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Admin add subscription modal (same APIs as reception, no redirect)
+  const [isAddSubscriptionModalOpen, setIsAddSubscriptionModalOpen] = useState(false);
+  const [addSubPackages, setAddSubPackages] = useState<AddSubPackage[]>([]);
+  const [addSubSelectedPackageId, setAddSubSelectedPackageId] = useState('');
+  const [addSubCustomerSearchQuery, setAddSubCustomerSearchQuery] = useState('');
+  const [addSubCustomerSearchResults, setAddSubCustomerSearchResults] = useState<AddSubCustomer[]>([]);
+  const [addSubSelectedCustomer, setAddSubSelectedCustomer] = useState<AddSubCustomer | null>(null);
+  const [addSubscribing, setAddSubscribing] = useState(false);
+  const [addSubLoadingPackages, setAddSubLoadingPackages] = useState(false);
+  const addSubCustomerSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Search state
   const [searchType, setSearchType] = useState<SearchType>('');
@@ -61,6 +82,87 @@ export function PackageSubscribersPage() {
   useEffect(() => {
     fetchSubscribers();
   }, [userProfile]);
+
+  // Fetch packages for add subscription modal (same API as reception)
+  async function fetchAddSubPackages() {
+    setAddSubLoadingPackages(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(`${getApiUrl()}/packages/receptionist/packages`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Failed to fetch packages');
+      const data = await res.json();
+      setAddSubPackages((data.packages || []).map((p: any) => ({ id: p.id, name: p.name, name_ar: p.name_ar })));
+    } catch (e) {
+      console.error(e);
+      setAddSubPackages([]);
+    } finally {
+      setAddSubLoadingPackages(false);
+    }
+  }
+
+  // Customer search for add subscription (same as reception - db query)
+  useEffect(() => {
+    if (!userProfile?.tenant_id || !addSubCustomerSearchQuery.trim()) {
+      setAddSubCustomerSearchResults([]);
+      return () => {
+        if (addSubCustomerSearchTimeoutRef.current) clearTimeout(addSubCustomerSearchTimeoutRef.current);
+      };
+    }
+    if (addSubCustomerSearchTimeoutRef.current) clearTimeout(addSubCustomerSearchTimeoutRef.current);
+    addSubCustomerSearchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const { data, error } = await db
+          .from('customers')
+          .select('id, name, phone, email')
+          .eq('tenant_id', userProfile.tenant_id)
+          .or(`name.ilike.%${addSubCustomerSearchQuery.trim()}%,phone.ilike.%${addSubCustomerSearchQuery.trim()}%`)
+          .limit(10);
+        if (error) throw error;
+        setAddSubCustomerSearchResults(data || []);
+      } catch {
+        setAddSubCustomerSearchResults([]);
+      }
+    }, 300);
+    return () => {
+      if (addSubCustomerSearchTimeoutRef.current) clearTimeout(addSubCustomerSearchTimeoutRef.current);
+    };
+  }, [addSubCustomerSearchQuery, userProfile?.tenant_id]);
+
+  async function handleAddSubscription(e: React.FormEvent) {
+    e.preventDefault();
+    if (!addSubSelectedCustomer || !addSubSelectedPackageId) return;
+    setAddSubscribing(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(`${getApiUrl()}/packages/receptionist/subscriptions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify({
+          package_id: addSubSelectedPackageId,
+          customer_id: addSubSelectedCustomer.id,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || err.message || 'Failed to subscribe');
+      }
+      setIsAddSubscriptionModalOpen(false);
+      setAddSubSelectedPackageId('');
+      setAddSubSelectedCustomer(null);
+      setAddSubCustomerSearchQuery('');
+      setAddSubCustomerSearchResults([]);
+      fetchSubscribers();
+    } catch (err: any) {
+      alert(err.message || (i18n.language === 'ar' ? 'خطأ في الاشتراك' : 'Error subscribing'));
+    } finally {
+      setAddSubscribing(false);
+    }
+  }
 
   async function fetchSubscribers() {
     if (!userProfile?.tenant_id) return;
@@ -318,9 +420,16 @@ export function PackageSubscribersPage() {
             </div>
           </div>
         </div>
-        {canAddSubscription && tenantSlug && (
+        {canAddSubscription && (
           <Button
-            onClick={() => navigate(`/${tenantSlug}/reception`)}
+            onClick={() => {
+              setIsAddSubscriptionModalOpen(true);
+              fetchAddSubPackages();
+              setAddSubSelectedPackageId('');
+              setAddSubSelectedCustomer(null);
+              setAddSubCustomerSearchQuery('');
+              setAddSubCustomerSearchResults([]);
+            }}
             className="flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
@@ -546,6 +655,77 @@ export function PackageSubscribersPage() {
           ))}
         </div>
       )}
+
+      {/* Admin Add Subscription Modal - same API as reception, no redirect */}
+      <Modal
+        isOpen={isAddSubscriptionModalOpen}
+        onClose={() => setIsAddSubscriptionModalOpen(false)}
+        title={i18n.language === 'ar' ? 'اشترك عميل في باقة' : 'Subscribe Customer to Package'}
+        size="lg"
+      >
+        <form onSubmit={handleAddSubscription} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{i18n.language === 'ar' ? 'الباقة' : 'Package'} *</label>
+            <select
+              value={addSubSelectedPackageId}
+              onChange={(e) => setAddSubSelectedPackageId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              required
+              disabled={addSubLoadingPackages}
+            >
+              <option value="">{addSubLoadingPackages ? t('common.loading') : (i18n.language === 'ar' ? 'اختر الباقة' : 'Select package')}</option>
+              {addSubPackages.map((p) => (
+                <option key={p.id} value={p.id}>{i18n.language === 'ar' ? p.name_ar || p.name : p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{i18n.language === 'ar' ? 'البحث عن عميل' : 'Search customer'} *</label>
+            <Input
+              value={addSubCustomerSearchQuery}
+              onChange={(e) => {
+                setAddSubCustomerSearchQuery(e.target.value);
+                if (!e.target.value.trim()) setAddSubSelectedCustomer(null);
+              }}
+              placeholder={i18n.language === 'ar' ? 'الاسم أو رقم الهاتف...' : 'Name or phone...'}
+            />
+            {addSubCustomerSearchResults.length > 0 && (
+              <ul className="mt-2 border border-gray-200 rounded-lg divide-y max-h-48 overflow-y-auto">
+                {addSubCustomerSearchResults.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddSubSelectedCustomer(c);
+                        setAddSubCustomerSearchQuery(c.name);
+                        setAddSubCustomerSearchResults([]);
+                      }}
+                      className="w-full px-3 py-2 text-left hover:bg-gray-50 flex items-center justify-between"
+                    >
+                      <span className="font-medium">{c.name}</span>
+                      <span className="text-sm text-gray-500">{c.phone}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {addSubSelectedCustomer && (
+              <p className="mt-2 text-sm text-green-700 flex items-center gap-1">
+                <CheckCircle className="w-4 h-4" />
+                {i18n.language === 'ar' ? 'محدد:' : 'Selected:'} {addSubSelectedCustomer.name} ({addSubSelectedCustomer.phone})
+              </p>
+            )}
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setIsAddSubscriptionModalOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" disabled={addSubscribing || !addSubSelectedCustomer || !addSubSelectedPackageId}>
+              {addSubscribing ? t('common.loading') : (i18n.language === 'ar' ? 'اشترك' : 'Subscribe')}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

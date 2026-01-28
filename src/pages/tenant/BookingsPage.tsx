@@ -1,18 +1,28 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
 import { safeTranslateStatus, safeTranslate } from '../../lib/safeTranslation';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X, Plus } from 'lucide-react';
+import { Modal } from '../../components/ui/Modal';
+import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X, Plus, Package } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { fetchAvailableSlots, Slot } from '../../lib/bookingAvailability';
 import { Input } from '../../components/ui/Input';
+
+interface AdminService {
+  id: string;
+  name: string;
+  name_ar?: string;
+  base_price: number;
+  offers?: { id: string; name: string; name_ar?: string; price: number }[];
+}
 
 interface Booking {
   id: string;
@@ -37,17 +47,37 @@ interface Booking {
     start_time: string;
     end_time: string;
   };
+  package_covered_quantity?: number | null;
+  package_subscription_id?: string | null;
   // ARCHIVED: users (employee) field removed
 }
 
 export function BookingsPage() {
   const { t, i18n } = useTranslation();
-  const navigate = useNavigate();
   const { tenantSlug } = useParams<{ tenantSlug?: string }>();
   const { userProfile, tenant } = useAuth();
+  const { formatPrice, formatPriceString } = useCurrency();
   const canCreateBooking = ['receptionist', 'admin_user', 'tenant_admin', 'customer_admin'].includes(userProfile?.role || '');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Admin create booking modal (same APIs as reception, no redirect)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    customer_name: '',
+    customer_phone: '',
+    customer_email: '',
+    visitor_count: 1,
+    notes: '',
+  });
+  const [createServiceId, setCreateServiceId] = useState('');
+  const [createDate, setCreateDate] = useState('');
+  const [createSlotId, setCreateSlotId] = useState('');
+  const [createServices, setCreateServices] = useState<AdminService[]>([]);
+  const [createSlots, setCreateSlots] = useState<Slot[]>([]);
+  const [loadingCreateSlots, setLoadingCreateSlots] = useState(false);
+  const [creatingBooking, setCreatingBooking] = useState(false);
+  const [createOfferId, setCreateOfferId] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
@@ -76,6 +106,122 @@ export function BookingsPage() {
     fetchBookings();
   }, [userProfile, calendarDate, viewMode]);
 
+  // Fetch services when create modal opens
+  async function fetchCreateServices() {
+    if (!userProfile?.tenant_id) return;
+    try {
+      const { data: servicesData, error: servicesError } = await db
+        .from('services')
+        .select('id, name, name_ar, base_price, original_price, discount_percentage, capacity_per_slot')
+        .eq('tenant_id', userProfile.tenant_id)
+        .eq('is_active', true)
+        .order('name');
+      if (servicesError) throw servicesError;
+      const serviceIds = (servicesData || []).map(s => s.id);
+      const { data: offersData } = await db
+        .from('service_offers')
+        .select('id, service_id, name, name_ar, price')
+        .in('service_id', serviceIds)
+        .eq('is_active', true);
+      const servicesWithOffers: AdminService[] = (servicesData || []).map(s => ({
+        ...s,
+        offers: (offersData || []).filter(o => o.service_id === s.id),
+      }));
+      setCreateServices(servicesWithOffers);
+    } catch (e) {
+      console.error('Error fetching services for create:', e);
+      setCreateServices([]);
+    }
+  }
+
+  // Fetch available slots when service and date selected (same logic as reception)
+  useEffect(() => {
+    if (!createServiceId || !createDate || !userProfile?.tenant_id) {
+      setCreateSlots([]);
+      setCreateSlotId('');
+      return;
+    }
+    let cancelled = false;
+    setLoadingCreateSlots(true);
+    const date = parseISO(createDate);
+    fetchAvailableSlots({
+      tenantId: userProfile.tenant_id,
+      serviceId: createServiceId,
+      date,
+      includePastSlots: true,
+      includeZeroCapacity: false,
+      includeLockedSlots: false,
+    }).then(({ slots }) => {
+      if (!cancelled) {
+        setCreateSlots(slots.filter(s => s.available_capacity > 0));
+        setCreateSlotId('');
+      }
+    }).catch(() => {
+      if (!cancelled) setCreateSlots([]);
+    }).finally(() => {
+      if (!cancelled) setLoadingCreateSlots(false);
+    });
+    return () => { cancelled = true; };
+  }, [createServiceId, createDate, userProfile?.tenant_id]);
+
+  async function handleCreateBooking(e: React.FormEvent) {
+    e.preventDefault();
+    if (!userProfile?.tenant_id || !createServiceId || !createSlotId || !createDate) return;
+    const slot = createSlots.find(s => s.id === createSlotId);
+    if (!slot) return;
+    const service = createServices.find(s => s.id === createServiceId);
+    if (!service) return;
+    let price = service.base_price;
+    if (createOfferId && service.offers?.length) {
+      const offer = service.offers.find(o => o.id === createOfferId);
+      if (offer) price = offer.price;
+    }
+    const visitorCount = Math.max(1, createForm.visitor_count);
+    const totalPrice = price * visitorCount;
+    const fullPhone = createForm.customer_phone.startsWith('+') ? createForm.customer_phone : `+966${createForm.customer_phone.replace(/^0+/, '')}`;
+    setCreatingBooking(true);
+    try {
+      const session = await db.auth.getSession();
+      const token = session.data.session?.access_token || localStorage.getItem('auth_token');
+      const res = await fetch(`${getApiUrl()}/bookings/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify({
+          tenant_id: userProfile.tenant_id,
+          service_id: createServiceId,
+          slot_id: createSlotId,
+          employee_id: slot.employee_id || null,
+          offer_id: createOfferId || null,
+          customer_name: createForm.customer_name.trim(),
+          customer_phone: fullPhone,
+          customer_email: createForm.customer_email?.trim() || null,
+          visitor_count: visitorCount,
+          total_price: totalPrice,
+          notes: createForm.notes?.trim() || null,
+          language: i18n.language,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || err.message || 'Failed to create booking');
+      }
+      setIsCreateModalOpen(false);
+      setCreateForm({ customer_name: '', customer_phone: '', customer_email: '', visitor_count: 1, notes: '' });
+      setCreateServiceId('');
+      setCreateDate('');
+      setCreateSlotId('');
+      setCreateOfferId('');
+      fetchBookings();
+    } catch (err: any) {
+      alert(err.message || t('reception.errorCreatingBooking', { message: err.message }));
+    } finally {
+      setCreatingBooking(false);
+    }
+  }
+
   async function fetchBookings() {
     if (!userProfile?.tenant_id) return;
 
@@ -95,6 +241,8 @@ export function BookingsPage() {
           created_at,
           zoho_invoice_id,
           zoho_invoice_created_at,
+          package_covered_quantity,
+          package_subscription_id,
           service_id,
           slot_id,
           services:service_id (
@@ -1011,9 +1159,17 @@ export function BookingsPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {canCreateBooking && tenantSlug && (
+          {canCreateBooking && (
             <Button
-              onClick={() => navigate(`/${tenantSlug}/reception`)}
+              onClick={() => {
+                setIsCreateModalOpen(true);
+                fetchCreateServices();
+                setCreateForm({ customer_name: '', customer_phone: '', customer_email: '', visitor_count: 1, notes: '' });
+                setCreateServiceId('');
+                setCreateDate('');
+                setCreateSlotId('');
+                setCreateOfferId('');
+              }}
               className="flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
@@ -1228,6 +1384,12 @@ export function BookingsPage() {
                         <span>{booking.visitor_count} {t('booking.visitorCount')}</span>
                         <span>•</span>
                         <span className="font-semibold">{booking.total_price} {t('service.price')}</span>
+                        {((booking.package_covered_quantity ?? 0) > 0 || booking.package_subscription_id) && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+                            <Package className="w-3.5 h-3.5" />
+                            {t('bookings.coveredByPackage', 'Covered by Package')}
+                          </span>
+                        )}
                       </div>
                       
                       {/* Invoice Section */}
@@ -1492,8 +1654,11 @@ export function BookingsPage() {
                                 <div className="text-xs font-medium truncate">
                                   {booking.customer_name}
                                 </div>
-                                <div className="text-xs text-gray-600 truncate">
+                                <div className="text-xs text-gray-600 truncate flex items-center gap-1">
                                   {i18n.language === 'ar' ? booking.services?.name_ar : booking.services?.name}
+                                  {((booking.package_covered_quantity ?? 0) > 0 || booking.package_subscription_id) && (
+                                    <Package className="w-3 h-3 text-emerald-600 shrink-0" title={t('bookings.coveredByPackage', 'Covered by Package')} />
+                                  )}
                                 </div>
                               </div>
                             );
@@ -1508,6 +1673,125 @@ export function BookingsPage() {
           </div>
         </div>
       )}
+
+      {/* Admin Create Booking Modal - same backend as reception, no redirect */}
+      <Modal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        title={t('reception.createNewBooking', 'Add booking')}
+        size="lg"
+      >
+        <form onSubmit={handleCreateBooking} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.selectService')} *</label>
+            <select
+              value={createServiceId}
+              onChange={(e) => { setCreateServiceId(e.target.value); setCreateSlotId(''); setCreateOfferId(''); }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              required
+            >
+              <option value="">{t('reception.chooseService')}</option>
+              {createServices.map((s) => (
+                <option key={s.id} value={s.id}>{i18n.language === 'ar' ? s.name_ar : s.name} – {formatPriceString(s.base_price)}</option>
+              ))}
+            </select>
+          </div>
+          {createServiceId && createServices.find(s => s.id === createServiceId)?.offers?.length ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.basePrice')} / {t('reception.offers')}</label>
+              <select
+                value={createOfferId}
+                onChange={(e) => setCreateOfferId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">{formatPriceString(createServices.find(s => s.id === createServiceId)!.base_price)}</option>
+                {createServices.find(s => s.id === createServiceId)!.offers!.map((o) => (
+                  <option key={o.id} value={o.id}>{i18n.language === 'ar' ? o.name_ar : o.name} – {formatPriceString(o.price)}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.date')} *</label>
+            <Input
+              type="date"
+              value={createDate}
+              onChange={(e) => setCreateDate(e.target.value)}
+              min={format(new Date(), 'yyyy-MM-dd')}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.selectSlot')} *</label>
+            <select
+              value={createSlotId}
+              onChange={(e) => setCreateSlotId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              required
+              disabled={loadingCreateSlots}
+            >
+              <option value="">{loadingCreateSlots ? t('common.loading') : t('reception.noSlotsAvailable')}</option>
+              {createSlots.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.start_time} – {s.end_time} {s.available_capacity > 0 ? `(${s.available_capacity} ${t('reception.visitors')})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.nameLabel')?.replace(':', '') || 'Name'} *</label>
+            <Input
+              value={createForm.customer_name}
+              onChange={(e) => setCreateForm(f => ({ ...f, customer_name: e.target.value }))}
+              placeholder={t('reception.namePlaceholder')}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.phoneLabel')?.replace(':', '') || 'Phone'} *</label>
+            <Input
+              value={createForm.customer_phone}
+              onChange={(e) => setCreateForm(f => ({ ...f, customer_phone: e.target.value }))}
+              placeholder="+966 5xxxxxxxx"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.emailLabel')?.replace(':', '') || 'Email'}</label>
+            <Input
+              type="email"
+              value={createForm.customer_email}
+              onChange={(e) => setCreateForm(f => ({ ...f, customer_email: e.target.value }))}
+              placeholder="email@example.com"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.visitors')} *</label>
+            <Input
+              type="number"
+              min={1}
+              value={createForm.visitor_count}
+              onChange={(e) => setCreateForm(f => ({ ...f, visitor_count: parseInt(e.target.value, 10) || 1 }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.specialNotes')}</label>
+            <Input
+              value={createForm.notes}
+              onChange={(e) => setCreateForm(f => ({ ...f, notes: e.target.value }))}
+              placeholder={t('reception.notesLabel')}
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setIsCreateModalOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" disabled={creatingBooking}>
+              {creatingBooking ? t('common.loading') : t('common.create')}
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Edit Booking Modal */}
       {editingBooking && (
