@@ -309,7 +309,7 @@ export function VisitorsPage() {
     setShowExportDetailsMenu(false);
     let qs = buildQuery().replace(/^page=\d+&?|&?limit=\d+/g, '').replace(/&&/g, '&').replace(/^&|&$/g, '');
     if (qs) qs += '&';
-    qs += `includeTotals=1&includeVisitorDetails=1`;
+    qs += `detail=1&includeTotals=1&includeVisitorDetails=1`;
     if (visitorId) qs += `&visitorId=${encodeURIComponent(visitorId)}`;
     const url = `${getApiUrl()}/visitors/export/${format}?${qs}`;
     try {

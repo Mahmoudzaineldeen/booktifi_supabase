@@ -1565,3 +1565,162 @@ export async function generateVisitorsReportPdf(options: {
   doc.end();
   return pdfPromise;
 }
+
+/** Full visitor detail export: Visitor Info + Active packages + Booking History per visitor. */
+export async function generateVisitorsDetailReportPdf(
+  details: Array<{ visitor: any; bookings: any[] }>,
+  options?: {
+    includeTotals?: boolean;
+    totalVisitors?: number;
+    totalBookings?: number;
+    totalPackageBookings?: number;
+    totalPaidBookings?: number;
+    totalSpent?: number;
+  }
+): Promise<Buffer> {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirnamePdf = dirname(__filename);
+  const possibleFontPaths = [
+    join(__dirnamePdf, '../../fonts/NotoSansArabic-Regular.ttf'),
+    join(__dirnamePdf, '../../fonts/Amiri-Regular.ttf'),
+    'C:/Windows/Fonts/tahoma.ttf',
+    'C:/Windows/Fonts/arialuni.ttf',
+    'C:/Windows/Fonts/arial.ttf',
+    '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+    '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+    '/System/Library/Fonts/Supplemental/Arial.ttf',
+  ];
+  let arabicFontPath: string | null = null;
+  for (const p of possibleFontPaths) {
+    if (existsSync(p)) {
+      arabicFontPath = p;
+      break;
+    }
+  }
+
+  const doc = new PDFDocument({
+    margin: 50,
+    features: ['rtla', 'calt'],
+    lang: 'ar',
+  });
+
+  let arabicFontRegistered = false;
+  if (arabicFontPath) {
+    try {
+      doc.registerFont('ArabicFont', arabicFontPath);
+      arabicFontRegistered = true;
+    } catch (_) {}
+  }
+
+  const chunks: Buffer[] = [];
+  const pdfPromise = new Promise<Buffer>((resolve, reject) => {
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+  });
+
+  const formatNum = (n: number) => (Number.isFinite(n) ? Number(n).toFixed(2) : '0.00');
+  const lineWidth = 500;
+
+  const reshapeName = (text: string): string => {
+    if (!text?.trim()) return text;
+    try {
+      let reshaped = text;
+      if (arabicReshaperLib && typeof arabicReshaperLib.convertArabic === 'function') {
+        reshaped = arabicReshaperLib.convertArabic(text);
+      }
+      const words = reshaped.split(' ');
+      return words.reverse().join(' ');
+    } catch {
+      return text;
+    }
+  };
+
+  const drawText = (text: string, raw?: string) => {
+    const useArabic = arabicFontRegistered && raw && containsArabic(raw);
+    if (useArabic) doc.font('ArabicFont').text(text, { width: lineWidth, align: 'left' }).font('Helvetica');
+    else doc.text(text, { width: lineWidth });
+  };
+
+  doc.fontSize(18).text('Visitor Details Report', { align: 'center' });
+  doc.moveDown();
+  doc.fontSize(10).font('Helvetica');
+
+  if (options?.includeTotals && options.totalVisitors != null) {
+    doc.text(`Total Visitors: ${options.totalVisitors}`);
+    doc.text(`Total Bookings: ${options.totalBookings ?? 0}`);
+    doc.text(`Package Bookings: ${options.totalPackageBookings ?? 0}`);
+    doc.text(`Paid Bookings: ${options.totalPaidBookings ?? 0}`);
+    doc.text(`Total Spent: ${formatNum(options.totalSpent ?? 0)}`);
+    doc.moveDown();
+  }
+
+  for (const { visitor: v, bookings } of details) {
+    doc.fontSize(12).text('Visitor Info', { continued: false }).fontSize(10);
+    doc.moveDown(0.5);
+    const rawName = String(v.customer_name ?? '').replace(/\|/g, ',');
+    const nameForPdf = arabicFontRegistered && containsArabic(rawName) ? reshapeName(rawName) : rawName;
+    drawText(`Name: ${nameForPdf}`, rawName);
+    doc.text(`Phone: ${v.phone ?? ''}`);
+    doc.text(`Email: ${v.email ?? ''}`);
+    doc.text(`Total Bookings: ${v.total_bookings ?? 0}`);
+    doc.text(`Total Spent: ${formatNum(parseFloat(String(v.total_spent ?? 0)))}`);
+    doc.text(`Package Bookings: ${v.package_bookings_count ?? 0}`);
+    doc.text(`Paid Bookings: ${v.paid_bookings_count ?? 0}`);
+    doc.text(`Status: ${v.status ?? ''}`);
+    doc.moveDown(0.5);
+
+    doc.text('Active packages');
+    for (const pkg of v.active_packages || []) {
+      const name = pkg.package_name || '';
+      const usage = (pkg.usage || []).map((u: any) => `${u.services?.name || u.service_id || '?'} — ${u.remaining_quantity ?? 0} left`).join(', ');
+      doc.text(`  ${name} — ${usage}`);
+    }
+    doc.moveDown(0.5);
+
+    doc.text('Booking History');
+    doc.moveDown(0.3);
+    const colW = [70, 50, 45, 40, 35, 45, 45, 50, 55];
+    const headers = ['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Type', 'Amount', 'Status', 'Created By'];
+    const rowHeight = 14;
+    doc.font('Helvetica-Bold');
+    let rowY = doc.y;
+    let x = 50;
+    for (let i = 0; i < headers.length; i++) {
+      doc.text(headers[i], x, rowY, { width: colW[i] });
+      x += colW[i];
+    }
+    doc.y = rowY + rowHeight;
+    doc.moveDown(0.3);
+    doc.font('Helvetica');
+    for (const b of bookings) {
+      if (doc.y > 700) {
+        doc.addPage();
+        doc.y = 50;
+      }
+      rowY = doc.y;
+      x = 50;
+      const cells = [
+        (b.id || '').slice(0, 8) + '…',
+        b.service_name ?? '',
+        b.date ?? '',
+        b.time ?? '',
+        String(b.visitors_count ?? ''),
+        b.booking_type ?? '',
+        formatNum(parseFloat(String(b.amount_paid ?? 0))),
+        b.status ?? '',
+        b.created_by ?? '',
+      ];
+      for (let i = 0; i < cells.length; i++) {
+        doc.text(cells[i], x, rowY, { width: colW[i] });
+        x += colW[i];
+      }
+      doc.y = rowY + rowHeight;
+    }
+    doc.moveDown(1);
+  }
+
+  doc.end();
+  return pdfPromise;
+}

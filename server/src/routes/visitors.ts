@@ -431,6 +431,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     };
     let includeTotals = /^(1|true|yes)$/i.test(String(req.query.includeTotals ?? 'true').trim());
     let includeVisitorDetails = /^(1|true|yes)$/i.test(String(req.query.includeVisitorDetails ?? 'true').trim());
+    const detailMode = /^(1|true|yes)$/i.test(String(req.query.detail ?? '0').trim());
     // Ensure at least one section is included so the file is never empty
     if (!includeTotals && !includeVisitorDetails) {
       includeTotals = true;
@@ -580,6 +581,116 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     const totalPaidBookings = filteredRows.reduce((s: number, r: any) => s + (Number(r.paid_bookings_count) || 0), 0);
     const totalSpent = filteredRows.reduce((s: number, r: any) => s + parsePrice(r.total_spent), 0);
 
+    // Detail export: full visitor info + active packages + booking history per visitor
+    if (detailMode && filteredRows.length > 0) {
+      const details: Array<{ visitor: any; bookings: any[] }> = [];
+      for (const r of filteredRows) {
+        const d = await getVisitorDetail(tenantId, r.id);
+        if (d) details.push(d);
+      }
+      const csvCell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+      if (format === 'csv') {
+        const lines: string[] = [];
+        if (includeTotals) {
+          lines.push('"Summary"');
+          lines.push(`"Total Visitors",${details.length}`);
+          lines.push(`"Total Bookings",${details.reduce((s, d) => s + d.bookings.length, 0)}`);
+          lines.push(`"Package Bookings",${details.reduce((s, d) => s + (d.visitor.package_bookings_count || 0), 0)}`);
+          lines.push(`"Paid Bookings",${details.reduce((s, d) => s + (d.visitor.paid_bookings_count || 0), 0)}`);
+          lines.push(`"Total Spent",${details.reduce((s, d) => s + parsePrice(d.visitor.total_spent), 0)}`);
+          lines.push('');
+        }
+        for (const { visitor: v, bookings } of details) {
+          lines.push('"Visitor Info"');
+          lines.push(`"Name",${csvCell(v.customer_name)}`);
+          lines.push(`"Phone",${csvCell(v.phone)}`);
+          lines.push(`"Email",${csvCell(v.email)}`);
+          lines.push(`"Total Bookings",${v.total_bookings ?? 0}`);
+          lines.push(`"Total Spent",${parsePrice(v.total_spent)}`);
+          lines.push(`"Package Bookings",${v.package_bookings_count ?? 0}`);
+          lines.push(`"Paid Bookings",${v.paid_bookings_count ?? 0}`);
+          lines.push(`"Status",${csvCell(v.status)}`);
+          lines.push('"Active packages"');
+          for (const pkg of v.active_packages || []) {
+            const name = pkg.package_name || '';
+            const usage = (pkg.usage || []).map((u: any) => `${u.services?.name || u.service_id || '?'} — ${u.remaining_quantity ?? 0} left`).join(', ');
+            lines.push(`"${name}",${csvCell(usage)}`);
+          }
+          lines.push('"Booking History"');
+          lines.push('"Booking ID","Service","Date","Time","Visitors","Booking Type","Amount","Status","Created By"');
+          for (const b of bookings) {
+            lines.push([b.id, b.service_name, b.date ?? '', b.time ?? '', b.visitors_count ?? '', b.booking_type ?? '', parsePrice(b.amount_paid), b.status ?? '', b.created_by ?? ''].map((x) => csvCell(x)).join(','));
+          }
+          lines.push('');
+        }
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="visitor-details-${new Date().toISOString().slice(0, 10)}.csv"`);
+        return res.send(lines.join('\r\n'));
+      }
+
+      if (format === 'xlsx') {
+        try {
+          const XLSX = await import('xlsx');
+          const wb = XLSX.utils.book_new();
+          const sheetRows: any[][] = [];
+          if (includeTotals) {
+            sheetRows.push(['Summary']);
+            sheetRows.push(['Total Visitors', details.length]);
+            sheetRows.push(['Total Bookings', details.reduce((s, d) => s + d.bookings.length, 0)]);
+            sheetRows.push(['Package Bookings', details.reduce((s, d) => s + (d.visitor.package_bookings_count || 0), 0)]);
+            sheetRows.push(['Paid Bookings', details.reduce((s, d) => s + (d.visitor.paid_bookings_count || 0), 0)]);
+            sheetRows.push(['Total Spent', details.reduce((s, d) => s + parsePrice(d.visitor.total_spent), 0)]);
+            sheetRows.push([]);
+          }
+          for (const { visitor: v, bookings } of details) {
+            sheetRows.push(['Visitor Info']);
+            sheetRows.push(['Name', v.customer_name]);
+            sheetRows.push(['Phone', v.phone]);
+            sheetRows.push(['Email', v.email ?? '']);
+            sheetRows.push(['Total Bookings', v.total_bookings ?? 0]);
+            sheetRows.push(['Total Spent', parsePrice(v.total_spent)]);
+            sheetRows.push(['Package Bookings', v.package_bookings_count ?? 0]);
+            sheetRows.push(['Paid Bookings', v.paid_bookings_count ?? 0]);
+            sheetRows.push(['Status', v.status ?? '']);
+            sheetRows.push(['Active packages']);
+            for (const pkg of v.active_packages || []) {
+              const name = pkg.package_name || '';
+              const usage = (pkg.usage || []).map((u: any) => `${u.services?.name || u.service_id || '?'} — ${u.remaining_quantity ?? 0} left`).join(', ');
+              sheetRows.push([name, usage]);
+            }
+            sheetRows.push(['Booking History']);
+            sheetRows.push(['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Booking Type', 'Amount', 'Status', 'Created By']);
+            for (const b of bookings) {
+              sheetRows.push([b.id, b.service_name, b.date ?? '', b.time ?? '', b.visitors_count ?? '', b.booking_type ?? '', parsePrice(b.amount_paid), b.status ?? '', b.created_by ?? '']);
+            }
+            sheetRows.push([]);
+          }
+          const ws = XLSX.utils.aoa_to_sheet(sheetRows);
+          XLSX.utils.book_append_sheet(wb, ws, 'Visitor Details');
+          const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+          res.setHeader('Content-Disposition', `attachment; filename="visitor-details-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+          return res.send(buf);
+        } catch (e) {
+          return res.status(500).json({ error: 'Excel export requires xlsx package. Use CSV or PDF.' });
+        }
+      }
+
+      if (format === 'pdf') {
+        try {
+          const pdfService = await import('../services/pdfService.js') as { generateVisitorsDetailReportPdf: (d: Array<{ visitor: any; bookings: any[] }>, o?: any) => Promise<Buffer> };
+          const pdfBuffer = await pdfService.generateVisitorsDetailReportPdf(details, { includeTotals, totalVisitors: details.length, totalBookings: details.reduce((s, d) => s + d.bookings.length, 0), totalPackageBookings: details.reduce((s, d) => s + (d.visitor.package_bookings_count || 0), 0), totalPaidBookings: details.reduce((s, d) => s + (d.visitor.paid_bookings_count || 0), 0), totalSpent: details.reduce((s, d) => s + parsePrice(d.visitor.total_spent), 0) });
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `attachment; filename="visitor-details-${new Date().toISOString().slice(0, 10)}.pdf"`);
+          return res.send(pdfBuffer);
+        } catch (e: any) {
+          logger.error('Visitors detail PDF export error', e);
+          return res.status(500).json({ error: e?.message || 'PDF export failed. Use CSV or Excel.' });
+        }
+      }
+    }
+
     if (format === 'csv') {
       const lines: string[] = [];
       if (includeTotals) {
@@ -677,146 +788,55 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
   }
 });
 
-/**
- * GET /api/visitors/:id
- * Visitor detail: info + booking history. :id is customer uuid or "guest-{phone}".
- */
-router.get('/:id', authenticateVisitorsAccess, async (req, res) => {
-  try {
-    const tenantId = req.user!.tenant_id!;
-    const id = req.params.id;
-
-    if (id.startsWith('guest-')) {
-      const phone = decodeURIComponent(id.replace(/^guest-/, ''));
-      const { data: bookings } = await supabase
-        .from('bookings')
-        .select(`
-          id, customer_name, customer_phone, customer_email, total_price, status, visitor_count,
-          package_covered_quantity, paid_quantity, package_subscription_id, created_at, created_by_user_id,
-          service_id, slot_id,
-          services:service_id(name, name_ar),
-          slots:slot_id(slot_date, start_time, end_time)
-        `)
-        .eq('tenant_id', tenantId)
-        .is('customer_id', null)
-        .eq('customer_phone', phone)
-        .order('created_at', { ascending: false });
-
-      const list = (bookings || []) as any[];
-      const totalSpent = list.reduce((s, b) => {
-        const pc = b.package_covered_quantity ?? 0;
-        if (pc > 0) return s;
-        const st = String(b.status || '').toLowerCase();
-        if (!['confirmed', 'completed', 'checked_in'].includes(st)) return s;
-        return s + parsePrice(b.total_price);
-      }, 0);
-      const packageCount = list.filter((b) => (b.package_covered_quantity ?? 0) > 0).length;
-      const paidCount = list.length - packageCount;
-      const lastBooking = list.length ? list[0] : null;
-
-      return res.json({
-        visitor: {
-          id,
-          type: 'guest',
-          customer_name: lastBooking?.customer_name || '',
-          phone,
-          email: lastBooking?.customer_email || null,
-          total_bookings: list.length,
-          total_spent: totalSpent,
-          package_bookings_count: packageCount,
-          paid_bookings_count: paidCount,
-          last_booking_date: lastBooking?.slots?.slot_date || null,
-          status: 'active',
-          active_packages: [],
-        },
-        bookings: list.map((b) => ({
-          id: b.id,
-          service_name: b.services?.name || '',
-          date: b.slots?.slot_date,
-          time: b.slots?.start_time,
-          visitors_count: b.visitor_count,
-          booking_type: (b.package_covered_quantity ?? 0) > 0 ? 'PACKAGE' : 'PAID',
-          amount_paid: b.total_price,
-          status: b.status,
-          created_by: b.created_by_user_id ? 'staff' : 'customer',
-        })),
-      });
-    }
-
-    const { data: customer, error: custErr } = await supabase
-      .from('customers')
-      .select('id, name, phone, email, is_blocked')
-      .eq('id', id)
-      .eq('tenant_id', tenantId)
-      .single();
-    if (custErr || !customer) {
-      return res.status(404).json({ error: 'Visitor not found' });
-    }
-
+/** Shared: fetch full visitor detail (info + bookings + active packages). Used by GET /:id and detail export. */
+async function getVisitorDetail(
+  tenantId: string,
+  id: string
+): Promise<{ visitor: any; bookings: any[] } | null> {
+  if (id.startsWith('guest-')) {
+    const phone = decodeURIComponent(id.replace(/^guest-/, ''));
     const { data: bookings } = await supabase
       .from('bookings')
       .select(`
-        id, customer_name, total_price, status, visitor_count,
+        id, customer_name, customer_phone, customer_email, total_price, status, visitor_count,
         package_covered_quantity, paid_quantity, package_subscription_id, created_at, created_by_user_id,
         service_id, slot_id,
         services:service_id(name, name_ar),
         slots:slot_id(slot_date, start_time, end_time)
       `)
       .eq('tenant_id', tenantId)
-      .eq('customer_id', id)
+      .is('customer_id', null)
+      .eq('customer_phone', phone)
       .order('created_at', { ascending: false });
 
     const list = (bookings || []) as any[];
-    let totalSpent = list.reduce((s, b) => {
-      const pc = (b as any).package_covered_quantity ?? 0;
+    const totalSpent = list.reduce((s, b) => {
+      const pc = b.package_covered_quantity ?? 0;
       if (pc > 0) return s;
-      const st = String((b as any).status || '').toLowerCase();
+      const st = String(b.status || '').toLowerCase();
       if (!['confirmed', 'completed', 'checked_in'].includes(st)) return s;
-      return s + parsePrice((b as any).total_price);
+      return s + parsePrice(b.total_price);
     }, 0);
-    const { data: paidSubs } = await supabase
-      .from('package_subscriptions')
-      .select('service_packages(total_price)')
-      .eq('customer_id', id)
-      .eq('tenant_id', tenantId)
-      .eq('payment_status', 'paid');
-    const packageSpent = (paidSubs || []).reduce((s: number, row: any) => s + parsePrice(row?.service_packages?.total_price), 0);
-    totalSpent += packageSpent;
-    const packageCount = list.filter((b) => ((b as any).package_covered_quantity ?? 0) > 0).length;
+    const packageCount = list.filter((b) => (b.package_covered_quantity ?? 0) > 0).length;
     const paidCount = list.length - packageCount;
     const lastBooking = list.length ? list[0] : null;
 
-    const { data: subs } = await supabase
-      .from('package_subscriptions')
-      .select(`
-        id, package_id, status, service_packages(name, name_ar),
-        package_subscription_usage(service_id, remaining_quantity, original_quantity, services(name))
-      `)
-      .eq('customer_id', id)
-      .eq('tenant_id', tenantId)
-      .in('status', ['active']);
-
-    const activePackages = (subs || []).map((s: any) => ({
-      package_name: s.service_packages?.name,
-      usage: s.package_subscription_usage || [],
-    }));
-
-    res.json({
+    return {
       visitor: {
-        id: customer.id,
-        type: 'customer',
-        customer_name: customer.name,
-        phone: customer.phone,
-        email: customer.email || null,
+        id,
+        type: 'guest',
+        customer_name: lastBooking?.customer_name || '',
+        phone,
+        email: lastBooking?.customer_email || null,
         total_bookings: list.length,
         total_spent: totalSpent,
         package_bookings_count: packageCount,
         paid_bookings_count: paidCount,
         last_booking_date: lastBooking?.slots?.slot_date || null,
-        status: (customer as any).is_blocked ? 'blocked' : 'active',
-        active_packages: activePackages,
+        status: 'active',
+        active_packages: [],
       },
-      bookings: list.map((b: any) => ({
+      bookings: list.map((b) => ({
         id: b.id,
         service_name: b.services?.name || '',
         date: b.slots?.slot_date,
@@ -827,7 +847,105 @@ router.get('/:id', authenticateVisitorsAccess, async (req, res) => {
         status: b.status,
         created_by: b.created_by_user_id ? 'staff' : 'customer',
       })),
-    });
+    };
+  }
+
+  const { data: customer, error: custErr } = await supabase
+    .from('customers')
+    .select('id, name, phone, email, is_blocked')
+    .eq('id', id)
+    .eq('tenant_id', tenantId)
+    .single();
+  if (custErr || !customer) return null;
+
+  const { data: bookings } = await supabase
+    .from('bookings')
+    .select(`
+      id, customer_name, total_price, status, visitor_count,
+      package_covered_quantity, paid_quantity, package_subscription_id, created_at, created_by_user_id,
+      service_id, slot_id,
+      services:service_id(name, name_ar),
+      slots:slot_id(slot_date, start_time, end_time)
+    `)
+    .eq('tenant_id', tenantId)
+    .eq('customer_id', id)
+    .order('created_at', { ascending: false });
+
+  const list = (bookings || []) as any[];
+  let totalSpent = list.reduce((s, b) => {
+    const pc = (b as any).package_covered_quantity ?? 0;
+    if (pc > 0) return s;
+    const st = String((b as any).status || '').toLowerCase();
+    if (!['confirmed', 'completed', 'checked_in'].includes(st)) return s;
+    return s + parsePrice((b as any).total_price);
+  }, 0);
+  const { data: paidSubs } = await supabase
+    .from('package_subscriptions')
+    .select('service_packages(total_price)')
+    .eq('customer_id', id)
+    .eq('tenant_id', tenantId)
+    .eq('payment_status', 'paid');
+  const packageSpent = (paidSubs || []).reduce((s: number, row: any) => s + parsePrice(row?.service_packages?.total_price), 0);
+  totalSpent += packageSpent;
+  const packageCount = list.filter((b) => ((b as any).package_covered_quantity ?? 0) > 0).length;
+  const paidCount = list.length - packageCount;
+  const lastBooking = list.length ? list[0] : null;
+
+  const { data: subs } = await supabase
+    .from('package_subscriptions')
+    .select(`
+      id, package_id, status, service_packages(name, name_ar),
+      package_subscription_usage(service_id, remaining_quantity, original_quantity, services(name))
+    `)
+    .eq('customer_id', id)
+    .eq('tenant_id', tenantId)
+    .in('status', ['active']);
+
+  const activePackages = (subs || []).map((s: any) => ({
+    package_name: s.service_packages?.name,
+    usage: s.package_subscription_usage || [],
+  }));
+
+  return {
+    visitor: {
+      id: customer.id,
+      type: 'customer',
+      customer_name: customer.name,
+      phone: customer.phone,
+      email: customer.email || null,
+      total_bookings: list.length,
+      total_spent: totalSpent,
+      package_bookings_count: packageCount,
+      paid_bookings_count: paidCount,
+      last_booking_date: lastBooking?.slots?.slot_date || null,
+      status: (customer as any).is_blocked ? 'blocked' : 'active',
+      active_packages: activePackages,
+    },
+    bookings: list.map((b: any) => ({
+      id: b.id,
+      service_name: b.services?.name || '',
+      date: b.slots?.slot_date,
+      time: b.slots?.start_time,
+      visitors_count: b.visitor_count,
+      booking_type: (b.package_covered_quantity ?? 0) > 0 ? 'PACKAGE' : 'PAID',
+      amount_paid: b.total_price,
+      status: b.status,
+      created_by: b.created_by_user_id ? 'staff' : 'customer',
+    })),
+  };
+}
+
+/**
+ * GET /api/visitors/:id
+ * Visitor detail: info + booking history. :id is customer uuid or "guest-{phone}".
+ */
+router.get('/:id', authenticateVisitorsAccess, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const id = req.params.id;
+    const detail = await getVisitorDetail(tenantId, id);
+    if (!detail) return res.status(404).json({ error: 'Visitor not found' });
+    res.json(detail);
   } catch (err: any) {
     logger.error('Visitor detail error', err, { id: req.params.id });
     res.status(500).json({ error: err.message || 'Internal server error' });
