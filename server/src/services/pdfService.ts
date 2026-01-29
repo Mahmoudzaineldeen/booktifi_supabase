@@ -1554,7 +1554,7 @@ export async function generateVisitorsReportPdf(options: {
       const line = `Name: ${nameForPdf} | Phone: ${phone} | Bookings: ${r.total_bookings} | Spent: ${spentFormatted} | Status: ${status}`;
 
       if (arabicFontRegistered && containsArabic(rawName)) {
-        doc.font('ArabicFont').text(line, { width: lineWidth, align: 'right' }).font('Helvetica');
+        doc.font('ArabicFont').text(line, { width: lineWidth, align: 'left' }).font('Helvetica');
       } else {
         doc.text(line, { width: lineWidth });
       }
