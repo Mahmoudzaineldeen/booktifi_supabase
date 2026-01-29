@@ -82,6 +82,23 @@ function parsePrice(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Escape ILIKE/LIKE special chars (%, _) so search is literal. */
+function escapeIlike(s: string): string {
+  return (s || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_');
+}
+
+/** True if text contains search (case-insensitive, partial, Unicode-normalized for Arabic etc.). */
+function nameMatchesSearch(text: string | null | undefined, search: string): boolean {
+  if (!search || !search.trim()) return true;
+  const norm = (s: string) => (s || '').trim().toLowerCase().normalize('NFC');
+  const t = norm(String(text || ''));
+  const q = norm(search);
+  return t.includes(q);
+}
+
 /** Match search phone to stored phone (e.g. +201032560826 matches 01032560826). */
 function phoneMatches(filterPhone: string, storedPhone: string): boolean {
   const f = normalizePhone(filterPhone);
@@ -165,13 +182,12 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     let custOffset = 0;
     let custHasMore = true;
     while (custHasMore) {
-      let cq = supabase
+      const cq = supabase
         .from('customers')
         .select('id, name, phone, email, is_blocked, created_at')
         .eq('tenant_id', tenantId)
         .order('id', { ascending: true })
         .range(custOffset, custOffset + FETCH_PAGE_SIZE - 1);
-      if (filters.name) cq = cq.ilike('name', `%${filters.name}%`);
       const { data: chunk, error: custError } = await cq;
       if (custError) throw custError;
       const list = chunk || [];
@@ -181,6 +197,9 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     }
 
     let customers = customersRaw;
+    if (filters.name && filters.name.trim()) {
+      customers = customers.filter((c: any) => nameMatchesSearch(c.name, filters.name!));
+    }
     if (filters.phone && filters.phone.trim()) {
       customers = customers.filter((c: any) => phoneMatches(filters.phone!, c.phone || ''));
     }
@@ -293,6 +312,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       if (isCustomerPhone) continue;
       if (agg.total === 0) continue;
       if (filters.phone && filters.phone.trim() && !phoneMatches(filters.phone, phone)) continue;
+      if (filters.name && filters.name.trim() && !nameMatchesSearch(agg.name, filters.name)) continue;
       visitorRows.push({
         id: `guest-${encodeURIComponent(phone)}`,
         type: 'guest',
@@ -370,8 +390,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     let expCustOffset = 0;
     let expCustHasMore = true;
     while (expCustHasMore) {
-      let cq = supabase.from('customers').select('id, name, phone, email, is_blocked').eq('tenant_id', tenantId).order('id', { ascending: true }).range(expCustOffset, expCustOffset + FETCH_PAGE_SIZE - 1);
-      if (filters.name) cq = cq.ilike('name', `%${filters.name}%`);
+      const cq = supabase.from('customers').select('id, name, phone, email, is_blocked').eq('tenant_id', tenantId).order('id', { ascending: true }).range(expCustOffset, expCustOffset + FETCH_PAGE_SIZE - 1);
       const { data: chunk } = await cq;
       const list = chunk || [];
       filteredCustomersRaw.push(...list);
@@ -379,6 +398,9 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       expCustOffset += FETCH_PAGE_SIZE;
     }
     let filteredCustomers = filteredCustomersRaw;
+    if (filters.name && filters.name.trim()) {
+      filteredCustomers = filteredCustomers.filter((c: any) => nameMatchesSearch(c.name, filters.name!));
+    }
     if (filters.phone && filters.phone.trim()) {
       filteredCustomers = filteredCustomers.filter((c: any) => phoneMatches(filters.phone!, c.phone || ''));
     }
@@ -466,6 +488,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       const isCustomerPhone = (filteredCustomers || []).some((c: any) => phoneMatches(phone, c.phone || ''));
       if (isCustomerPhone) continue;
       if (filters.phone && filters.phone.trim() && !phoneMatches(filters.phone, phone)) continue;
+      if (filters.name && filters.name.trim() && !nameMatchesSearch(agg.name, filters.name)) continue;
       rows.push({
         customer_name: agg.name,
         phone,
