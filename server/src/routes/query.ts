@@ -186,13 +186,15 @@ router.post('/query', async (req, res) => {
       }
     }
 
-    console.log('[Query] Executing Supabase query for table:', table);
-    console.log('[Query] Raw select parameter:', select, `(type: ${typeof select}, isArray: ${Array.isArray(select)})`);
-    console.log('[Query] Cleaned select:', cleanSelect);
-    console.log('[Query] Where:', where);
-    console.log('[Query] OrderBy:', orderBy);
-    console.log('[Query] Limit:', limit);
-    console.log('[Query] Full query params:', { table, select: cleanSelect, where, orderBy, limit });
+    // Log as a single line so concurrent requests don't interleave and garble output
+    const queryLog = {
+      table,
+      select: cleanSelect,
+      where,
+      orderBy,
+      limit,
+    };
+    console.log('[Query]', JSON.stringify(queryLog));
 
     const { data, error } = await query;
 

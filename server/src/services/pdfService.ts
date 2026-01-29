@@ -1441,3 +1441,127 @@ async function generateMultipleTicketsInOnePDF(
   const pdfBytes = await combinedPdf.save();
   return Buffer.from(pdfBytes);
 }
+
+/** Detect if string contains Arabic. */
+function containsArabic(str: string): boolean {
+  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(str);
+}
+
+/**
+ * Generate visitors report PDF using the same Arabic font setup as booking tickets.
+ * Reuses path-based font registration and raw name (no reshape) so Arabic displays correctly.
+ */
+export async function generateVisitorsReportPdf(options: {
+  totalVisitors: number;
+  totalBookings: number;
+  totalPackageBookings: number;
+  totalPaidBookings: number;
+  totalSpent: number;
+  rows: Array<{
+    customer_name: string;
+    phone: string;
+    email: string | null;
+    total_bookings: number;
+    total_spent: number;
+    package_bookings_count: number;
+    paid_bookings_count: number;
+    last_booking_date: string | null;
+    status: string;
+  }>;
+  includeTotals: boolean;
+  includeVisitorDetails: boolean;
+}): Promise<Buffer> {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirnamePdf = dirname(__filename);
+  const possibleFontPaths = [
+    join(__dirnamePdf, '../../fonts/NotoSansArabic-Regular.ttf'),
+    join(__dirnamePdf, '../../fonts/Amiri-Regular.ttf'),
+    'C:/Windows/Fonts/tahoma.ttf',
+    'C:/Windows/Fonts/arialuni.ttf',
+    'C:/Windows/Fonts/arial.ttf',
+    '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+    '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+    '/System/Library/Fonts/Supplemental/Arial.ttf',
+  ];
+  let arabicFontPath: string | null = null;
+  for (const p of possibleFontPaths) {
+    if (existsSync(p)) {
+      arabicFontPath = p;
+      break;
+    }
+  }
+
+  const doc = new PDFDocument({
+    margin: 50,
+    features: ['rtla', 'calt'],
+    lang: 'ar',
+  });
+
+  let arabicFontRegistered = false;
+  if (arabicFontPath) {
+    try {
+      doc.registerFont('ArabicFont', arabicFontPath);
+      arabicFontRegistered = true;
+    } catch (_) {}
+  }
+
+  const chunks: Buffer[] = [];
+  const pdfPromise = new Promise<Buffer>((resolve, reject) => {
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+  });
+
+  const formatNum = (n: number) => (Number.isFinite(n) ? Number(n).toFixed(2) : '0.00');
+  const lineWidth = 500;
+
+  doc.fontSize(18).text('Visitors Report', { align: 'center' });
+  doc.moveDown();
+  doc.fontSize(10).font('Helvetica');
+
+  if (options.includeTotals) {
+    doc.text(`Total Visitors: ${options.totalVisitors}`);
+    doc.text(`Total Bookings: ${options.totalBookings}`);
+    doc.text(`Package Bookings: ${options.totalPackageBookings}`);
+    doc.text(`Paid Bookings: ${options.totalPaidBookings}`);
+    doc.text(`Total Spent: ${formatNum(options.totalSpent)}`);
+    doc.moveDown();
+  }
+
+  // Reshape Arabic for correct letter joining (same as ticket labels)
+  const reshapeName = (text: string): string => {
+    if (!text?.trim()) return text;
+    try {
+      let reshaped = text;
+      if (arabicReshaperLib && typeof arabicReshaperLib.convertArabic === 'function') {
+        reshaped = arabicReshaperLib.convertArabic(text);
+      }
+      const words = reshaped.split(' ');
+      return words.reverse().join(' ');
+    } catch {
+      return text;
+    }
+  };
+
+  if (options.includeVisitorDetails) {
+    for (const r of options.rows) {
+      const rawName = String(r.customer_name ?? '').replace(/\|/g, ',');
+      const nameForPdf = arabicFontRegistered && containsArabic(rawName) ? reshapeName(rawName) : rawName;
+      const phone = String(r.phone ?? '');
+      const spentFormatted = formatNum(Number(r.total_spent) ?? 0);
+      const status = String(r.status ?? '');
+      const line = `Name: ${nameForPdf} | Phone: ${phone} | Bookings: ${r.total_bookings} | Spent: ${spentFormatted} | Status: ${status}`;
+
+      if (arabicFontRegistered && containsArabic(rawName)) {
+        doc.font('ArabicFont').text(line, { width: lineWidth, align: 'right' }).font('Helvetica');
+      } else {
+        doc.text(line, { width: lineWidth });
+      }
+      doc.moveDown(0.5);
+    }
+  }
+
+  doc.end();
+  return pdfPromise;
+}

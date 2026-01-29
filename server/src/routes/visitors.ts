@@ -1,55 +1,7 @@
 import express from 'express';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { existsSync, readFileSync } from 'fs';
-import { createRequire } from 'module';
 import { supabase } from '../db';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
-
-const require = createRequire(import.meta.url);
-const arabicReshaperLib = require('arabic-reshaper');
-const __filename = fileURLToPath(import.meta.url);
-const __dirnameVisitors = dirname(__filename);
-
-// Prefer fonts that support Arabic script well (Noto, Amiri, Tahoma, Arial Unicode)
-const POSSIBLE_ARABIC_FONT_PATHS = [
-  join(__dirnameVisitors, '../fonts/NotoSansArabic-Regular.ttf'),
-  join(__dirnameVisitors, '../fonts/Amiri-Regular.ttf'),
-  'C:/Windows/Fonts/tahoma.ttf',
-  'C:/Windows/Fonts/arialuni.ttf',
-  'C:/Windows/Fonts/arial.ttf',
-  '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
-  '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
-  '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
-  '/System/Library/Fonts/Supplemental/Arial.ttf',
-];
-
-function getVisitorsPdfArabicFontPath(): string | null {
-  for (const p of POSSIBLE_ARABIC_FONT_PATHS) {
-    if (existsSync(p)) return p;
-  }
-  return null;
-}
-
-function containsArabic(str: string): boolean {
-  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(str);
-}
-
-/** Reshape Arabic for PDF: contextual forms + reverse word order (RTL). */
-function reshapeArabicForPdf(text: string): string {
-  if (!text || !text.trim()) return text;
-  try {
-    let reshaped = text;
-    if (arabicReshaperLib && typeof arabicReshaperLib.convertArabic === 'function') {
-      reshaped = arabicReshaperLib.convertArabic(text);
-    }
-    const words = reshaped.split(' ');
-    return words.reverse().join(' ');
-  } catch {
-    return text.split(' ').reverse().join(' ');
-  }
-}
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -683,75 +635,17 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
 
     if (format === 'pdf') {
       try {
-        const pdfkit = await import('pdfkit');
-        const PDFDocument = (pdfkit as any).default ?? pdfkit;
-        const arabicFontPath = getVisitorsPdfArabicFontPath();
-        const doc = new PDFDocument({
-          margin: 50,
-          ...(arabicFontPath ? { features: ['rtla', 'calt'], lang: 'ar' } : {}),
+        const { generateVisitorsReportPdf } = await import('../services/pdfService.js');
+        const pdfBuffer = await generateVisitorsReportPdf({
+          totalVisitors,
+          totalBookings,
+          totalPackageBookings,
+          totalPaidBookings,
+          totalSpent,
+          rows,
+          includeTotals,
+          includeVisitorDetails,
         });
-
-        let arabicFontRegistered = false;
-        if (arabicFontPath) {
-          try {
-            const fontBuffer = readFileSync(arabicFontPath);
-            doc.registerFont('ArabicFont', fontBuffer);
-            arabicFontRegistered = true;
-          } catch (e: any) {
-            logger.warn('Visitors PDF: could not load Arabic font', { path: arabicFontPath, err: e?.message });
-          }
-        }
-
-        const chunks: Buffer[] = [];
-        const pdfPromise = new Promise<Buffer>((resolve, reject) => {
-          doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-          doc.on('end', () => resolve(Buffer.concat(chunks)));
-          doc.on('error', reject);
-        });
-
-        const formatNum = (n: number) => Number.isFinite(n) ? Number(n).toFixed(2) : '0.00';
-        const totalSpentFormatted = formatNum(totalSpent);
-        const lineWidth = 500;
-
-        doc.fontSize(18).text('Visitors Report', { align: 'center' });
-        doc.moveDown();
-        doc.fontSize(10);
-        if (includeTotals) {
-          doc.text(`Total Visitors: ${totalVisitors}`);
-          doc.text(`Total Bookings: ${totalBookings}`);
-          doc.text(`Package Bookings: ${totalPackageBookings}`);
-          doc.text(`Paid Bookings: ${totalPaidBookings}`);
-          doc.text(`Total Spent: ${totalSpentFormatted}`);
-          doc.moveDown();
-        }
-        if (includeVisitorDetails) {
-          for (const r of rows) {
-            const rawName = String(r.customer_name ?? '').replace(/\|/g, ',');
-            const phone = String(r.phone ?? '');
-            const bookings = Number(r.total_bookings) ?? 0;
-            const spentFormatted = formatNum(Number(r.total_spent) ?? 0);
-            const status = String(r.status ?? '');
-            const restOfLine = ` | Phone: ${phone} | Bookings: ${bookings} | Spent: ${spentFormatted} | Status: ${status}`;
-
-            if (arabicFontRegistered && containsArabic(rawName)) {
-              // Use reshaped Arabic for correct joining; fall back to raw if reshaped is empty
-              const nameForPdf = reshapeArabicForPdf(rawName).trim() || rawName;
-              doc
-                .font('Helvetica')
-                .text('Name: ', { width: lineWidth, continued: true })
-                .font('ArabicFont')
-                .text(nameForPdf, { width: lineWidth, continued: true, features: ['rtla'] })
-                .font('Helvetica')
-                .text(restOfLine, { width: lineWidth });
-            } else {
-              doc.font('Helvetica').text(`Name: ${rawName}${restOfLine}`, { width: lineWidth });
-            }
-            doc.moveDown(0.5);
-          }
-        }
-        doc.end();
-
-        const pdfBuffer = await pdfPromise;
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="visitors-${new Date().toISOString().slice(0, 10)}.pdf"`);
         return res.send(pdfBuffer);
