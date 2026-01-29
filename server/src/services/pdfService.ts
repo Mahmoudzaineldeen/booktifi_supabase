@@ -1807,17 +1807,28 @@ export async function generateVisitorDetailStructuredPdf(reports: VisitorStructu
   doc.moveDown();
   doc.fontSize(10);
 
-  for (const rep of reports) {
-    doc.font('Helvetica').fontSize(12).text('1. Visitor Summary', { continued: false }).fontSize(10);
+  const marginLeft = 50;
+  const pageWidth = 842;
+
+  for (let idx = 0; idx < reports.length; idx++) {
+    const rep = reports[idx];
+
+    if (idx > 0) {
+      doc.moveDown(0.5);
+      doc.moveTo(marginLeft, doc.y).lineTo(pageWidth - marginLeft, doc.y).stroke();
+      doc.moveDown(0.8);
+    }
+
+    doc.font('Helvetica').fontSize(12).text('1. Visitor Summary', { align: 'left', width: lineWidth }).fontSize(10);
     doc.moveDown(0.3);
-    doc.text(`Total Visitors: ${rep.summary.totalVisitors}`);
-    doc.text(`Total Bookings: ${rep.summary.totalBookings}`);
-    doc.text(`Package Bookings: ${rep.summary.packageBookings}`);
-    doc.text(`Paid Bookings: ${rep.summary.paidBookings}`);
-    doc.text(`Total Spent: ${formatNum(rep.summary.totalSpent)}`);
+    doc.text(`Total Visitors: ${rep.summary.totalVisitors}`, { align: 'left', width: lineWidth });
+    doc.text(`Total Bookings: ${rep.summary.totalBookings}`, { align: 'left', width: lineWidth });
+    doc.text(`Package Bookings: ${rep.summary.packageBookings}`, { align: 'left', width: lineWidth });
+    doc.text(`Paid Bookings: ${rep.summary.paidBookings}`, { align: 'left', width: lineWidth });
+    doc.text(`Total Spent: ${formatNum(rep.summary.totalSpent)}`, { align: 'left', width: lineWidth });
     doc.moveDown(0.5);
 
-    doc.font('Helvetica').fontSize(12).text('2. Visitor Profile', { continued: false }).fontSize(10);
+    doc.font('Helvetica').fontSize(12).text('2. Visitor Profile', { align: 'left', width: lineWidth }).fontSize(10);
     doc.moveDown(0.3);
     drawLabelValue('Name: ', rep.profile.name || '—', rep.profile.name);
     doc.text(`Phone: ${rep.profile.phone ?? ''}`);
@@ -1825,7 +1836,7 @@ export async function generateVisitorDetailStructuredPdf(reports: VisitorStructu
     doc.text(`Status: ${rep.profile.status ?? ''}`);
     doc.moveDown(0.5);
 
-    doc.font('Helvetica').fontSize(12).text('3. Active Packages', { continued: false }).fontSize(10);
+    doc.font('Helvetica').fontSize(12).text('3. Active Packages', { align: 'left', width: lineWidth }).fontSize(10);
     doc.moveDown(0.3);
     if (rep.activePackages.length === 0) {
       doc.text('(None)');
@@ -1856,7 +1867,7 @@ export async function generateVisitorDetailStructuredPdf(reports: VisitorStructu
     }
     doc.moveDown(0.5);
 
-    doc.font('Helvetica').fontSize(12).text('4. Booking History', { continued: false }).fontSize(10);
+    doc.font('Helvetica').fontSize(12).text('4. Booking History', { align: 'left', width: lineWidth }).fontSize(10);
     doc.moveDown(0.3);
     const colGap = 4;
     const colW = [100, 78, 72, 58, 42, 58, 58, 68, 68];
