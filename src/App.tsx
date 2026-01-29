@@ -13,6 +13,7 @@ import { TenantFeaturesPage } from './pages/admin/TenantFeaturesPage';
 import { TenantDashboard } from './pages/tenant/TenantDashboard';
 import { ServicesPageWrapper } from './pages/tenant/ServicesPageWrapper';
 import { BookingsPageWrapper } from './pages/tenant/BookingsPageWrapper';
+import { VisitorsPageWrapper } from './pages/tenant/VisitorsPageWrapper';
 import { EmployeesPageWrapper } from './pages/tenant/EmployeesPageWrapper';
 import { SettingsPageWrapper } from './pages/tenant/SettingsPageWrapper';
 import { ReceptionPage } from './pages/reception/ReceptionPage';
@@ -63,6 +64,7 @@ function AppContent() {
       <Route path="/:tenantSlug/admin/package-subscribers" element={<PackageSubscribersPageWrapper />} />
       <Route path="/:tenantSlug/admin/offers" element={<OffersPageWrapper />} />
       <Route path="/:tenantSlug/admin/bookings" element={<BookingsPageWrapper />} />
+      <Route path="/:tenantSlug/admin/visitors" element={<VisitorsPageWrapper />} />
       <Route path="/:tenantSlug/admin/employees" element={<EmployeesPageWrapper />} />
       <Route path="/:tenantSlug/admin/settings" element={<SettingsPageWrapper />} />
       <Route path="/:tenantSlug/admin/landing" element={<LandingPageBuilderWrapper />} />

@@ -105,23 +105,27 @@ export function TenantDashboard() {
     });
 
     // Redirect cashier and receptionist to reception page (not admin dashboard)
+    // Exception: allow receptionist to access /admin/visitors when linked from reception
+    const pathname = window.location.pathname || '';
+    const isVisitorsPage = pathname.includes('/admin/visitors');
     if (userProfile.role === 'cashier' || userProfile.role === 'receptionist') {
-      console.log('[TenantDashboard] Cashier/Receptionist detected, redirecting to reception page', {
-        role: userProfile.role,
-      });
-      if (tenantSlug) {
-        navigate(`/${tenantSlug}/reception`);
-      } else if (authTenant?.slug) {
-        navigate(`/${authTenant.slug}/reception`);
-      } else {
-        // Try to fetch tenant slug
-        validateTenantAccess().then(() => {
-          if (tenantSlugResolved) {
-            navigate(`/${tenantSlugResolved}/reception`);
-          }
+      if (!isVisitorsPage) {
+        console.log('[TenantDashboard] Cashier/Receptionist detected, redirecting to reception page', {
+          role: userProfile.role,
         });
+        if (tenantSlug) {
+          navigate(`/${tenantSlug}/reception`);
+        } else if (authTenant?.slug) {
+          navigate(`/${authTenant.slug}/reception`);
+        } else {
+          validateTenantAccess().then(() => {
+            if (tenantSlugResolved) {
+              navigate(`/${tenantSlugResolved}/reception`);
+            }
+          });
+        }
+        return;
       }
-      return;
     }
 
     // SECURITY: Solution Owner should access /solution-admin, not tenant dashboard
@@ -146,8 +150,10 @@ export function TenantDashboard() {
       return;
     }
 
-    // Allow tenant_admin and customer_admin to access admin dashboard
-    const allowedRoles = ['tenant_admin', 'customer_admin'];
+    // Allow tenant_admin, customer_admin, and (for visitors page only) receptionist/coordinator
+    const allowedRoles = isVisitorsPage
+      ? ['tenant_admin', 'customer_admin', 'admin_user', 'receptionist', 'coordinator']
+      : ['tenant_admin', 'customer_admin'];
     if (!allowedRoles.includes(userProfile.role)) {
       console.log('[TenantDashboard] Wrong role, redirecting to home', {
         role: userProfile.role,

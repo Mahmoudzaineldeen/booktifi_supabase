@@ -10,12 +10,12 @@ import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
-import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Edit, CalendarClock, Users } from 'lucide-react';
+import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Edit, CalendarClock, Users, Ban } from 'lucide-react';
 import { ReceptionPackagesPage } from './ReceptionPackagesPage';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { format, addDays, startOfWeek, isSameDay, parseISO, startOfDay, endOfDay, addMinutes, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { ar } from 'date-fns/locale';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { countryCodes } from '../../lib/countryCodes';
 import { getApiUrl } from '../../lib/apiUrl';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
@@ -120,6 +120,8 @@ export function ReceptionPage() {
   const { userProfile, tenant, signOut, loading: authLoading } = useAuth();
   const { formatPrice } = useCurrency();
   const navigate = useNavigate();
+  const { tenantSlug: routeTenantSlug } = useParams<{ tenantSlug?: string }>();
+  const tenantSlugForNav = routeTenantSlug || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : '');
   const tenantDefaultCountry = useTenantDefaultCountry();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [todayBookings, setTodayBookings] = useState<Booking[]>([]);
@@ -155,6 +157,7 @@ export function ReceptionPage() {
   const [countryCode, setCountryCode] = useState(tenantDefaultCountry); // Use tenant's default country code
   const [customerPhoneFull, setCustomerPhoneFull] = useState(''); // Full phone number with country code
   const [customerPackages, setCustomerPackages] = useState<CustomerPackage[]>([]);
+  const [customerIsBlocked, setCustomerIsBlocked] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [packages, setPackages] = useState<any[]>([]);
   const [subscriptionCustomerLookup, setSubscriptionCustomerLookup] = useState<any>(null);
@@ -2814,11 +2817,12 @@ export function ReceptionPage() {
       }
     }
     setCustomerPackages([]);
+    setCustomerIsBlocked(false);
     try {
-      // First, try to find in customers table
+      // First, try to find in customers table (include is_blocked for visitor block warning)
       const { data: customerData, error: customerError } = await db
         .from('customers')
-        .select('id, name, email, phone')
+        .select('id, name, email, phone, is_blocked')
         .eq('tenant_id', userProfile.tenant_id)
         .eq('phone', fullPhoneNumber)
         .maybeSingle();
@@ -2826,6 +2830,7 @@ export function ReceptionPage() {
       if (customerError) throw customerError;
 
       if (customerData) {
+        setCustomerIsBlocked((customerData as any).is_blocked === true);
         // Customer found in customers table - only auto-fill if fields are empty
         setBookingForm(prev => ({
           ...prev,
@@ -3516,6 +3521,14 @@ export function ReceptionPage() {
                 <span className="hidden sm:inline">{i18n.language === 'ar' ? 'الباقات' : 'Packages'}</span>
               </Button>
               <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => tenantSlugForNav && navigate(`/${tenantSlugForNav}/admin/visitors`)}
+              >
+                <Users className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">{i18n.language === 'ar' ? 'الزوار' : 'Visitors'}</span>
+              </Button>
+              <Button
                 variant="outline"
                 size="sm"
                 icon={<Package className="w-4 h-4" />}
@@ -4154,6 +4167,17 @@ export function ReceptionPage() {
               </div>
             )}
           </div>
+
+          {customerIsBlocked && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 flex items-start gap-2">
+              <Ban className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <span>
+                {i18n.language === 'ar'
+                  ? 'هذا الزائر محظور ولا يمكنه إنشاء حجوزات من جانب العميل. يمكنك الاستمرار في إنشاء الحجز من الاستقبال.'
+                  : 'This visitor is blocked and cannot create bookings from the customer side. You can still create this booking from reception.'}
+              </span>
+            </div>
+          )}
 
           {/* 2. Customer Name */}
           <Input

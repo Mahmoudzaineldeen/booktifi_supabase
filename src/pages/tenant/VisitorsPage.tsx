@@ -1,0 +1,719 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useAuth } from '../../contexts/AuthContext';
+import { useCurrency } from '../../contexts/CurrencyContext';
+import { getApiUrl } from '../../lib/apiUrl';
+import { db } from '../../lib/db';
+import { Card, CardContent } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
+import { Modal } from '../../components/ui/Modal';
+import { Input } from '../../components/ui/Input';
+import {
+  UserCircle,
+  Download,
+  Filter,
+  RotateCcw,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  Ban,
+  CheckCircle,
+  Package,
+  DollarSign,
+} from 'lucide-react';
+import { format, parseISO } from 'date-fns';
+import { safeTranslateStatus } from '../../lib/safeTranslation';
+
+export interface VisitorRow {
+  id: string;
+  type: 'customer' | 'guest';
+  customer_name: string;
+  phone: string;
+  email: string | null;
+  total_bookings: number;
+  total_spent: number;
+  package_bookings_count: number;
+  paid_bookings_count: number;
+  last_booking_date: string | null;
+  status: 'active' | 'blocked';
+}
+
+interface VisitorDetailBooking {
+  id: string;
+  service_name: string;
+  date: string;
+  time: string;
+  visitors_count: number;
+  booking_type: 'PACKAGE' | 'PAID';
+  amount_paid: number;
+  status: string;
+  created_by: string;
+}
+
+interface VisitorDetail {
+  visitor: {
+    id: string;
+    type: 'customer' | 'guest';
+    customer_name: string;
+    phone: string;
+    email: string | null;
+    total_bookings: number;
+    total_spent: number;
+    package_bookings_count: number;
+    paid_bookings_count: number;
+    last_booking_date: string | null;
+    status: string;
+    active_packages: any[];
+  };
+  bookings: VisitorDetailBooking[];
+}
+
+const PAGE_SIZE = 20;
+
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('auth_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+export function VisitorsPage() {
+  const { t, i18n } = useTranslation();
+  const { userProfile } = useAuth();
+  const { formatPrice } = useCurrency();
+
+  const [visitors, setVisitors] = useState<VisitorRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: PAGE_SIZE,
+    total: 0,
+    totalPages: 0,
+    hasNextPage: false,
+    hasPrevPage: false,
+  });
+
+  const [nameFilter, setNameFilter] = useState('');
+  const [phoneFilter, setPhoneFilter] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [bookingType, setBookingType] = useState<'all' | 'package_only' | 'paid_only'>('all');
+  const [serviceId, setServiceId] = useState('');
+  const [bookingStatus, setBookingStatus] = useState('');
+  const [services, setServices] = useState<{ id: string; name: string; name_ar?: string }[]>([]);
+
+  const [detailVisitor, setDetailVisitor] = useState<VisitorDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [blockingId, setBlockingId] = useState<string | null>(null);
+  const [exportingFormat, setExportingFormat] = useState<string | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [confirmBlock, setConfirmBlock] = useState<VisitorRow | null>(null);
+
+  const canBlockUnblock = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user', 'coordinator'].includes(
+    userProfile?.role || ''
+  );
+
+  const buildQuery = useCallback(() => {
+    const params = new URLSearchParams();
+    params.set('page', String(pagination.page));
+    params.set('limit', String(PAGE_SIZE));
+    if (nameFilter.trim()) params.set('name', nameFilter.trim());
+    if (phoneFilter.trim()) params.set('phone', phoneFilter.trim());
+    if (startDate) params.set('startDate', startDate);
+    if (endDate) params.set('endDate', endDate);
+    if (bookingType !== 'all') params.set('bookingType', bookingType);
+    if (serviceId) params.set('serviceId', serviceId);
+    if (bookingStatus) params.set('bookingStatus', bookingStatus);
+    return params.toString();
+  }, [pagination.page, nameFilter, phoneFilter, startDate, endDate, bookingType, serviceId, bookingStatus]);
+
+  const fetchVisitors = useCallback(async () => {
+    if (!userProfile?.tenant_id) return;
+    setLoading(true);
+    try {
+      const qs = buildQuery();
+      const res = await fetch(`${getApiUrl()}/visitors?${qs}`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load visitors');
+      setVisitors(data.data || []);
+      setPagination((prev) => ({
+        ...prev,
+        ...(data.pagination || {}),
+      }));
+    } catch (e: any) {
+      console.error('Fetch visitors error', e);
+      setVisitors([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [userProfile?.tenant_id, buildQuery]);
+
+  useEffect(() => {
+    fetchVisitors();
+  }, [fetchVisitors]);
+
+  useEffect(() => {
+    if (!userProfile?.tenant_id) return;
+    db.from('services')
+      .select('id, name, name_ar')
+      .eq('tenant_id', userProfile.tenant_id)
+      .eq('is_active', true)
+      .order('name')
+      .then((res: { data?: any[] } | any) => setServices(Array.isArray(res?.data) ? res.data : []))
+      .catch(() => setServices([]));
+  }, [userProfile?.tenant_id]);
+
+  const handleFilter = () => {
+    setPagination((p) => ({ ...p, page: 1 }));
+    setTimeout(() => fetchVisitors(), 0);
+  };
+
+  const handleReset = () => {
+    setNameFilter('');
+    setPhoneFilter('');
+    setStartDate('');
+    setEndDate('');
+    setBookingType('all');
+    setServiceId('');
+    setBookingStatus('');
+    setPagination((p) => ({ ...p, page: 1 }));
+    setTimeout(() => fetchVisitors(), 0);
+  };
+
+  const openDetail = async (row: VisitorRow) => {
+    setDetailLoading(true);
+    setDetailVisitor(null);
+    try {
+      const res = await fetch(`${getApiUrl()}/visitors/${encodeURIComponent(row.id)}`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load visitor');
+      setDetailVisitor(data);
+    } catch (e: any) {
+      console.error('Visitor detail error', e);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const closeDetail = () => {
+    setDetailVisitor(null);
+    setConfirmBlock(null);
+  };
+
+  const handleBlock = async (row: VisitorRow) => {
+    if (row.type === 'guest' || row.status === 'blocked') return;
+    setConfirmBlock(row);
+  };
+
+  const confirmBlockYes = async () => {
+    if (!confirmBlock || confirmBlock.type === 'guest') return;
+    setBlockingId(confirmBlock.id);
+    try {
+      const res = await fetch(`${getApiUrl()}/visitors/${confirmBlock.id}/block`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to block');
+      setConfirmBlock(null);
+      if (detailVisitor?.visitor.id === confirmBlock.id) {
+        setDetailVisitor((d) =>
+          d ? { ...d, visitor: { ...d.visitor, status: 'blocked' } } : null
+        );
+      }
+      fetchVisitors();
+    } catch (e: any) {
+      console.error(e);
+      alert(e.message || 'Failed to block visitor');
+    } finally {
+      setBlockingId(null);
+    }
+  };
+
+  const handleUnblock = async (row: VisitorRow) => {
+    if (row.type === 'guest' || row.status !== 'blocked') return;
+    setBlockingId(row.id);
+    try {
+      const res = await fetch(`${getApiUrl()}/visitors/${row.id}/unblock`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to unblock');
+      if (detailVisitor?.visitor.id === row.id) {
+        setDetailVisitor((d) =>
+          d ? { ...d, visitor: { ...d.visitor, status: 'active' } } : null
+        );
+      }
+      fetchVisitors();
+    } catch (e: any) {
+      console.error(e);
+      alert(e.message || 'Failed to unblock visitor');
+    } finally {
+      setBlockingId(null);
+    }
+  };
+
+  const handleExport = async (format: 'pdf' | 'xlsx' | 'csv') => {
+    setExportingFormat(format);
+    setShowExportMenu(false);
+    const qs = buildQuery().replace(/^page=\d+&?|&?limit=\d+/g, '').replace(/&&/g, '&').replace(/^&|&$/g, '');
+    const url = `${getApiUrl()}/visitors/export/${format}?${qs}`;
+    try {
+      const res = await fetch(url, { headers: getAuthHeaders() });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || res.statusText);
+      }
+      const blob = await res.blob();
+      const ext = format === 'csv' ? 'csv' : format === 'xlsx' ? 'xlsx' : 'pdf';
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.setAttribute('download', `visitors-${new Date().toISOString().slice(0, 10)}.${ext}`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (e: any) {
+      console.error('Export error', e);
+      alert(e.message || 'Export failed');
+    } finally {
+      setExportingFormat(null);
+    }
+  };
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{t('navigation.visitors', 'Visitors')}</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {t('visitors.subtitle', 'Manage and export visitor data')}
+          </p>
+        </div>
+        <div className="relative">
+          <Button
+            variant="secondary"
+            icon={<Download className="w-4 h-4" />}
+            onClick={() => setShowExportMenu(!showExportMenu)}
+            disabled={exportingFormat !== null}
+          >
+            {t('visitors.exportReport', 'Export Report')}
+          </Button>
+          {showExportMenu && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setShowExportMenu(false)}
+                aria-hidden="true"
+              />
+              <div className="absolute right-0 mt-1 py-1 w-48 bg-white rounded-lg shadow-lg border z-20">
+                <button
+                  type="button"
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100"
+                  onClick={() => handleExport('csv')}
+                >
+                  CSV
+                </button>
+                <button
+                  type="button"
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100"
+                  onClick={() => handleExport('xlsx')}
+                >
+                  Excel (.xlsx)
+                </button>
+                <button
+                  type="button"
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100"
+                  onClick={() => handleExport('pdf')}
+                >
+                  PDF
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Filter bar - reports style */}
+      <Card className="mb-6 bg-amber-50/50 border-amber-200/50">
+        <CardContent className="p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('visitors.searchByName', 'Search by Name')}
+              </label>
+              <Input
+                placeholder={t('visitors.enterName', 'Enter name')}
+                value={nameFilter}
+                onChange={(e) => setNameFilter(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('visitors.searchByPhone', 'Search by Phone')}
+              </label>
+              <Input
+                placeholder={t('visitors.enterPhone', 'Enter phone number')}
+                value={phoneFilter}
+                onChange={(e) => setPhoneFilter(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('visitors.startDate', 'Start Date')}
+              </label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('visitors.endDate', 'End Date')}
+              </label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('visitors.bookingType', 'Booking Type')}
+              </label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                value={bookingType}
+                onChange={(e) => setBookingType(e.target.value as any)}
+              >
+                <option value="all">{t('visitors.allTypes', 'All')}</option>
+                <option value="package_only">{t('visitors.packageOnly', 'Package Only')}</option>
+                <option value="paid_only">{t('visitors.paidOnly', 'Paid Only')}</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('visitors.service', 'Service')}
+              </label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                value={serviceId}
+                onChange={(e) => setServiceId(e.target.value)}
+              >
+                <option value="">{t('visitors.allServices', 'All Services')}</option>
+                {services.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {i18n.language === 'ar' ? s.name_ar || s.name : s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('visitors.bookingStatus', 'Booking Status')}
+              </label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                value={bookingStatus}
+                onChange={(e) => setBookingStatus(e.target.value)}
+              >
+                <option value="">{t('visitors.allStatuses', 'All')}</option>
+                <option value="confirmed">{t('booking.statusConfirmed', 'Confirmed')}</option>
+                <option value="pending">{t('booking.statusPending', 'Pending')}</option>
+                <option value="cancelled">{t('booking.statusCancelled', 'Cancelled')}</option>
+                <option value="checked_in">{t('booking.statusCheckedIn', 'Checked-in')}</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <Button variant="primary" icon={<Filter className="w-4 h-4" />} onClick={handleFilter}>
+              {t('visitors.filter', 'Filter')}
+            </Button>
+            <Button variant="secondary" icon={<RotateCcw className="w-4 h-4" />} onClick={handleReset}>
+              {t('visitors.reset', 'Reset')}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Summary stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-sm text-gray-500">{t('visitors.totalVisitors', 'Total Visitors')}</p>
+            <p className="text-2xl font-bold text-gray-900">{pagination.total}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-green-50 border-green-100">
+          <CardContent className="p-4">
+            <p className="text-sm text-gray-600">{t('visitors.totalBookings', 'Total Bookings')}</p>
+            <p className="text-2xl font-bold text-green-800">
+              {visitors.reduce((s, v) => s + v.total_bookings, 0)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="bg-amber-50 border-amber-100">
+          <CardContent className="p-4">
+            <p className="text-sm text-gray-600">{t('visitors.packageBookings', 'Package Bookings')}</p>
+            <p className="text-2xl font-bold text-amber-800">
+              {visitors.reduce((s, v) => s + v.package_bookings_count, 0)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="bg-blue-50 border-blue-100">
+          <CardContent className="p-4">
+            <p className="text-sm text-gray-600">{t('visitors.totalSpent', 'Total Spent')}</p>
+            <p className="text-2xl font-bold text-blue-800">
+              {formatPrice(visitors.reduce((s, v) => s + v.total_spent, 0))}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Table */}
+      <Card>
+        <CardContent className="p-0">
+          <div className="flex items-center justify-between px-4 py-3 border-b">
+            <h2 className="font-semibold text-gray-900">{t('visitors.visitorList', 'Visitor List')}</h2>
+            <span className="text-sm text-gray-500">
+              {pagination.total} {t('visitors.records', 'records')}
+            </span>
+          </div>
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+            </div>
+          ) : visitors.length === 0 ? (
+            <p className="text-center py-12 text-gray-500">
+              {t('visitors.noVisitors', 'No visitors found matching your filters')}
+            </p>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-50 text-left text-xs uppercase text-gray-500 tracking-wider">
+                      <th className="px-4 py-3">{t('visitors.customerName', 'Customer Name')}</th>
+                      <th className="px-4 py-3">{t('visitors.phone', 'Phone')}</th>
+                      <th className="px-4 py-3">{t('visitors.email', 'Email')}</th>
+                      <th className="px-4 py-3">{t('visitors.totalBookings', 'Total Bookings')}</th>
+                      <th className="px-4 py-3">{t('visitors.totalSpent', 'Total Spent')}</th>
+                      <th className="px-4 py-3">{t('visitors.packageBookings', 'Package')}</th>
+                      <th className="px-4 py-3">{t('visitors.paidBookings', 'Paid')}</th>
+                      <th className="px-4 py-3">{t('visitors.lastBooking', 'Last Booking')}</th>
+                      <th className="px-4 py-3">{t('visitors.status', 'Status')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visitors.map((row) => (
+                      <tr
+                        key={row.id}
+                        onClick={() => openDetail(row)}
+                        className="border-t hover:bg-blue-50/50 cursor-pointer"
+                      >
+                        <td className="px-4 py-3 font-medium text-gray-900">{row.customer_name || '—'}</td>
+                        <td className="px-4 py-3 text-gray-700">{row.phone}</td>
+                        <td className="px-4 py-3 text-gray-600">{row.email || '—'}</td>
+                        <td className="px-4 py-3">{row.total_bookings}</td>
+                        <td className="px-4 py-3">{formatPrice(row.total_spent)}</td>
+                        <td className="px-4 py-3">{row.package_bookings_count}</td>
+                        <td className="px-4 py-3">{row.paid_bookings_count}</td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {row.last_booking_date
+                            ? format(parseISO(row.last_booking_date), 'MMM d, yyyy')
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                              row.status === 'blocked'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-green-100 text-green-800'
+                            }`}
+                          >
+                            {row.status === 'blocked'
+                              ? t('visitors.blocked', 'Blocked')
+                              : t('visitors.active', 'Active')}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {pagination.totalPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t">
+                  <span className="text-sm text-gray-600">
+                    {t('common.page', 'Page')} {pagination.page} {t('common.of', 'of')} {pagination.totalPages}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<ChevronLeft className="w-4 h-4" />}
+                      onClick={() => setPagination((p) => ({ ...p, page: Math.max(1, p.page - 1) }))}
+                      disabled={!pagination.hasPrevPage}
+                    />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<ChevronRight className="w-4 h-4" />}
+                      onClick={() =>
+                        setPagination((p) => ({ ...p, page: Math.min(pagination.totalPages, p.page + 1) }))
+                      }
+                      disabled={!pagination.hasNextPage}
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Visitor detail modal */}
+      <Modal
+        isOpen={!!detailVisitor || detailLoading}
+        onClose={closeDetail}
+        title={detailVisitor ? detailVisitor.visitor.customer_name || detailVisitor.visitor.phone : (t('visitors.details', 'Visitor Details') as string)}
+      >
+        {detailLoading ? (
+          <div className="flex justify-center py-12">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+          </div>
+        ) : detailVisitor ? (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">{t('visitors.visitorInfo', 'Visitor Info')}</h3>
+              <dl className="grid grid-cols-2 gap-2 text-sm">
+                <dt className="text-gray-500">{t('visitors.name', 'Name')}</dt>
+                <dd className="font-medium">{detailVisitor.visitor.customer_name || '—'}</dd>
+                <dt className="text-gray-500">{t('visitors.phone', 'Phone')}</dt>
+                <dd>{detailVisitor.visitor.phone}</dd>
+                <dt className="text-gray-500">{t('visitors.email', 'Email')}</dt>
+                <dd>{detailVisitor.visitor.email || '—'}</dd>
+                <dt className="text-gray-500">{t('visitors.totalBookings', 'Total Bookings')}</dt>
+                <dd>{detailVisitor.visitor.total_bookings}</dd>
+                <dt className="text-gray-500">{t('visitors.totalSpent', 'Total Spent')}</dt>
+                <dd>{formatPrice(detailVisitor.visitor.total_spent)}</dd>
+                <dt className="text-gray-500">{t('visitors.packageBookings', 'Package Bookings')}</dt>
+                <dd>{detailVisitor.visitor.package_bookings_count}</dd>
+                <dt className="text-gray-500">{t('visitors.paidBookings', 'Paid Bookings')}</dt>
+                <dd>{detailVisitor.visitor.paid_bookings_count}</dd>
+              </dl>
+              {detailVisitor.visitor.active_packages?.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs font-medium text-gray-500">{t('visitors.activePackages', 'Active packages')}</p>
+                  <ul className="text-sm text-gray-700 mt-1">
+                    {detailVisitor.visitor.active_packages.map((p: any, i: number) => (
+                      <li key={i}>
+                        {p.package_name || 'Package'} — {Array.isArray(p.usage) ? p.usage.map((u: any) => `${u.remaining_quantity || 0} left`).join(', ') : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {canBlockUnblock && detailVisitor.visitor.type === 'customer' && (
+                <div className="mt-4 flex gap-2">
+                  {detailVisitor.visitor.status === 'blocked' ? (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon={<CheckCircle className="w-4 h-4" />}
+                      onClick={() => handleUnblock({ ...detailVisitor.visitor, id: detailVisitor.visitor.id } as VisitorRow)}
+                      disabled={blockingId === detailVisitor.visitor.id}
+                    >
+                      {t('visitors.unblock', 'Unblock Visitor')}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<Ban className="w-4 h-4" />}
+                      onClick={() => handleBlock({ ...detailVisitor.visitor, id: detailVisitor.visitor.id } as VisitorRow)}
+                      disabled={blockingId === detailVisitor.visitor.id}
+                    >
+                      {t('visitors.block', 'Block Visitor')}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">{t('visitors.bookingHistory', 'Booking History')}</h3>
+              <div className="overflow-x-auto max-h-80 overflow-y-auto border rounded-lg">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.bookingId', 'Booking ID')}</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.serviceName', 'Service')}</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.date', 'Date')}</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.time', 'Time')}</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.visitorsCount', 'Visitors')}</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.bookingType', 'Type')}</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.amountPaid', 'Amount')}</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.status', 'Status')}</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.createdBy', 'Created By')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailVisitor.bookings.map((b) => (
+                      <tr key={b.id} className="border-t">
+                        <td className="px-3 py-2 font-mono text-xs">{b.id.slice(0, 8)}…</td>
+                        <td className="px-3 py-2">{b.service_name}</td>
+                        <td className="px-3 py-2">{b.date || '—'}</td>
+                        <td className="px-3 py-2">{b.time || '—'}</td>
+                        <td className="px-3 py-2">{b.visitors_count}</td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                              b.booking_type === 'PACKAGE' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                            }`}
+                          >
+                            {b.booking_type}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">{formatPrice(b.amount_paid)}</td>
+                        <td className="px-3 py-2">{safeTranslateStatus(b.status, t)}</td>
+                        <td className="px-3 py-2">{b.created_by === 'staff' ? t('visitors.staff', 'Admin/Receptionist') : t('visitors.customer', 'Customer')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      {/* Block confirmation */}
+      <Modal
+        isOpen={!!confirmBlock}
+        onClose={() => setConfirmBlock(null)}
+        title={t('visitors.confirmBlock', 'Block Visitor')}
+      >
+        {confirmBlock && (
+          <div className="space-y-4">
+            <p className="text-gray-600">
+              {t('visitors.confirmBlockMessage', 'Blocking this visitor will prevent them from creating new bookings from the customer side. Past bookings will remain visible. Continue?')}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setConfirmBlock(null)}>
+                {t('common.cancel', 'Cancel')}
+              </Button>
+              <Button variant="primary" onClick={confirmBlockYes} disabled={blockingId !== null}>
+                {t('visitors.block', 'Block Visitor')}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}

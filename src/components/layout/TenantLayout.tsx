@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList } from 'lucide-react';
+import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList, UserCircle } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface TenantLayoutProps {
@@ -24,10 +24,12 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
   // Get tenantSlug from props, URL params, or tenant slug
   const tenantSlug = propTenantSlug || params.tenantSlug || tenant?.slug || '';
 
-  // Coordinator can only access reception page; redirect to reception if they hit any admin route
+  // Coordinator can only access reception page and visitors; redirect if they hit any other admin route
   useEffect(() => {
     if (userProfile?.role === 'coordinator' && tenantSlug && location.pathname.startsWith(`/${tenantSlug}/admin`)) {
-      navigate(`/${tenantSlug}/reception`, { replace: true });
+      if (!location.pathname.startsWith(`/${tenantSlug}/admin/visitors`)) {
+        navigate(`/${tenantSlug}/reception`, { replace: true });
+      }
     }
   }, [userProfile?.role, tenantSlug, location.pathname, navigate]);
 
@@ -83,6 +85,13 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       visible: true, // All roles can see bookings
     },
     {
+      name: t('navigation.visitors', 'Visitors'),
+      href: `/${tenantSlug}/admin/visitors`,
+      icon: UserCircle,
+      current: location.pathname.startsWith(`/${tenantSlug}/admin/visitors`),
+      visible: ['receptionist', 'coordinator', 'tenant_admin', 'customer_admin', 'admin_user'].includes(userProfile?.role || ''),
+    },
+    {
       name: t('navigation.reception', 'Reception'),
       href: `/${tenantSlug}/reception`,
       icon: ClipboardList,
@@ -114,8 +123,8 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
 
   const navigation = baseNavigation.filter((item) => item.visible);
 
-  // Coordinator must not see admin layout; redirect is done in useEffect; avoid flashing content
-  if (userProfile?.role === 'coordinator' && tenantSlug && location.pathname.startsWith(`/${tenantSlug}/admin`)) {
+  // Coordinator must not see admin layout (except visitors); redirect is done in useEffect; avoid flashing content
+  if (userProfile?.role === 'coordinator' && tenantSlug && location.pathname.startsWith(`/${tenantSlug}/admin`) && !location.pathname.startsWith(`/${tenantSlug}/admin/visitors`)) {
     return null;
   }
 

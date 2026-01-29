@@ -930,11 +930,12 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
     
     // CRITICAL: Validate customer_id exists in customers table before using it
     // If customer_id doesn't exist, set it to NULL to avoid foreign key violation
+    // Blocked visitors cannot create bookings from customer side
     if (customerIdForPackage) {
       console.log('[Booking Creation] Validating customer_id exists in customers table:', customerIdForPackage);
       const { data: customerExists, error: customerCheckError } = await supabase
         .from('customers')
-        .select('id')
+        .select('id, is_blocked')
         .eq('id', customerIdForPackage)
         .eq('tenant_id', tenant_id)
         .maybeSingle();
@@ -948,6 +949,12 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
         console.warn('[Booking Creation]    Setting customer_id to NULL to avoid foreign key violation');
         customerIdForPackage = null; // Customer doesn't exist, set to null
       } else {
+        const isBlocked = (customerExists as any).is_blocked === true;
+        if (isBlocked && req.user?.role === 'customer') {
+          return res.status(403).json({
+            error: 'You cannot create bookings. Your account has been blocked. Please contact support.',
+          });
+        }
         console.log('[Booking Creation] ✅ Customer ID validated and exists:', customerIdForPackage);
       }
     } else {
