@@ -33,10 +33,73 @@ function authenticate(req: express.Request, res: express.Response, next: express
   }
 }
 
-// Get customer's bookings
+// Resolve logged-in user (users.id) to customer record (customers.id) by matching email or phone.
+// bookings.customer_id and package_subscriptions.customer_id reference customers(id), not users(id).
+// If no customer exists but user has phone, create one so future bookings and "my bookings" can link.
+async function getCustomerIdFromUser(userId: string, tenantId: string): Promise<string | null> {
+  const { data: userData, error: userError } = await supabase
+    .from('users')
+    .select('email, phone, full_name')
+    .eq('id', userId)
+    .eq('tenant_id', tenantId)
+    .single();
+
+  if (userError || !userData) return null;
+
+  if (userData.email) {
+    const { data: byEmail } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('email', userData.email)
+      .maybeSingle();
+    if (byEmail?.id) return byEmail.id;
+  }
+
+  if (userData.phone) {
+    const { data: byPhone } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('phone', userData.phone)
+      .maybeSingle();
+    if (byPhone?.id) return byPhone.id;
+  }
+
+  // No customer record yet: create one if we have phone (required by unique constraint) so future bookings link
+  const phone = (userData.phone && String(userData.phone).trim()) || null;
+  const email = (userData.email && String(userData.email).trim()) || null;
+  const name = (userData.full_name && String(userData.full_name).trim()) || email || phone || 'Customer';
+  if (phone) {
+    const { data: created, error: insertErr } = await supabase
+      .from('customers')
+      .insert({
+        tenant_id: tenantId,
+        phone,
+        email: email || null,
+        name,
+      })
+      .select('id')
+      .single();
+    if (!insertErr && created?.id) return created.id;
+  }
+
+  return null;
+}
+
+// Get customer's bookings (bookings.customer_id = customers.id; resolve user → customer by email/phone)
 router.get('/bookings', authenticate, async (req, res) => {
   try {
     const userId = req.user!.id;
+    const tenantId = req.user!.tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant not found' });
+    }
+
+    const customerId = await getCustomerIdFromUser(userId, tenantId);
+    if (!customerId) {
+      return res.json([]);
+    }
 
     const { data, error } = await supabase
       .from('bookings')
@@ -63,15 +126,22 @@ router.get('/bookings', authenticate, async (req, res) => {
           is_approved
         )
       `)
-      .eq('customer_id', userId)
-      .eq('reviews.customer_id', userId)
-      .order('slots(slot_date)', { ascending: false })
-      .order('slots(start_time)', { ascending: false });
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    // Transform the nested data structure to match the original flat structure
-    const transformedData = data.map((booking: any) => ({
+    // Sort by slot date/time (client-side if needed); Supabase order on nested slots may not apply
+    const sorted = (data || []).slice().sort((a: any, b: any) => {
+      const dA = a.slots?.slot_date || '';
+      const dB = b.slots?.slot_date || '';
+      if (dA !== dB) return dB.localeCompare(dA);
+      const tA = a.slots?.start_time || '';
+      const tB = b.slots?.start_time || '';
+      return tB.localeCompare(tA);
+    });
+
+    const transformedData = sorted.map((booking: any) => ({
       id: booking.id,
       service_id: booking.service_id,
       service_name: booking.services?.name,
@@ -173,6 +243,25 @@ router.put('/profile', authenticate, async (req, res) => {
 router.get('/invoices', authenticate, async (req, res) => {
   try {
     const userId = req.user!.id;
+    const tenantId = req.user!.tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant not found' });
+    }
+
+    const customerId = await getCustomerIdFromUser(userId, tenantId);
+    if (!customerId) {
+      return res.json({
+        data: [],
+        pagination: {
+          page: 1,
+          limit: parseInt(req.query.limit as string) || 10,
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false,
+        },
+      });
+    }
 
     // Extract query parameters
     const page = parseInt(req.query.page as string) || 1;
@@ -180,7 +269,7 @@ router.get('/invoices', authenticate, async (req, res) => {
     const search = (req.query.search as string) || '';
     const offset = (page - 1) * limit;
 
-    // Build query
+    // Build query (bookings.customer_id = customers.id)
     let query = supabase
       .from('bookings')
       .select(`
@@ -204,7 +293,7 @@ router.get('/invoices', authenticate, async (req, res) => {
           end_time
         )
       `, { count: 'exact' })
-      .eq('customer_id', userId)
+      .eq('customer_id', customerId)
       .not('zoho_invoice_id', 'is', null);
 
     // Add search filter if provided
@@ -272,11 +361,20 @@ router.get('/invoices', authenticate, async (req, res) => {
 router.get('/invoices/latest', authenticate, async (req, res) => {
   try {
     const userId = req.user!.id;
+    const tenantId = req.user!.tenant_id;
+    if (!tenantId) {
+      return res.json({ invoice_id: null, timestamp: null });
+    }
+
+    const customerId = await getCustomerIdFromUser(userId, tenantId);
+    if (!customerId) {
+      return res.json({ invoice_id: null, timestamp: null });
+    }
 
     const { data, error } = await supabase
       .from('bookings')
       .select('zoho_invoice_id, zoho_invoice_created_at, created_at')
-      .eq('customer_id', userId)
+      .eq('customer_id', customerId)
       .not('zoho_invoice_id', 'is', null)
       .order('zoho_invoice_created_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })

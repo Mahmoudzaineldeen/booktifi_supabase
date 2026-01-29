@@ -1,7 +1,8 @@
 /*
-  # Fix payment_status type cast in create_booking_with_lock
+  # Fix create_booking_with_lock: use reserved_by_session_id
   
-  Fixes the payment_status enum casting issue in the function.
+  booking_locks table has reserved_by_session_id, not session_id.
+  Replaces the function to use the correct column name.
 */
 
 CREATE OR REPLACE FUNCTION public.create_booking_with_lock(
@@ -41,19 +42,16 @@ DECLARE
   v_paid_qty integer;
   v_package_covered_qty integer;
 BEGIN
-  -- Validate required fields
   IF p_slot_id IS NULL OR p_service_id IS NULL OR p_tenant_id IS NULL OR 
      p_customer_name IS NULL OR p_customer_phone IS NULL THEN
     RAISE EXCEPTION 'Missing required fields';
   END IF;
 
-  -- Validate visitor_count matches adult_count + child_count
   IF p_visitor_count != (p_adult_count + p_child_count) THEN
     RAISE EXCEPTION 'visitor_count (%) does not match adult_count (%) + child_count (%)', 
       p_visitor_count, p_adult_count, p_child_count;
   END IF;
 
-  -- Calculate paid_quantity if not provided (auto-calculate from package_covered_quantity)
   IF p_paid_quantity IS NULL THEN
     v_paid_qty := p_visitor_count - p_package_covered_quantity;
   ELSE
@@ -62,18 +60,15 @@ BEGIN
 
   v_package_covered_qty := p_package_covered_quantity;
 
-  -- Validate that package_covered_quantity + paid_quantity = visitor_count
   IF (v_package_covered_qty + v_paid_qty) != p_visitor_count THEN
     RAISE EXCEPTION 'package_covered_quantity (%) + paid_quantity (%) must equal visitor_count (%)', 
       v_package_covered_qty, v_paid_qty, p_visitor_count;
   END IF;
 
-  -- Validate non-negative values
   IF v_package_covered_qty < 0 OR v_paid_qty < 0 THEN
     RAISE EXCEPTION 'package_covered_quantity and paid_quantity must be non-negative';
   END IF;
 
-  -- Get and lock slot
   SELECT id, available_capacity, is_available, original_capacity, booked_count, tenant_id
   INTO v_slot_record
   FROM slots
@@ -84,17 +79,14 @@ BEGIN
     RAISE EXCEPTION 'Slot not found';
   END IF;
 
-  -- Verify slot belongs to tenant
   IF v_slot_record.tenant_id != p_tenant_id THEN
     RAISE EXCEPTION 'Slot does not belong to the specified tenant';
   END IF;
 
-  -- Check if slot is available
   IF NOT v_slot_record.is_available THEN
     RAISE EXCEPTION 'Slot is not available';
   END IF;
 
-  -- Get service
   SELECT id, tenant_id, is_active
   INTO v_service_record
   FROM services
@@ -104,17 +96,14 @@ BEGIN
     RAISE EXCEPTION 'Service not found';
   END IF;
 
-  -- Verify service belongs to tenant
   IF v_service_record.tenant_id != p_tenant_id THEN
     RAISE EXCEPTION 'Service does not belong to the specified tenant';
   END IF;
 
-  -- Check if service is active
   IF NOT v_service_record.is_active THEN
     RAISE EXCEPTION 'Service is not active';
   END IF;
 
-  -- Get tenant
   SELECT id
   INTO v_tenant_record
   FROM tenants
@@ -124,7 +113,7 @@ BEGIN
     RAISE EXCEPTION 'Tenant not found';
   END IF;
 
-  -- Check lock if provided (booking_locks uses reserved_by_session_id, not session_id)
+  -- booking_locks uses reserved_by_session_id, not session_id
   IF p_lock_id IS NOT NULL THEN
     SELECT id, slot_id, reserved_capacity, reserved_by_session_id, lock_expires_at
     INTO v_lock_record
@@ -152,16 +141,13 @@ BEGIN
     v_locked_capacity := 0;
   END IF;
 
-  -- Calculate available capacity (accounting for lock)
   v_available_capacity := v_slot_record.available_capacity - v_locked_capacity;
 
-  -- Check if there's enough capacity
   IF v_available_capacity < p_visitor_count THEN
     RAISE EXCEPTION 'Not enough tickets available. Available: %, Requested: %', 
       v_available_capacity, p_visitor_count;
   END IF;
 
-  -- Create booking
   INSERT INTO bookings (
     tenant_id,
     service_id,
@@ -199,7 +185,7 @@ BEGIN
     'pending',
     CASE WHEN v_paid_qty > 0 THEN 'unpaid'::payment_status ELSE 'paid'::payment_status END,
     p_notes,
-    CASE WHEN p_session_id IS NOT NULL AND p_session_id != '' THEN p_session_id::uuid ELSE NULL END, -- created_by_user_id: use session_id (user ID) if provided, otherwise NULL
+    CASE WHEN p_session_id IS NOT NULL AND p_session_id != '' THEN p_session_id::uuid ELSE NULL END,
     p_customer_id,
     p_offer_id,
     p_language,
@@ -209,24 +195,20 @@ BEGIN
   )
   RETURNING id INTO v_booking_id;
 
-  -- CRITICAL: Reduce slot capacity immediately when booking is created
   UPDATE slots
   SET 
     available_capacity = GREATEST(0, available_capacity - p_visitor_count),
     booked_count = booked_count + p_visitor_count
   WHERE id = p_slot_id;
-  
-  -- Verify the update succeeded
+
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Failed to update slot capacity';
   END IF;
 
-  -- Delete the lock if it was used
   IF p_lock_id IS NOT NULL THEN
     DELETE FROM booking_locks WHERE id = p_lock_id;
   END IF;
 
-  -- Get the created booking with related data
   SELECT jsonb_build_object(
     'id', b.id,
     'tenant_id', b.tenant_id,

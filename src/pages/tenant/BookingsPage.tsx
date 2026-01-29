@@ -17,6 +17,7 @@ import { Input } from '../../components/ui/Input';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
 import { countryCodes } from '../../lib/countryCodes';
+import { BookingConfirmationModal } from '../../components/shared/BookingConfirmationModal';
 
 interface AdminService {
   id: string;
@@ -104,12 +105,13 @@ export function BookingsPage() {
   const [createOfferId, setCreateOfferId] = useState('');
   const [createShowFullCalendar, setCreateShowFullCalendar] = useState(false);
   const [isLookingUpCustomer, setIsLookingUpCustomer] = useState(false);
-  const [createCustomerPackage, setCreateCustomerPackage] = useState<CustomerPackage | null>(null);
+  const [createCustomerPackages, setCreateCustomerPackages] = useState<CustomerPackage[]>([]);
   const [createCountryCode, setCreateCountryCode] = useState(tenantDefaultCountry);
   const [createSelectedSlots, setCreateSelectedSlots] = useState<Array<{ slot_id: string; start_time: string; end_time: string; employee_id: string; slot_date: string }>>([]);
   const [createSelectedTimeSlot, setCreateSelectedTimeSlot] = useState<{ start_time: string; end_time: string; slot_date: string } | null>(null);
   const [createShowPreview, setCreateShowPreview] = useState(false);
   const [createSelectedServices, setCreateSelectedServices] = useState<Array<{ service: AdminService; slot: Slot; employeeId: string }>>([]);
+  const [confirmationBookingId, setConfirmationBookingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
@@ -204,7 +206,7 @@ export function BookingsPage() {
   async function lookupCustomerByPhone(fullPhoneNumber: string) {
     if (!fullPhoneNumber || fullPhoneNumber.length < 8 || !userProfile?.tenant_id) return;
     setIsLookingUpCustomer(true);
-    setCreateCustomerPackage(null);
+    setCreateCustomerPackages([]);
     try {
       const { data: customerData, error: customerError } = await db
         .from('customers')
@@ -219,22 +221,25 @@ export function BookingsPage() {
           customer_name: prev.customer_name || customerData.name || '',
           customer_email: prev.customer_email || (customerData.email ?? ''),
         }));
-        const { data: subscriptionData } = await db
+        const { data: subscriptionsData } = await db
           .from('package_subscriptions')
           .select('id, package_id, status, expires_at, service_packages(name, name_ar, total_price)')
           .eq('customer_id', customerData.id)
-          .eq('status', 'active')
-          .maybeSingle();
-        if (subscriptionData) {
-          const isExpired = subscriptionData.expires_at && new Date(subscriptionData.expires_at) < new Date();
-          if (!isExpired) {
-            const { data: usageData } = await db
-              .from('package_subscription_usage')
-              .select('service_id, original_quantity, remaining_quantity, used_quantity, services(name, name_ar)')
-              .eq('subscription_id', subscriptionData.id);
-            setCreateCustomerPackage({ ...subscriptionData, usage: usageData || [] } as CustomerPackage);
+          .eq('status', 'active');
+        const packages: CustomerPackage[] = [];
+        if (subscriptionsData && subscriptionsData.length > 0) {
+          for (const sub of subscriptionsData) {
+            const isExpired = sub.expires_at && new Date(sub.expires_at) < new Date();
+            if (!isExpired) {
+              const { data: usageData } = await db
+                .from('package_subscription_usage')
+                .select('service_id, original_quantity, remaining_quantity, used_quantity, services(name, name_ar)')
+                .eq('subscription_id', sub.id);
+              packages.push({ ...sub, usage: usageData || [] } as CustomerPackage);
+            }
           }
         }
+        setCreateCustomerPackages(packages);
         return;
       }
       const { data: bookingData, error: bookingError } = await db
@@ -260,10 +265,13 @@ export function BookingsPage() {
   }
 
   function checkServiceInPackage(serviceId: string): { available: boolean; remaining: number } {
-    if (!createCustomerPackage) return { available: false, remaining: 0 };
-    const usage = createCustomerPackage.usage.find(u => u.service_id === serviceId);
-    if (!usage) return { available: false, remaining: 0 };
-    return { available: usage.remaining_quantity > 0, remaining: usage.remaining_quantity };
+    if (!createCustomerPackages.length) return { available: false, remaining: 0 };
+    let total = 0;
+    for (const pkg of createCustomerPackages) {
+      const usage = pkg.usage.find(u => u.service_id === serviceId);
+      if (usage) total += usage.remaining_quantity;
+    }
+    return { available: total > 0, remaining: total };
   }
 
   function getRequiredSlotsCount(): number {
@@ -344,7 +352,7 @@ export function BookingsPage() {
     setCreateSlotId('');
     setCreateOfferId('');
     setCreateShowFullCalendar(false);
-    setCreateCustomerPackage(null);
+    setCreateCustomerPackages([]);
     setCreateCountryCode(tenantDefaultCountry);
     setCreateSelectedSlots([]);
     setCreateSelectedTimeSlot(null);
@@ -409,7 +417,11 @@ export function BookingsPage() {
           const err = await res.json().catch(() => ({}));
           throw new Error(err.error || err.message || 'Failed to create booking');
         }
-        alert(t('reception.bookingCreatedSuccess', 'Booking created successfully! Confirmation sent to customer.'));
+        const result = await res.json();
+        setIsCreateModalOpen(false);
+        resetCreateForm();
+        fetchBookings();
+        setConfirmationBookingId(result.id ?? null);
       } else {
         const res = await fetch(`${getApiUrl()}/bookings/create-bulk`, {
           method: 'POST',
@@ -431,11 +443,13 @@ export function BookingsPage() {
           const err = await res.json().catch(() => ({}));
           throw new Error(err.error || err.message || 'Failed to create booking');
         }
-        alert(t('reception.bookingsCreatedSuccess', 'Bookings created successfully!'));
+        const result = await res.json();
+        setIsCreateModalOpen(false);
+        resetCreateForm();
+        fetchBookings();
+        const firstId = result.bookings?.[0]?.id ?? null;
+        setConfirmationBookingId(firstId);
       }
-      setIsCreateModalOpen(false);
-      resetCreateForm();
-      fetchBookings();
     } catch (err: any) {
       alert(err.message || t('reception.errorCreatingBooking', { message: err.message }));
     } finally {
@@ -2064,30 +2078,43 @@ export function BookingsPage() {
             onChange={(e) => setCreateForm(f => ({ ...f, customer_email: e.target.value }))}
             placeholder={t('booking.customerEmail')}
           />
-          {/* Package Information Display — same as Reception */}
-          {createCustomerPackage && (
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Package className="w-5 h-5 text-green-600" />
-                <h4 className="font-semibold text-green-900">
-                  {t('packages.activePackage')}: {i18n.language === 'ar' ? createCustomerPackage.service_packages.name_ar : createCustomerPackage.service_packages.name}
-                </h4>
-              </div>
-              <div className="space-y-2 text-sm">
-                {createCustomerPackage.usage.map((usage) => (
-                  <div key={usage.service_id} className="flex justify-between items-center py-1">
-                    <span className={usage.remaining_quantity === 0 ? 'text-gray-400 line-through' : 'text-gray-700'}>
-                      {i18n.language === 'ar' ? usage.services?.name_ar : usage.services?.name}
-                    </span>
-                    <span className={`font-medium ${usage.remaining_quantity > 5 ? 'text-green-600' : usage.remaining_quantity > 0 ? 'text-amber-600' : 'text-red-600'}`}>
-                      {usage.remaining_quantity} / {usage.original_quantity} {t('packages.remaining')}
-                    </span>
+          {/* Package Information Display — scrollable, ~2 cards visible (same as Reception) */}
+          {createCustomerPackages.length > 0 && (
+            <div className="rounded-lg border-2 border-green-200 bg-green-50/50 p-2">
+              <p className="mb-2 flex items-center gap-2 text-sm font-medium text-green-800">
+                <Package className="h-4 w-4" />
+                {t('packages.activePackage')} ({createCustomerPackages.length}) — {i18n.language === 'ar' ? 'مرر للأسفل للمزيد' : 'scroll for more'}
+              </p>
+              <div
+                className="space-y-3 overflow-y-auto pr-1"
+                style={{ maxHeight: '340px' }}
+              >
+                {createCustomerPackages.map((pkg) => (
+                  <div key={pkg.id} className="shrink-0 rounded-lg border border-green-200 bg-gradient-to-r from-green-50 to-emerald-50 p-4 shadow-sm">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Package className="w-5 h-5 text-green-600 shrink-0" />
+                      <h4 className="font-semibold text-green-900 truncate">
+                        {i18n.language === 'ar' ? pkg.service_packages.name_ar : pkg.service_packages.name}
+                      </h4>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      {pkg.usage.map((usage) => (
+                        <div key={`${pkg.id}-${usage.service_id}`} className="flex justify-between items-center py-1 gap-2">
+                          <span className={`min-w-0 truncate ${usage.remaining_quantity === 0 ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+                            {i18n.language === 'ar' ? usage.services?.name_ar : usage.services?.name}
+                          </span>
+                          <span className={`shrink-0 font-medium ${usage.remaining_quantity > 5 ? 'text-green-600' : usage.remaining_quantity > 0 ? 'text-amber-600' : 'text-red-600'}`}>
+                            {usage.remaining_quantity} / {usage.original_quantity} {t('packages.remaining')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {pkg.expires_at && (
+                      <p className="text-xs text-gray-600 mt-2">{t('packages.expiresOn')}: {new Date(pkg.expires_at).toLocaleDateString()}</p>
+                    )}
                   </div>
                 ))}
               </div>
-              {createCustomerPackage.expires_at && (
-                <p className="text-xs text-gray-600 mt-2">{t('packages.expiresOn')}: {new Date(createCustomerPackage.expires_at).toLocaleDateString()}</p>
-              )}
             </div>
           )}
           {/* 4. Select Service */}
@@ -2167,7 +2194,7 @@ export function BookingsPage() {
                     </div>
                   );
                 }
-                if (pkgCheck.remaining === 0 && createCustomerPackage) {
+                if (pkgCheck.remaining === 0 && createCustomerPackages.length > 0) {
                   return (
                     <div className="mt-3 p-3 bg-blue-50 border border-blue-300 rounded-lg">
                       <div className="flex items-start gap-2">
@@ -2371,6 +2398,18 @@ export function BookingsPage() {
         </form>
         )}
       </Modal>
+
+      {/* Booking Confirmation (Admin/Receptionist) — full-page-style modal after create */}
+      <BookingConfirmationModal
+        isOpen={!!confirmationBookingId}
+        onClose={() => setConfirmationBookingId(null)}
+        bookingId={confirmationBookingId}
+        onBackToBookings={() => setConfirmationBookingId(null)}
+        onCreateAnother={() => {
+          setConfirmationBookingId(null);
+          setIsCreateModalOpen(true);
+        }}
+      />
 
       {/* Edit Booking Modal */}
       {editingBooking && (

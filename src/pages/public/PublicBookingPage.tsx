@@ -1009,18 +1009,21 @@ export function PublicBookingPage() {
       const views = JSON.parse(localStorage.getItem(viewKey) || '[]');
       const viewedServiceIds = new Set(views.map((v: any) => v.serviceId));
 
-      // Get user's booking history (if logged in)
+      // Get user's booking history (if logged in) — use customer API so user→customer resolution applies
       let bookedServiceIds: string[] = [];
       if (isLoggedIn && userProfile?.id) {
         try {
-          const { data: bookings } = await db
-            .from('bookings')
-            .select('service_id')
-            .eq('customer_id', userProfile.id)
-            .eq('tenant_id', tenant.id)
-            .eq('status', 'confirmed');
-          
-          bookedServiceIds = (bookings || []).map((b: any) => b.service_id);
+          const token = localStorage.getItem('auth_token');
+          if (token) {
+            const apiUrl = getApiUrl();
+            const res = await fetch(`${apiUrl}/customers/bookings`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+              const data = await res.json();
+              bookedServiceIds = (Array.isArray(data) ? data : []).map((b: any) => b.service_id);
+            }
+          }
         } catch (error) {
           console.error('Error fetching booking history:', error);
         }
