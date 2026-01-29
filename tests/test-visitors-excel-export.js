@@ -61,7 +61,7 @@ function log(name, passed, detail = '') {
   return passed;
 }
 
-// Optional: parse xlsx buffer to verify sheet names (uses server's xlsx if available)
+// Optional: parse xlsx buffer to verify sheet names and Summary content (uses server's xlsx if available)
 async function parseXlsxBuffer(buffer) {
   try {
     const path = (await import('path')).default;
@@ -74,10 +74,35 @@ async function parseXlsxBuffer(buffer) {
     if (!fs.existsSync(path.join(xlsxPath, 'package.json'))) return null;
     const XLSX = require(xlsxPath);
     const wb = XLSX.read(buffer, { type: 'buffer' });
-    return { SheetNames: wb.SheetNames, sheets: wb.SheetNames.map((n) => ({ name: n, rows: wb.Sheets[n] ? Object.keys(wb.Sheets[n]).length : 0 })) };
+    return { XLSX, SheetNames: wb.SheetNames, wb, sheets: wb.SheetNames.map((n) => ({ name: n, rows: wb.Sheets[n] ? Object.keys(wb.Sheets[n]).length : 0 })) };
   } catch (e) {
     return null;
   }
+}
+
+// Expected Summary sheet metrics (Export Report)
+const SUMMARY_METRICS = ['Total Visitors', 'Total Bookings', 'Package Bookings', 'Paid Bookings', 'Total Spent'];
+
+function verifySummarySheet(wb, XLSX) {
+  if (!wb || !XLSX || !wb.SheetNames.includes('Summary')) return { ok: false, reason: 'No Summary sheet' };
+  const ws = wb.Sheets['Summary'];
+  if (!ws) return { ok: false, reason: 'Summary sheet empty' };
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  if (!data || data.length < 2) return { ok: false, reason: 'Summary has no data rows' };
+  const header = (data[0] || []).map(String);
+  const metricCol = header.findIndex((h) => /metric/i.test(h));
+  const valueCol = header.findIndex((h) => /value/i.test(h));
+  if (metricCol < 0 || valueCol < 0) return { ok: false, reason: 'Summary missing Metric/Value columns' };
+  const metricsFound = [];
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r] || [];
+    const metric = String(row[metricCol] ?? '').trim();
+    const value = row[valueCol];
+    if (SUMMARY_METRICS.includes(metric)) metricsFound.push(metric);
+  }
+  const missing = SUMMARY_METRICS.filter((m) => !metricsFound.includes(m));
+  if (missing.length > 0) return { ok: false, reason: `Summary missing: ${missing.join(', ')}` };
+  return { ok: true, metrics: metricsFound };
 }
 
 async function run() {
@@ -135,6 +160,11 @@ async function run() {
       const hasVisitors = parsedReport.SheetNames.includes('Visitors');
       const sheetsOk = log('Export Report: sheets Summary + Visitors', hasSummary && hasVisitors, parsedReport.SheetNames.join(', '));
       sheetsOk ? passed++ : failed++;
+
+      // Verify Summary sheet contains total info (Total Visitors, Total Bookings, etc.)
+      const summaryCheck = verifySummarySheet(parsedReport.wb, parsedReport.XLSX);
+      const totalsOk = log('Export Report: Summary sheet has total info', summaryCheck.ok, summaryCheck.ok ? 'Total Visitors, Total Bookings, Package Bookings, Paid Bookings, Total Spent' : summaryCheck.reason);
+      totalsOk ? passed++ : failed++;
     } else {
       console.log('   ⚠ Skip sheet check (xlsx not in server/node_modules or require failed)');
     }

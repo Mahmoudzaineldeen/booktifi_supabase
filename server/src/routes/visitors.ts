@@ -429,12 +429,17 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       serviceId: (req.query.serviceId as string)?.trim() || undefined,
       bookingStatus: (req.query.bookingStatus as BookingStatusFilter) || '',
     };
-    let includeTotals = /^(1|true|yes)$/i.test(String(req.query.includeTotals ?? 'true').trim());
-    let includeVisitorDetails = /^(1|true|yes)$/i.test(String(req.query.includeVisitorDetails ?? 'true').trim());
+    const includeTotalsParam = String(req.query.includeTotals ?? 'true').trim();
+    const includeVisitorDetailsParam = String(req.query.includeVisitorDetails ?? 'true').trim();
     const detailMode = /^(1|true|yes)$/i.test(String(req.query.detail ?? '0').trim());
-    // Main "Export Report" must always include visitor list (customer details); only detail export respects the flag
+    // includeTotals: when checkbox is checked frontend sends 1; default true so summary is included unless explicitly 0/false/no
+    let includeTotals = /^(0|false|no)$/i.test(includeTotalsParam) ? false : true;
+    let includeVisitorDetails = /^(1|true|yes)$/i.test(includeVisitorDetailsParam);
+    // Main "Export Report": always include visitor list; respect "Include summary totals" checkbox
     if (!detailMode) {
       includeVisitorDetails = true;
+      // Summary totals: include when checkbox is checked (param 1/true) or not sent; exclude only when param is 0/false/no
+      includeTotals = !/^(0|false|no)$/i.test(includeTotalsParam);
     }
     // Ensure at least one section is included so the file is never empty
     if (!includeTotals && !includeVisitorDetails) {
@@ -849,6 +854,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
             XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
           }
         }
+        // Summary totals sheet when "Include summary totals" checkbox is checked
         if (includeTotals) {
           const summaryData = [
             { Metric: 'Total Visitors', Value: totalVisitors },
