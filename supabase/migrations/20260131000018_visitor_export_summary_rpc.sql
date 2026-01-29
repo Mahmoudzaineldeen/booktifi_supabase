@@ -25,7 +25,8 @@ AS $$
     COUNT(*) FILTER (WHERE COALESCE(b.package_covered_quantity, 0) = 0)::bigint AS paid_bookings,
     COALESCE(SUM(b.total_price) FILTER (
       WHERE COALESCE(b.package_covered_quantity, 0) = 0
-        AND LOWER(COALESCE(b.status, '')) IN ('confirmed', 'completed', 'checked_in')
+        AND b.status IS NOT NULL
+        AND LOWER(b.status::text) IN ('confirmed', 'completed', 'checked_in')
     ), 0)::numeric AS total_spent
   FROM bookings b
   WHERE b.tenant_id = p_tenant_id
