@@ -1,7 +1,7 @@
 import express from 'express';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { createRequire } from 'module';
 import { supabase } from '../db';
 import jwt from 'jsonwebtoken';
@@ -12,14 +12,17 @@ const arabicReshaperLib = require('arabic-reshaper');
 const __filename = fileURLToPath(import.meta.url);
 const __dirnameVisitors = dirname(__filename);
 
+// Prefer fonts that support Arabic script well (Noto, Amiri, Tahoma, Arial Unicode)
 const POSSIBLE_ARABIC_FONT_PATHS = [
   join(__dirnameVisitors, '../fonts/NotoSansArabic-Regular.ttf'),
   join(__dirnameVisitors, '../fonts/Amiri-Regular.ttf'),
   'C:/Windows/Fonts/tahoma.ttf',
   'C:/Windows/Fonts/arialuni.ttf',
-  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+  'C:/Windows/Fonts/arial.ttf',
   '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
+  '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
   '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+  '/System/Library/Fonts/Supplemental/Arial.ttf',
 ];
 
 function getVisitorsPdfArabicFontPath(): string | null {
@@ -33,6 +36,7 @@ function containsArabic(str: string): boolean {
   return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(str);
 }
 
+/** Reshape Arabic for PDF: contextual forms + reverse word order (RTL). */
 function reshapeArabicForPdf(text: string): string {
   if (!text || !text.trim()) return text;
   try {
@@ -687,12 +691,16 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           ...(arabicFontPath ? { features: ['rtla', 'calt'], lang: 'ar' } : {}),
         });
 
+        let arabicFontRegistered = false;
         if (arabicFontPath) {
           try {
-            doc.registerFont('ArabicFont', arabicFontPath);
-          } catch (_) {}
+            const fontBuffer = readFileSync(arabicFontPath);
+            doc.registerFont('ArabicFont', fontBuffer);
+            arabicFontRegistered = true;
+          } catch (e: any) {
+            logger.warn('Visitors PDF: could not load Arabic font', { path: arabicFontPath, err: e?.message });
+          }
         }
-        const arabicFontRegistered = !!arabicFontPath;
 
         const chunks: Buffer[] = [];
         const pdfPromise = new Promise<Buffer>((resolve, reject) => {
@@ -703,6 +711,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
 
         const formatNum = (n: number) => Number.isFinite(n) ? Number(n).toFixed(2) : '0.00';
         const totalSpentFormatted = formatNum(totalSpent);
+        const lineWidth = 500;
 
         doc.fontSize(18).text('Visitors Report', { align: 'center' });
         doc.moveDown();
@@ -718,16 +727,24 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         if (includeVisitorDetails) {
           for (const r of rows) {
             const rawName = String(r.customer_name ?? '').replace(/\|/g, ',');
-            const name = containsArabic(rawName) ? reshapeArabicForPdf(rawName) : rawName;
             const phone = String(r.phone ?? '');
             const bookings = Number(r.total_bookings) ?? 0;
             const spentFormatted = formatNum(Number(r.total_spent) ?? 0);
             const status = String(r.status ?? '');
-            const line = `Name: ${name} | Phone: ${phone} | Bookings: ${bookings} | Spent: ${spentFormatted} | Status: ${status}`;
+            const restOfLine = ` | Phone: ${phone} | Bookings: ${bookings} | Spent: ${spentFormatted} | Status: ${status}`;
+
             if (arabicFontRegistered && containsArabic(rawName)) {
-              doc.font('ArabicFont').text(line).font('Helvetica');
+              // Use reshaped Arabic for correct joining; fall back to raw if reshaped is empty
+              const nameForPdf = reshapeArabicForPdf(rawName).trim() || rawName;
+              doc
+                .font('Helvetica')
+                .text('Name: ', { width: lineWidth, continued: true })
+                .font('ArabicFont')
+                .text(nameForPdf, { width: lineWidth, continued: true, features: ['rtla'] })
+                .font('Helvetica')
+                .text(restOfLine, { width: lineWidth });
             } else {
-              doc.text(line);
+              doc.font('Helvetica').text(`Name: ${rawName}${restOfLine}`, { width: lineWidth });
             }
             doc.moveDown(0.5);
           }
