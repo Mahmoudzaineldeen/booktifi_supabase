@@ -20,6 +20,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Test export artifacts (Excel/PDF saved by SAVE_EXCEL=1)
+tests/output/
+
 # Allow both .env files to be tracked
 # Note: These files may contain sensitive data - ensure they don't contain production secrets
 #/.env
