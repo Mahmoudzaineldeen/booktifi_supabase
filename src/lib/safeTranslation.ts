@@ -102,6 +102,7 @@ export function safeTranslate(
   fallback?: string
 ): string {
   if (!key) return fallback || '';
+  if (typeof t !== 'function') return fallback ?? key;
   
   // Try to get translation
   const translation = t(key);
@@ -155,6 +156,7 @@ export function safeTranslateStatus(
   type: 'booking' | 'payment' = 'booking'
 ): string {
   if (!status) return '';
+  if (typeof t !== 'function') return status;
   
   // Try status.X first
   const statusKey = `status.${status}`;

@@ -68,6 +68,25 @@ function buildBookingTypeCondition(bookingType: BookingTypeFilter): string | nul
   return null;
 }
 
+/** Normalize phone to digits only for matching (ignore +, -, spaces). */
+function normalizePhone(s: string): string {
+  return (s || '').replace(/\D/g, '');
+}
+
+/** Match search phone to stored phone (e.g. +201032560826 matches 01032560826). */
+function phoneMatches(filterPhone: string, storedPhone: string): boolean {
+  const f = normalizePhone(filterPhone);
+  const s = normalizePhone(storedPhone);
+  if (!f) return true;
+  if (s === f) return true;
+  if (s.includes(f) || f.includes(s)) return true;
+  // 0-prefix vs country 20: 01032560826 vs 201032560826
+  const stripLeadingZero = (x: string) => x.replace(/^0+/, '');
+  if (s.endsWith(stripLeadingZero(f)) || f.endsWith(stripLeadingZero(s))) return true;
+  if (s === '20' + stripLeadingZero(f) || f === '20' + stripLeadingZero(s)) return true;
+  return false;
+}
+
 /**
  * GET /api/visitors
  * List visitors (customers + guest bookers) with filters and pagination.
@@ -100,10 +119,16 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       customersQuery = customersQuery.ilike('name', `%${filters.name}%`);
     }
     if (filters.phone) {
-      customersQuery = customersQuery.ilike('phone', `%${filters.phone}%`);
+      // Don't filter by phone in DB; we'll filter after fetch for normalized match
     }
 
-    const { data: customers, error: custError } = await customersQuery;
+    const { data: customersRaw, error: custError } = await customersQuery.range(0, 9999);
+    if (custError) throw custError;
+
+    let customers = customersRaw || [];
+    if (filters.phone && filters.phone.trim()) {
+      customers = customers.filter((c: any) => phoneMatches(filters.phone!, c.phone || ''));
+    }
     if (custError) throw custError;
 
     const customerIds = (customers || []).map((c: any) => c.id);
@@ -131,7 +156,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     if (filters.serviceId) bookingsQuery = bookingsQuery.eq('service_id', filters.serviceId);
     if (filters.bookingStatus) bookingsQuery = bookingsQuery.eq('status', filters.bookingStatus);
 
-    const { data: allBookings, error: bookError } = await bookingsQuery;
+    const { data: allBookings, error: bookError } = await bookingsQuery.range(0, 9999);
     if (bookError) throw bookError;
 
     const bookings = (allBookings || []) as any[];
@@ -169,6 +194,8 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       const pc = b.package_covered_quantity ?? 0;
       const isPackage = pc > 0;
       const amount = Number(b.total_price) || 0;
+      // Total Spent = paid bookings only (exclude package-covered)
+      const addToSpent = !isPackage ? amount : 0;
 
       if (b.customer_id) {
         if (!byCustomerId[b.customer_id]) {
@@ -176,7 +203,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
         }
         const agg = byCustomerId[b.customer_id];
         agg.total += 1;
-        agg.spent += amount;
+        agg.spent += addToSpent;
         if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       } else {
@@ -195,7 +222,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
         }
         const agg = byGuestPhone[phone];
         agg.total += 1;
-        agg.spent += amount;
+        agg.spent += addToSpent;
         if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       }
@@ -227,6 +254,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     for (const [phone, agg] of Object.entries(byGuestPhone)) {
       if (customerPhonesInDb.has(phone)) continue;
       if (agg.total === 0) continue;
+      if (filters.phone && filters.phone.trim() && !phoneMatches(filters.phone, phone)) continue;
       visitorRows.push({
         id: `guest-${encodeURIComponent(phone)}`,
         type: 'guest',
@@ -246,6 +274,13 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     const sorted = visitorRows.sort((a, b) => (b.last_booking_date || '').localeCompare(a.last_booking_date || ''));
     const paged = sorted.slice(offset, offset + limit);
 
+    const summary = {
+      totalBookings: visitorRows.reduce((s, r) => s + (r.total_bookings || 0), 0),
+      totalPackageBookings: visitorRows.reduce((s, r) => s + (r.package_bookings_count || 0), 0),
+      totalPaidBookings: visitorRows.reduce((s, r) => s + (r.paid_bookings_count || 0), 0),
+      totalSpent: visitorRows.reduce((s, r) => s + (Number(r.total_spent) || 0), 0),
+    };
+
     res.json({
       data: paged,
       pagination: {
@@ -256,6 +291,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
         hasNextPage: page * limit < total,
         hasPrevPage: page > 1,
       },
+      summary,
     });
   } catch (err: any) {
     logger.error('Visitors list error', err, { tenantId: req.user?.tenant_id });
@@ -287,8 +323,11 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
 
     let customersQuery = supabase.from('customers').select('id, name, phone, email, is_blocked').eq('tenant_id', tenantId);
     if (filters.name) customersQuery = customersQuery.ilike('name', `%${filters.name}%`);
-    if (filters.phone) customersQuery = customersQuery.ilike('phone', `%${filters.phone}%`);
-    const { data: filteredCustomers } = await customersQuery;
+    const { data: filteredCustomersRaw } = await customersQuery;
+    let filteredCustomers = filteredCustomersRaw || [];
+    if (filters.phone && filters.phone.trim()) {
+      filteredCustomers = filteredCustomers.filter((c: any) => phoneMatches(filters.phone!, c.phone || ''));
+    }
 
     let bookingsQuery = supabase
       .from('bookings')
@@ -328,11 +367,12 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       const pc = b.package_covered_quantity ?? 0;
       const isPackage = pc > 0;
       const amount = Number(b.total_price) || 0;
+      const addToSpent = !isPackage ? amount : 0;
       if (b.customer_id) {
         if (!byCustomerId[b.customer_id]) byCustomerId[b.customer_id] = { total: 0, spent: 0, packageCount: 0, paidCount: 0, lastDate: null };
         const agg = byCustomerId[b.customer_id];
         agg.total += 1;
-        agg.spent += amount;
+        agg.spent += addToSpent;
         if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       } else {
@@ -341,7 +381,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         if (!byGuestPhone[phone]) byGuestPhone[phone] = { name: b.customer_name || '', email: b.customer_email || null, total: 0, spent: 0, packageCount: 0, paidCount: 0, lastDate: null };
         const agg = byGuestPhone[phone];
         agg.total += 1;
-        agg.spent += amount;
+        agg.spent += addToSpent;
         if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       }
@@ -368,6 +408,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     }
     for (const [phone, agg] of Object.entries(byGuestPhone)) {
       if (customerPhonesInDb.has(phone)) continue;
+      if (filters.phone && filters.phone.trim() && !phoneMatches(filters.phone, phone)) continue;
       rows.push({
         customer_name: agg.name,
         phone,
@@ -460,7 +501,11 @@ router.get('/:id', authenticateVisitorsAccess, async (req, res) => {
         .order('created_at', { ascending: false });
 
       const list = (bookings || []) as any[];
-      const totalSpent = list.reduce((s, b) => s + (Number(b.total_price) || 0), 0);
+      const totalSpent = list.reduce((s, b) => {
+        const pc = b.package_covered_quantity ?? 0;
+        if (pc > 0) return s;
+        return s + (Number(b.total_price) || 0);
+      }, 0);
       const packageCount = list.filter((b) => (b.package_covered_quantity ?? 0) > 0).length;
       const paidCount = list.length - packageCount;
       const lastBooking = list.length ? list[0] : null;
@@ -518,8 +563,12 @@ router.get('/:id', authenticateVisitorsAccess, async (req, res) => {
       .order('created_at', { ascending: false });
 
     const list = (bookings || []) as any[];
-    const totalSpent = list.reduce((s, b) => s + (Number(b.total_price) || 0), 0);
-    const packageCount = list.filter((b) => (b.package_covered_quantity ?? 0) > 0).length;
+    const totalSpent = list.reduce((s, b) => {
+      const pc = (b as any).package_covered_quantity ?? 0;
+      if (pc > 0) return s;
+      return s + (Number((b as any).total_price) || 0);
+    }, 0);
+    const packageCount = list.filter((b) => ((b as any).package_covered_quantity ?? 0) > 0).length;
     const paidCount = list.length - packageCount;
     const lastBooking = list.length ? list[0] : null;
 

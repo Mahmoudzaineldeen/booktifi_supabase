@@ -93,6 +93,12 @@ export function VisitorsPage() {
     hasNextPage: false,
     hasPrevPage: false,
   });
+  const [summary, setSummary] = useState({
+    totalBookings: 0,
+    totalPackageBookings: 0,
+    totalPaidBookings: 0,
+    totalSpent: 0,
+  });
 
   const [nameFilter, setNameFilter] = useState('');
   const [phoneFilter, setPhoneFilter] = useState('');
@@ -141,6 +147,12 @@ export function VisitorsPage() {
         ...prev,
         ...(data.pagination || {}),
       }));
+      setSummary({
+        totalBookings: data.summary?.totalBookings ?? 0,
+        totalPackageBookings: data.summary?.totalPackageBookings ?? 0,
+        totalPaidBookings: data.summary?.totalPaidBookings ?? 0,
+        totalSpent: data.summary?.totalSpent ?? 0,
+      });
     } catch (e: any) {
       console.error('Fetch visitors error', e);
       setVisitors([]);
@@ -257,7 +269,7 @@ export function VisitorsPage() {
     }
   };
 
-  const handleExport = async (format: 'pdf' | 'xlsx' | 'csv') => {
+  const handleExport = async (format: 'pdf' | 'csv') => {
     setExportingFormat(format);
     setShowExportMenu(false);
     const qs = buildQuery().replace(/^page=\d+&?|&?limit=\d+/g, '').replace(/&&/g, '&').replace(/^&|&$/g, '');
@@ -269,7 +281,7 @@ export function VisitorsPage() {
         throw new Error(err.error || res.statusText);
       }
       const blob = await res.blob();
-      const ext = format === 'csv' ? 'csv' : format === 'xlsx' ? 'xlsx' : 'pdf';
+      const ext = format === 'csv' ? 'csv' : 'pdf';
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
@@ -318,13 +330,6 @@ export function VisitorsPage() {
                   onClick={() => handleExport('csv')}
                 >
                   CSV
-                </button>
-                <button
-                  type="button"
-                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100"
-                  onClick={() => handleExport('xlsx')}
-                >
-                  Excel (.xlsx)
                 </button>
                 <button
                   type="button"
@@ -453,25 +458,19 @@ export function VisitorsPage() {
         <Card className="bg-green-50 border-green-100">
           <CardContent className="p-4">
             <p className="text-sm text-gray-600">{t('visitors.totalBookings', 'Total Bookings')}</p>
-            <p className="text-2xl font-bold text-green-800">
-              {visitors.reduce((s, v) => s + v.total_bookings, 0)}
-            </p>
+            <p className="text-2xl font-bold text-green-800">{summary.totalBookings}</p>
           </CardContent>
         </Card>
         <Card className="bg-amber-50 border-amber-100">
           <CardContent className="p-4">
             <p className="text-sm text-gray-600">{t('visitors.packageBookings', 'Package Bookings')}</p>
-            <p className="text-2xl font-bold text-amber-800">
-              {visitors.reduce((s, v) => s + v.package_bookings_count, 0)}
-            </p>
+            <p className="text-2xl font-bold text-amber-800">{summary.totalPackageBookings}</p>
           </CardContent>
         </Card>
         <Card className="bg-blue-50 border-blue-100">
           <CardContent className="p-4">
             <p className="text-sm text-gray-600">{t('visitors.totalSpent', 'Total Spent')}</p>
-            <p className="text-2xl font-bold text-blue-800">
-              {formatPrice(visitors.reduce((s, v) => s + v.total_spent, 0))}
-            </p>
+            <p className="text-2xl font-bold text-blue-800">{formatPrice(summary.totalSpent)}</p>
           </CardContent>
         </Card>
       </div>
