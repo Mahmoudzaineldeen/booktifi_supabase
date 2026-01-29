@@ -58,14 +58,21 @@ WHERE tenant_id = :tenant_id
   AND COALESCE(package_covered_quantity, 0) = 0;
 
 -- -----------------------------------------------------------------------------
--- QUERY 6 — TOTAL SPENT (real money only)
--- Rules: package_covered_quantity = 0, status IN (confirmed, completed, checked_in)
+-- QUERY 6 — TOTAL SPENT (all customer spending: bookings + package purchases)
+-- Bookings: package_covered_quantity = 0, status IN (confirmed, completed, checked_in)
+-- Packages: package_subscriptions.payment_status = 'paid', sum service_packages.total_price
 -- -----------------------------------------------------------------------------
-SELECT COALESCE(SUM(total_price), 0) AS total_spent
-FROM bookings
-WHERE tenant_id = :tenant_id
-  AND COALESCE(package_covered_quantity, 0) = 0
-  AND LOWER(TRIM(status)) IN ('confirmed', 'completed', 'checked_in');
+SELECT
+  (SELECT COALESCE(SUM(b.total_price), 0)
+   FROM bookings b
+   WHERE b.tenant_id = :tenant_id
+     AND COALESCE(b.package_covered_quantity, 0) = 0
+     AND LOWER(TRIM(b.status::text)) IN ('confirmed', 'completed', 'checked_in'))
+  + (SELECT COALESCE(SUM(sp.total_price), 0)
+     FROM package_subscriptions ps
+     JOIN service_packages sp ON sp.id = ps.package_id
+     WHERE ps.tenant_id = :tenant_id
+       AND ps.payment_status = 'paid') AS total_spent;
 
 -- -----------------------------------------------------------------------------
 -- QUERY 7 — VISITOR LIST VERIFICATION (matches API rows)

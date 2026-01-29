@@ -115,6 +115,34 @@ function phoneMatches(filterPhone: string, storedPhone: string): boolean {
 
 /** Fetch all rows from a query by paginating (avoids PostgREST row cap). */
 const FETCH_PAGE_SIZE = 1000;
+
+/** Total spent = bookings (paid only, confirmed/completed/checked_in) + package purchases. */
+async function fetchPackageSpendByCustomer(tenantId: string): Promise<Record<string, number>> {
+  const byCustomer: Record<string, number> = {};
+  let offset = 0;
+  let hasMore = true;
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from('package_subscriptions')
+      .select('customer_id, service_packages(total_price)')
+      .eq('tenant_id', tenantId)
+      .eq('payment_status', 'paid')
+      .order('id', { ascending: true })
+      .range(offset, offset + FETCH_PAGE_SIZE - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    for (const row of chunk as any[]) {
+      const cid = row?.customer_id;
+      if (!cid) continue;
+      const price = parsePrice(row?.service_packages?.total_price);
+      byCustomer[cid] = (byCustomer[cid] ?? 0) + price;
+    }
+    hasMore = chunk.length === FETCH_PAGE_SIZE;
+    offset += FETCH_PAGE_SIZE;
+  }
+  return byCustomer;
+}
+
 async function fetchAllBookings(
   tenantId: string,
   filters: { serviceId?: string; bookingStatus?: string }
@@ -235,6 +263,9 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     const SPENT_STATUSES = new Set(['confirmed', 'completed', 'checked_in']);
     const isCountedForSpent = (status: string) => status && SPENT_STATUSES.has(String(status).toLowerCase());
 
+    // Package purchase spend (total spent = bookings + package purchases)
+    const packageSpendByCustomer = await fetchPackageSpendByCustomer(tenantId);
+
     // Aggregate by customer_id (and by guest phone for customer_id null)
     const byCustomerId: Record<string, { total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
     const byGuestPhone: Record<string, { name: string; email: string | null; total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
@@ -276,6 +307,11 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
         if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       }
+    }
+
+    // Add package purchase spend to each customer's spent (total spent = bookings + packages)
+    for (const cid of Object.keys(byCustomerId)) {
+      byCustomerId[cid].spent += packageSpendByCustomer[cid] ?? 0;
     }
 
     const visitorRows: any[] = [];
@@ -431,6 +467,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     };
     const filteredBookings = bookings.filter((b) => applyDateFilter(b) && applyTypeFilter(b));
 
+    const packageSpendByCustomerExport = await fetchPackageSpendByCustomer(tenantId);
     const isCountedForSpentExport = (status: string) => status && ['confirmed', 'completed', 'checked_in'].includes(String(status).toLowerCase());
     const byCustomerId: Record<string, { total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
     const byGuestPhone: Record<string, { name: string; email: string | null; total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
@@ -457,6 +494,10 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       }
+    }
+
+    for (const cid of Object.keys(byCustomerId)) {
+      byCustomerId[cid].spent += packageSpendByCustomerExport[cid] ?? 0;
     }
 
     const rows: any[] = [];
@@ -645,13 +686,21 @@ router.get('/:id', authenticateVisitorsAccess, async (req, res) => {
       .order('created_at', { ascending: false });
 
     const list = (bookings || []) as any[];
-    const totalSpent = list.reduce((s, b) => {
+    let totalSpent = list.reduce((s, b) => {
       const pc = (b as any).package_covered_quantity ?? 0;
       if (pc > 0) return s;
       const st = String((b as any).status || '').toLowerCase();
       if (!['confirmed', 'completed', 'checked_in'].includes(st)) return s;
       return s + parsePrice((b as any).total_price);
     }, 0);
+    const { data: paidSubs } = await supabase
+      .from('package_subscriptions')
+      .select('service_packages(total_price)')
+      .eq('customer_id', id)
+      .eq('tenant_id', tenantId)
+      .eq('payment_status', 'paid');
+    const packageSpent = (paidSubs || []).reduce((s: number, row: any) => s + parsePrice(row?.service_packages?.total_price), 0);
+    totalSpent += packageSpent;
     const packageCount = list.filter((b) => ((b as any).package_covered_quantity ?? 0) > 0).length;
     const paidCount = list.length - packageCount;
     const lastBooking = list.length ? list[0] : null;
