@@ -448,7 +448,11 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     let expCustHasMore = true;
     while (expCustHasMore) {
       const cq = supabase.from('customers').select('id, name, phone, email, is_blocked').eq('tenant_id', tenantId).order('id', { ascending: true }).range(expCustOffset, expCustOffset + FETCH_PAGE_SIZE - 1);
-      const { data: chunk } = await cq;
+      const { data: chunk, error: custError } = await cq;
+      if (custError) {
+        logger.error('Visitors export: customers fetch error', custError, { tenantId });
+        return res.status(500).json({ error: custError.message || 'Failed to load customers for export' });
+      }
       const list = chunk || [];
       filteredCustomersRaw.push(...list);
       expCustHasMore = list.length === FETCH_PAGE_SIZE;
@@ -822,6 +826,29 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       try {
         const XLSX = await import('xlsx');
         const wb = XLSX.utils.book_new();
+        // Add Visitors sheet first so Excel opens on the list (main report always includes visitor details)
+        if (includeVisitorDetails) {
+          const colHeaders = ['Customer Name', 'Phone', 'Email', 'Total Bookings', 'Total Spent', 'Package Bookings', 'Paid Bookings', 'Last Booking Date', 'Status'];
+          if (filteredRows.length > 0) {
+            const ws = XLSX.utils.json_to_sheet(filteredRows.map((r: any) => ({
+              'Customer Name': r.customer_name ?? '',
+              'Phone': r.phone ?? '',
+              'Email': r.email ?? '',
+              'Total Bookings': r.total_bookings ?? 0,
+              'Total Spent': typeof r.total_spent === 'number' ? r.total_spent : (parsePrice(r.total_spent) ?? 0),
+              'Package Bookings': r.package_bookings_count ?? 0,
+              'Paid Bookings': r.paid_bookings_count ?? 0,
+              'Last Booking Date': r.last_booking_date ?? '',
+              'Status': r.status ?? '',
+            })));
+            ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 38 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 10 }];
+            XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
+          } else {
+            const ws = XLSX.utils.aoa_to_sheet([colHeaders]);
+            ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 38 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 10 }];
+            XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
+          }
+        }
         if (includeTotals) {
           const summaryData = [
             { Metric: 'Total Visitors', Value: totalVisitors },
@@ -833,28 +860,6 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           const wsSummary = XLSX.utils.json_to_sheet(summaryData);
           wsSummary['!cols'] = [{ wch: 24 }, { wch: 18 }];
           XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
-        }
-        if (includeVisitorDetails) {
-          const colHeaders = ['Customer Name', 'Phone', 'Email', 'Total Bookings', 'Total Spent', 'Package Bookings', 'Paid Bookings', 'Last Booking Date', 'Status'];
-          if (filteredRows.length > 0) {
-            const ws = XLSX.utils.json_to_sheet(filteredRows.map((r: any) => ({
-              'Customer Name': r.customer_name,
-              'Phone': r.phone,
-              'Email': r.email ?? '',
-              'Total Bookings': r.total_bookings,
-              'Total Spent': r.total_spent,
-              'Package Bookings': r.package_bookings_count,
-              'Paid Bookings': r.paid_bookings_count,
-              'Last Booking Date': r.last_booking_date ?? '',
-              'Status': r.status,
-            })));
-            ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 38 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 10 }];
-            XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
-          } else {
-            const ws = XLSX.utils.aoa_to_sheet([colHeaders]);
-            ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 38 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 10 }];
-            XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
-          }
         }
         const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
