@@ -1603,8 +1603,7 @@ export async function generateVisitorsDetailReportPdf(
     margin: 50,
     size: 'A4',
     layout: 'landscape',
-    features: ['rtla', 'calt'],
-    lang: 'ar',
+    // LTR layout so section order is Visitor Info → Active packages → Booking History (no RTL reversal)
   });
 
   let arabicFontRegistered = false;
@@ -1639,15 +1638,19 @@ export async function generateVisitorsDetailReportPdf(
     }
   };
 
-  const drawText = (text: string, raw?: string) => {
-    const useArabic = arabicFontRegistered && raw && containsArabic(raw);
-    if (useArabic) doc.font('ArabicFont').text(text, { width: lineWidth, align: 'left' }).font('Helvetica');
-    else doc.text(text, { width: lineWidth });
+  const drawLabelValue = (label: string, value: string, valueRaw?: string) => {
+    doc.font('Helvetica').text(label, { continued: true });
+    if (arabicFontRegistered && valueRaw && containsArabic(valueRaw)) {
+      const shaped = reshapeName(value);
+      doc.font('ArabicFont').text(shaped, { width: lineWidth }).font('Helvetica');
+    } else {
+      doc.text(value, { width: lineWidth });
+    }
   };
 
-  doc.fontSize(18).text('Visitor Details Report', { align: 'center' });
+  doc.font('Helvetica').fontSize(18).text('Visitor Details Report', { align: 'center' });
   doc.moveDown();
-  doc.fontSize(10).font('Helvetica');
+  doc.fontSize(10);
 
   if (options?.includeTotals && options.totalVisitors != null) {
     doc.text(`Total Visitors: ${options.totalVisitors}`);
@@ -1659,11 +1662,10 @@ export async function generateVisitorsDetailReportPdf(
   }
 
   for (const { visitor: v, bookings } of details) {
-    doc.fontSize(12).text('Visitor Info', { continued: false }).fontSize(10);
+    doc.font('Helvetica').fontSize(12).text('Visitor Info', { continued: false }).fontSize(10);
     doc.moveDown(0.5);
     const rawName = String(v.customer_name ?? '').replace(/\|/g, ',');
-    const nameForPdf = arabicFontRegistered && containsArabic(rawName) ? reshapeName(rawName) : rawName;
-    drawText(`Name: ${nameForPdf}`, rawName);
+    drawLabelValue('Name: ', rawName || '—', rawName);
     doc.text(`Phone: ${v.phone ?? ''}`);
     doc.text(`Email: ${v.email ?? ''}`);
     doc.text(`Total Bookings: ${v.total_bookings ?? 0}`);
@@ -1673,15 +1675,15 @@ export async function generateVisitorsDetailReportPdf(
     doc.text(`Status: ${v.status ?? ''}`);
     doc.moveDown(0.5);
 
-    doc.text('Active packages');
+    doc.font('Helvetica').text('Active packages');
     for (const pkg of v.active_packages || []) {
       const name = pkg.package_name || '';
       const usage = (pkg.usage || []).map((u: any) => `${u.services?.name || u.service_id || '?'} — ${u.remaining_quantity ?? 0} left`).join(', ');
-      doc.text(`  ${name} — ${usage}`);
+      doc.text(`  ${name} — ${usage}`, { width: lineWidth });
     }
     doc.moveDown(0.5);
 
-    doc.text('Booking History');
+    doc.font('Helvetica').text('Booking History');
     doc.moveDown(0.3);
     // Landscape A4: ~742pt usable width; column widths sized so labels (PACKAGE, pending, etc.) fit without overlap
     const colW = [95, 72, 72, 58, 42, 58, 58, 68, 68];
@@ -1689,7 +1691,7 @@ export async function generateVisitorsDetailReportPdf(
     const tableFontSize = 9;
     const headerRowHeight = 18;
     const minRowHeight = 16;
-    doc.fontSize(tableFontSize).font('Helvetica-Bold');
+    doc.font('Helvetica').fontSize(tableFontSize).font('Helvetica-Bold');
     let rowY = doc.y;
     let x = 50;
     for (let i = 0; i < headers.length; i++) {
@@ -1698,7 +1700,7 @@ export async function generateVisitorsDetailReportPdf(
     }
     doc.y = rowY + headerRowHeight;
     doc.moveDown(0.3);
-    doc.font('Helvetica');
+    doc.font('Helvetica').fontSize(tableFontSize);
     for (const b of bookings) {
       if (doc.y > 360) {
         doc.addPage({ layout: 'landscape' });
@@ -1729,7 +1731,7 @@ export async function generateVisitorsDetailReportPdf(
       }
       doc.y = rowY + rowHeight;
     }
-    doc.fontSize(10);
+    doc.font('Helvetica').fontSize(10);
     doc.moveDown(1);
   }
 
