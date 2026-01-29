@@ -87,6 +87,48 @@ function phoneMatches(filterPhone: string, storedPhone: string): boolean {
   return false;
 }
 
+/** Fetch all rows from a query by paginating (avoids PostgREST row cap). */
+const FETCH_PAGE_SIZE = 1000;
+async function fetchAllBookings(
+  tenantId: string,
+  filters: { serviceId?: string; bookingStatus?: string }
+): Promise<any[]> {
+  const rows: any[] = [];
+  let offset = 0;
+  let hasMore = true;
+  while (hasMore) {
+    let q = supabase
+      .from('bookings')
+      .select(`
+        id,
+        customer_id,
+        customer_name,
+        customer_phone,
+        customer_email,
+        total_price,
+        status,
+        slot_id,
+        service_id,
+        package_covered_quantity,
+        paid_quantity,
+        package_subscription_id,
+        slots(slot_date, start_time, end_time)
+      `)
+      .eq('tenant_id', tenantId)
+      .order('id', { ascending: true })
+      .range(offset, offset + FETCH_PAGE_SIZE - 1);
+    if (filters.serviceId) q = q.eq('service_id', filters.serviceId);
+    if (filters.bookingStatus) q = q.eq('status', filters.bookingStatus);
+    const { data, error } = await q;
+    if (error) throw error;
+    const chunk = data || [];
+    rows.push(...chunk);
+    hasMore = chunk.length === FETCH_PAGE_SIZE;
+    offset += FETCH_PAGE_SIZE;
+  }
+  return rows;
+}
+
 /**
  * GET /api/visitors
  * List visitors (customers + guest bookers) with filters and pagination.
@@ -109,63 +151,40 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       bookingStatus: (req.query.bookingStatus as BookingStatusFilter) || '',
     };
 
-    // 1) Customers with booking aggregates (bookings joined so we can filter by date/type/service/status)
-    let customersQuery = supabase
-      .from('customers')
-      .select('id, name, phone, email, is_blocked, created_at')
-      .eq('tenant_id', tenantId);
-
-    if (filters.name) {
-      customersQuery = customersQuery.ilike('name', `%${filters.name}%`);
+    // 1) Fetch ALL customers for tenant (paginate to avoid PostgREST row cap)
+    const customersRaw: any[] = [];
+    let custOffset = 0;
+    let custHasMore = true;
+    while (custHasMore) {
+      let cq = supabase
+        .from('customers')
+        .select('id, name, phone, email, is_blocked, created_at')
+        .eq('tenant_id', tenantId)
+        .order('id', { ascending: true })
+        .range(custOffset, custOffset + FETCH_PAGE_SIZE - 1);
+      if (filters.name) cq = cq.ilike('name', `%${filters.name}%`);
+      const { data: chunk, error: custError } = await cq;
+      if (custError) throw custError;
+      const list = chunk || [];
+      customersRaw.push(...list);
+      custHasMore = list.length === FETCH_PAGE_SIZE;
+      custOffset += FETCH_PAGE_SIZE;
     }
-    if (filters.phone) {
-      // Don't filter by phone in DB; we'll filter after fetch for normalized match
-    }
 
-    const { data: customersRaw, error: custError } = await customersQuery.range(0, 9999);
-    if (custError) throw custError;
-
-    let customers = customersRaw || [];
+    let customers = customersRaw;
     if (filters.phone && filters.phone.trim()) {
       customers = customers.filter((c: any) => phoneMatches(filters.phone!, c.phone || ''));
     }
-    if (custError) throw custError;
 
-    const customerIds = (customers || []).map((c: any) => c.id);
-
-    // 2) Bookings for these customers (and we'll also get guest bookings)
-    let bookingsQuery = supabase
-      .from('bookings')
-      .select(`
-        id,
-        customer_id,
-        customer_name,
-        customer_phone,
-        customer_email,
-        total_price,
-        status,
-        slot_id,
-        service_id,
-        package_covered_quantity,
-        paid_quantity,
-        package_subscription_id,
-        slots(slot_date, start_time, end_time)
-      `)
-      .eq('tenant_id', tenantId);
-
-    if (filters.serviceId) bookingsQuery = bookingsQuery.eq('service_id', filters.serviceId);
-    if (filters.bookingStatus) bookingsQuery = bookingsQuery.eq('status', filters.bookingStatus);
-
-    const { data: allBookings, error: bookError } = await bookingsQuery.range(0, 9999);
-    if (bookError) throw bookError;
-
-    const bookings = (allBookings || []) as any[];
-    const slotIds = [...new Set(bookings.map((b) => b.slot_id).filter(Boolean))] as string[];
-    let slotDates: Record<string, { slot_date: string }> = {};
-    if (slotIds.length > 0) {
-      const { data: slotsData } = await supabase.from('slots').select('id, slot_date').in('id', slotIds);
-      (slotsData || []).forEach((s: any) => { slotDates[s.id] = { slot_date: s.slot_date }; });
-    }
+    // 2) Fetch ALL bookings for tenant (paginate to avoid row cap)
+    const bookings = (await fetchAllBookings(tenantId, {
+      serviceId: filters.serviceId,
+      bookingStatus: filters.bookingStatus || undefined,
+    })) as any[];
+    const slotDates: Record<string, { slot_date: string }> = {};
+    bookings.forEach((b: any) => {
+      if (b.slot_id && (b.slots?.slot_date != null)) slotDates[b.slot_id] = { slot_date: b.slots.slot_date };
+    });
 
     const applyDateFilter = (b: any) => {
       if (!filters.startDate && !filters.endDate) return true;
@@ -185,6 +204,8 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
 
     const filteredBookings = bookings.filter((b) => applyDateFilter(b) && applyBookingTypeFilter(b));
 
+    const SPENT_STATUSES = new Set(['confirmed', 'completed', 'checked_in']);
+
     // Aggregate by customer_id (and by guest phone for customer_id null)
     const byCustomerId: Record<string, { total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
     const byGuestPhone: Record<string, { name: string; email: string | null; total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
@@ -194,8 +215,8 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       const pc = b.package_covered_quantity ?? 0;
       const isPackage = pc > 0;
       const amount = Number(b.total_price) || 0;
-      // Total Spent = paid bookings only (exclude package-covered)
-      const addToSpent = !isPackage ? amount : 0;
+      // Total Spent = paid only; only confirmed/completed/checked_in
+      const addToSpent = !isPackage && SPENT_STATUSES.has(b.status) ? amount : 0;
 
       if (b.customer_id) {
         if (!byCustomerId[b.customer_id]) {
@@ -274,11 +295,21 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     const sorted = visitorRows.sort((a, b) => (b.last_booking_date || '').localeCompare(a.last_booking_date || ''));
     const paged = sorted.slice(offset, offset + limit);
 
+    // Stats from FULL filtered booking set (same filters as table) — never from current page only
+    const totalBookings = filteredBookings.length;
+    const totalPackageBookings = filteredBookings.filter((b: any) => (b.package_covered_quantity ?? 0) > 0).length;
+    const totalPaidBookings = filteredBookings.filter((b: any) => (b.package_covered_quantity ?? 0) === 0).length;
+    const totalSpent = filteredBookings.reduce((s: number, b: any) => {
+      if ((b.package_covered_quantity ?? 0) > 0) return s;
+      if (!SPENT_STATUSES.has(b.status)) return s;
+      return s + (Number(b.total_price) || 0);
+    }, 0);
+
     const summary = {
-      totalBookings: visitorRows.reduce((s, r) => s + (r.total_bookings || 0), 0),
-      totalPackageBookings: visitorRows.reduce((s, r) => s + (r.package_bookings_count || 0), 0),
-      totalPaidBookings: visitorRows.reduce((s, r) => s + (r.paid_bookings_count || 0), 0),
-      totalSpent: visitorRows.reduce((s, r) => s + (Number(r.total_spent) || 0), 0),
+      totalBookings,
+      totalPackageBookings,
+      totalPaidBookings,
+      totalSpent,
     };
 
     res.json({
@@ -321,32 +352,37 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       bookingStatus: (req.query.bookingStatus as BookingStatusFilter) || '',
     };
 
-    let customersQuery = supabase.from('customers').select('id, name, phone, email, is_blocked').eq('tenant_id', tenantId);
-    if (filters.name) customersQuery = customersQuery.ilike('name', `%${filters.name}%`);
-    const { data: filteredCustomersRaw } = await customersQuery;
-    let filteredCustomers = filteredCustomersRaw || [];
+    // Fetch ALL customers (paginate)
+    const filteredCustomersRaw: any[] = [];
+    let expCustOffset = 0;
+    let expCustHasMore = true;
+    while (expCustHasMore) {
+      let cq = supabase.from('customers').select('id, name, phone, email, is_blocked').eq('tenant_id', tenantId).order('id', { ascending: true }).range(expCustOffset, expCustOffset + FETCH_PAGE_SIZE - 1);
+      if (filters.name) cq = cq.ilike('name', `%${filters.name}%`);
+      const { data: chunk } = await cq;
+      const list = chunk || [];
+      filteredCustomersRaw.push(...list);
+      expCustHasMore = list.length === FETCH_PAGE_SIZE;
+      expCustOffset += FETCH_PAGE_SIZE;
+    }
+    let filteredCustomers = filteredCustomersRaw;
     if (filters.phone && filters.phone.trim()) {
       filteredCustomers = filteredCustomers.filter((c: any) => phoneMatches(filters.phone!, c.phone || ''));
     }
 
-    let bookingsQuery = supabase
-      .from('bookings')
-      .select('id, customer_id, customer_phone, customer_name, customer_email, total_price, status, slot_id, service_id, package_covered_quantity, paid_quantity')
-      .eq('tenant_id', tenantId);
-    if (filters.serviceId) bookingsQuery = bookingsQuery.eq('service_id', filters.serviceId);
-    if (filters.bookingStatus) bookingsQuery = bookingsQuery.eq('status', filters.bookingStatus);
-    const { data: allBookings } = await bookingsQuery;
-
-    const bookings = (allBookings || []) as any[];
-    const slotIds = [...new Set(bookings.map((b) => b.slot_id).filter(Boolean))];
-    let slotDates: Record<string, string> = {};
-    if (slotIds.length > 0) {
-      const { data: slotsData } = await supabase.from('slots').select('id, slot_date').in('id', slotIds);
-      (slotsData || []).forEach((s: any) => { slotDates[s.id] = s.slot_date; });
-    }
+    // Fetch ALL bookings (paginate)
+    const allBookingsExport = await fetchAllBookings(tenantId, {
+      serviceId: filters.serviceId,
+      bookingStatus: filters.bookingStatus || undefined,
+    });
+    const bookings = allBookingsExport as any[];
+    const slotDates: Record<string, string> = {};
+    bookings.forEach((b: any) => {
+      if (b.slot_id && (b.slots?.slot_date != null)) slotDates[b.slot_id] = b.slots.slot_date;
+    });
     const applyDateFilter = (b: any) => {
       if (!filters.startDate && !filters.endDate) return true;
-      const d = slotDates[b.slot_id];
+      const d = b.slots?.slot_date ?? slotDates[b.slot_id];
       if (!d) return true;
       if (filters.startDate && d < filters.startDate) return false;
       if (filters.endDate && d > filters.endDate) return false;
@@ -360,14 +396,15 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     };
     const filteredBookings = bookings.filter((b) => applyDateFilter(b) && applyTypeFilter(b));
 
+    const SPENT_STATUSES_EXPORT = new Set(['confirmed', 'completed', 'checked_in']);
     const byCustomerId: Record<string, { total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
     const byGuestPhone: Record<string, { name: string; email: string | null; total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
     for (const b of filteredBookings) {
-      const slotDate = slotDates[b.slot_id] || null;
+      const slotDate = b.slots?.slot_date ?? slotDates[b.slot_id] ?? null;
       const pc = b.package_covered_quantity ?? 0;
       const isPackage = pc > 0;
       const amount = Number(b.total_price) || 0;
-      const addToSpent = !isPackage ? amount : 0;
+      const addToSpent = !isPackage && SPENT_STATUSES_EXPORT.has(b.status) ? amount : 0;
       if (b.customer_id) {
         if (!byCustomerId[b.customer_id]) byCustomerId[b.customer_id] = { total: 0, spent: 0, packageCount: 0, paidCount: 0, lastDate: null };
         const agg = byCustomerId[b.customer_id];
