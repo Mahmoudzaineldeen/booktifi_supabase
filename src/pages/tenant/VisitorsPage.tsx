@@ -680,7 +680,7 @@ export function VisitorsPage() {
                           </span>
                         </td>
                         <td className="px-3 py-2">{formatPrice(b.amount_paid)}</td>
-                        <td className="px-3 py-2">{safeTranslateStatus(b.status, t)}</td>
+                        <td className="px-3 py-2">{safeTranslateStatus(t, b.status)}</td>
                         <td className="px-3 py-2">{b.created_by === 'staff' ? t('visitors.staff', 'Admin/Receptionist') : t('visitors.customer', 'Customer')}</td>
                       </tr>
                     ))}
