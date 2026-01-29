@@ -429,6 +429,8 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       serviceId: (req.query.serviceId as string)?.trim() || undefined,
       bookingStatus: (req.query.bookingStatus as BookingStatusFilter) || '',
     };
+    const includeTotals = /^(1|true|yes)$/i.test(String(req.query.includeTotals ?? 'true').trim());
+    const includeVisitorDetails = /^(1|true|yes)$/i.test(String(req.query.includeVisitorDetails ?? 'true').trim());
 
     // Fetch ALL customers (paginate)
     const filteredCustomersRaw: any[] = [];
@@ -552,22 +554,59 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       });
     }
 
+    const totalVisitors = rows.length;
+    const totalBookings = rows.reduce((s: number, r: any) => s + (Number(r.total_bookings) || 0), 0);
+    const totalPackageBookings = rows.reduce((s: number, r: any) => s + (Number(r.package_bookings_count) || 0), 0);
+    const totalPaidBookings = rows.reduce((s: number, r: any) => s + (Number(r.paid_bookings_count) || 0), 0);
+    const totalSpent = rows.reduce((s: number, r: any) => s + parsePrice(r.total_spent), 0);
+
     if (format === 'csv') {
-      const header = 'Customer Name,Phone,Email,Total Bookings,Total Spent,Package Bookings,Paid Bookings,Last Booking Date,Status';
-      const csvRows = rows.map((r) =>
-        [r.customer_name, r.phone, r.email, r.total_bookings, r.total_spent, r.package_bookings_count, r.paid_bookings_count, r.last_booking_date || '', r.status].map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')
-      );
+      const lines: string[] = [];
+      if (includeTotals) {
+        lines.push('"Summary"');
+        lines.push(`"Total Visitors",${totalVisitors}`);
+        lines.push(`"Total Bookings",${totalBookings}`);
+        lines.push(`"Package Bookings",${totalPackageBookings}`);
+        lines.push(`"Paid Bookings",${totalPaidBookings}`);
+        lines.push(`"Total Spent",${totalSpent}`);
+        lines.push('');
+      }
+      if (includeVisitorDetails) {
+        const header = 'Customer Name,Phone,Email,Total Bookings,Total Spent,Package Bookings,Paid Bookings,Last Booking Date,Status';
+        const csvRows = rows.map((r) =>
+          [r.customer_name, r.phone, r.email, r.total_bookings, r.total_spent, r.package_bookings_count, r.paid_bookings_count, r.last_booking_date || '', r.status].map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')
+        );
+        lines.push(header);
+        lines.push(...csvRows);
+      }
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="visitors-${new Date().toISOString().slice(0, 10)}.csv"`);
-      return res.send([header, ...csvRows].join('\r\n'));
+      return res.send(lines.join('\r\n'));
     }
 
     if (format === 'xlsx') {
       try {
         const XLSX = await import('xlsx');
         const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.json_to_sheet(rows);
-        XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
+        if (includeTotals) {
+          const summaryData = [
+            { Metric: 'Total Visitors', Value: totalVisitors },
+            { Metric: 'Total Bookings', Value: totalBookings },
+            { Metric: 'Package Bookings', Value: totalPackageBookings },
+            { Metric: 'Paid Bookings', Value: totalPaidBookings },
+            { Metric: 'Total Spent', Value: totalSpent },
+          ];
+          const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+          XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+        }
+        if (includeVisitorDetails && rows.length > 0) {
+          const ws = XLSX.utils.json_to_sheet(rows);
+          XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
+        }
+        if (!includeTotals && !includeVisitorDetails) {
+          const wsNote = XLSX.utils.aoa_to_sheet([['Export options did not include summary totals or visitor list.']]);
+          XLSX.utils.book_append_sheet(wb, wsNote, 'Note');
+        }
         const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="visitors-${new Date().toISOString().slice(0, 10)}.xlsx"`);
@@ -579,22 +618,48 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
 
     if (format === 'pdf') {
       try {
-        const PDFDocument = await import('pdfkit');
-        const doc = new (PDFDocument as any)({ margin: 50 });
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="visitors-${new Date().toISOString().slice(0, 10)}.pdf"`);
-        doc.pipe(res);
+        const pdfkit = await import('pdfkit');
+        const PDFDocument = (pdfkit as any).default ?? pdfkit;
+        const doc = new PDFDocument({ margin: 50 });
+
+        const chunks: Buffer[] = [];
+        const pdfPromise = new Promise<Buffer>((resolve, reject) => {
+          doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+          doc.on('end', () => resolve(Buffer.concat(chunks)));
+          doc.on('error', reject);
+        });
+
         doc.fontSize(18).text('Visitors Report', { align: 'center' });
         doc.moveDown();
         doc.fontSize(10);
-        for (const r of rows) {
-          doc.text(`Name: ${r.customer_name} | Phone: ${r.phone} | Bookings: ${r.total_bookings} | Spent: ${r.total_spent} | Status: ${r.status}`);
-          doc.moveDown(0.5);
+        if (includeTotals) {
+          doc.text(`Total Visitors: ${totalVisitors}`);
+          doc.text(`Total Bookings: ${totalBookings}`);
+          doc.text(`Package Bookings: ${totalPackageBookings}`);
+          doc.text(`Paid Bookings: ${totalPaidBookings}`);
+          doc.text(`Total Spent: ${totalSpent}`);
+          doc.moveDown();
+        }
+        if (includeVisitorDetails) {
+          for (const r of rows) {
+            const name = String(r.customer_name ?? '').replace(/\|/g, ',');
+            const phone = String(r.phone ?? '');
+            const bookings = Number(r.total_bookings) ?? 0;
+            const spent = Number(r.total_spent) ?? 0;
+            const status = String(r.status ?? '');
+            doc.text(`Name: ${name} | Phone: ${phone} | Bookings: ${bookings} | Spent: ${spent} | Status: ${status}`);
+            doc.moveDown(0.5);
+          }
         }
         doc.end();
-        return;
-      } catch (e) {
-        return res.status(500).json({ error: 'PDF export failed. Use CSV or Excel.' });
+
+        const pdfBuffer = await pdfPromise;
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="visitors-${new Date().toISOString().slice(0, 10)}.pdf"`);
+        return res.send(pdfBuffer);
+      } catch (e: any) {
+        logger.error('Visitors PDF export error', e);
+        return res.status(500).json({ error: e?.message || 'PDF export failed. Use CSV or Excel.' });
       }
     }
 

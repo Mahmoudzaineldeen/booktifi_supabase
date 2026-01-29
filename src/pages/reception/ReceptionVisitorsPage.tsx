@@ -116,6 +116,8 @@ export function ReceptionVisitorsPage() {
   const [blockingId, setBlockingId] = useState<string | null>(null);
   const [exportingFormat, setExportingFormat] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [exportIncludeTotals, setExportIncludeTotals] = useState(true);
+  const [exportIncludeVisitorDetails, setExportIncludeVisitorDetails] = useState(true);
   const [confirmBlock, setConfirmBlock] = useState<VisitorRow | null>(null);
 
   const canBlockUnblock = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user', 'coordinator'].includes(
@@ -274,7 +276,9 @@ export function ReceptionVisitorsPage() {
   const handleExport = async (format: 'pdf' | 'csv' | 'xlsx') => {
     setExportingFormat(format);
     setShowExportMenu(false);
-    const qs = buildQuery().replace(/^page=\d+&?|&?limit=\d+/g, '').replace(/&&/g, '&').replace(/^&|&$/g, '');
+    let qs = buildQuery().replace(/^page=\d+&?|&?limit=\d+/g, '').replace(/&&/g, '&').replace(/^&|&$/g, '');
+    if (qs) qs += '&';
+    qs += `includeTotals=${exportIncludeTotals ? '1' : '0'}&includeVisitorDetails=${exportIncludeVisitorDetails ? '1' : '0'}`;
     const url = `${getApiUrl()}/visitors/export/${format}?${qs}`;
     try {
       const res = await fetch(url, { headers: getAuthHeaders() });
@@ -321,28 +325,55 @@ export function ReceptionVisitorsPage() {
           {showExportMenu && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} aria-hidden="true" />
-              <div className="absolute right-0 mt-1 py-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
-                <button
-                  type="button"
-                  className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50"
-                  onClick={() => handleExport('csv')}
-                >
-                  {t('visitors.exportCsv', 'CSV')}
-                </button>
-                <button
-                  type="button"
-                  className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50"
-                  onClick={() => handleExport('xlsx')}
-                >
-                  {t('visitors.exportExcel', 'Excel (.xlsx)')}
-                </button>
-                <button
-                  type="button"
-                  className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50"
-                  onClick={() => handleExport('pdf')}
-                >
-                  {t('visitors.exportPdf', 'PDF')}
-                </button>
+              <div className="absolute right-0 mt-1 py-2 px-3 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-20 space-y-2">
+                <div className="space-y-2 border-b border-gray-100 pb-2">
+                  <label className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={exportIncludeTotals}
+                      onChange={(e) => setExportIncludeTotals(e.target.checked)}
+                      className="rounded border-gray-300 mt-0.5"
+                    />
+                    <span>
+                      {t('visitors.exportIncludeTotals', 'Include summary totals')}
+                      <span className="block text-xs text-gray-500 mt-0.5">
+                        ({t('visitors.exportIncludeTotalsHint', 'Total Visitors, Total Bookings, Package Bookings, Total Spent')})
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={exportIncludeVisitorDetails}
+                      onChange={(e) => setExportIncludeVisitorDetails(e.target.checked)}
+                      className="rounded border-gray-300"
+                    />
+                    {t('visitors.exportIncludeVisitorDetails', "Include each visitor's details")}
+                  </label>
+                </div>
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 rounded"
+                    onClick={() => handleExport('csv')}
+                  >
+                    {t('visitors.exportCsv', 'CSV')}
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 rounded"
+                    onClick={() => handleExport('xlsx')}
+                  >
+                    {t('visitors.exportExcel', 'Excel (.xlsx)')}
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 rounded"
+                    onClick={() => handleExport('pdf')}
+                  >
+                    {t('visitors.exportPdf', 'PDF')}
+                  </button>
+                </div>
               </div>
             </>
           )}
