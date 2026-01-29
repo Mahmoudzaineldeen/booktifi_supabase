@@ -12,10 +12,11 @@ import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Edit, CalendarClock, Users, Ban } from 'lucide-react';
 import { ReceptionPackagesPage } from './ReceptionPackagesPage';
+import { ReceptionVisitorsPage } from './ReceptionVisitorsPage';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { format, addDays, startOfWeek, isSameDay, parseISO, startOfDay, endOfDay, addMinutes, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { ar } from 'date-fns/locale';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { countryCodes } from '../../lib/countryCodes';
 import { getApiUrl } from '../../lib/apiUrl';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
@@ -120,8 +121,10 @@ export function ReceptionPage() {
   const { userProfile, tenant, signOut, loading: authLoading } = useAuth();
   const { formatPrice } = useCurrency();
   const navigate = useNavigate();
+  const location = useLocation();
   const { tenantSlug: routeTenantSlug } = useParams<{ tenantSlug?: string }>();
   const tenantSlugForNav = routeTenantSlug || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : '');
+  const isVisitorsPath = location.pathname.includes('/reception/visitors');
   const tenantDefaultCountry = useTenantDefaultCountry();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [todayBookings, setTodayBookings] = useState<Booking[]>([]);
@@ -3503,9 +3506,9 @@ export function ReceptionPage() {
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Button
-                variant={currentView === 'bookings' ? 'primary' : 'secondary'}
+                variant={!isVisitorsPath && currentView === 'bookings' ? 'primary' : 'secondary'}
                 size="sm"
-                onClick={() => setCurrentView('bookings')}
+                onClick={() => { setCurrentView('bookings'); tenantSlugForNav && navigate(`/${tenantSlugForNav}/reception`); }}
               >
                 <Calendar className="w-4 h-4 mr-2" />
                 <span className="hidden sm:inline">{i18n.language === 'ar' ? 'الحجوزات' : 'Bookings'}</span>
@@ -3513,15 +3516,15 @@ export function ReceptionPage() {
               {!isCoordinator && (
               <>
               <Button
-                variant={currentView === 'packages' ? 'primary' : 'secondary'}
+                variant={!isVisitorsPath && currentView === 'packages' ? 'primary' : 'secondary'}
                 size="sm"
-                onClick={() => setCurrentView('packages')}
+                onClick={() => { setCurrentView('packages'); tenantSlugForNav && navigate(`/${tenantSlugForNav}/reception`); }}
               >
                 <Package className="w-4 h-4 mr-2" />
                 <span className="hidden sm:inline">{i18n.language === 'ar' ? 'الباقات' : 'Packages'}</span>
               </Button>
               <Button
-                variant="secondary"
+                variant={isVisitorsPath ? 'primary' : 'secondary'}
                 size="sm"
                 onClick={() => tenantSlugForNav && navigate(`/${tenantSlugForNav}/reception/visitors`)}
               >
@@ -3554,13 +3557,18 @@ export function ReceptionPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Visitors View (reception layout, same APIs as admin) */}
+        {isVisitorsPath && (
+          <ReceptionVisitorsPage />
+        )}
+
         {/* Packages View */}
-        {currentView === 'packages' && (
+        {!isVisitorsPath && currentView === 'packages' && (
           <ReceptionPackagesPage />
         )}
 
         {/* Bookings View */}
-        {currentView === 'bookings' && (
+        {!isVisitorsPath && currentView === 'bookings' && (
           <>
         {/* Search Bar with Type Selector */}
         <div className="mb-6 space-y-3">

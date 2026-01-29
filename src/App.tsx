@@ -71,8 +71,8 @@ function AppContent() {
       <Route path="/:tenantSlug/admin/debug/navigation" element={<NavigationTest />} />
       <Route path="/:tenantSlug/admin" element={<TenantDashboard />} />
 
-      {/* Reception: Visitors at /reception/visitors so receptionists don't hit admin redirect */}
-      <Route path="/:tenantSlug/reception/visitors" element={<VisitorsPageWrapper />} />
+      {/* Reception: /reception and /reception/visitors both render ReceptionPage (reception layout, no admin) */}
+      <Route path="/:tenantSlug/reception/visitors" element={<ReceptionPage />} />
       <Route path="/:tenantSlug/reception" element={<ReceptionPage />} />
       <Route path="/:tenantSlug/cashier" element={<CashierPage />} />
       {/* ARCHIVED: <Route path="/:tenantSlug/employee" element={<EmployeePage />} /> */}
