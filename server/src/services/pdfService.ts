@@ -1601,6 +1601,8 @@ export async function generateVisitorsDetailReportPdf(
 
   const doc = new PDFDocument({
     margin: 50,
+    size: 'A4',
+    layout: 'landscape',
     features: ['rtla', 'calt'],
     lang: 'ar',
   });
@@ -1621,7 +1623,7 @@ export async function generateVisitorsDetailReportPdf(
   });
 
   const formatNum = (n: number) => (Number.isFinite(n) ? Number(n).toFixed(2) : '0.00');
-  const lineWidth = 500;
+  const lineWidth = 700;
 
   const reshapeName = (text: string): string => {
     if (!text?.trim()) return text;
@@ -1681,22 +1683,25 @@ export async function generateVisitorsDetailReportPdf(
 
     doc.text('Booking History');
     doc.moveDown(0.3);
-    const colW = [70, 50, 45, 40, 35, 45, 45, 50, 55];
+    // Landscape A4: ~742pt usable width; column widths sized so labels (PACKAGE, pending, etc.) fit without overlap
+    const colW = [95, 72, 72, 58, 42, 58, 58, 68, 68];
     const headers = ['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Type', 'Amount', 'Status', 'Created By'];
-    const rowHeight = 14;
-    doc.font('Helvetica-Bold');
+    const tableFontSize = 9;
+    const headerRowHeight = 18;
+    const minRowHeight = 16;
+    doc.fontSize(tableFontSize).font('Helvetica-Bold');
     let rowY = doc.y;
     let x = 50;
     for (let i = 0; i < headers.length; i++) {
       doc.text(headers[i], x, rowY, { width: colW[i] });
       x += colW[i];
     }
-    doc.y = rowY + rowHeight;
+    doc.y = rowY + headerRowHeight;
     doc.moveDown(0.3);
     doc.font('Helvetica');
     for (const b of bookings) {
-      if (doc.y > 700) {
-        doc.addPage();
+      if (doc.y > 360) {
+        doc.addPage({ layout: 'landscape' });
         doc.y = 50;
       }
       rowY = doc.y;
@@ -1712,12 +1717,19 @@ export async function generateVisitorsDetailReportPdf(
         b.status ?? '',
         b.created_by ?? '',
       ];
+      let maxRowH = 0;
       for (let i = 0; i < cells.length; i++) {
-        doc.text(cells[i], x, rowY, { width: colW[i] });
+        const h = doc.heightOfString(cells[i], { width: colW[i] });
+        if (h > maxRowH) maxRowH = h;
+      }
+      const rowHeight = Math.max(minRowHeight, Math.ceil(maxRowH) + 3);
+      for (let i = 0; i < cells.length; i++) {
+        doc.text(cells[i], x, rowY, { width: colW[i], height: rowHeight, ellipsis: true });
         x += colW[i];
       }
       doc.y = rowY + rowHeight;
     }
+    doc.fontSize(10);
     doc.moveDown(1);
   }
 
