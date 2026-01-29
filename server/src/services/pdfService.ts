@@ -1739,3 +1739,175 @@ export async function generateVisitorsDetailReportPdf(
   doc.end();
   return pdfPromise;
 }
+
+/** Structured visitor detail report: 4 sections in order (Summary, Profile, Active Packages, Booking History). */
+export type VisitorStructuredReportPdf = {
+  summary: { totalVisitors: number; totalBookings: number; packageBookings: number; paidBookings: number; totalSpent: number };
+  profile: { name: string; phone: string; email: string; status: string };
+  activePackages: Array<{ packageName: string; serviceName: string; remainingSlots: number }>;
+  bookingHistory: Array<{ bookingId: string; serviceName: string; date: string; time: string; visitorsCount: number; type: string; amountPaid: number; status: string; createdBy: string }>;
+};
+
+export async function generateVisitorDetailStructuredPdf(reports: VisitorStructuredReportPdf[]): Promise<Buffer> {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirnamePdf = dirname(__filename);
+  const possibleFontPaths = [
+    join(__dirnamePdf, '../../fonts/NotoSansArabic-Regular.ttf'),
+    join(__dirnamePdf, '../../fonts/Amiri-Regular.ttf'),
+    'C:/Windows/Fonts/tahoma.ttf',
+    '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
+    '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+  ];
+  let arabicFontPath: string | null = null;
+  for (const p of possibleFontPaths) {
+    if (existsSync(p)) {
+      arabicFontPath = p;
+      break;
+    }
+  }
+
+  const doc = new PDFDocument({ margin: 50, size: 'A4', layout: 'landscape' });
+  let arabicFontRegistered = false;
+  if (arabicFontPath) {
+    try {
+      doc.registerFont('ArabicFont', arabicFontPath);
+      arabicFontRegistered = true;
+    } catch (_) {}
+  }
+
+  const chunks: Buffer[] = [];
+  const pdfPromise = new Promise<Buffer>((resolve, reject) => {
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+  });
+
+  const formatNum = (n: number) => (Number.isFinite(n) ? Number(n).toFixed(2) : '0.00');
+  const lineWidth = 700;
+  const reshapeName = (text: string): string => {
+    if (!text?.trim()) return text;
+    try {
+      let reshaped = text;
+      if (arabicReshaperLib && typeof arabicReshaperLib.convertArabic === 'function') reshaped = arabicReshaperLib.convertArabic(text);
+      return reshaped.split(' ').reverse().join(' ');
+    } catch {
+      return text;
+    }
+  };
+  const drawLabelValue = (label: string, value: string, valueRaw?: string) => {
+    doc.font('Helvetica').text(label, { continued: true });
+    if (arabicFontRegistered && valueRaw && containsArabic(valueRaw)) {
+      doc.font('ArabicFont').text(reshapeName(value), { width: lineWidth }).font('Helvetica');
+    } else {
+      doc.text(value, { width: lineWidth });
+    }
+  };
+
+  doc.font('Helvetica').fontSize(18).text('Visitor Details Report', { align: 'center' });
+  doc.moveDown();
+  doc.fontSize(10);
+
+  for (const rep of reports) {
+    doc.font('Helvetica').fontSize(12).text('1. Visitor Summary', { continued: false }).fontSize(10);
+    doc.moveDown(0.3);
+    doc.text(`Total Visitors: ${rep.summary.totalVisitors}`);
+    doc.text(`Total Bookings: ${rep.summary.totalBookings}`);
+    doc.text(`Package Bookings: ${rep.summary.packageBookings}`);
+    doc.text(`Paid Bookings: ${rep.summary.paidBookings}`);
+    doc.text(`Total Spent: ${formatNum(rep.summary.totalSpent)}`);
+    doc.moveDown(0.5);
+
+    doc.font('Helvetica').fontSize(12).text('2. Visitor Profile', { continued: false }).fontSize(10);
+    doc.moveDown(0.3);
+    drawLabelValue('Name: ', rep.profile.name || '—', rep.profile.name);
+    doc.text(`Phone: ${rep.profile.phone ?? ''}`);
+    doc.text(`Email: ${rep.profile.email ?? ''}`);
+    doc.text(`Status: ${rep.profile.status ?? ''}`);
+    doc.moveDown(0.5);
+
+    doc.font('Helvetica').fontSize(12).text('3. Active Packages', { continued: false }).fontSize(10);
+    doc.moveDown(0.3);
+    if (rep.activePackages.length === 0) {
+      doc.text('(None)');
+    } else {
+      const colW = [120, 120, 80];
+      const headers = ['Package Name', 'Service Name', 'Remaining Slots'];
+      let rowY = doc.y;
+      let x = 50;
+      doc.font('Helvetica-Bold');
+      for (let i = 0; i < headers.length; i++) {
+        doc.text(headers[i], x, rowY, { width: colW[i] });
+        x += colW[i] + 4;
+      }
+      doc.y = rowY + 16;
+      doc.font('Helvetica');
+      for (const p of rep.activePackages) {
+        if (doc.y > 500) {
+          doc.addPage({ layout: 'landscape' });
+          doc.y = 50;
+        }
+        rowY = doc.y;
+        x = 50;
+        doc.text(p.packageName ?? '', x, rowY, { width: colW[0] });
+        doc.text(p.serviceName ?? '', x + colW[0] + 4, rowY, { width: colW[1] });
+        doc.text(String(p.remainingSlots ?? 0), x + colW[0] + 4 + colW[1] + 4, rowY, { width: colW[2] });
+        doc.y = rowY + 14;
+      }
+    }
+    doc.moveDown(0.5);
+
+    doc.font('Helvetica').fontSize(12).text('4. Booking History', { continued: false }).fontSize(10);
+    doc.moveDown(0.3);
+    const colGap = 4;
+    const colW = [100, 78, 72, 58, 42, 58, 58, 68, 68];
+    const headers = ['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Type', 'Amount', 'Status', 'Created By'];
+    const tableFontSize = 9;
+    const headerRowHeight = 20;
+    const minRowHeight = 18;
+    doc.font('Helvetica').fontSize(tableFontSize).font('Helvetica-Bold');
+    let rowY = doc.y;
+    let x = 50;
+    for (let i = 0; i < headers.length; i++) {
+      doc.text(headers[i], x, rowY, { width: colW[i] });
+      x += colW[i] + colGap;
+    }
+    doc.y = rowY + headerRowHeight;
+    doc.moveDown(0.2);
+    doc.font('Helvetica').fontSize(tableFontSize);
+    for (const b of rep.bookingHistory) {
+      if (doc.y > 360) {
+        doc.addPage({ layout: 'landscape' });
+        doc.y = 50;
+      }
+      rowY = doc.y;
+      x = 50;
+      const cells = [
+        (b.bookingId || '').slice(0, 8) + '…',
+        b.serviceName ?? '',
+        b.date ?? '',
+        b.time ?? '',
+        String(b.visitorsCount ?? ''),
+        b.type ?? '',
+        formatNum(Number(b.amountPaid ?? 0)),
+        b.status ?? '',
+        b.createdBy ?? '',
+      ];
+      let maxRowH = 0;
+      for (let i = 0; i < cells.length; i++) {
+        const h = doc.heightOfString(cells[i], { width: colW[i] });
+        if (h > maxRowH) maxRowH = h;
+      }
+      const rowHeight = Math.max(minRowHeight, Math.ceil(maxRowH) + 4);
+      for (let i = 0; i < cells.length; i++) {
+        doc.text(cells[i], x, rowY, { width: colW[i], height: rowHeight, ellipsis: true });
+        x += colW[i] + colGap;
+      }
+      doc.y = rowY + rowHeight;
+    }
+    doc.font('Helvetica').fontSize(10);
+    doc.moveDown(1.2);
+  }
+
+  doc.end();
+  return pdfPromise;
+}

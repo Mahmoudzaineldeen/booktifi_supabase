@@ -581,111 +581,113 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     const totalPaidBookings = filteredRows.reduce((s: number, r: any) => s + (Number(r.paid_bookings_count) || 0), 0);
     const totalSpent = filteredRows.reduce((s: number, r: any) => s + parsePrice(r.total_spent), 0);
 
-    // Detail export: full visitor info + active packages + booking history per visitor
+    // Detail export: 4 separate sections (Summary, Profile, Active Packages, Booking History)
     if (detailMode && filteredRows.length > 0) {
-      const details: Array<{ visitor: any; bookings: any[] }> = [];
+      const reports: VisitorStructuredReport[] = [];
       for (const r of filteredRows) {
-        const d = await getVisitorDetail(tenantId, r.id);
-        if (d) details.push(d);
+        const report = await getVisitorDetailStructured(tenantId, r.id);
+        if (report) reports.push(report);
       }
+      if (reports.length === 0) {
+        return res.status(404).json({ error: 'No visitor details found for export' });
+      }
+
       const csvCell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const multi = reports.length > 1;
 
       if (format === 'csv') {
-        const lines: string[] = [];
-        const pad = (arr: string[], len: number) => {
-          const row = arr.slice(0, len).map((x) => csvCell(x));
-          while (row.length < len) row.push(csvCell(''));
-          return row.join(',');
-        };
-        const COLS = 9;
-        if (includeTotals) {
-          lines.push(pad(['Summary', ''], COLS));
-          lines.push(pad(['Total Visitors', String(details.length)], COLS));
-          lines.push(pad(['Total Bookings', String(details.reduce((s, d) => s + d.bookings.length, 0))], COLS));
-          lines.push(pad(['Package Bookings', String(details.reduce((s, d) => s + (d.visitor.package_bookings_count || 0), 0))], COLS));
-          lines.push(pad(['Paid Bookings', String(details.reduce((s, d) => s + (d.visitor.paid_bookings_count || 0), 0))], COLS));
-          lines.push(pad(['Total Spent', String(details.reduce((s, d) => s + parsePrice(d.visitor.total_spent), 0))], COLS));
-          lines.push(pad([], COLS));
-        }
-        for (const { visitor: v, bookings } of details) {
-          lines.push(pad(['Visitor Info', ''], COLS));
-          lines.push(pad(['Name', String(v.customer_name ?? '')], COLS));
-          lines.push(pad(['Phone', String(v.phone ?? '')], COLS));
-          lines.push(pad(['Email', String(v.email ?? '')], COLS));
-          lines.push(pad(['Total Bookings', String(v.total_bookings ?? 0)], COLS));
-          lines.push(pad(['Total Spent', String(parsePrice(v.total_spent))], COLS));
-          lines.push(pad(['Package Bookings', String(v.package_bookings_count ?? 0)], COLS));
-          lines.push(pad(['Paid Bookings', String(v.paid_bookings_count ?? 0)], COLS));
-          lines.push(pad(['Status', String(v.status ?? '')], COLS));
-          lines.push(pad(['Active packages', ''], COLS));
-          for (const pkg of v.active_packages || []) {
-            const name = pkg.package_name || '';
-            const usage = (pkg.usage || []).map((u: any) => `${u.services?.name || u.service_id || '?'} — ${u.remaining_quantity ?? 0} left`).join(', ');
-            lines.push(pad([name, usage], COLS));
+        try {
+          const archiverMod = await import('archiver').catch(() => null);
+          const createArchiver = archiverMod?.default ?? (archiverMod as any)?.default ?? (archiverMod as any);
+          if (typeof createArchiver !== 'function') {
+            return res.status(500).json({ error: 'ZIP export requires archiver package. npm install archiver' });
           }
-          lines.push(pad(['Booking History', ''], COLS));
-          lines.push(pad(['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Booking Type', 'Amount', 'Status', 'Created By'], COLS));
-          for (const b of bookings) {
-            lines.push(pad([b.id, b.service_name ?? '', b.date ?? '', b.time ?? '', String(b.visitors_count ?? ''), b.booking_type ?? '', String(parsePrice(b.amount_paid)), b.status ?? '', b.created_by ?? ''], COLS));
-          }
-          lines.push(pad([], COLS));
+          const zip = createArchiver('zip', { zlib: { level: 9 } });
+          res.setHeader('Content-Type', 'application/zip');
+          res.setHeader('Content-Disposition', `attachment; filename="visitor-details-${new Date().toISOString().slice(0, 10)}.zip"`);
+          zip.pipe(res);
+
+          const summaryHeader = multi ? 'Name,Total Visitors,Total Bookings,Package Bookings,Paid Bookings,Total Spent' : 'Total Visitors,Total Bookings,Package Bookings,Paid Bookings,Total Spent';
+          const summaryRows = reports.flatMap((rep) =>
+            multi
+              ? [[rep.profile.name, rep.summary.totalVisitors, rep.summary.totalBookings, rep.summary.packageBookings, rep.summary.paidBookings, rep.summary.totalSpent].map(csvCell).join(',')]
+              : [[rep.summary.totalVisitors, rep.summary.totalBookings, rep.summary.packageBookings, rep.summary.paidBookings, rep.summary.totalSpent].map(csvCell).join(',')]
+          );
+          zip.append('\uFEFF' + summaryHeader + '\r\n' + summaryRows.join('\r\n'), { name: 'visitor_summary.csv' });
+
+          const profileHeader = multi ? 'Name,Phone,Email,Status' : 'Name,Phone,Email,Status';
+          const profileRows = reports.map((rep) =>
+            multi
+              ? [rep.profile.name, rep.profile.phone, rep.profile.email, rep.profile.status].map(csvCell).join(',')
+              : [rep.profile.name, rep.profile.phone, rep.profile.email, rep.profile.status].map(csvCell).join(',')
+          );
+          zip.append('\uFEFF' + profileHeader + '\r\n' + profileRows.join('\r\n'), { name: 'visitor_profile.csv' });
+
+          const packagesHeader = multi ? 'Name,Package Name,Service Name,Remaining Slots' : 'Package Name,Service Name,Remaining Slots';
+          const packageRows = reports.flatMap((rep) =>
+            rep.activePackages.map((p) =>
+              multi ? [rep.profile.name, p.packageName, p.serviceName, p.remainingSlots].map(csvCell).join(',') : [p.packageName, p.serviceName, p.remainingSlots].map(csvCell).join(',')
+            )
+          );
+          zip.append('\uFEFF' + packagesHeader + '\r\n' + packageRows.join('\r\n'), { name: 'active_packages.csv' });
+
+          const historyHeader = multi ? 'Name,Booking ID,Service,Date,Time,Visitors,Type,Amount Paid,Status,Created By' : 'Booking ID,Service,Date,Time,Visitors,Type,Amount Paid,Status,Created By';
+          const historyRows = reports.flatMap((rep) =>
+            rep.bookingHistory.map((b) =>
+              multi
+                ? [rep.profile.name, b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy].map(csvCell).join(',')
+                : [b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy].map(csvCell).join(',')
+            )
+          );
+          zip.append('\uFEFF' + historyHeader + '\r\n' + historyRows.join('\r\n'), { name: 'booking_history.csv' });
+
+          zip.finalize();
+          return;
+        } catch (e: any) {
+          logger.error('Visitors detail CSV ZIP export error', e);
+          return res.status(500).json({ error: e?.message || 'ZIP export failed. Use Excel or PDF.' });
         }
-        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-        res.setHeader('Content-Disposition', `attachment; filename="visitor-details-${new Date().toISOString().slice(0, 10)}.csv"`);
-        return res.send('\uFEFF' + lines.join('\r\n'));
       }
 
       if (format === 'xlsx') {
         try {
           const XLSX = await import('xlsx');
           const wb = XLSX.utils.book_new();
-          const sheetRows: any[][] = [];
-          if (includeTotals) {
-            sheetRows.push(['Summary']);
-            sheetRows.push(['Total Visitors', details.length]);
-            sheetRows.push(['Total Bookings', details.reduce((s, d) => s + d.bookings.length, 0)]);
-            sheetRows.push(['Package Bookings', details.reduce((s, d) => s + (d.visitor.package_bookings_count || 0), 0)]);
-            sheetRows.push(['Paid Bookings', details.reduce((s, d) => s + (d.visitor.paid_bookings_count || 0), 0)]);
-            sheetRows.push(['Total Spent', details.reduce((s, d) => s + parsePrice(d.visitor.total_spent), 0)]);
-            sheetRows.push([]);
-          }
-          for (const { visitor: v, bookings } of details) {
-            sheetRows.push(['Visitor Info']);
-            sheetRows.push(['Name', v.customer_name]);
-            sheetRows.push(['Phone', v.phone]);
-            sheetRows.push(['Email', v.email ?? '']);
-            sheetRows.push(['Total Bookings', v.total_bookings ?? 0]);
-            sheetRows.push(['Total Spent', parsePrice(v.total_spent)]);
-            sheetRows.push(['Package Bookings', v.package_bookings_count ?? 0]);
-            sheetRows.push(['Paid Bookings', v.paid_bookings_count ?? 0]);
-            sheetRows.push(['Status', v.status ?? '']);
-            sheetRows.push(['Active packages']);
-            for (const pkg of v.active_packages || []) {
-              const name = pkg.package_name || '';
-              const usage = (pkg.usage || []).map((u: any) => `${u.services?.name || u.service_id || '?'} — ${u.remaining_quantity ?? 0} left`).join(', ');
-              sheetRows.push([name, usage]);
-            }
-            sheetRows.push(['Booking History']);
-            sheetRows.push(['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Booking Type', 'Amount', 'Status', 'Created By']);
-            for (const b of bookings) {
-              sheetRows.push([b.id, b.service_name, b.date ?? '', b.time ?? '', b.visitors_count ?? '', b.booking_type ?? '', parsePrice(b.amount_paid), b.status ?? '', b.created_by ?? '']);
-            }
-            sheetRows.push([]);
-          }
-          const ws = XLSX.utils.aoa_to_sheet(sheetRows);
-          // Column widths so headers and data don't truncate (A=labels, B=values, C–I=Booking History)
-          ws['!cols'] = [
-            { wch: 22 },
-            { wch: 42 },
-            { wch: 16 },
-            { wch: 14 },
-            { wch: 10 },
-            { wch: 12 },
-            { wch: 12 },
-            { wch: 14 },
-            { wch: 12 },
-          ];
-          XLSX.utils.book_append_sheet(wb, ws, 'Visitor Details');
+
+          const summaryData = reports.flatMap((rep) =>
+            multi
+              ? [{ Name: rep.profile.name, 'Total Visitors': rep.summary.totalVisitors, 'Total Bookings': rep.summary.totalBookings, 'Package Bookings': rep.summary.packageBookings, 'Paid Bookings': rep.summary.paidBookings, 'Total Spent': rep.summary.totalSpent }]
+              : [{ 'Total Visitors': rep.summary.totalVisitors, 'Total Bookings': rep.summary.totalBookings, 'Package Bookings': rep.summary.packageBookings, 'Paid Bookings': rep.summary.paidBookings, 'Total Spent': rep.summary.totalSpent }]
+          );
+          const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+          wsSummary['!cols'] = [{ wch: 22 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 14 }];
+          XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+
+          const profileData = reports.map((rep) => (multi ? { Name: rep.profile.name, Phone: rep.profile.phone, Email: rep.profile.email, Status: rep.profile.status } : { Name: rep.profile.name, Phone: rep.profile.phone, Email: rep.profile.email, Status: rep.profile.status }));
+          const wsProfile = XLSX.utils.json_to_sheet(profileData);
+          wsProfile['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 32 }, { wch: 10 }];
+          XLSX.utils.book_append_sheet(wb, wsProfile, 'Visitor Info');
+
+          const packagesData = reports.flatMap((rep) =>
+            rep.activePackages.map((p) => (multi ? { Name: rep.profile.name, 'Package Name': p.packageName, 'Service Name': p.serviceName, 'Remaining Slots': p.remainingSlots } : { 'Package Name': p.packageName, 'Service Name': p.serviceName, 'Remaining Slots': p.remainingSlots }))
+          );
+          const emptyPackages = multi ? [{ Name: '', 'Package Name': '', 'Service Name': '', 'Remaining Slots': '' }] : [{ 'Package Name': '', 'Service Name': '', 'Remaining Slots': '' }];
+          const wsPackages = XLSX.utils.json_to_sheet(packagesData.length ? packagesData : emptyPackages);
+          wsPackages['!cols'] = multi ? [{ wch: 28 }, { wch: 22 }, { wch: 22 }, { wch: 16 }] : [{ wch: 22 }, { wch: 22 }, { wch: 16 }];
+          XLSX.utils.book_append_sheet(wb, wsPackages, 'Active Packages');
+
+          const historyData = reports.flatMap((rep) =>
+            rep.bookingHistory.map((b) =>
+              multi
+                ? { Name: rep.profile.name, 'Booking ID': b.bookingId, Service: b.serviceName, Date: b.date, Time: b.time, Visitors: b.visitorsCount, Type: b.type, 'Amount Paid': b.amountPaid, Status: b.status, 'Created By': b.createdBy }
+                : { 'Booking ID': b.bookingId, Service: b.serviceName, Date: b.date, Time: b.time, Visitors: b.visitorsCount, Type: b.type, 'Amount Paid': b.amountPaid, Status: b.status, 'Created By': b.createdBy }
+            )
+          );
+          const historyCols = ['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Type', 'Amount Paid', 'Status', 'Created By'];
+          const wsHistory = XLSX.utils.json_to_sheet(historyData.length ? historyData : [Object.fromEntries(historyCols.map((c) => [c, '']))]);
+          wsHistory['!cols'] = multi ? [{ wch: 28 }, { wch: 38 }, { wch: 22 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }] : [{ wch: 38 }, { wch: 22 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+          XLSX.utils.book_append_sheet(wb, wsHistory, 'Booking History');
+
           const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
           res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
           res.setHeader('Content-Disposition', `attachment; filename="visitor-details-${new Date().toISOString().slice(0, 10)}.xlsx"`);
@@ -697,8 +699,8 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
 
       if (format === 'pdf') {
         try {
-          const pdfService = await import('../services/pdfService.js') as { generateVisitorsDetailReportPdf: (d: Array<{ visitor: any; bookings: any[] }>, o?: any) => Promise<Buffer> };
-          const pdfBuffer = await pdfService.generateVisitorsDetailReportPdf(details, { includeTotals, totalVisitors: details.length, totalBookings: details.reduce((s, d) => s + d.bookings.length, 0), totalPackageBookings: details.reduce((s, d) => s + (d.visitor.package_bookings_count || 0), 0), totalPaidBookings: details.reduce((s, d) => s + (d.visitor.paid_bookings_count || 0), 0), totalSpent: details.reduce((s, d) => s + parsePrice(d.visitor.total_spent), 0) });
+          const pdfService = await import('../services/pdfService.js') as unknown as { generateVisitorDetailStructuredPdf: (reports: VisitorStructuredReport[]) => Promise<Buffer> };
+          const pdfBuffer = await pdfService.generateVisitorDetailStructuredPdf(reports);
           res.setHeader('Content-Type', 'application/pdf');
           res.setHeader('Content-Disposition', `attachment; filename="visitor-details-${new Date().toISOString().slice(0, 10)}.pdf"`);
           return res.send(pdfBuffer);
@@ -805,6 +807,144 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     res.status(500).json({ error: err.message || 'Internal server error' });
   }
 });
+
+/** Structured report: 4 sections with SQL-only summary. Used by detail export (PDF/Excel/CSV ZIP). */
+export interface VisitorStructuredReport {
+  summary: { totalVisitors: number; totalBookings: number; packageBookings: number; paidBookings: number; totalSpent: number };
+  profile: { name: string; phone: string; email: string; status: string };
+  activePackages: Array<{ packageName: string; serviceName: string; remainingSlots: number }>;
+  bookingHistory: Array<{ bookingId: string; serviceName: string; date: string; time: string; visitorsCount: number; type: 'PACKAGE' | 'PAID'; amountPaid: number; status: string; createdBy: string }>;
+}
+
+async function getVisitorDetailStructured(
+  tenantId: string,
+  visitorId: string
+): Promise<VisitorStructuredReport | null> {
+  const isGuest = visitorId.startsWith('guest-');
+  const guestPhone = isGuest ? decodeURIComponent(visitorId.replace(/^guest-/, '')) : null;
+  const customerId = isGuest ? null : visitorId;
+
+  let summaryRows: Array<{ total_bookings?: number; package_bookings?: number; paid_bookings?: number; total_spent?: number }> | null = null;
+  const rpcResult = await supabase.rpc('get_visitor_export_summary', {
+    p_tenant_id: tenantId,
+    p_customer_id: customerId,
+    p_guest_phone: guestPhone,
+  });
+  if (!rpcResult.error) summaryRows = rpcResult.data as any;
+  const sumRow = summaryRows?.[0] ?? { total_bookings: 0, package_bookings: 0, paid_bookings: 0, total_spent: 0 };
+  const summary = {
+    totalVisitors: 1,
+    totalBookings: Number(sumRow.total_bookings ?? 0),
+    packageBookings: Number(sumRow.package_bookings ?? 0),
+    paidBookings: Number(sumRow.paid_bookings ?? 0),
+    totalSpent: parsePrice(sumRow.total_spent),
+  };
+
+  if (isGuest) {
+    const { data: bookings } = await supabase
+      .from('bookings')
+      .select(`
+        id, customer_name, customer_phone, customer_email, total_price, status, visitor_count,
+        package_covered_quantity, created_by_user_id, service_id, slot_id,
+        services:service_id(name), slots:slot_id(slot_date, start_time, end_time)
+      `)
+      .eq('tenant_id', tenantId)
+      .is('customer_id', null)
+      .eq('customer_phone', guestPhone!)
+      .order('created_at', { ascending: false });
+    const list = (bookings || []) as any[];
+    const first = list[0];
+    return {
+      summary,
+      profile: {
+        name: first?.customer_name ?? '',
+        phone: guestPhone!,
+        email: first?.customer_email ?? '',
+        status: 'active',
+      },
+      activePackages: [],
+      bookingHistory: list.map((b: any) => ({
+        bookingId: b.id,
+        serviceName: b.services?.name ?? '',
+        date: b.slots?.slot_date ?? '',
+        time: b.slots?.start_time ?? '',
+        visitorsCount: b.visitor_count ?? 0,
+        type: (b.package_covered_quantity ?? 0) > 0 ? ('PACKAGE' as const) : ('PAID' as const),
+        amountPaid: (b.package_covered_quantity ?? 0) > 0 ? 0 : parsePrice(b.total_price),
+        status: b.status ?? '',
+        createdBy: b.created_by_user_id ? 'staff' : 'customer',
+      })),
+    };
+  }
+
+  const { data: customer, error: custErr } = await supabase
+    .from('customers')
+    .select('id, name, phone, email, is_blocked')
+    .eq('id', visitorId)
+    .eq('tenant_id', tenantId)
+    .single();
+  if (custErr || !customer) return null;
+
+  const { data: subs } = await supabase
+    .from('package_subscriptions')
+    .select('id, service_packages(name)')
+    .eq('tenant_id', tenantId)
+    .eq('customer_id', visitorId)
+    .in('status', ['active']);
+  const subIdToPackageName: Record<string, string> = {};
+  for (const s of subs || []) {
+    subIdToPackageName[(s as any).id] = (s as any).service_packages?.name ?? '';
+  }
+  const subIds = Object.keys(subIdToPackageName);
+  const activePackages: VisitorStructuredReport['activePackages'] = [];
+  if (subIds.length > 0) {
+    const { data: usageRows } = await supabase
+      .from('package_subscription_usage')
+      .select('subscription_id, service_id, remaining_quantity, services(name)')
+      .in('subscription_id', subIds);
+    for (const u of usageRows || []) {
+      const r = u as any;
+      activePackages.push({
+        packageName: subIdToPackageName[r.subscription_id] ?? '',
+        serviceName: r.services?.name ?? '',
+        remainingSlots: Number(r.remaining_quantity ?? 0),
+      });
+    }
+  }
+
+  const { data: bookings } = await supabase
+    .from('bookings')
+    .select(`
+      id, total_price, status, visitor_count, package_covered_quantity, created_by_user_id,
+      service_id, slot_id, services:service_id(name), slots:slot_id(slot_date, start_time, end_time)
+    `)
+    .eq('tenant_id', tenantId)
+    .eq('customer_id', visitorId)
+    .order('created_at', { ascending: false });
+  const list = (bookings || []) as any[];
+
+  return {
+    summary,
+    profile: {
+      name: customer.name ?? '',
+      phone: customer.phone ?? '',
+      email: customer.email ?? '',
+      status: (customer as any).is_blocked ? 'blocked' : 'active',
+    },
+    activePackages,
+    bookingHistory: list.map((b: any) => ({
+      bookingId: b.id,
+      serviceName: b.services?.name ?? '',
+      date: b.slots?.slot_date ?? '',
+      time: b.slots?.start_time ?? '',
+      visitorsCount: b.visitor_count ?? 0,
+      type: (b.package_covered_quantity ?? 0) > 0 ? ('PACKAGE' as const) : ('PAID' as const),
+      amountPaid: (b.package_covered_quantity ?? 0) > 0 ? 0 : parsePrice(b.total_price),
+      status: b.status ?? '',
+      createdBy: b.created_by_user_id ? 'staff' : 'customer',
+    })),
+  };
+}
 
 /** Shared: fetch full visitor detail (info + bookings + active packages). Used by GET /:id and detail export. */
 async function getVisitorDetail(
