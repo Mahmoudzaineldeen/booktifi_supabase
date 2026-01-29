@@ -592,41 +592,47 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
 
       if (format === 'csv') {
         const lines: string[] = [];
+        const pad = (arr: string[], len: number) => {
+          const row = arr.slice(0, len).map((x) => csvCell(x));
+          while (row.length < len) row.push(csvCell(''));
+          return row.join(',');
+        };
+        const COLS = 9;
         if (includeTotals) {
-          lines.push('"Summary"');
-          lines.push(`"Total Visitors",${details.length}`);
-          lines.push(`"Total Bookings",${details.reduce((s, d) => s + d.bookings.length, 0)}`);
-          lines.push(`"Package Bookings",${details.reduce((s, d) => s + (d.visitor.package_bookings_count || 0), 0)}`);
-          lines.push(`"Paid Bookings",${details.reduce((s, d) => s + (d.visitor.paid_bookings_count || 0), 0)}`);
-          lines.push(`"Total Spent",${details.reduce((s, d) => s + parsePrice(d.visitor.total_spent), 0)}`);
-          lines.push('');
+          lines.push(pad(['Summary', ''], COLS));
+          lines.push(pad(['Total Visitors', String(details.length)], COLS));
+          lines.push(pad(['Total Bookings', String(details.reduce((s, d) => s + d.bookings.length, 0))], COLS));
+          lines.push(pad(['Package Bookings', String(details.reduce((s, d) => s + (d.visitor.package_bookings_count || 0), 0))], COLS));
+          lines.push(pad(['Paid Bookings', String(details.reduce((s, d) => s + (d.visitor.paid_bookings_count || 0), 0))], COLS));
+          lines.push(pad(['Total Spent', String(details.reduce((s, d) => s + parsePrice(d.visitor.total_spent), 0))], COLS));
+          lines.push(pad([], COLS));
         }
         for (const { visitor: v, bookings } of details) {
-          lines.push('"Visitor Info"');
-          lines.push(`"Name",${csvCell(v.customer_name)}`);
-          lines.push(`"Phone",${csvCell(v.phone)}`);
-          lines.push(`"Email",${csvCell(v.email)}`);
-          lines.push(`"Total Bookings",${v.total_bookings ?? 0}`);
-          lines.push(`"Total Spent",${parsePrice(v.total_spent)}`);
-          lines.push(`"Package Bookings",${v.package_bookings_count ?? 0}`);
-          lines.push(`"Paid Bookings",${v.paid_bookings_count ?? 0}`);
-          lines.push(`"Status",${csvCell(v.status)}`);
-          lines.push('"Active packages"');
+          lines.push(pad(['Visitor Info', ''], COLS));
+          lines.push(pad(['Name', String(v.customer_name ?? '')], COLS));
+          lines.push(pad(['Phone', String(v.phone ?? '')], COLS));
+          lines.push(pad(['Email', String(v.email ?? '')], COLS));
+          lines.push(pad(['Total Bookings', String(v.total_bookings ?? 0)], COLS));
+          lines.push(pad(['Total Spent', String(parsePrice(v.total_spent))], COLS));
+          lines.push(pad(['Package Bookings', String(v.package_bookings_count ?? 0)], COLS));
+          lines.push(pad(['Paid Bookings', String(v.paid_bookings_count ?? 0)], COLS));
+          lines.push(pad(['Status', String(v.status ?? '')], COLS));
+          lines.push(pad(['Active packages', ''], COLS));
           for (const pkg of v.active_packages || []) {
             const name = pkg.package_name || '';
             const usage = (pkg.usage || []).map((u: any) => `${u.services?.name || u.service_id || '?'} — ${u.remaining_quantity ?? 0} left`).join(', ');
-            lines.push(`"${name}",${csvCell(usage)}`);
+            lines.push(pad([name, usage], COLS));
           }
-          lines.push('"Booking History"');
-          lines.push('"Booking ID","Service","Date","Time","Visitors","Booking Type","Amount","Status","Created By"');
+          lines.push(pad(['Booking History', ''], COLS));
+          lines.push(pad(['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Booking Type', 'Amount', 'Status', 'Created By'], COLS));
           for (const b of bookings) {
-            lines.push([b.id, b.service_name, b.date ?? '', b.time ?? '', b.visitors_count ?? '', b.booking_type ?? '', parsePrice(b.amount_paid), b.status ?? '', b.created_by ?? ''].map((x) => csvCell(x)).join(','));
+            lines.push(pad([b.id, b.service_name ?? '', b.date ?? '', b.time ?? '', String(b.visitors_count ?? ''), b.booking_type ?? '', String(parsePrice(b.amount_paid)), b.status ?? '', b.created_by ?? ''], COLS));
           }
-          lines.push('');
+          lines.push(pad([], COLS));
         }
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="visitor-details-${new Date().toISOString().slice(0, 10)}.csv"`);
-        return res.send(lines.join('\r\n'));
+        return res.send('\uFEFF' + lines.join('\r\n'));
       }
 
       if (format === 'xlsx') {
@@ -667,6 +673,18 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
             sheetRows.push([]);
           }
           const ws = XLSX.utils.aoa_to_sheet(sheetRows);
+          // Column widths so headers and data don't truncate (A=labels, B=values, C–I=Booking History)
+          ws['!cols'] = [
+            { wch: 22 },
+            { wch: 42 },
+            { wch: 16 },
+            { wch: 14 },
+            { wch: 10 },
+            { wch: 12 },
+            { wch: 12 },
+            { wch: 14 },
+            { wch: 12 },
+          ];
           XLSX.utils.book_append_sheet(wb, ws, 'Visitor Details');
           const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
           res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

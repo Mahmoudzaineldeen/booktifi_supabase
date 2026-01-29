@@ -1685,18 +1685,19 @@ export async function generateVisitorsDetailReportPdf(
 
     doc.font('Helvetica').text('Booking History');
     doc.moveDown(0.3);
-    // Landscape A4: ~742pt usable width; column widths sized so labels (PACKAGE, pending, etc.) fit without overlap
-    const colW = [95, 72, 72, 58, 42, 58, 58, 68, 68];
+    // Landscape A4 ~742pt; wider columns + gap so text never overlaps
+    const colGap = 4;
+    const colW = [100, 78, 78, 62, 44, 62, 62, 72, 72];
     const headers = ['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Type', 'Amount', 'Status', 'Created By'];
     const tableFontSize = 9;
-    const headerRowHeight = 18;
-    const minRowHeight = 16;
+    const headerRowHeight = 20;
+    const minRowHeight = 18;
     doc.font('Helvetica').fontSize(tableFontSize).font('Helvetica-Bold');
     let rowY = doc.y;
     let x = 50;
     for (let i = 0; i < headers.length; i++) {
       doc.text(headers[i], x, rowY, { width: colW[i] });
-      x += colW[i];
+      x += colW[i] + colGap;
     }
     doc.y = rowY + headerRowHeight;
     doc.moveDown(0.3);
@@ -1724,10 +1725,10 @@ export async function generateVisitorsDetailReportPdf(
         const h = doc.heightOfString(cells[i], { width: colW[i] });
         if (h > maxRowH) maxRowH = h;
       }
-      const rowHeight = Math.max(minRowHeight, Math.ceil(maxRowH) + 3);
+      const rowHeight = Math.max(minRowHeight, Math.ceil(maxRowH) + 4);
       for (let i = 0; i < cells.length; i++) {
         doc.text(cells[i], x, rowY, { width: colW[i], height: rowHeight, ellipsis: true });
-        x += colW[i];
+        x += colW[i] + colGap;
       }
       doc.y = rowY + rowHeight;
     }
