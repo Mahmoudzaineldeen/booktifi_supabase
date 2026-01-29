@@ -73,6 +73,15 @@ function normalizePhone(s: string): string {
   return (s || '').replace(/\D/g, '');
 }
 
+/** Parse total_price from DB (number or string, avoid NaN). */
+function parsePrice(v: unknown): number {
+  if (v == null) return 0;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  const s = String(v).replace(/,/g, '').trim();
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** Match search phone to stored phone (e.g. +201032560826 matches 01032560826). */
 function phoneMatches(filterPhone: string, storedPhone: string): boolean {
   const f = normalizePhone(filterPhone);
@@ -205,6 +214,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     const filteredBookings = bookings.filter((b) => applyDateFilter(b) && applyBookingTypeFilter(b));
 
     const SPENT_STATUSES = new Set(['confirmed', 'completed', 'checked_in']);
+    const isCountedForSpent = (status: string) => status && SPENT_STATUSES.has(String(status).toLowerCase());
 
     // Aggregate by customer_id (and by guest phone for customer_id null)
     const byCustomerId: Record<string, { total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
@@ -214,9 +224,9 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       const slotDate = b.slots?.slot_date || slotDates[b.slot_id]?.slot_date || null;
       const pc = b.package_covered_quantity ?? 0;
       const isPackage = pc > 0;
-      const amount = Number(b.total_price) || 0;
+      const amount = parsePrice(b.total_price);
       // Total Spent = paid only; only confirmed/completed/checked_in
-      const addToSpent = !isPackage && SPENT_STATUSES.has(b.status) ? amount : 0;
+      const addToSpent = !isPackage && isCountedForSpent(b.status) ? amount : 0;
 
       if (b.customer_id) {
         if (!byCustomerId[b.customer_id]) {
@@ -302,15 +312,11 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     const sorted = visitorRows.sort((a, b) => (b.last_booking_date || '').localeCompare(a.last_booking_date || ''));
     const paged = sorted.slice(offset, offset + limit);
 
-    // Stats from FULL filtered booking set (same filters as table) — never from current page only
+    // Stats from FULL filtered set — totals must match sum of visitor rows
     const totalBookings = filteredBookings.length;
     const totalPackageBookings = filteredBookings.filter((b: any) => (b.package_covered_quantity ?? 0) > 0).length;
     const totalPaidBookings = filteredBookings.filter((b: any) => (b.package_covered_quantity ?? 0) === 0).length;
-    const totalSpent = filteredBookings.reduce((s: number, b: any) => {
-      if ((b.package_covered_quantity ?? 0) > 0) return s;
-      if (!SPENT_STATUSES.has(b.status)) return s;
-      return s + (Number(b.total_price) || 0);
-    }, 0);
+    const totalSpent = visitorRows.reduce((s: number, r: any) => s + parsePrice(r.total_spent), 0);
 
     const summary = {
       totalBookings,
@@ -403,15 +409,15 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     };
     const filteredBookings = bookings.filter((b) => applyDateFilter(b) && applyTypeFilter(b));
 
-    const SPENT_STATUSES_EXPORT = new Set(['confirmed', 'completed', 'checked_in']);
+    const isCountedForSpentExport = (status: string) => status && ['confirmed', 'completed', 'checked_in'].includes(String(status).toLowerCase());
     const byCustomerId: Record<string, { total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
     const byGuestPhone: Record<string, { name: string; email: string | null; total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
     for (const b of filteredBookings) {
       const slotDate = b.slots?.slot_date ?? slotDates[b.slot_id] ?? null;
       const pc = b.package_covered_quantity ?? 0;
       const isPackage = pc > 0;
-      const amount = Number(b.total_price) || 0;
-      const addToSpent = !isPackage && SPENT_STATUSES_EXPORT.has(b.status) ? amount : 0;
+      const amount = parsePrice(b.total_price);
+      const addToSpent = !isPackage && isCountedForSpentExport(b.status) ? amount : 0;
       if (b.customer_id) {
         if (!byCustomerId[b.customer_id]) byCustomerId[b.customer_id] = { total: 0, spent: 0, packageCount: 0, paidCount: 0, lastDate: null };
         const agg = byCustomerId[b.customer_id];
@@ -555,7 +561,9 @@ router.get('/:id', authenticateVisitorsAccess, async (req, res) => {
       const totalSpent = list.reduce((s, b) => {
         const pc = b.package_covered_quantity ?? 0;
         if (pc > 0) return s;
-        return s + (Number(b.total_price) || 0);
+        const st = String(b.status || '').toLowerCase();
+        if (!['confirmed', 'completed', 'checked_in'].includes(st)) return s;
+        return s + parsePrice(b.total_price);
       }, 0);
       const packageCount = list.filter((b) => (b.package_covered_quantity ?? 0) > 0).length;
       const paidCount = list.length - packageCount;
@@ -617,7 +625,9 @@ router.get('/:id', authenticateVisitorsAccess, async (req, res) => {
     const totalSpent = list.reduce((s, b) => {
       const pc = (b as any).package_covered_quantity ?? 0;
       if (pc > 0) return s;
-      return s + (Number((b as any).total_price) || 0);
+      const st = String((b as any).status || '').toLowerCase();
+      if (!['confirmed', 'completed', 'checked_in'].includes(st)) return s;
+      return s + parsePrice((b as any).total_price);
     }, 0);
     const packageCount = list.filter((b) => ((b as any).package_covered_quantity ?? 0) > 0).length;
     const paidCount = list.length - packageCount;
