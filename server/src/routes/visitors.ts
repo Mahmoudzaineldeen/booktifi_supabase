@@ -530,6 +530,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         if (totalBookings === 0) continue;
       }
       rows.push({
+        id: c.id,
         customer_name: c.name,
         phone: c.phone,
         email: c.email || null,
@@ -547,6 +548,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       if (filters.phone && filters.phone.trim() && !phoneMatches(filters.phone, phone)) continue;
       if (filters.name && filters.name.trim() && !nameMatchesSearch(agg.name, filters.name)) continue;
       rows.push({
+        id: `guest-${encodeURIComponent(phone)}`,
         customer_name: agg.name,
         phone,
         email: agg.email,
@@ -559,11 +561,24 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       });
     }
 
-    const totalVisitors = rows.length;
-    const totalBookings = rows.reduce((s: number, r: any) => s + (Number(r.total_bookings) || 0), 0);
-    const totalPackageBookings = rows.reduce((s: number, r: any) => s + (Number(r.package_bookings_count) || 0), 0);
-    const totalPaidBookings = rows.reduce((s: number, r: any) => s + (Number(r.paid_bookings_count) || 0), 0);
-    const totalSpent = rows.reduce((s: number, r: any) => s + parsePrice(r.total_spent), 0);
+    // Optional: export only specific visitor(s)
+    const visitorIdParam = (req.query.visitorId as string)?.trim();
+    const visitorIdsParam = (req.query.visitorIds as string)?.trim();
+    let filteredRows = rows;
+    if (visitorIdParam) {
+      filteredRows = rows.filter((r: any) => r.id === visitorIdParam);
+    } else if (visitorIdsParam) {
+      const ids = visitorIdsParam.split(',').map((s) => s.trim()).filter(Boolean);
+      if (ids.length > 0) {
+        filteredRows = rows.filter((r: any) => ids.includes(r.id));
+      }
+    }
+
+    const totalVisitors = filteredRows.length;
+    const totalBookings = filteredRows.reduce((s: number, r: any) => s + (Number(r.total_bookings) || 0), 0);
+    const totalPackageBookings = filteredRows.reduce((s: number, r: any) => s + (Number(r.package_bookings_count) || 0), 0);
+    const totalPaidBookings = filteredRows.reduce((s: number, r: any) => s + (Number(r.paid_bookings_count) || 0), 0);
+    const totalSpent = filteredRows.reduce((s: number, r: any) => s + parsePrice(r.total_spent), 0);
 
     if (format === 'csv') {
       const lines: string[] = [];
@@ -578,7 +593,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       }
       if (includeVisitorDetails) {
         const header = 'Customer Name,Phone,Email,Total Bookings,Total Spent,Package Bookings,Paid Bookings,Last Booking Date,Status';
-        const csvRows = rows.map((r) =>
+        const csvRows = filteredRows.map((r) =>
           [r.customer_name, r.phone, r.email, r.total_bookings, r.total_spent, r.package_bookings_count, r.paid_bookings_count, r.last_booking_date || '', r.status].map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')
         );
         lines.push(header);
@@ -606,8 +621,8 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         }
         if (includeVisitorDetails) {
           const colHeaders = ['Customer Name', 'Phone', 'Email', 'Total Bookings', 'Total Spent', 'Package Bookings', 'Paid Bookings', 'Last Booking Date', 'Status'];
-          if (rows.length > 0) {
-            const ws = XLSX.utils.json_to_sheet(rows.map((r: any) => ({
+          if (filteredRows.length > 0) {
+            const ws = XLSX.utils.json_to_sheet(filteredRows.map((r: any) => ({
               'Customer Name': r.customer_name,
               'Phone': r.phone,
               'Email': r.email ?? '',
@@ -642,7 +657,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           totalPackageBookings,
           totalPaidBookings,
           totalSpent,
-          rows,
+          rows: filteredRows,
           includeTotals,
           includeVisitorDetails,
         });

@@ -118,6 +118,8 @@ export function ReceptionVisitorsPage() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exportIncludeTotals, setExportIncludeTotals] = useState(true);
   const [exportIncludeVisitorDetails, setExportIncludeVisitorDetails] = useState(true);
+  const [selectedVisitorId, setSelectedVisitorId] = useState<string | null>(null);
+  const [showExportDetailsMenu, setShowExportDetailsMenu] = useState(false);
   const [confirmBlock, setConfirmBlock] = useState<VisitorRow | null>(null);
 
   const canBlockUnblock = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user', 'coordinator'].includes(
@@ -304,6 +306,39 @@ export function ReceptionVisitorsPage() {
     }
   };
 
+  const handleExportDetails = async (format: 'pdf' | 'csv' | 'xlsx', visitorId: string | null) => {
+    setExportingFormat(format);
+    setShowExportDetailsMenu(false);
+    let qs = buildQuery().replace(/^page=\d+&?|&?limit=\d+/g, '').replace(/&&/g, '&').replace(/^&|&$/g, '');
+    if (qs) qs += '&';
+    qs += `includeTotals=1&includeVisitorDetails=1`;
+    if (visitorId) qs += `&visitorId=${encodeURIComponent(visitorId)}`;
+    const url = `${getApiUrl()}/visitors/export/${format}?${qs}`;
+    try {
+      const res = await fetch(url, { headers: getAuthHeaders() });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || res.statusText);
+      }
+      const blob = await res.blob();
+      const ext = format === 'csv' ? 'csv' : format === 'xlsx' ? 'xlsx' : 'pdf';
+      const suffix = visitorId ? '-visitor' : '';
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.setAttribute('download', `visitor-details${suffix}-${new Date().toISOString().slice(0, 10)}.${ext}`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (e: any) {
+      console.error('Export details error', e);
+      alert(e.message || 'Export failed');
+    } finally {
+      setExportingFormat(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Reception-style: section header with export */}
@@ -312,71 +347,161 @@ export function ReceptionVisitorsPage() {
           <h2 className="text-lg font-semibold text-gray-900">{t('navigation.visitors', 'Visitors')}</h2>
           <p className="text-sm text-gray-600">{t('visitors.subtitle', 'Manage and export visitor data')}</p>
         </div>
-        <div className="relative">
-          <Button
-            variant="primary"
-            size="sm"
-            icon={<Download className="w-4 h-4" />}
-            onClick={() => setShowExportMenu(!showExportMenu)}
-            disabled={!!exportingFormat}
-          >
-            {exportingFormat ? t('common.loading', 'Loading...') : t('visitors.exportReport', 'Export Report')}
-          </Button>
-          {showExportMenu && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} aria-hidden="true" />
-              <div className="absolute right-0 mt-1 py-2 px-3 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-20 space-y-2">
-                <div className="space-y-2 border-b border-gray-100 pb-2">
-                  <label className="flex items-start gap-2 text-sm cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={exportIncludeTotals}
-                      onChange={(e) => setExportIncludeTotals(e.target.checked)}
-                      className="rounded border-gray-300 mt-0.5"
-                    />
-                    <span>
-                      {t('visitors.exportIncludeTotals', 'Include summary totals')}
-                      <span className="block text-xs text-gray-500 mt-0.5">
-                        ({t('visitors.exportIncludeTotalsHint', 'Total Visitors, Total Bookings, Package Bookings, Total Spent')})
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Download className="w-4 h-4" />}
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              disabled={!!exportingFormat}
+            >
+              {exportingFormat ? t('common.loading', 'Loading...') : t('visitors.exportReport', 'Export Report')}
+            </Button>
+            {showExportMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} aria-hidden="true" />
+                <div className="absolute right-0 mt-1 py-2 px-3 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-20 space-y-2">
+                  <div className="space-y-2 border-b border-gray-100 pb-2">
+                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={exportIncludeTotals}
+                        onChange={(e) => setExportIncludeTotals(e.target.checked)}
+                        className="rounded border-gray-300 mt-0.5"
+                      />
+                      <span>
+                        {t('visitors.exportIncludeTotals', 'Include summary totals')}
+                        <span className="block text-xs text-gray-500 mt-0.5">
+                          ({t('visitors.exportIncludeTotalsHint', 'Total Visitors, Total Bookings, Package Bookings, Total Spent')})
+                        </span>
                       </span>
-                    </span>
-                  </label>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={exportIncludeVisitorDetails}
-                      onChange={(e) => setExportIncludeVisitorDetails(e.target.checked)}
-                      className="rounded border-gray-300"
-                    />
-                    {t('visitors.exportIncludeVisitorDetails', "Include each visitor's details")}
-                  </label>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={exportIncludeVisitorDetails}
+                        onChange={(e) => setExportIncludeVisitorDetails(e.target.checked)}
+                        className="rounded border-gray-300"
+                      />
+                      {t('visitors.exportIncludeVisitorDetails', "Include each visitor's details")}
+                    </label>
+                  </div>
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 rounded"
+                      onClick={() => handleExport('csv')}
+                    >
+                      {t('visitors.exportCsv', 'CSV')}
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 rounded"
+                      onClick={() => handleExport('xlsx')}
+                    >
+                      {t('visitors.exportExcel', 'Excel (.xlsx)')}
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 rounded"
+                      onClick={() => handleExport('pdf')}
+                    >
+                      {t('visitors.exportPdf', 'PDF')}
+                    </button>
+                  </div>
                 </div>
-                <div className="pt-1">
-                  <button
-                    type="button"
-                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 rounded"
-                    onClick={() => handleExport('csv')}
-                  >
-                    {t('visitors.exportCsv', 'CSV')}
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 rounded"
-                    onClick={() => handleExport('xlsx')}
-                  >
-                    {t('visitors.exportExcel', 'Excel (.xlsx)')}
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 rounded"
-                    onClick={() => handleExport('pdf')}
-                  >
-                    {t('visitors.exportPdf', 'PDF')}
-                  </button>
+              </>
+            )}
+          </div>
+          <div className="relative">
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Download className="w-4 h-4" />}
+              onClick={() => { setShowExportDetailsMenu(!showExportDetailsMenu); setShowExportMenu(false); }}
+              disabled={!!exportingFormat}
+            >
+              {t('visitors.exportDetails', 'Export visitor details')}
+            </Button>
+            {showExportDetailsMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowExportDetailsMenu(false)} aria-hidden="true" />
+                <div className="absolute right-0 mt-1 py-2 px-3 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-20 space-y-2">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider pb-1 border-b">
+                    {t('visitors.exportDetailsScope', 'Download')}
+                  </p>
+                  <div className="space-y-1">
+                    <p className="text-sm text-gray-600">
+                      {t('visitors.exportSelectedVisitor', 'Selected visitor')}
+                      {selectedVisitorId && visitors.find((v) => v.id === selectedVisitorId) && (
+                        <span className="block text-xs text-gray-500 truncate mt-0.5">
+                          ({visitors.find((v) => v.id === selectedVisitorId)!.customer_name})
+                        </span>
+                      )}
+                    </p>
+                    <div className="flex gap-1 flex-wrap">
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => selectedVisitorId && handleExportDetails('csv', selectedVisitorId)}
+                        disabled={!selectedVisitorId}
+                      >
+                        CSV
+                      </button>
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => selectedVisitorId && handleExportDetails('xlsx', selectedVisitorId)}
+                        disabled={!selectedVisitorId}
+                      >
+                        Excel
+                      </button>
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => selectedVisitorId && handleExportDetails('pdf', selectedVisitorId)}
+                        disabled={!selectedVisitorId}
+                      >
+                        PDF
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1 pt-2 border-t">
+                    <p className="text-sm text-gray-600">{t('visitors.exportAllVisitors', 'All visitors')}</p>
+                    <div className="flex gap-1 flex-wrap">
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                        onClick={() => handleExportDetails('csv', null)}
+                      >
+                        CSV
+                      </button>
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                        onClick={() => handleExportDetails('xlsx', null)}
+                      >
+                        Excel
+                      </button>
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                        onClick={() => handleExportDetails('pdf', null)}
+                      >
+                        PDF
+                      </button>
+                    </div>
+                  </div>
+                  {!selectedVisitorId && (
+                    <p className="text-xs text-amber-600 pt-1">
+                      {t('visitors.selectVisitorHint', 'Select a visitor in the table to download only that visitor.')}
+                    </p>
+                  )}
                 </div>
-              </div>
-            </>
-          )}
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -508,6 +633,9 @@ export function ReceptionVisitorsPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 text-left text-xs uppercase text-gray-500 tracking-wider border-b border-gray-200">
+                      <th className="px-4 py-3 w-10" title={t('visitors.selectForExport', 'Select for export')}>
+                        <span className="sr-only">{t('visitors.selectForExport', 'Select for export')}</span>
+                      </th>
                       <th className="px-4 py-3">{t('visitors.customerName', 'Customer Name')}</th>
                       <th className="px-4 py-3">{t('visitors.phone', 'Phone')}</th>
                       <th className="px-4 py-3">{t('visitors.email', 'Email')}</th>
@@ -525,8 +653,19 @@ export function ReceptionVisitorsPage() {
                       <tr
                         key={row.id}
                         onClick={() => openDetail(row)}
-                        className="border-b border-gray-100 hover:bg-blue-50/50 cursor-pointer"
+                        className={`border-b border-gray-100 hover:bg-blue-50/50 cursor-pointer ${selectedVisitorId === row.id ? 'bg-blue-50' : ''}`}
                       >
+                        <td className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
+                          <label className="flex items-center cursor-pointer">
+                            <input
+                              type="radio"
+                              name="export-visitor"
+                              checked={selectedVisitorId === row.id}
+                              onChange={() => setSelectedVisitorId(selectedVisitorId === row.id ? null : row.id)}
+                              className="rounded-full border-gray-300 text-blue-600"
+                            />
+                          </label>
+                        </td>
                         <td className="px-4 py-3 font-medium text-gray-900">{row.customer_name || '—'}</td>
                         <td className="px-4 py-3 text-gray-700">{row.phone}</td>
                         <td className="px-4 py-3 text-gray-600">{row.email || '—'}</td>
