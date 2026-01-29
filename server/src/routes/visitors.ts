@@ -831,42 +831,39 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       try {
         const XLSX = await import('xlsx');
         const wb = XLSX.utils.book_new();
-        // Add Visitors sheet first so Excel opens on the list (main report always includes visitor details)
-        if (includeVisitorDetails) {
-          const colHeaders = ['Customer Name', 'Phone', 'Email', 'Total Bookings', 'Total Spent', 'Package Bookings', 'Paid Bookings', 'Last Booking Date', 'Status'];
-          if (filteredRows.length > 0) {
-            const ws = XLSX.utils.json_to_sheet(filteredRows.map((r: any) => ({
-              'Customer Name': r.customer_name ?? '',
-              'Phone': r.phone ?? '',
-              'Email': r.email ?? '',
-              'Total Bookings': r.total_bookings ?? 0,
-              'Total Spent': typeof r.total_spent === 'number' ? r.total_spent : (parsePrice(r.total_spent) ?? 0),
-              'Package Bookings': r.package_bookings_count ?? 0,
-              'Paid Bookings': r.paid_bookings_count ?? 0,
-              'Last Booking Date': r.last_booking_date ?? '',
-              'Status': r.status ?? '',
-            })));
-            ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 38 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 10 }];
-            XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
-          } else {
-            const ws = XLSX.utils.aoa_to_sheet([colHeaders]);
-            ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 38 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 10 }];
-            XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
+        // Single sheet: totals above, then customer data (main report always includes visitor details)
+        const colHeaders = ['Customer Name', 'Phone', 'Email', 'Total Bookings', 'Total Spent', 'Package Bookings', 'Paid Bookings', 'Last Booking Date', 'Status'];
+        const rows: any[][] = [];
+        // Totals block at top when "Include summary totals" is checked
+        if (includeTotals) {
+          rows.push(['Summary']);
+          rows.push(['Total Visitors', totalVisitors]);
+          rows.push(['Total Bookings', totalBookings]);
+          rows.push(['Package Bookings', totalPackageBookings]);
+          rows.push(['Paid Bookings', totalPaidBookings]);
+          rows.push(['Total Spent', totalSpent]);
+          rows.push([]);
+        }
+        // Customer table: headers then data
+        rows.push(colHeaders);
+        if (includeVisitorDetails && filteredRows.length > 0) {
+          for (const r of filteredRows) {
+            rows.push([
+              r.customer_name ?? '',
+              r.phone ?? '',
+              r.email ?? '',
+              r.total_bookings ?? 0,
+              typeof r.total_spent === 'number' ? r.total_spent : (parsePrice(r.total_spent) ?? 0),
+              r.package_bookings_count ?? 0,
+              r.paid_bookings_count ?? 0,
+              r.last_booking_date ?? '',
+              r.status ?? '',
+            ]);
           }
         }
-        // Summary totals sheet when "Include summary totals" checkbox is checked
-        if (includeTotals) {
-          const summaryData = [
-            { Metric: 'Total Visitors', Value: totalVisitors },
-            { Metric: 'Total Bookings', Value: totalBookings },
-            { Metric: 'Package Bookings', Value: totalPackageBookings },
-            { Metric: 'Paid Bookings', Value: totalPaidBookings },
-            { Metric: 'Total Spent', Value: totalSpent },
-          ];
-          const wsSummary = XLSX.utils.json_to_sheet(summaryData);
-          wsSummary['!cols'] = [{ wch: 24 }, { wch: 18 }];
-          XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
-        }
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 38 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 10 }];
+        XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
         const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="visitors-${new Date().toISOString().slice(0, 10)}.xlsx"`);
