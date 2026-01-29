@@ -432,6 +432,10 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     let includeTotals = /^(1|true|yes)$/i.test(String(req.query.includeTotals ?? 'true').trim());
     let includeVisitorDetails = /^(1|true|yes)$/i.test(String(req.query.includeVisitorDetails ?? 'true').trim());
     const detailMode = /^(1|true|yes)$/i.test(String(req.query.detail ?? '0').trim());
+    // Main "Export Report" must always include visitor list (customer details); only detail export respects the flag
+    if (!detailMode) {
+      includeVisitorDetails = true;
+    }
     // Ensure at least one section is included so the file is never empty
     if (!includeTotals && !includeVisitorDetails) {
       includeTotals = true;
