@@ -249,13 +249,19 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       }
     }
 
-    const customerPhonesInDb = new Set((customers || []).map((c: any) => c.phone));
     const visitorRows: any[] = [];
 
     for (const c of customers || []) {
       const agg = byCustomerId[c.id];
+      const guestEntry = Object.entries(byGuestPhone).find(([ph]) => phoneMatches(ph, c.phone || ''));
+      const guest = guestEntry ? guestEntry[1] : null;
+      const totalBookings = (agg?.total ?? 0) + (guest?.total ?? 0);
+      const totalSpent = (agg?.spent ?? 0) + (guest?.spent ?? 0);
+      const packageCount = (agg?.packageCount ?? 0) + (guest?.packageCount ?? 0);
+      const paidCount = (agg?.paidCount ?? 0) + (guest?.paidCount ?? 0);
+      const lastDate = [agg?.lastDate, guest?.lastDate].filter(Boolean).sort().pop() as string | null;
       if (filters.bookingType || filters.serviceId || filters.bookingStatus || filters.startDate || filters.endDate) {
-        if (!agg || agg.total === 0) continue;
+        if (totalBookings === 0) continue;
       }
       visitorRows.push({
         id: c.id,
@@ -263,17 +269,18 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
         customer_name: c.name,
         phone: c.phone,
         email: c.email || null,
-        total_bookings: agg?.total ?? 0,
-        total_spent: agg?.spent ?? 0,
-        package_bookings_count: agg?.packageCount ?? 0,
-        paid_bookings_count: agg?.paidCount ?? 0,
-        last_booking_date: agg?.lastDate ?? null,
+        total_bookings: totalBookings,
+        total_spent: totalSpent,
+        package_bookings_count: packageCount,
+        paid_bookings_count: paidCount,
+        last_booking_date: lastDate ?? agg?.lastDate ?? guest?.lastDate ?? null,
         status: c.is_blocked ? 'blocked' : 'active',
       });
     }
 
     for (const [phone, agg] of Object.entries(byGuestPhone)) {
-      if (customerPhonesInDb.has(phone)) continue;
+      const isCustomerPhone = (customers || []).some((c: any) => phoneMatches(phone, c.phone || ''));
+      if (isCustomerPhone) continue;
       if (agg.total === 0) continue;
       if (filters.phone && filters.phone.trim() && !phoneMatches(filters.phone, phone)) continue;
       visitorRows.push({
@@ -424,27 +431,34 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       }
     }
 
-    const customerPhonesInDb = new Set((filteredCustomers || []).map((c: any) => c.phone));
     const rows: any[] = [];
     for (const c of filteredCustomers || []) {
       const agg = byCustomerId[c.id];
+      const guestEntry = Object.entries(byGuestPhone).find(([ph]) => phoneMatches(ph, c.phone || ''));
+      const guest = guestEntry ? guestEntry[1] : null;
+      const totalBookings = (agg?.total ?? 0) + (guest?.total ?? 0);
+      const totalSpent = (agg?.spent ?? 0) + (guest?.spent ?? 0);
+      const packageCount = (agg?.packageCount ?? 0) + (guest?.packageCount ?? 0);
+      const paidCount = (agg?.paidCount ?? 0) + (guest?.paidCount ?? 0);
+      const lastDate = [agg?.lastDate, guest?.lastDate].filter(Boolean).sort().pop() as string | null;
       if (filters.bookingType || filters.serviceId || filters.bookingStatus || filters.startDate || filters.endDate) {
-        if (!agg || agg.total === 0) continue;
+        if (totalBookings === 0) continue;
       }
       rows.push({
         customer_name: c.name,
         phone: c.phone,
         email: c.email || null,
-        total_bookings: agg?.total ?? 0,
-        total_spent: agg?.spent ?? 0,
-        package_bookings_count: agg?.packageCount ?? 0,
-        paid_bookings_count: agg?.paidCount ?? 0,
-        last_booking_date: agg?.lastDate ?? null,
+        total_bookings: totalBookings,
+        total_spent: totalSpent,
+        package_bookings_count: packageCount,
+        paid_bookings_count: paidCount,
+        last_booking_date: lastDate ?? agg?.lastDate ?? guest?.lastDate ?? null,
         status: (c as any).is_blocked ? 'Blocked' : 'Active',
       });
     }
     for (const [phone, agg] of Object.entries(byGuestPhone)) {
-      if (customerPhonesInDb.has(phone)) continue;
+      const isCustomerPhone = (filteredCustomers || []).some((c: any) => phoneMatches(phone, c.phone || ''));
+      if (isCustomerPhone) continue;
       if (filters.phone && filters.phone.trim() && !phoneMatches(filters.phone, phone)) continue;
       rows.push({
         customer_name: agg.name,
