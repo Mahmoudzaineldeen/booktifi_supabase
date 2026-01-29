@@ -653,35 +653,44 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         try {
           const XLSX = await import('xlsx');
           const wb = XLSX.utils.book_new();
+          const SEP = ['——— Visitor ———'];
 
-          // Summary sheet: one block per visitor — section header then 1 row of metrics (1 ROW ONLY per visitor)
+          // Summary sheet: Visitor Details Report style — vertical list (label left, value right) per visitor + separator
           const summaryRows: any[][] = [];
           for (const rep of reports) {
-            if (multi) summaryRows.push(['Visitor: ' + (rep.profile.name || '—')]);
-            summaryRows.push(['Total Visitors', 'Total Bookings', 'Package Bookings', 'Paid Bookings', 'Total Spent']);
-            summaryRows.push([rep.summary.totalVisitors, rep.summary.totalBookings, rep.summary.packageBookings, rep.summary.paidBookings, rep.summary.totalSpent]);
+            if (multi) summaryRows.push(SEP);
+            summaryRows.push(['1. Visitor Summary']);
+            summaryRows.push(['Total Visitors', rep.summary.totalVisitors]);
+            summaryRows.push(['Total Bookings', rep.summary.totalBookings]);
+            summaryRows.push(['Package Bookings', rep.summary.packageBookings]);
+            summaryRows.push(['Paid Bookings', rep.summary.paidBookings]);
+            summaryRows.push(['Total Spent', typeof rep.summary.totalSpent === 'number' ? Number(rep.summary.totalSpent).toFixed(2) : rep.summary.totalSpent]);
             summaryRows.push([]);
           }
           const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
-          wsSummary['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 16 }, { wch: 14 }];
+          wsSummary['!cols'] = [{ wch: 22 }, { wch: 18 }];
           XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
 
-          // Visitor Info sheet: one block per visitor — section header then 1 row (Name, Phone, Email, Status)
+          // Visitor Info sheet: vertical list (label left, value right) per visitor + separator
           const profileRows: any[][] = [];
           for (const rep of reports) {
-            if (multi) profileRows.push(['Visitor: ' + (rep.profile.name || '—')]);
-            profileRows.push(['Name', 'Phone', 'Email', 'Status']);
-            profileRows.push([rep.profile.name, rep.profile.phone, rep.profile.email, rep.profile.status]);
+            if (multi) profileRows.push(SEP);
+            profileRows.push(['2. Visitor Profile']);
+            profileRows.push(['Name', rep.profile.name || '—']);
+            profileRows.push(['Phone', rep.profile.phone || '']);
+            profileRows.push(['Email', rep.profile.email || '']);
+            profileRows.push(['Status', rep.profile.status || '']);
             profileRows.push([]);
           }
           const wsProfile = XLSX.utils.aoa_to_sheet(profileRows);
-          wsProfile['!cols'] = [{ wch: 28 }, { wch: 22 }, { wch: 36 }, { wch: 12 }];
+          wsProfile['!cols'] = [{ wch: 14 }, { wch: 36 }];
           XLSX.utils.book_append_sheet(wb, wsProfile, 'Visitor Info');
 
-          // Active Packages sheet: one block per visitor — section header then table (Package Name, Service Name, Remaining Slots)
+          // Active Packages sheet: section header then table per visitor + separator
           const packagesRows: any[][] = [];
           for (const rep of reports) {
-            if (multi) packagesRows.push(['Visitor: ' + (rep.profile.name || '—')]);
+            if (multi) packagesRows.push(SEP);
+            packagesRows.push(['3. Active Packages']);
             packagesRows.push(['Package Name', 'Service Name', 'Remaining Slots']);
             if (rep.activePackages.length === 0) {
               packagesRows.push(['(None)', '', '']);
@@ -692,15 +701,16 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
             }
             packagesRows.push([]);
           }
-          const wsPackages = XLSX.utils.aoa_to_sheet(packagesRows.length ? packagesRows : [['(No data)']]);
+          const wsPackages = XLSX.utils.aoa_to_sheet(packagesRows.length ? packagesRows : [['3. Active Packages'], ['(No data)', '', '']]);
           wsPackages['!cols'] = [{ wch: 26 }, { wch: 24 }, { wch: 18 }];
           XLSX.utils.book_append_sheet(wb, wsPackages, 'Active Packages');
 
-          // Booking History sheet: one block per visitor — section header then table
+          // Booking History sheet: section header then table per visitor + separator
           const historyRows: any[][] = [];
           const historyHeader = ['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Type', 'Amount Paid', 'Status', 'Created By'];
           for (const rep of reports) {
-            if (multi) historyRows.push(['Visitor: ' + (rep.profile.name || '—')]);
+            if (multi) historyRows.push(SEP);
+            historyRows.push(['4. Booking History']);
             historyRows.push(historyHeader);
             if (rep.bookingHistory.length === 0) {
               historyRows.push(historyHeader.map(() => ''));
@@ -711,7 +721,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
             }
             historyRows.push([]);
           }
-          const wsHistory = XLSX.utils.aoa_to_sheet(historyRows.length ? historyRows : [historyHeader]);
+          const wsHistory = XLSX.utils.aoa_to_sheet(historyRows.length ? historyRows : [['4. Booking History'], historyHeader]);
           wsHistory['!cols'] = [{ wch: 38 }, { wch: 22 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
           XLSX.utils.book_append_sheet(wb, wsHistory, 'Booking History');
 
