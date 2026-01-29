@@ -1,7 +1,51 @@
 import express from 'express';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
+import { createRequire } from 'module';
 import { supabase } from '../db';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
+
+const require = createRequire(import.meta.url);
+const arabicReshaperLib = require('arabic-reshaper');
+const __filename = fileURLToPath(import.meta.url);
+const __dirnameVisitors = dirname(__filename);
+
+const POSSIBLE_ARABIC_FONT_PATHS = [
+  join(__dirnameVisitors, '../fonts/NotoSansArabic-Regular.ttf'),
+  join(__dirnameVisitors, '../fonts/Amiri-Regular.ttf'),
+  'C:/Windows/Fonts/tahoma.ttf',
+  'C:/Windows/Fonts/arialuni.ttf',
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+  '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
+  '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+];
+
+function getVisitorsPdfArabicFontPath(): string | null {
+  for (const p of POSSIBLE_ARABIC_FONT_PATHS) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+function containsArabic(str: string): boolean {
+  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(str);
+}
+
+function reshapeArabicForPdf(text: string): string {
+  if (!text || !text.trim()) return text;
+  try {
+    let reshaped = text;
+    if (arabicReshaperLib && typeof arabicReshaperLib.convertArabic === 'function') {
+      reshaped = arabicReshaperLib.convertArabic(text);
+    }
+    const words = reshaped.split(' ');
+    return words.reverse().join(' ');
+  } catch {
+    return text.split(' ').reverse().join(' ');
+  }
+}
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -429,8 +473,13 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       serviceId: (req.query.serviceId as string)?.trim() || undefined,
       bookingStatus: (req.query.bookingStatus as BookingStatusFilter) || '',
     };
-    const includeTotals = /^(1|true|yes)$/i.test(String(req.query.includeTotals ?? 'true').trim());
-    const includeVisitorDetails = /^(1|true|yes)$/i.test(String(req.query.includeVisitorDetails ?? 'true').trim());
+    let includeTotals = /^(1|true|yes)$/i.test(String(req.query.includeTotals ?? 'true').trim());
+    let includeVisitorDetails = /^(1|true|yes)$/i.test(String(req.query.includeVisitorDetails ?? 'true').trim());
+    // Ensure at least one section is included so the file is never empty
+    if (!includeTotals && !includeVisitorDetails) {
+      includeTotals = true;
+      includeVisitorDetails = true;
+    }
 
     // Fetch ALL customers (paginate)
     const filteredCustomersRaw: any[] = [];
@@ -599,13 +648,25 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           const wsSummary = XLSX.utils.json_to_sheet(summaryData);
           XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
         }
-        if (includeVisitorDetails && rows.length > 0) {
-          const ws = XLSX.utils.json_to_sheet(rows);
-          XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
-        }
-        if (!includeTotals && !includeVisitorDetails) {
-          const wsNote = XLSX.utils.aoa_to_sheet([['Export options did not include summary totals or visitor list.']]);
-          XLSX.utils.book_append_sheet(wb, wsNote, 'Note');
+        if (includeVisitorDetails) {
+          const colHeaders = ['Customer Name', 'Phone', 'Email', 'Total Bookings', 'Total Spent', 'Package Bookings', 'Paid Bookings', 'Last Booking Date', 'Status'];
+          if (rows.length > 0) {
+            const ws = XLSX.utils.json_to_sheet(rows.map((r: any) => ({
+              'Customer Name': r.customer_name,
+              'Phone': r.phone,
+              'Email': r.email ?? '',
+              'Total Bookings': r.total_bookings,
+              'Total Spent': r.total_spent,
+              'Package Bookings': r.package_bookings_count,
+              'Paid Bookings': r.paid_bookings_count,
+              'Last Booking Date': r.last_booking_date ?? '',
+              'Status': r.status,
+            })));
+            XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
+          } else {
+            const ws = XLSX.utils.aoa_to_sheet([colHeaders]);
+            XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
+          }
         }
         const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -620,7 +681,18 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       try {
         const pdfkit = await import('pdfkit');
         const PDFDocument = (pdfkit as any).default ?? pdfkit;
-        const doc = new PDFDocument({ margin: 50 });
+        const arabicFontPath = getVisitorsPdfArabicFontPath();
+        const doc = new PDFDocument({
+          margin: 50,
+          ...(arabicFontPath ? { features: ['rtla', 'calt'], lang: 'ar' } : {}),
+        });
+
+        if (arabicFontPath) {
+          try {
+            doc.registerFont('ArabicFont', arabicFontPath);
+          } catch (_) {}
+        }
+        const arabicFontRegistered = !!arabicFontPath;
 
         const chunks: Buffer[] = [];
         const pdfPromise = new Promise<Buffer>((resolve, reject) => {
@@ -628,6 +700,9 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           doc.on('end', () => resolve(Buffer.concat(chunks)));
           doc.on('error', reject);
         });
+
+        const formatNum = (n: number) => Number.isFinite(n) ? Number(n).toFixed(2) : '0.00';
+        const totalSpentFormatted = formatNum(totalSpent);
 
         doc.fontSize(18).text('Visitors Report', { align: 'center' });
         doc.moveDown();
@@ -637,17 +712,23 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           doc.text(`Total Bookings: ${totalBookings}`);
           doc.text(`Package Bookings: ${totalPackageBookings}`);
           doc.text(`Paid Bookings: ${totalPaidBookings}`);
-          doc.text(`Total Spent: ${totalSpent}`);
+          doc.text(`Total Spent: ${totalSpentFormatted}`);
           doc.moveDown();
         }
         if (includeVisitorDetails) {
           for (const r of rows) {
-            const name = String(r.customer_name ?? '').replace(/\|/g, ',');
+            const rawName = String(r.customer_name ?? '').replace(/\|/g, ',');
+            const name = containsArabic(rawName) ? reshapeArabicForPdf(rawName) : rawName;
             const phone = String(r.phone ?? '');
             const bookings = Number(r.total_bookings) ?? 0;
-            const spent = Number(r.total_spent) ?? 0;
+            const spentFormatted = formatNum(Number(r.total_spent) ?? 0);
             const status = String(r.status ?? '');
-            doc.text(`Name: ${name} | Phone: ${phone} | Bookings: ${bookings} | Spent: ${spent} | Status: ${status}`);
+            const line = `Name: ${name} | Phone: ${phone} | Bookings: ${bookings} | Spent: ${spentFormatted} | Status: ${status}`;
+            if (arabicFontRegistered && containsArabic(rawName)) {
+              doc.font('ArabicFont').text(line).font('Helvetica');
+            } else {
+              doc.text(line);
+            }
             doc.moveDown(0.5);
           }
         }
