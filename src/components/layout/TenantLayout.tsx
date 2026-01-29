@@ -86,9 +86,11 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
     },
     {
       name: t('navigation.visitors', 'Visitors'),
-      href: `/${tenantSlug}/admin/visitors`,
+      href: (userProfile?.role === 'receptionist' || userProfile?.role === 'coordinator')
+        ? `/${tenantSlug}/reception/visitors`
+        : `/${tenantSlug}/admin/visitors`,
       icon: UserCircle,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/visitors`),
+      current: location.pathname.startsWith(`/${tenantSlug}/admin/visitors`) || location.pathname.startsWith(`/${tenantSlug}/reception/visitors`),
       visible: ['receptionist', 'coordinator', 'tenant_admin', 'customer_admin', 'admin_user'].includes(userProfile?.role || ''),
     },
     {

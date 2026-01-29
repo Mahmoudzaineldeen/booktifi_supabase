@@ -269,7 +269,7 @@ export function VisitorsPage() {
     }
   };
 
-  const handleExport = async (format: 'pdf' | 'csv') => {
+  const handleExport = async (format: 'pdf' | 'csv' | 'xlsx') => {
     setExportingFormat(format);
     setShowExportMenu(false);
     const qs = buildQuery().replace(/^page=\d+&?|&?limit=\d+/g, '').replace(/&&/g, '&').replace(/^&|&$/g, '');
@@ -281,7 +281,7 @@ export function VisitorsPage() {
         throw new Error(err.error || res.statusText);
       }
       const blob = await res.blob();
-      const ext = format === 'csv' ? 'csv' : 'pdf';
+      const ext = format === 'csv' ? 'csv' : format === 'xlsx' ? 'xlsx' : 'pdf';
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
@@ -329,14 +329,21 @@ export function VisitorsPage() {
                   className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100"
                   onClick={() => handleExport('csv')}
                 >
-                  CSV
+                  {t('visitors.exportCsv', 'CSV')}
+                </button>
+                <button
+                  type="button"
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100"
+                  onClick={() => handleExport('xlsx')}
+                >
+                  {t('visitors.exportExcel', 'Excel (.xlsx)')}
                 </button>
                 <button
                   type="button"
                   className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100"
                   onClick={() => handleExport('pdf')}
                 >
-                  PDF
+                  {t('visitors.exportPdf', 'PDF')}
                 </button>
               </div>
             </>
@@ -390,16 +397,16 @@ export function VisitorsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('visitors.bookingType', 'Booking Type')}
+                {t('visitors.paymentTypeFilter', 'Payment type (Package vs Paid)')}
               </label>
               <select
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 value={bookingType}
                 onChange={(e) => setBookingType(e.target.value as any)}
               >
-                <option value="all">{t('visitors.allTypes', 'All')}</option>
-                <option value="package_only">{t('visitors.packageOnly', 'Package Only')}</option>
-                <option value="paid_only">{t('visitors.paidOnly', 'Paid Only')}</option>
+                <option value="all">{t('visitors.allTypes', 'All types')}</option>
+                <option value="package_only">{t('visitors.packageBookingsOnly', 'Package bookings only')}</option>
+                <option value="paid_only">{t('visitors.paidBookingsOnly', 'Paid bookings only')}</option>
               </select>
             </div>
             <div>
@@ -655,7 +662,7 @@ export function VisitorsPage() {
                       <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.date', 'Date')}</th>
                       <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.time', 'Time')}</th>
                       <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.visitorsCount', 'Visitors')}</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.bookingType', 'Type')}</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.paymentType', 'Payment type')}</th>
                       <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.amountPaid', 'Amount')}</th>
                       <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.status', 'Status')}</th>
                       <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.createdBy', 'Created By')}</th>

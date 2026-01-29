@@ -58,7 +58,7 @@ function AppContent() {
       <Route path="/solution-admin" element={<SolutionOwnerDashboard />} />
       <Route path="/management/features" element={<TenantFeaturesPage />} />
 
-      <Route path="/:tenantSlug/admin" element={<TenantDashboard />} />
+      {/* More specific admin routes first so /admin/visitors is not matched by /admin */}
       <Route path="/:tenantSlug/admin/services" element={<ServicesPageWrapper />} />
       <Route path="/:tenantSlug/admin/packages" element={<PackagesPageWrapper />} />
       <Route path="/:tenantSlug/admin/package-subscribers" element={<PackageSubscribersPageWrapper />} />
@@ -69,7 +69,10 @@ function AppContent() {
       <Route path="/:tenantSlug/admin/settings" element={<SettingsPageWrapper />} />
       <Route path="/:tenantSlug/admin/landing" element={<LandingPageBuilderWrapper />} />
       <Route path="/:tenantSlug/admin/debug/navigation" element={<NavigationTest />} />
+      <Route path="/:tenantSlug/admin" element={<TenantDashboard />} />
 
+      {/* Reception: Visitors at /reception/visitors so receptionists don't hit admin redirect */}
+      <Route path="/:tenantSlug/reception/visitors" element={<VisitorsPageWrapper />} />
       <Route path="/:tenantSlug/reception" element={<ReceptionPage />} />
       <Route path="/:tenantSlug/cashier" element={<CashierPage />} />
       {/* ARCHIVED: <Route path="/:tenantSlug/employee" element={<EmployeePage />} /> */}

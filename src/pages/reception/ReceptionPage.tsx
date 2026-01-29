@@ -3523,7 +3523,7 @@ export function ReceptionPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => tenantSlugForNav && navigate(`/${tenantSlugForNav}/admin/visitors`)}
+                onClick={() => tenantSlugForNav && navigate(`/${tenantSlugForNav}/reception/visitors`)}
               >
                 <Users className="w-4 h-4 mr-2" />
                 <span className="hidden sm:inline">{i18n.language === 'ar' ? 'الزوار' : 'Visitors'}</span>

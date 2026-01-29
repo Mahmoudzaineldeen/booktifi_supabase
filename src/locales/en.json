@@ -799,6 +799,32 @@
       }
     }
   },
+  "visitors": {
+    "paymentTypeFilter": "Payment type (Package vs Paid)",
+    "paymentType": "Payment type",
+    "allTypes": "All types",
+    "packageBookingsOnly": "Package bookings only",
+    "paidBookingsOnly": "Paid bookings only",
+    "exportReport": "Export Report",
+    "exportCsv": "CSV",
+    "exportExcel": "Excel (.xlsx)",
+    "exportPdf": "PDF",
+    "bookingType": "Booking Type",
+    "packageOnly": "Package Only",
+    "paidOnly": "Paid Only",
+    "totalVisitors": "Total Visitors",
+    "totalBookings": "Total Bookings",
+    "totalSpent": "Total Spent",
+    "packageBookings": "Package Bookings",
+    "paidBookings": "Paid Bookings",
+    "visitorList": "Visitor List",
+    "records": "records",
+    "allServices": "All Services",
+    "service": "Service",
+    "status": "Status",
+    "amountPaid": "Amount",
+    "createdBy": "Created By"
+  },
   "settings": {
     "loading": "Loading settings...",
     "manageSettings": "Manage your business settings and preferences",

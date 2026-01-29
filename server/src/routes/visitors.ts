@@ -90,12 +90,19 @@ function escapeIlike(s: string): string {
     .replace(/_/g, '\\_');
 }
 
-/** True if text contains search (case-insensitive, partial, Unicode-normalized for Arabic etc.). */
+/** True if search is purely digits (avoids name conflict e.g. "11111" vs "sobia1111"). */
+function isPurelyNumeric(s: string): boolean {
+  return /^\d+$/.test((s || '').trim());
+}
+
+/** True if text matches search (case-insensitive, Unicode-normalized).
+ * When search is purely numeric, requires exact name match so "11111" does not match "sobia1111". */
 function nameMatchesSearch(text: string | null | undefined, search: string): boolean {
   if (!search || !search.trim()) return true;
   const norm = (s: string) => (s || '').trim().toLowerCase().normalize('NFC');
   const t = norm(String(text || ''));
   const q = norm(search);
+  if (isPurelyNumeric(search)) return t === q;
   return t.includes(q);
 }
 
@@ -373,12 +380,14 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     const totalPackageBookings = filteredBookings.filter((b: any) => (b.package_covered_quantity ?? 0) > 0).length;
     const totalPaidBookings = filteredBookings.filter((b: any) => (b.package_covered_quantity ?? 0) === 0).length;
     const totalSpent = visitorRows.reduce((s: number, r: any) => s + parsePrice(r.total_spent), 0);
+    const totalCustomers = visitorRows.filter((r: any) => r.type === 'customer').length;
 
     const summary = {
       totalBookings,
       totalPackageBookings,
       totalPaidBookings,
       totalSpent,
+      totalCustomers,
     };
 
     res.json({

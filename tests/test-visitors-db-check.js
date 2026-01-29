@@ -2,16 +2,29 @@
  * Visitors DB verification test.
  * Compares GET /api/debug/visitors-db-check (DB truth) vs GET /api/visitors summary.
  *
- * Run: node tests/test-visitors-db-check.js
- * With server: API_BASE_URL=http://localhost:3001/api node tests/test-visitors-db-check.js
+ * Run (localhost):
+ *   1. Start server: cd server && npm run dev
+ *   2. Set credentials for your local DB (tenant_admin or receptionist):
+ *      $env:VISITORS_TEST_EMAIL="your@email.com"; $env:VISITORS_TEST_PASSWORD="yourpassword"
+ *      node tests/test-visitors-db-check.js
+ *   Or: set VISITORS_TEST_EMAIL=your@email.com && set VISITORS_TEST_PASSWORD=yourpassword && node tests/test-visitors-db-check.js
+ *
+ * Run (Railway/deployed): API_BASE_URL=https://your-app.up.railway.app/api node tests/test-visitors-db-check.js
  */
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3001/api';
 
-const ACCOUNTS = [
+const envEmail = process.env.VISITORS_TEST_EMAIL || process.env.TEST_EMAIL;
+const envPassword = process.env.VISITORS_TEST_PASSWORD || process.env.TEST_PASSWORD;
+
+const ACCOUNTS = [];
+if (envEmail && envPassword) {
+  ACCOUNTS.push({ email: envEmail, password: envPassword, name: 'env' });
+}
+ACCOUNTS.push(
   { email: 'mahmoudnzaineldeen@gmail.com', password: '111111', name: 'tenant_admin' },
-  { email: 'receptionist@test.com', password: 'test123', name: 'receptionist' },
-];
+  { email: 'receptionist@test.com', password: 'test123', name: 'receptionist' }
+);
 
 let token = null;
 
@@ -28,7 +41,10 @@ async function login() {
         token = data.session.access_token;
         return true;
       }
-    } catch (_) {}
+    } catch (e) {
+      // Network error (e.g. server not running)
+      if (acc === ACCOUNTS[0]) console.error('Request error:', e.message);
+    }
   }
   return false;
 }
@@ -40,7 +56,19 @@ async function run() {
 
   const ok = await login();
   if (!ok) {
-    console.error('Login failed. Start server and use an account with visitors access.');
+    const isLocal = !process.env.API_BASE_URL || process.env.API_BASE_URL.includes('localhost');
+    console.error('Login failed.');
+    if (isLocal) {
+      console.error('');
+      console.error('For localhost:');
+      console.error('  1. Start the server:  cd server  then  npm run dev');
+      console.error('  2. Use a tenant_admin or receptionist account. Set env vars:');
+      console.error('     PowerShell:  $env:VISITORS_TEST_EMAIL="your@email.com"; $env:VISITORS_TEST_PASSWORD="yourpassword"');
+      console.error('     CMD:         set VISITORS_TEST_EMAIL=your@email.com& set VISITORS_TEST_PASSWORD=yourpassword');
+      console.error('  3. Run again:  node tests/test-visitors-db-check.js');
+    } else {
+      console.error('Use an account with visitors access (tenant_admin or receptionist).');
+    }
     process.exit(1);
   }
 
@@ -74,7 +102,8 @@ async function run() {
   }
 
   const api = apiVisitors.summary || {};
-  const apiTotal = apiVisitors.pagination?.total ?? 0;
+  const apiTotal = apiVisitors.pagination?.total ?? 0; // Displayed as "Total Visitors" in UI
+  const apiTotalCustomers = api.totalCustomers ?? null;
 
   if (dbCheck) {
     const db = dbCheck;
@@ -89,7 +118,8 @@ async function run() {
   }
 
   console.log('--- API (GET /api/visitors summary + pagination.total) ---');
-  console.log('  pagination.total:    ', apiTotal, '  (Total Visitors)');
+  console.log('  pagination.total:    ', apiTotal, '  (displayed as Total Visitors)');
+  console.log('  totalCustomers:     ', apiTotalCustomers, '  (customers in visitor list)');
   console.log('  totalBookings:      ', api.totalBookings);
   console.log('  totalPackageBookings:', api.totalPackageBookings);
   console.log('  totalPaidBookings:  ', api.totalPaidBookings);
@@ -104,11 +134,21 @@ async function run() {
 
   const db = dbCheck;
   let failed = 0;
+
+  // Displayed total (Total Visitors) must match DB unique visitors (customers + distinct guests)
   if (Number(apiTotal) !== Number(db.total_unique_visitors)) {
-    console.log('❌ Total Visitors: API', apiTotal, 'vs DB', db.total_unique_visitors);
+    console.log('❌ Total Visitors (displayed): API', apiTotal, 'vs DB total_unique_visitors', db.total_unique_visitors);
     failed++;
   } else {
-    console.log('✅ Total Visitors match:', apiTotal);
+    console.log('✅ Total Visitors (displayed total) accurate:', apiTotal, '=== DB total_unique_visitors');
+  }
+
+  // Total customers in visitor list must match DB customer count (when no filters)
+  if (apiTotalCustomers != null && Number(apiTotalCustomers) !== Number(db.total_customers)) {
+    console.log('❌ Total Customers: API', apiTotalCustomers, 'vs DB total_customers', db.total_customers);
+    failed++;
+  } else if (apiTotalCustomers != null) {
+    console.log('✅ Total Customers accurate:', apiTotalCustomers, '=== DB total_customers');
   }
   if (Number(api.totalBookings) !== Number(db.total_bookings)) {
     console.log('❌ Total Bookings: API', api.totalBookings, 'vs DB', db.total_bookings);

@@ -1060,6 +1060,32 @@
     "failedToSubmitTestimonial": "فشل إرسال الشهادة",
     "failedToConvertHEIC": "فشل تحويل ملف HEIC. يرجى محاولة تحويله إلى JPEG أولاً."
   },
+  "visitors": {
+    "paymentTypeFilter": "نوع الدفع (باقة مقابل مدفوع)",
+    "paymentType": "نوع الدفع",
+    "allTypes": "جميع الأنواع",
+    "packageBookingsOnly": "حجوزات الباقة فقط",
+    "paidBookingsOnly": "الحجوزات المدفوعة فقط",
+    "exportReport": "تصدير التقرير",
+    "exportCsv": "CSV",
+    "exportExcel": "Excel (.xlsx)",
+    "exportPdf": "PDF",
+    "bookingType": "نوع الحجز",
+    "packageOnly": "باقة فقط",
+    "paidOnly": "مدفوع فقط",
+    "totalVisitors": "إجمالي الزوار",
+    "totalBookings": "إجمالي الحجوزات",
+    "totalSpent": "إجمالي المصروف",
+    "packageBookings": "حجوزات الباقة",
+    "paidBookings": "الحجوزات المدفوعة",
+    "visitorList": "قائمة الزوار",
+    "records": "سجلات",
+    "allServices": "جميع الخدمات",
+    "service": "الخدمة",
+    "status": "الحالة",
+    "amountPaid": "المبلغ",
+    "createdBy": "أنشئ بواسطة"
+  },
   "settings": {
     "currency": {
       "title": "إعدادات العملة",
