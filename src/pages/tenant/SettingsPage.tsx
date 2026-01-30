@@ -79,6 +79,7 @@ export function SettingsPage() {
     client_secret: '',
     redirect_uri: '',
     region: 'com',
+    zoho_organization_id: '',
   });
   const [zohoLoading, setZohoLoading] = useState(false);
   const [zohoTestLoading, setZohoTestLoading] = useState(false);
@@ -300,6 +301,7 @@ export function SettingsPage() {
               client_secret: '', // Don't load secret from server
               redirect_uri: data.zoho_config.redirect_uri || `${window.location.origin}/api/zoho/callback`,
               region: data.zoho_config.region || 'com',
+              zoho_organization_id: data.zoho_config.zoho_organization_id ?? '',
             });
           }
         } else if (configResponse.status === 403) {
@@ -2031,6 +2033,22 @@ export function SettingsPage() {
                     <option value="jp">{t('settings.zoho.regionJp')}</option>
                   </select>
                   <p className="text-xs text-gray-500">{t('settings.zoho.regionHint')}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    {t('settings.zoho.organizationIdLabel', 'Zoho Organization ID')}
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="e.g. 123456789"
+                    value={zohoSettings.zoho_organization_id ?? ''}
+                    onChange={(e) => setZohoSettings({ ...zohoSettings, zoho_organization_id: e.target.value })}
+                  />
+                  <p className="text-xs text-gray-500">
+                    {t('settings.zoho.organizationIdHint', 'Required for recording payments (package/booking invoices). Find it in Zoho Invoice → Settings → Organization Profile.')}
+                  </p>
                 </div>
 
                 <div className="flex gap-3 pt-2">

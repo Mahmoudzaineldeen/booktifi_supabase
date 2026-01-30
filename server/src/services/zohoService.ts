@@ -2593,8 +2593,20 @@ Note: The booking payment status was updated successfully in the database. Only 
       return { success: false, error: 'Invoice has no customer_id' };
     }
 
-    // Organization ID is required for customerpayments. Prefer from invoice response (avoids extra /organizations call that may 401).
-    let orgId: string | null = (invoice as any).organization_id ?? null;
+    // Organization ID is required for customerpayments. Use tenant-stored ID first (avoids GET /organizations which often 401s).
+    let orgId: string | null = null;
+    const { data: configRow } = await supabase
+      .from('tenant_zoho_configs')
+      .select('zoho_organization_id')
+      .eq('tenant_id', tenantId)
+      .single();
+    const storedOrgId = (configRow as any)?.zoho_organization_id;
+    if (storedOrgId && String(storedOrgId).trim()) {
+      orgId = String(storedOrgId).trim();
+    }
+    if (!orgId) {
+      orgId = (invoice as any).organization_id ?? null;
+    }
     if (!orgId) {
       try {
         const orgRes = await axios.get(`${apiBaseUrl}/organizations`, {
@@ -2607,7 +2619,7 @@ Note: The booking payment status was updated successfully in the database. Only 
       }
     }
     if (!orgId) {
-      console.warn('[ZohoService] No organization id available; customer payment may fail. Reconnect Zoho with scope ZohoInvoice.fullaccess.all.');
+      console.warn('[ZohoService] No organization id. Add Zoho Organization ID in Settings → Zoho, or reconnect with scope ZohoInvoice.fullaccess.all.');
     }
 
     const payload = {

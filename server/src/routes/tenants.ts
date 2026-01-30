@@ -1113,7 +1113,7 @@ router.get('/zoho-config', authenticateTenantAdmin, async (req, res) => {
     try {
       const { data, error } = await supabase
         .from('tenant_zoho_configs')
-        .select('id, tenant_id, client_id, redirect_uri, scopes, region, is_active, created_at, updated_at')
+        .select('id, tenant_id, client_id, redirect_uri, scopes, region, is_active, created_at, updated_at, zoho_organization_id')
         .eq('tenant_id', tenantId)
         .single();
 
@@ -1121,7 +1121,7 @@ router.get('/zoho-config', authenticateTenantAdmin, async (req, res) => {
         return res.json({ zoho_config: null });
       }
 
-      const config = data;
+      const config = data as any;
       
       // Never send client_secret back
       res.json({ 
@@ -1135,6 +1135,7 @@ router.get('/zoho-config', authenticateTenantAdmin, async (req, res) => {
           is_active: config.is_active,
           created_at: config.created_at,
           updated_at: config.updated_at,
+          zoho_organization_id: config.zoho_organization_id ?? '',
           has_credentials: true, // Indicates credentials are set
         }
       });
@@ -1158,7 +1159,7 @@ router.get('/zoho-config', authenticateTenantAdmin, async (req, res) => {
 router.put('/zoho-config', authenticateTenantAdmin, async (req, res) => {
   try {
     const tenantId = req.user!.tenant_id;
-    const { client_id, client_secret, redirect_uri, scopes, region } = req.body;
+    const { client_id, client_secret, redirect_uri, scopes, region, zoho_organization_id } = req.body;
     
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID not found' });
@@ -1194,37 +1195,45 @@ router.put('/zoho-config', authenticateTenantAdmin, async (req, res) => {
       let error;
       if (existingData) {
         // Update existing
+        const updatePayload: Record<string, unknown> = {
+          client_id,
+          client_secret,
+          redirect_uri: defaultRedirectUri,
+          scopes: defaultScopes,
+          region: defaultRegion,
+          is_active: true,
+          updated_at: new Date().toISOString()
+        };
+        if (zoho_organization_id !== undefined) {
+          updatePayload.zoho_organization_id = zoho_organization_id === '' || zoho_organization_id == null ? null : String(zoho_organization_id).trim();
+        }
         const updateResult = await supabase
           .from('tenant_zoho_configs')
-          .update({
-            client_id,
-            client_secret,
-            redirect_uri: defaultRedirectUri,
-            scopes: defaultScopes,
-            region: defaultRegion,
-            is_active: true,
-            updated_at: new Date().toISOString()
-          })
+          .update(updatePayload)
           .eq('tenant_id', tenantId)
-          .select('id, tenant_id, client_id, redirect_uri, scopes, region, is_active, created_at, updated_at')
+          .select('id, tenant_id, client_id, redirect_uri, scopes, region, is_active, created_at, updated_at, zoho_organization_id')
           .single();
 
         data = updateResult.data;
         error = updateResult.error;
       } else {
         // Insert new
+        const insertPayload: Record<string, unknown> = {
+          tenant_id: tenantId,
+          client_id,
+          client_secret,
+          redirect_uri: defaultRedirectUri,
+          scopes: defaultScopes,
+          region: defaultRegion,
+          is_active: true
+        };
+        if (zoho_organization_id !== undefined && zoho_organization_id !== '' && zoho_organization_id != null) {
+          insertPayload.zoho_organization_id = String(zoho_organization_id).trim();
+        }
         const insertResult = await supabase
           .from('tenant_zoho_configs')
-          .insert({
-            tenant_id: tenantId,
-            client_id,
-            client_secret,
-            redirect_uri: defaultRedirectUri,
-            scopes: defaultScopes,
-            region: defaultRegion,
-            is_active: true
-          })
-          .select('id, tenant_id, client_id, redirect_uri, scopes, region, is_active, created_at, updated_at')
+          .insert(insertPayload)
+          .select('id, tenant_id, client_id, redirect_uri, scopes, region, is_active, created_at, updated_at, zoho_organization_id')
           .single();
 
         data = insertResult.data;
@@ -1235,7 +1244,7 @@ router.put('/zoho-config', authenticateTenantAdmin, async (req, res) => {
         return res.status(500).json({ error: 'Failed to save Zoho configuration' });
       }
 
-      const config = data;
+      const config = data as any;
 
       // Clear credential cache to ensure fresh data is loaded
       const { zohoCredentials } = await import('../config/zohoCredentials');
@@ -1254,6 +1263,7 @@ router.put('/zoho-config', authenticateTenantAdmin, async (req, res) => {
           is_active: config.is_active,
           created_at: config.created_at,
           updated_at: config.updated_at,
+          zoho_organization_id: config.zoho_organization_id ?? '',
         }
       });
     } catch (dbError: any) {
