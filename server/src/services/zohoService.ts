@@ -44,6 +44,8 @@ interface ZohoInvoiceData {
   due_date?: string;
   currency_code: string;
   notes?: string;
+  /** Bank transfer reference - shown as Zoho invoice reference_number on PDF */
+  reference_number?: string;
   custom_fields?: Record<string, any>;
 }
 
@@ -647,6 +649,10 @@ class ZohoService {
     // Add notes if provided
     if (invoiceData.notes) {
       payload.notes = invoiceData.notes;
+    }
+    // Add reference number (bank transfer) - appears on invoice PDF
+    if (invoiceData.reference_number && String(invoiceData.reference_number).trim()) {
+      payload.reference_number = String(invoiceData.reference_number).trim();
     }
     
     // Log payload for debugging (remove sensitive data in production)
@@ -1395,6 +1401,7 @@ class ZohoService {
         due_date: dueDate.toISOString().split('T')[0], // Due date must be after invoice date
         currency_code: (booking as any).tenant_currency_code || 'SAR',
         notes,
+        reference_number: payMethod === 'transfer' && payRef ? payRef : undefined,
         custom_fields: customFields,
       };
       
@@ -1947,6 +1954,8 @@ class ZohoService {
             invoiceData.notes = (invoiceData.notes || '').trim() + refLine;
             console.log(`[ZohoService] ✅ Added bank transfer reference to invoice notes`);
           }
+          invoiceData.reference_number = payRef;
+          console.log(`[ZohoService] ✅ Set invoice reference_number for PDF: ${payRef}`);
         }
         
         // Verify invoice has line items (should have paidQty items)
