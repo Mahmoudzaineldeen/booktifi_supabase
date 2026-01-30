@@ -209,6 +209,10 @@ export function ReceptionPage() {
   const [markPaidReference, setMarkPaidReference] = useState('');
   const [markPaidSubmitting, setMarkPaidSubmitting] = useState(false);
 
+  // Create booking: payment method (when booking has payable amount)
+  const [createPaymentMethod, setCreatePaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [createTransactionReference, setCreateTransactionReference] = useState('');
+
   const isCoordinator = userProfile?.role === 'coordinator';
 
   // Track if initial auth check has been completed
@@ -1187,6 +1191,8 @@ export function ReceptionPage() {
     offer_id?: string | null;
     language?: string;
     booking_group_id?: string | null;
+    payment_method?: 'onsite' | 'transfer';
+    transaction_reference?: string;
   }) {
     // Get API URL (already includes /api suffix)
     const API_URL = getApiUrl();
@@ -1367,6 +1373,11 @@ export function ReceptionPage() {
       }
       const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
       
+      if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
+        alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+        return;
+      }
+      
       // Generate booking group ID
       const bookingGroupId = crypto.randomUUID();
       
@@ -1391,9 +1402,12 @@ export function ReceptionPage() {
             visitor_count: quantity,
             total_price: totalPrice,
             notes: bookingForm.notes || null,
-            // Removed: status, payment_status, created_by_user_id - backend handles these automatically
             booking_group_id: bookingGroupId,
-            language: i18n.language
+            language: i18n.language,
+            ...(totalPrice > 0 ? {
+              payment_method: createPaymentMethod,
+              transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+            } : {}),
           })
         });
 
@@ -1516,23 +1530,31 @@ export function ReceptionPage() {
       throw new Error(`Number of selected slots (${slotsToUse.length}) must match visitor count (${quantity})`);
     }
 
+    if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
+      throw new Error(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+    }
+
     // Use bulk booking endpoint for atomic transaction and proper validation
     try {
       const result = await createBulkBookingViaAPI({
         slot_ids: slotsToUse.map(s => s.id),
-          service_id: selectedService!,
+        service_id: selectedService!,
         tenant_id: userProfile!.tenant_id,
-          customer_name: bookingForm.customer_name,
-          customer_phone: fullPhoneNumber,
-          customer_email: bookingForm.customer_email || null,
+        customer_name: bookingForm.customer_name,
+        customer_phone: fullPhoneNumber,
+        customer_email: bookingForm.customer_email || null,
         visitor_count: quantity,
         total_price: totalPrice,
-          notes: bookingForm.notes || null,
+        notes: bookingForm.notes || null,
         employee_id: slotsToUse[0]?.employee_id || null, // Use first slot's employee
         offer_id: selectedOffer || null,
         language: i18n.language,
-          booking_group_id: bookingGroupId
-        });
+        booking_group_id: bookingGroupId,
+        ...(totalPrice > 0 ? {
+          payment_method: createPaymentMethod,
+          transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+        } : {}),
+      });
       return result.bookings?.[0]?.id ?? null;
     } catch (error: any) {
       console.error('Error creating bulk booking:', error);
@@ -1575,6 +1597,10 @@ export function ReceptionPage() {
       throw new Error(`Number of selected slots (${slotsToUse.length}) must match visitor count (${quantity})`);
     }
 
+    if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
+      throw new Error(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+    }
+
     // Use bulk booking endpoint for atomic transaction and proper validation
     try {
       const result = await createBulkBookingViaAPI({
@@ -1590,7 +1616,11 @@ export function ReceptionPage() {
         employee_id: employeeId,
         offer_id: selectedOffer || null,
         language: i18n.language,
-        booking_group_id: bookingGroupId
+        booking_group_id: bookingGroupId,
+        ...(totalPrice > 0 ? {
+          payment_method: createPaymentMethod,
+          transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+        } : {}),
       });
       return result.bookings?.[0]?.id ?? null;
     } catch (error: any) {
@@ -1692,6 +1722,11 @@ export function ReceptionPage() {
           const bookingVisitorCount = isMultiTicketInSingleSlot ? (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1) : 1;
           const bookingPrice = usePackage ? 0 : (priceForBooking * bookingVisitorCount);
 
+          if (bookingPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
+            alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+            throw new Error('transaction_reference required');
+          }
+
           // Insert booking via API
           // NOTE: Backend calculates package_subscription_id, package_covered_quantity, and paid_quantity automatically
           // Do NOT send status, payment_status, package_subscription_id, or created_by_user_id - backend handles these
@@ -1708,11 +1743,10 @@ export function ReceptionPage() {
               visitor_count: bookingVisitorCount,
               total_price: bookingPrice,
               notes: bookingForm.notes || null,
-              // Removed: status, payment_status, package_subscription_id, created_by_user_id
-              // Backend will:
-              // - Auto-detect package and calculate package_covered_quantity/paid_quantity
-              // - Set status based on payment
-              // - Use authenticated user for created_by_user_id
+              ...(bookingPrice > 0 ? {
+                payment_method: createPaymentMethod,
+                transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+              } : {}),
               ...(bookingGroupId ? { booking_group_id: bookingGroupId } : {})
             });
 
@@ -2038,6 +2072,11 @@ export function ReceptionPage() {
       }
       const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
 
+      if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
+        alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+        return;
+      }
+
       try {
         const result = await createBookingViaAPI({
           tenant_id: userProfile.tenant_id,
@@ -2050,8 +2089,11 @@ export function ReceptionPage() {
           customer_email: bookingForm.customer_email || null,
           visitor_count: typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1,
           total_price: totalPrice,
-          notes: bookingForm.notes || null
-          // Removed: status, payment_status, created_by_user_id - backend handles these automatically
+          notes: bookingForm.notes || null,
+          ...(totalPrice > 0 ? {
+            payment_method: createPaymentMethod,
+            transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+          } : {}),
         });
 
         // Note: Slot capacity is updated by the backend API
@@ -3055,6 +3097,8 @@ export function ReceptionPage() {
     setSelectedServices([]);
     setCustomerPackages([]); // Clear customer packages
     setIsLookingUpCustomer(false);
+    setCreatePaymentMethod('onsite');
+    setCreateTransactionReference('');
     
     // Clear any cached booking data from localStorage
     try {
@@ -4138,6 +4182,26 @@ export function ReceptionPage() {
                 </div>
               )}
 
+              {/* Payment method (when payable) */}
+              {(() => {
+                const service = services.find(s => s.id === selectedService);
+                if (!service) return null;
+                const pkg = checkServiceInPackage(service.id);
+                const hasPayableAmount = !pkg.available || pkg.remaining < (bookingForm.visitor_count as number);
+                if (!hasPayableAmount) return null;
+                return (
+                  <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('reception.paymentMethod') || 'Payment method'}</h4>
+                    <p className="text-sm text-gray-900">
+                      {createPaymentMethod === 'onsite' ? 'مدفوع يدوياً' : 'حوالة'}
+                      {createPaymentMethod === 'transfer' && createTransactionReference && (
+                        <span className="block mt-1 text-gray-600">Ref: {createTransactionReference}</span>
+                      )}
+                    </p>
+                  </div>
+                );
+              })()}
+
               {/* Total Price */}
               <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 text-white">
                 <div className="flex justify-between items-center">
@@ -4474,6 +4538,56 @@ export function ReceptionPage() {
               />
             </div>
           )}
+
+          {/* Payment method (when booking has payable amount) */}
+          {selectedService && bookingForm.visitor_count && (() => {
+            const pkg = checkServiceInPackage(selectedService);
+            const hasPayableAmount = !pkg.available || pkg.remaining < (bookingForm.visitor_count as number);
+            if (!hasPayableAmount) return null;
+            return (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  {t('reception.paymentMethod') || 'Payment method'}
+                </label>
+                <div className="flex flex-wrap gap-4 mb-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="createPaymentMethod"
+                      checked={createPaymentMethod === 'onsite'}
+                      onChange={() => setCreatePaymentMethod('onsite')}
+                      className="rounded-full border-gray-300 text-blue-600"
+                    />
+                    <span>مدفوع يدوياً</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="createPaymentMethod"
+                      checked={createPaymentMethod === 'transfer'}
+                      onChange={() => setCreatePaymentMethod('transfer')}
+                      className="rounded-full border-gray-300 text-blue-600"
+                    />
+                    <span>حوالة</span>
+                  </label>
+                </div>
+                {createPaymentMethod === 'transfer' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('reception.transactionReference') || 'Transaction reference'} *
+                    </label>
+                    <input
+                      type="text"
+                      value={createTransactionReference}
+                      onChange={(e) => setCreateTransactionReference(e.target.value)}
+                      placeholder={t('reception.enterReferenceNumber') || 'Enter reference number'}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Add Service Button */}
           {selectedService && (assignmentMode === 'automatic' && selectedTimeSlot || assignmentMode === 'manual' && selectedSlot) && (

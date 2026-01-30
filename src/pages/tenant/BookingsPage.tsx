@@ -110,6 +110,8 @@ export function BookingsPage() {
   const [createSelectedSlots, setCreateSelectedSlots] = useState<Array<{ slot_id: string; start_time: string; end_time: string; employee_id: string; slot_date: string }>>([]);
   const [createSelectedTimeSlot, setCreateSelectedTimeSlot] = useState<{ start_time: string; end_time: string; slot_date: string } | null>(null);
   const [createShowPreview, setCreateShowPreview] = useState(false);
+  const [createPaymentMethod, setCreatePaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [createTransactionReference, setCreateTransactionReference] = useState('');
   const [createSelectedServices, setCreateSelectedServices] = useState<Array<{ service: AdminService; slot: Slot; employeeId: string }>>([]);
   const [confirmationBookingId, setConfirmationBookingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
@@ -362,6 +364,8 @@ export function BookingsPage() {
     setCreateSelectedTimeSlot(null);
     setCreateShowPreview(false);
     setCreateSelectedServices([]);
+    setCreatePaymentMethod('onsite');
+    setCreateTransactionReference('');
   }
 
   function getNext8Days() {
@@ -391,6 +395,11 @@ export function BookingsPage() {
     }
     if (slotIds.length === 0) return;
 
+    if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
+      alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+      return;
+    }
+
     setCreatingBooking(true);
     try {
       const session = await db.auth.getSession();
@@ -415,6 +424,10 @@ export function BookingsPage() {
             total_price: totalPrice,
             notes: createForm.notes?.trim() || null,
             language: i18n.language,
+            ...(totalPrice > 0 ? {
+              payment_method: createPaymentMethod,
+              transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+            } : {}),
           }),
         });
         if (!res.ok) {
@@ -441,6 +454,10 @@ export function BookingsPage() {
             total_price: totalPrice,
             notes: createForm.notes?.trim() || null,
             language: i18n.language,
+            ...(totalPrice > 0 ? {
+              payment_method: createPaymentMethod,
+              transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+            } : {}),
           }),
         });
         if (!res.ok) {
@@ -2126,6 +2143,55 @@ export function BookingsPage() {
                   <p className="text-sm text-gray-600">{createForm.notes}</p>
                 </div>
               )}
+              {/* Payment method (when payable) */}
+              {(() => {
+                const svc = createServices.find(s => s.id === createServiceId);
+                if (!svc) return null;
+                const pkgCheck = checkServiceInPackage(svc.id);
+                const hasPayableAmount = !pkgCheck.available || pkgCheck.remaining < createForm.visitor_count;
+                if (!hasPayableAmount) return null;
+                return (
+                  <div className="bg-white rounded-lg p-4 mb-4 shadow-sm border border-gray-200">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('reception.paymentMethod') || 'Payment method'}</h4>
+                    <div className="flex flex-wrap gap-4 mb-3">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="createPaymentMethod"
+                          checked={createPaymentMethod === 'onsite'}
+                          onChange={() => setCreatePaymentMethod('onsite')}
+                          className="rounded-full border-gray-300 text-blue-600"
+                        />
+                        <span>مدفوع يدوياً</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="createPaymentMethod"
+                          checked={createPaymentMethod === 'transfer'}
+                          onChange={() => setCreatePaymentMethod('transfer')}
+                          className="rounded-full border-gray-300 text-blue-600"
+                        />
+                        <span>حوالة</span>
+                      </label>
+                    </div>
+                    {createPaymentMethod === 'transfer' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          {t('reception.transactionReference') || 'Transaction reference'} *
+                        </label>
+                        <input
+                          type="text"
+                          value={createTransactionReference}
+                          onChange={(e) => setCreateTransactionReference(e.target.value)}
+                          placeholder={t('reception.enterReferenceNumber') || 'Enter reference number'}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 text-white">
                 <div className="flex justify-between items-center">
                   <span className="text-lg font-semibold">{t('reception.totalPrice')}</span>

@@ -418,7 +418,12 @@
     "notesLabel": "Notes",
     "totalPrice": "Total Price:",
     "confirmBooking": "Confirm Booking",
-    "packageServiceTotal": "Package Service ({{price}})"
+    "packageServiceTotal": "Package Service ({{price}})",
+    "paymentMethod": "Payment method",
+    "transactionReference": "Transaction reference",
+    "transactionReferenceRequired": "Transaction reference number is required for transfer payment.",
+    "enterReferenceNumber": "Enter reference number",
+    "confirmMarkAsPaid": "Confirm & Mark as Paid"
   },
   "employeePage": {
     "title": "My Bookings",

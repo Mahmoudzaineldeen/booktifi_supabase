@@ -831,6 +831,7 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       language = 'en', // Customer preferred language ('en' or 'ar')
       booking_group_id, // Optional: for grouping related bookings (will be ignored if not provided)
       payment_method: reqPaymentMethod, // Optional: 'onsite' (مدفوع يدوياً) or 'transfer' (حوالة)
+      transaction_reference: reqTransactionRef, // Optional: required when payment_method is 'transfer'
     } = req.body;
     
     // Ensure booking_group_id is either a valid UUID string or null (not undefined)
@@ -852,6 +853,11 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
     // Validate required fields
     if (!slot_id || !service_id || !tenant_id || !customer_name || !customer_phone) {
       return sendResponse(400, { error: 'Missing required fields' });
+    }
+
+    // Validate payment_method + transaction_reference when staff sends payment method
+    if (reqPaymentMethod === 'transfer' && (!reqTransactionRef || !String(reqTransactionRef).trim())) {
+      return sendResponse(400, { error: 'transaction_reference is required when payment method is transfer (حوالة)' });
     }
 
     // ============================================================================
@@ -1469,12 +1475,17 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
     }
 
     // ============================================================================
-    // Store payment_method (onsite / transfer) when provided (Admin/Receptionist)
+    // Store payment_method + transaction_reference when provided (Admin/Receptionist)
     // ============================================================================
     if (actualBooking?.id && (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer')) {
+      const refValue = reqPaymentMethod === 'transfer' && reqTransactionRef ? String(reqTransactionRef).trim() : null;
       await supabase
         .from('bookings')
-        .update({ payment_method: reqPaymentMethod, updated_at: new Date().toISOString() })
+        .update({
+          payment_method: reqPaymentMethod,
+          transaction_reference: refValue,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', actualBooking.id);
     }
 
@@ -2336,7 +2347,9 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       session_id,
       offer_id,
       language = 'en',
-      booking_group_id // Optional: group ID to link bookings
+      booking_group_id, // Optional: group ID to link bookings
+      payment_method: reqPaymentMethod, // Optional: 'onsite' or 'transfer'
+      transaction_reference: reqTransactionRef
     } = req.body;
 
     // Validate language
@@ -2349,6 +2362,10 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
 
     if (!service_id || !tenant_id || !customer_name || !customer_phone) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (reqPaymentMethod === 'transfer' && (!reqTransactionRef || !String(reqTransactionRef).trim())) {
+      return res.status(400).json({ error: 'transaction_reference is required when payment method is transfer (حوالة)' });
     }
 
     // Normalize phone number
@@ -2678,6 +2695,19 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
     console.log(`[Bulk Booking Creation]    Group ID: ${bookingGroupId}`);
     console.log(`[Bulk Booking Creation]    Bookings: ${bookings.length}`);
     console.log(`[Bulk Booking Creation]    Customer: ${customer_name}`);
+
+    // Store payment_method + transaction_reference when provided (Admin/Receptionist)
+    if (bookingIds.length > 0 && (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer')) {
+      const refValue = reqPaymentMethod === 'transfer' && reqTransactionRef ? String(reqTransactionRef).trim() : null;
+      await supabase
+        .from('bookings')
+        .update({
+          payment_method: reqPaymentMethod,
+          transaction_reference: refValue,
+          updated_at: new Date().toISOString()
+        })
+        .in('id', bookingIds);
+    }
 
     // ============================================================================
     // STRICT BILLING RULE: Invoice ONLY when real money is owed

@@ -1664,7 +1664,7 @@ class ZohoService {
         // Include paid_quantity and package_covered_quantity for partial coverage support
         const { data: bookingData, error: bookingError } = await supabase
           .from('bookings')
-          .select('zoho_invoice_id, tenant_id, customer_email, customer_phone, customer_name, paid_quantity, package_covered_quantity')
+          .select('zoho_invoice_id, tenant_id, customer_email, customer_phone, customer_name, paid_quantity, package_covered_quantity, payment_status')
           .eq('id', bookingId)
           .maybeSingle(); // Use maybeSingle to avoid throwing error if not found
         
@@ -2102,9 +2102,17 @@ class ZohoService {
       console.log(`[ZohoService] ✅ Invoice ${invoiceId} saved successfully`);
       console.log(`[ZohoService] ⚠️  Email/WhatsApp errors will NOT affect invoice save from this point`);
 
-      // Send invoice via email (if email is provided)
-      // ENSURE EMAIL IS ALWAYS SENT WHEN AVAILABLE
+      // CRITICAL: Invoice MUST NOT be sent (Email or WhatsApp) if booking payment status is not PAID.
+      // Only send when booking is already marked paid (e.g. after mark-paid or payment-status update).
+      const bookingPaymentStatus = (booking as any).payment_status;
+      const maySendInvoice = bookingPaymentStatus === 'paid' || bookingPaymentStatus === 'paid_manual';
+      if (!maySendInvoice) {
+        console.log(`[ZohoService] ⏭️ Skipping invoice delivery: booking payment_status is "${bookingPaymentStatus || 'unknown'}" (only send when paid/paid_manual)`);
+      }
+
+      // Send invoice via email (if email is provided) — ONLY when booking is paid
       // Note: Errors here won't affect invoice save since it's already persisted
+      if (maySendInvoice) {
       console.log(`[ZohoService] ========================================`);
       console.log(`[ZohoService] EMAIL DELIVERY PROCESS STARTING`);
       console.log(`[ZohoService] ========================================`);
@@ -2238,6 +2246,7 @@ class ZohoService {
         console.log(`[ZohoService]    Type: ${typeof invoiceData.customer_phone}`);
         console.log(`[ZohoService]    This means invoice was created but NOT sent to customer!`);
       }
+      } // end if (maySendInvoice)
 
       // ============================================================================
       // STEP 5: Final Verification & Validation
