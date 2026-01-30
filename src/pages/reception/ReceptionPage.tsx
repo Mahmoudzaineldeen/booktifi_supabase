@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { safeTranslateStatus, safeTranslate } from '../../lib/safeTranslation';
+import { getPaymentDisplayLabel, getPaymentDisplayValue } from '../../lib/paymentDisplay';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -34,6 +35,7 @@ interface Booking {
   total_price: number;
   status: string;
   payment_status: string;
+  payment_method?: string | null;
   notes: string | null;
   created_at: string;
   booking_group_id: string | null;
@@ -941,6 +943,7 @@ export function ReceptionPage() {
           total_price,
           status,
           payment_status,
+          payment_method,
           notes,
           created_at,
           booking_group_id,
@@ -3349,15 +3352,15 @@ export function ReceptionPage() {
                         </p>
                       </div>
                     </div>
-                    {booking.payment_status === 'paid' || booking.payment_status === 'paid_manual' ? (
+                    {getPaymentDisplayValue(booking) !== 'unpaid' ? (
                       <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
                         <CheckCircle className="w-3 h-3" />
-                        {t('status.paid')}
+                        {getPaymentDisplayLabel(booking, t)}
                       </span>
                     ) : (
                       <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
                         <XCircle className="w-3 h-3" />
-                        {t('status.unpaid')}
+                        {getPaymentDisplayLabel(booking, t)}
                       </span>
                     )}
                   </div>
@@ -3403,13 +3406,11 @@ export function ReceptionPage() {
                   {safeTranslateStatus(t, booking.status, 'booking')}
                 </span>
                 <span className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
-                  booking.payment_status === 'paid' || booking.payment_status === 'paid_manual' ? 'bg-emerald-100 text-emerald-800' :
-                  booking.payment_status === 'unpaid' ? 'bg-orange-100 text-orange-800' :
-                  booking.payment_status === 'awaiting_payment' ? 'bg-amber-100 text-amber-800' :
-                  booking.payment_status === 'refunded' ? 'bg-purple-100 text-purple-800' :
-                  'bg-gray-100 text-gray-800'
+                  getPaymentDisplayValue(booking) === 'unpaid' ? 'bg-orange-100 text-orange-800' :
+                  getPaymentDisplayValue(booking) === 'bank_transfer' ? 'bg-blue-100 text-blue-800' :
+                  'bg-emerald-100 text-emerald-800'
                 }`}>
-                  {safeTranslateStatus(t, booking.payment_status || 'unpaid', 'payment')}
+                  {getPaymentDisplayLabel(booking, t)}
                 </span>
               </div>
               {booking.status !== 'cancelled' && (
@@ -3452,7 +3453,7 @@ export function ReceptionPage() {
                   </div>
                   {!isCoordinator && (
                   <>
-                  {(booking.payment_status === 'unpaid' || booking.payment_status === 'awaiting_payment') && (
+                  {getPaymentDisplayValue(booking) === 'unpaid' && (
                     <Button
                       size="sm"
                       variant="primary"
@@ -3463,7 +3464,7 @@ export function ReceptionPage() {
                       {t('reception.markAsPaid')}
                     </Button>
                   )}
-                  {(booking.payment_status === 'paid' || booking.payment_status === 'paid_manual') && (
+                  {getPaymentDisplayValue(booking) !== 'unpaid' && (
                     <Button
                       size="sm"
                       variant="secondary"
@@ -5453,11 +5454,11 @@ export function ReceptionPage() {
                 <label className="text-sm font-medium text-gray-500">Payment Status</label>
                 <div className="mt-1">
                   <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${
-                    selectedBookingForDetails.payment_status === 'paid' || selectedBookingForDetails.payment_status === 'paid_manual' ? 'bg-green-100 text-green-800' :
-                    selectedBookingForDetails.payment_status === 'awaiting_payment' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-gray-100 text-gray-800'
+                    getPaymentDisplayValue(selectedBookingForDetails) === 'unpaid' ? 'bg-orange-100 text-orange-800' :
+                    getPaymentDisplayValue(selectedBookingForDetails) === 'bank_transfer' ? 'bg-blue-100 text-blue-800' :
+                    'bg-green-100 text-green-800'
                   }`}>
-                    {selectedBookingForDetails.payment_status.replace('_', ' ').toUpperCase()}
+                    {getPaymentDisplayLabel(selectedBookingForDetails, t)}
                   </span>
                 </div>
               </div>
@@ -5548,7 +5549,7 @@ export function ReceptionPage() {
                 </div>
               )}
 
-            {(selectedBookingForDetails.payment_status === 'unpaid' || selectedBookingForDetails.payment_status === 'awaiting_payment') && (
+            {getPaymentDisplayValue(selectedBookingForDetails) === 'unpaid' && (
               <Button
                 variant="primary"
                 onClick={() => {

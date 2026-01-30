@@ -712,6 +712,7 @@ router.post('/subscriptions', async (req, res) => {
       total_price,
       payment_method: reqPaymentMethod,
       transaction_reference: reqTransactionRef,
+      payment_status: reqPaymentStatus, // Optional: 'pending' | 'paid' — when 'pending', invoice is created when marked paid later
     } = req.body;
 
     // Validate payment method + transaction reference (same as bookings)
@@ -877,6 +878,9 @@ router.post('/subscriptions', async (req, res) => {
       package_id,
       customer_id: finalCustomerId,
     };
+    if (reqPaymentStatus === 'pending' || reqPaymentStatus === 'paid') {
+      subscriptionData.payment_status = reqPaymentStatus;
+    }
     if (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') {
       subscriptionData.payment_method = reqPaymentMethod;
       subscriptionData.transaction_reference = reqPaymentMethod === 'transfer' && reqTransactionRef != null ? String(reqTransactionRef).trim() : null;
@@ -958,8 +962,12 @@ router.post('/subscriptions', async (req, res) => {
       .eq('id', finalCustomerId)
       .single();
 
+    // When payment_status is 'unpaid', skip invoice at creation; invoice is created when marked paid later.
     if (!customerDataForInvoice) {
       invoiceError = 'Customer not found for invoice';
+    } else if (reqPaymentStatus === 'pending') {
+      // Skip invoice — will be created when subscription is marked paid
+      if (isVerboseLogging()) logger.info('Package subscription: created as pending (not paid), invoice will be created when marked paid', {}, {}, { subscriptionId: subscription.id });
     } else {
       const invoiceOptions: { customer_phone?: string; customer_email?: string; payment?: { payment_method: 'onsite' | 'transfer'; transaction_reference?: string | null } } = {
         customer_phone: customer_phone,
@@ -1159,13 +1167,48 @@ router.patch('/subscriptions/:subscriptionId/payment-status', authenticateSubscr
 
     const { data: subscription, error: fetchError } = await supabase
       .from('package_subscriptions')
-      .select('id, tenant_id')
+      .select('id, tenant_id, package_id, customer_id, zoho_invoice_id')
       .eq('id', subscriptionId)
       .eq('tenant_id', tenantId)
       .single();
 
     if (fetchError || !subscription) {
       return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    // When marking as paid and no invoice yet (e.g. created as pending), create invoice first then update
+    if (payment_status === 'paid' && !(subscription as any).zoho_invoice_id) {
+      const { data: subFull, error: subErr } = await supabase
+        .from('package_subscriptions')
+        .select('id, tenant_id, package_id, customer_id')
+        .eq('id', subscriptionId)
+        .eq('tenant_id', tenantId)
+        .single();
+      if (!subErr && subFull) {
+        const { data: pkg } = await supabase.from('service_packages').select('id, name, name_ar, total_price').eq('id', (subFull as any).package_id).single();
+        const { data: cust } = await supabase.from('customers').select('id, name, phone, email').eq('id', (subFull as any).customer_id).single();
+        if (pkg && cust) {
+          const invoiceOptions: { customer_phone?: string; customer_email?: string; payment?: { payment_method: 'onsite' | 'transfer'; transaction_reference?: string | null } } = {
+            customer_phone: (cust as any).phone ?? undefined,
+            customer_email: (cust as any).email ?? undefined,
+          };
+          if (payMethod === 'transfer' || payMethod === 'onsite') {
+            invoiceOptions.payment = {
+              payment_method: payMethod || 'onsite',
+              transaction_reference: payMethod === 'transfer' && transaction_reference != null ? String(transaction_reference).trim() : undefined,
+            };
+          }
+          await createInvoiceForPackageSubscription(
+            tenantId,
+            subFull,
+            (subFull as any).package_id,
+            { name: (pkg as any).name, name_ar: (pkg as any).name_ar, total_price: (pkg as any).total_price },
+            { name: (cust as any).name, email: (cust as any).email ?? undefined, phone: (cust as any).phone ?? undefined },
+            invoiceOptions
+          );
+          // createInvoiceForPackageSubscription already updates subscription with zoho_invoice_id and payment_status 'paid'
+        }
+      }
     }
 
     const updatePayload: Record<string, unknown> = {};
@@ -1530,7 +1573,7 @@ router.get('/receptionist/subscribers', authenticateSubscriptionManager, async (
 router.post('/receptionist/subscriptions', authenticateSubscriptionManager, async (req, res) => {
   try {
     const tenantId = req.user!.tenant_id!;
-    const { package_id, customer_id, customer_phone, customer_name, customer_email, payment_method: reqPaymentMethod, transaction_reference: reqTransactionRef } = req.body;
+    const { package_id, customer_id, customer_phone, customer_name, customer_email, payment_method: reqPaymentMethod, transaction_reference: reqTransactionRef, payment_status: reqPaymentStatus } = req.body;
 
     if (reqPaymentMethod === 'transfer') {
       const refVal = reqTransactionRef != null ? String(reqTransactionRef).trim() : '';
@@ -1648,7 +1691,7 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
       return res.status(400).json({ error: 'Package has no services' });
     }
 
-    // Create subscription (include payment_method and transaction_reference when provided)
+    // Create subscription (include payment_status, payment_method, transaction_reference when provided)
     const insertPayload: Record<string, unknown> = {
       tenant_id: tenantId,
       customer_id: finalCustomerId,
@@ -1656,6 +1699,9 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
       status: 'active',
       is_active: true
     };
+    if (reqPaymentStatus === 'pending' || reqPaymentStatus === 'paid') {
+      insertPayload.payment_status = reqPaymentStatus;
+    }
     if (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') {
       insertPayload.payment_method = reqPaymentMethod;
       insertPayload.transaction_reference = reqPaymentMethod === 'transfer' && reqTransactionRef != null ? String(reqTransactionRef).trim() : null;
@@ -1691,32 +1737,40 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
       // Don't fail - subscription is created, usage can be fixed later
     }
 
-    // Create Zoho invoice (same as customer purchase flow) — always attempt so subscription gets an invoice when Zoho is configured
-    const customer_phone_raw = req.body.customer_phone as string | undefined;
-    const customer_email_raw = req.body.customer_email as string | undefined;
-    if (isVerboseLogging()) {
-      logger.info('Receptionist subscribe: creating package subscription invoice', {}, {}, { subscriptionId: subscription.id, packageId: package_id });
-    }
-    const receptionInvoiceOptions: { customer_phone?: string; customer_email?: string; payment?: { payment_method: 'onsite' | 'transfer'; transaction_reference?: string | null } } = {
-      customer_phone: customer_phone_raw,
-      customer_email: customer_email_raw,
-    };
-    if (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') {
-      receptionInvoiceOptions.payment = {
-        payment_method: reqPaymentMethod,
-        transaction_reference: reqTransactionRef != null ? String(reqTransactionRef).trim() : undefined,
+    // Create Zoho invoice when not created as pending (pending = invoice created when marked paid later)
+    let zohoInvoiceId: string | null = null;
+    let invoiceError: string | null = null;
+    if (reqPaymentStatus !== 'pending') {
+      const customer_phone_raw = req.body.customer_phone as string | undefined;
+      const customer_email_raw = req.body.customer_email as string | undefined;
+      if (isVerboseLogging()) {
+        logger.info('Receptionist subscribe: creating package subscription invoice', {}, {}, { subscriptionId: subscription.id, packageId: package_id });
+      }
+      const receptionInvoiceOptions: { customer_phone?: string; customer_email?: string; payment?: { payment_method: 'onsite' | 'transfer'; transaction_reference?: string | null } } = {
+        customer_phone: customer_phone_raw,
+        customer_email: customer_email_raw,
       };
-    }
-    const { zohoInvoiceId, invoiceError } = await createInvoiceForPackageSubscription(
-      tenantId,
-      subscription,
-      package_id,
-      { name: packageData.name, name_ar: packageData.name_ar, total_price: packageData.total_price },
-      { name: customerData.name, email: customerData.email ?? undefined, phone: customerData.phone ?? undefined },
-      receptionInvoiceOptions
-    );
-    if (invoiceError && isVerboseLogging()) {
-      logger.warn('Receptionist subscribe: invoice creation failed (subscription still created)', undefined, {}, { subscriptionId: subscription.id, invoiceError });
+      if (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') {
+        receptionInvoiceOptions.payment = {
+          payment_method: reqPaymentMethod,
+          transaction_reference: reqTransactionRef != null ? String(reqTransactionRef).trim() : undefined,
+        };
+      }
+      const result = await createInvoiceForPackageSubscription(
+        tenantId,
+        subscription,
+        package_id,
+        { name: packageData.name, name_ar: packageData.name_ar, total_price: packageData.total_price },
+        { name: customerData.name, email: customerData.email ?? undefined, phone: customerData.phone ?? undefined },
+        receptionInvoiceOptions
+      );
+      zohoInvoiceId = result.zohoInvoiceId;
+      invoiceError = result.invoiceError;
+      if (invoiceError && isVerboseLogging()) {
+        logger.warn('Receptionist subscribe: invoice creation failed (subscription still created)', undefined, {}, { subscriptionId: subscription.id, invoiceError });
+      }
+    } else if (isVerboseLogging()) {
+      logger.info('Receptionist subscribe: created as pending (not paid), invoice will be created when marked paid', {}, {}, { subscriptionId: subscription.id });
     }
 
     res.status(201).json({

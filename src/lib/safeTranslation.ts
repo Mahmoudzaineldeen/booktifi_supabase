@@ -21,12 +21,12 @@ const DEFAULT_FALLBACKS: Record<string, Record<string, string>> = {
     'completed': 'Completed',
     'cancelled': 'Cancelled',
     
-    // Payment statuses
+    // Payment display (three only): Unpaid | Paid On Site | Bank Transfer
     'unpaid': 'Unpaid',
-    'paid': 'Paid',
-    'paid_manual': 'Paid (Manual)',
-    'awaiting_payment': 'Awaiting Payment',
-    'refunded': 'Refunded',
+    'paid': 'Paid On Site',
+    'paid_manual': 'Paid On Site',
+    'awaiting_payment': 'Unpaid',
+    'refunded': 'Unpaid',
     
     // Common
     'loading': 'Loading...',
@@ -53,12 +53,12 @@ const DEFAULT_FALLBACKS: Record<string, Record<string, string>> = {
     'completed': 'مكتمل',
     'cancelled': 'ملغي',
     
-    // Payment statuses
+    // Payment display (three only): Unpaid | Paid On Site | Bank Transfer
     'unpaid': 'غير مدفوع',
-    'paid': 'مدفوع',
-    'paid_manual': 'مدفوع (يدوي)',
-    'awaiting_payment': 'في انتظار الدفع',
-    'refunded': 'مسترد',
+    'paid': 'مدفوع يدوياً',
+    'paid_manual': 'مدفوع يدوياً',
+    'awaiting_payment': 'غير مدفوع',
+    'refunded': 'غير مدفوع',
     
     // Common
     'loading': 'جاري التحميل...',

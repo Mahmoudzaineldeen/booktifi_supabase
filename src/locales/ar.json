@@ -1384,6 +1384,11 @@
     "displayedInvoiceNewer": "الفاتورة المعروضة أحدث من قاعدة البيانات",
     "allInvoicesDisplayed": "تم عرض جميع الفواتير"
   },
+  "payment": {
+    "displayUnpaid": "غير مدفوع",
+    "displayPaidOnSite": "مدفوع يدوياً",
+    "displayBankTransfer": "حوالة بنكية"
+  },
   "bookings": {
     "title": "الحجوزات",
     "subtitle": "عرض وإدارة جميع الحجوزات",

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { safeTranslateStatus } from '../../lib/safeTranslation';
+import { getPaymentDisplayLabel, getPaymentDisplayValue } from '../../lib/paymentDisplay';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -24,6 +25,7 @@ interface Booking {
   total_price: number;
   status: string;
   payment_status: string;
+  payment_method?: string | null;
   created_at: string;
   qr_scanned: boolean;
   qr_scanned_at: string | null;
@@ -192,6 +194,7 @@ export function CashierPage() {
           total_price,
           status,
           payment_status,
+          payment_method,
           created_at,
           qr_scanned,
           qr_scanned_at,
@@ -477,15 +480,11 @@ export function CashierPage() {
                     {safeTranslateStatus(t, scannedBooking.status, 'booking')}
                   </span>
                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    scannedBooking.payment_status === 'paid' || scannedBooking.payment_status === 'paid_manual' 
-                      ? 'bg-emerald-100 text-emerald-800' :
-                    scannedBooking.payment_status === 'unpaid' 
-                      ? 'bg-orange-100 text-orange-800' :
-                    scannedBooking.payment_status === 'awaiting_payment' 
-                      ? 'bg-amber-100 text-amber-800' :
-                    'bg-gray-100 text-gray-800'
+                    getPaymentDisplayValue(scannedBooking) === 'unpaid' ? 'bg-orange-100 text-orange-800' :
+                    getPaymentDisplayValue(scannedBooking) === 'bank_transfer' ? 'bg-blue-100 text-blue-800' :
+                    'bg-emerald-100 text-emerald-800'
                   }`}>
-                    {safeTranslateStatus(t, scannedBooking.payment_status || 'unpaid', 'payment')}
+                    {getPaymentDisplayLabel(scannedBooking, t)}
                   </span>
                   {scannedBooking.qr_scanned && (
                     <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 flex items-center gap-1">
@@ -502,7 +501,7 @@ export function CashierPage() {
                 </div>
 
                 {/* Payment Action - Cashier: payment method + mark as paid */}
-                {(scannedBooking.payment_status === 'unpaid' || scannedBooking.payment_status === 'awaiting_payment') && Number(scannedBooking.total_price) > 0 && (
+                {getPaymentDisplayValue(scannedBooking) === 'unpaid' && Number(scannedBooking.total_price) > 0 && (
                   <div className="border-t pt-4 space-y-3">
                     <p className="text-sm font-medium text-gray-700">
                       {i18n.language === 'ar' ? 'طريقة الدفع' : 'Payment method'}

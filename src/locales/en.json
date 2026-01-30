@@ -740,6 +740,11 @@
     "967": "Yemen",
     "20": "Egypt"
   },
+  "payment": {
+    "displayUnpaid": "Unpaid",
+    "displayPaidOnSite": "Paid On Site",
+    "displayBankTransfer": "Bank Transfer"
+  },
   "bookings": {
     "title": "Bookings",
     "subtitle": "View and manage all bookings",

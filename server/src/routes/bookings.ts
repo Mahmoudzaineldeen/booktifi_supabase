@@ -495,22 +495,27 @@ async function logBookingChange(
 /**
  * Validate payment status transition
  */
+// Normalize stored payment_status for transition check (awaiting_payment/refunded → unpaid)
+function normalizePaymentStatusForTransition(status: string): string {
+  if (status === 'awaiting_payment' || status === 'refunded') return 'unpaid';
+  return status;
+}
+
 function validatePaymentStatusTransition(oldStatus: string, newStatus: string): { valid: boolean; error?: string } {
-  // Define valid transitions (must match database enum values)
-  // Note: Allowing corrections for manual adjustments and error corrections
+  const oldNorm = normalizePaymentStatusForTransition(oldStatus);
+  const newNorm = normalizePaymentStatusForTransition(newStatus);
+  // Allowed display states: Unpaid, Paid On Site, Bank Transfer. Stored: unpaid | paid | paid_manual
   const validTransitions: Record<string, string[]> = {
-    'unpaid': ['paid', 'paid_manual', 'awaiting_payment', 'refunded'],
-    'awaiting_payment': ['paid', 'paid_manual', 'unpaid', 'refunded'],
-    'paid': ['refunded', 'unpaid', 'awaiting_payment'], // Allow corrections if payment was recorded incorrectly
-    'paid_manual': ['refunded', 'unpaid', 'awaiting_payment'], // Allow corrections for manual entries
-    'refunded': ['unpaid', 'awaiting_payment'], // Allow corrections if refund was processed incorrectly
+    'unpaid': ['paid', 'paid_manual'],
+    'paid': ['unpaid'],
+    'paid_manual': ['unpaid'],
   };
 
-  const allowed = validTransitions[oldStatus] || [];
-  if (!allowed.includes(newStatus)) {
+  const allowed = validTransitions[oldNorm] || [];
+  if (!allowed.includes(newNorm)) {
     return {
       valid: false,
-      error: `Invalid payment status transition: ${oldStatus} → ${newStatus}. Allowed transitions from ${oldStatus}: ${allowed.join(', ') || 'none (terminal state)'}`
+      error: `Invalid payment status transition. Allowed: Unpaid ↔ Paid On Site / Bank Transfer.`
     };
   }
 
@@ -832,7 +837,9 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       booking_group_id, // Optional: for grouping related bookings (will be ignored if not provided)
       payment_method: reqPaymentMethod, // Optional: 'onsite' (مدفوع يدوياً) or 'transfer' (حوالة)
       transaction_reference: reqTransactionRef, // Optional: required when payment_method is 'transfer'
+      payment_status: reqPaymentStatusRaw, // Optional: normalized to 'unpaid' | 'paid' | 'paid_manual' (display: Unpaid, Paid On Site, Bank Transfer)
     } = req.body;
+    const reqPaymentStatus = (reqPaymentStatusRaw === 'awaiting_payment' || reqPaymentStatusRaw === 'refunded') ? 'unpaid' : reqPaymentStatusRaw;
     
     // Ensure booking_group_id is either a valid UUID string or null (not undefined)
     const finalBookingGroupId = booking_group_id && typeof booking_group_id === 'string' && booking_group_id.trim() !== '' 
@@ -840,7 +847,7 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       : null;
     
     // Log warning if unexpected fields are sent (but don't fail)
-    const unexpectedFields = ['status', 'payment_status', 'created_by_user_id', 'package_subscription_id'];
+    const unexpectedFields = ['status', 'created_by_user_id', 'package_subscription_id'];
     const sentUnexpectedFields = unexpectedFields.filter(field => req.body[field] !== undefined);
     if (sentUnexpectedFields.length > 0) {
       console.warn(`[Booking Creation] ⚠️  Unexpected fields sent (will be ignored): ${sentUnexpectedFields.join(', ')}`);
@@ -1475,18 +1482,21 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
     }
 
     // ============================================================================
-    // Store payment_method + transaction_reference when provided (Admin/Receptionist)
+    // Store payment_status, payment_method, transaction_reference when provided (Admin/Receptionist)
+    // When payment_status is 'unpaid' or 'awaiting_payment', invoice is skipped and created when marked paid later.
     // ============================================================================
-    if (actualBooking?.id && (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer')) {
-      const refValue = reqPaymentMethod === 'transfer' && reqTransactionRef ? String(reqTransactionRef).trim() : null;
-      await supabase
-        .from('bookings')
-        .update({
-          payment_method: reqPaymentMethod,
-          transaction_reference: refValue,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', actualBooking.id);
+    if (actualBooking?.id) {
+      const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (reqPaymentStatus === 'unpaid' || reqPaymentStatus === 'awaiting_payment' || reqPaymentStatus === 'paid' || reqPaymentStatus === 'paid_manual') {
+        updatePayload.payment_status = reqPaymentStatus;
+      }
+      if (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') {
+        updatePayload.payment_method = reqPaymentMethod;
+        updatePayload.transaction_reference = reqPaymentMethod === 'transfer' && reqTransactionRef ? String(reqTransactionRef).trim() : null;
+      }
+      if (Object.keys(updatePayload).length > 1) {
+        await supabase.from('bookings').update(updatePayload).eq('id', actualBooking.id);
+      }
     }
 
     // ============================================================================
@@ -1944,8 +1954,10 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
     const shouldCreateInvoice = (normalizedPhone || customer_phone || customer_email) 
       && paidQty > 0 
       && finalPriceAfterPackage > 0;
+    // When payment_status is unpaid/awaiting_payment, skip invoice at creation; invoice is created when marked paid later.
+    const createInvoiceNow = reqPaymentStatus !== 'unpaid' && reqPaymentStatus !== 'awaiting_payment';
     
-    if (shouldCreateInvoice) {
+    if (shouldCreateInvoice && createInvoiceNow) {
       console.log(`[Booking Creation] ✅ Invoice creation conditions met:`);
       console.log(`[Booking Creation]    - Customer contact: ${normalizedPhone || customer_phone || customer_email ? 'YES' : 'NO'}`);
       console.log(`[Booking Creation]    - Paid quantity: ${paidQty} (must be > 0)`);
@@ -2196,6 +2208,8 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
         // Don't fail booking if invoice creation fails - booking is already created
         // The error was already logged in the inner try-catch
       }
+    } else if (shouldCreateInvoice && !createInvoiceNow) {
+      console.log(`[Booking Creation] ℹ️ Invoice skipped: payment_status is ${reqPaymentStatus || 'unset'}. Invoice will be created when booking is marked as paid.`);
     } else {
       // Log why invoice was not created
       const reasons: string[] = [];
@@ -2207,6 +2221,9 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       }
       if (finalPriceAfterPackage <= 0) {
         reasons.push(`total price is 0 (price = ${finalPriceAfterPackage})`);
+      }
+      if (!createInvoiceNow) {
+        reasons.push('payment_status is unpaid (invoice created when marked paid)');
       }
       
       console.log(`[Booking Creation] ⚠️ Invoice NOT created - ${reasons.join(', ')}`);
@@ -4716,13 +4733,15 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
       return res.status(400).json({ error: 'payment_status is required' });
     }
 
-    // Validate payment status (must match database enum)
-    const validStatuses = ['unpaid', 'paid', 'paid_manual', 'awaiting_payment', 'refunded'];
-    if (!validStatuses.includes(payment_status)) {
+    // Normalize: only allow Unpaid, Paid On Site, Bank Transfer (stored as unpaid | paid | paid_manual + payment_method)
+    const normalized = payment_status === 'awaiting_payment' || payment_status === 'refunded' ? 'unpaid' : payment_status;
+    const validStatuses = ['unpaid', 'paid', 'paid_manual'];
+    if (!validStatuses.includes(normalized)) {
       return res.status(400).json({
-        error: `Invalid payment_status. Must be one of: ${validStatuses.join(', ')}`
+        error: `Invalid payment_status. Allowed: unpaid, paid, paid_manual (display: Unpaid, Paid On Site, Bank Transfer).`
       });
     }
+    const payment_statusToUse = normalized;
 
     // Get current booking to verify ownership and validate transition
     const { data: currentBooking, error: fetchError } = await supabase
@@ -4792,9 +4811,24 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
 
     let zohoSyncResult: { success: boolean; error?: string; paymentId?: string } | null = null;
     let invoiceSendWarning: string | undefined;
-    const invoiceId = currentBooking.zoho_invoice_id;
+    let invoiceId = currentBooking.zoho_invoice_id;
     const totalPrice = Number((updatedBooking || currentBooking).total_price) || 0;
     const phone = (updatedBooking || currentBooking).customer_phone || '';
+
+    // If marking paid but no invoice yet (e.g. created as unpaid), create invoice first then record payment and send
+    if (isBecomingPaid && !invoiceId && totalPrice > 0) {
+      try {
+        const { zohoService } = await import('../services/zohoService.js');
+        const invoiceResult = await zohoService.generateReceipt(bookingId);
+        if (invoiceResult.success && invoiceResult.invoiceId) {
+          invoiceId = invoiceResult.invoiceId;
+          const { data: refetch } = await supabase.from('bookings').select('zoho_invoice_id').eq('id', bookingId).single();
+          if (refetch?.zoho_invoice_id) invoiceId = refetch.zoho_invoice_id;
+        }
+      } catch (e: any) {
+        logger.error('Create invoice on mark paid failed (non-blocking)', { bookingId, error: e?.message });
+      }
+    }
 
     if (isBecomingPaid && invoiceId && totalPrice > 0) {
       const { zohoService } = await import('../services/zohoService.js');
@@ -4895,7 +4929,8 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
       return res.status(403).json({ error: 'Access denied. This booking belongs to a different tenant.' });
     }
 
-    if (currentBooking.payment_status !== 'unpaid' && currentBooking.payment_status !== 'awaiting_payment') {
+    const normalizedCurrent = normalizePaymentStatusForTransition(currentBooking.payment_status || '');
+    if (normalizedCurrent !== 'unpaid') {
       return res.status(400).json({
         error: `Cannot mark as paid. Current payment status is: ${currentBooking.payment_status}. Cashiers can only mark unpaid bookings as paid.`
       });
@@ -4935,9 +4970,24 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
     );
 
     let invoiceSendWarning: string | undefined;
-    const invoiceId = currentBooking.zoho_invoice_id;
+    let invoiceId = currentBooking.zoho_invoice_id;
     const totalPrice = Number(updatedBooking?.total_price || currentBooking.total_price) || 0;
     const phone = (updatedBooking?.customer_phone || currentBooking.customer_phone || '').trim();
+
+    // If no invoice yet (e.g. booking was created as unpaid), create invoice first then record payment and send
+    if (!invoiceId && totalPrice > 0) {
+      try {
+        const { zohoService } = await import('../services/zohoService.js');
+        const invoiceResult = await zohoService.generateReceipt(bookingId);
+        if (invoiceResult.success && invoiceResult.invoiceId) {
+          invoiceId = invoiceResult.invoiceId;
+          const { data: refetch } = await supabase.from('bookings').select('zoho_invoice_id').eq('id', bookingId).single();
+          if (refetch?.zoho_invoice_id) invoiceId = refetch.zoho_invoice_id;
+        }
+      } catch (e: any) {
+        logger.error('[Mark Paid] Create invoice failed (non-blocking)', { bookingId, error: e?.message });
+      }
+    }
 
     if (invoiceId && totalPrice > 0) {
       const { zohoService } = await import('../services/zohoService.js');

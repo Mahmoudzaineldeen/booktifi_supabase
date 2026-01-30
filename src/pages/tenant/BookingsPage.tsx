@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { safeTranslateStatus, safeTranslate } from '../../lib/safeTranslation';
+import { getPaymentDisplayLabel, getPaymentDisplayValue, type PaymentDisplayValue } from '../../lib/paymentDisplay';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -54,6 +55,7 @@ interface Booking {
   total_price: number;
   status: string;
   payment_status?: string;
+  payment_method?: string | null;
   created_at: string;
   zoho_invoice_id?: string | null;
   zoho_invoice_created_at?: string | null;
@@ -127,7 +129,7 @@ export function BookingsPage() {
   const [deletingBooking, setDeletingBooking] = useState<string | null>(null);
   const [updatingPaymentStatus, setUpdatingPaymentStatus] = useState<string | null>(null);
   const [zohoSyncStatus, setZohoSyncStatus] = useState<Record<string, { success: boolean; error?: string }>>({});
-  const [paymentStatusModal, setPaymentStatusModal] = useState<{ bookingId: string; value: string } | null>(null);
+  const [paymentStatusModal, setPaymentStatusModal] = useState<{ bookingId: string } | null>(null);
   const [paymentStatusModalMethod, setPaymentStatusModalMethod] = useState<'onsite' | 'transfer'>('onsite');
   const [paymentStatusModalReference, setPaymentStatusModalReference] = useState('');
   const [paymentStatusModalSubmitting, setPaymentStatusModalSubmitting] = useState(false);
@@ -494,6 +496,7 @@ export function BookingsPage() {
           total_price,
           status,
           payment_status,
+          payment_method,
           created_at,
           zoho_invoice_id,
           zoho_invoice_created_at,
@@ -750,7 +753,7 @@ export function BookingsPage() {
   async function deleteBooking(bookingId: string) {
     // Find the booking to check its payment status
     const booking = bookings.find(b => b.id === bookingId);
-    const isPaid = booking?.payment_status === 'paid' || booking?.payment_status === 'paid_manual';
+    const isPaid = getPaymentDisplayValue(booking) !== 'unpaid';
 
     // Show appropriate confirmation message based on payment status
     let confirmMessage: string;
@@ -1321,6 +1324,7 @@ export function BookingsPage() {
         total_price: b.total_price,
         status: b.status,
         payment_status: b.payment_status,
+        payment_method: b.payment_method,
         created_at: b.created_at,
         zoho_invoice_id: b.zoho_invoice_id,
         zoho_invoice_created_at: b.zoho_invoice_created_at,
@@ -1671,15 +1675,15 @@ export function BookingsPage() {
                                 </p>
                               </div>
                             </div>
-                            {booking.payment_status === 'paid' ? (
-                              <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                                <CheckCircle className="w-3 h-3" />
-                                {t('status.paid')}
-                              </span>
-                            ) : (
+                            {getPaymentDisplayValue(booking) === 'unpaid' ? (
                               <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
                                 <XCircle className="w-3 h-3" />
-                                {t('status.unpaid')}
+                                {getPaymentDisplayLabel(booking, t)}
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                                <CheckCircle className="w-3 h-3" />
+                                {getPaymentDisplayLabel(booking, t)}
                               </span>
                             )}
                           </div>
@@ -1713,29 +1717,29 @@ export function BookingsPage() {
 
                       {/* Booking Management Actions (Service Provider Only) */}
                       <div className="mt-4 flex flex-wrap gap-2 pt-4 border-t border-gray-200">
-                        {/* Payment Status Dropdown */}
+                        {/* Payment Status Dropdown: Unpaid | Paid On Site | Bank Transfer */}
                         <div className="flex items-center gap-2">
                           <DollarSign className="w-4 h-4 text-gray-500" />
                           <select
-                            value={booking.payment_status || 'unpaid'}
+                            value={getPaymentDisplayValue(booking)}
                             onChange={(e) => {
-                              const val = e.target.value;
-                              if (val === 'paid' || val === 'paid_manual') {
-                                setPaymentStatusModal({ bookingId: booking.id, value: val });
-                                setPaymentStatusModalMethod('onsite');
-                                setPaymentStatusModalReference('');
+                              const val = e.target.value as PaymentDisplayValue;
+                              if (val === 'unpaid') {
+                                updatePaymentStatus(booking.id, 'unpaid');
+                              } else if (val === 'paid_onsite') {
+                                updatePaymentStatus(booking.id, 'paid_manual', 'onsite');
                               } else {
-                                updatePaymentStatus(booking.id, val);
+                                setPaymentStatusModal({ bookingId: booking.id });
+                                setPaymentStatusModalMethod('transfer');
+                                setPaymentStatusModalReference('');
                               }
                             }}
                             disabled={updatingPaymentStatus === booking.id}
                             className="px-3 py-1 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            <option value="unpaid">{safeTranslate(t, 'bookings.unpaid', 'Unpaid')}</option>
-                            <option value="awaiting_payment">{t('bookings.awaitingPaymentOption')}</option>
-                            <option value="paid">{t('bookings.paid')}</option>
-                            <option value="paid_manual">{t('bookings.paidManualOption')}</option>
-                            <option value="refunded">{t('bookings.refundedOption')}</option>
+                            <option value="unpaid">{t('payment.displayUnpaid', 'Unpaid')}</option>
+                            <option value="paid_onsite">{t('payment.displayPaidOnSite', 'Paid On Site')}</option>
+                            <option value="bank_transfer">{t('payment.displayBankTransfer', 'Bank Transfer')}</option>
                           </select>
                           {updatingPaymentStatus === booking.id && (
                             <span className="text-xs text-gray-500">{t('bookings.updating')}</span>
@@ -1961,33 +1965,8 @@ export function BookingsPage() {
         >
           <div className="space-y-4">
             <p className="text-sm text-gray-600">
-              {t('bookings.selectPaymentMethodForPaid', 'Select payment method. Invoice will be sent via WhatsApp after confirmation.')}
+              {t('bookings.enterReferenceForBankTransfer', 'Enter transaction reference for bank transfer. Invoice will be sent via WhatsApp after confirmation.')}
             </p>
-            <div>
-              <p className="text-sm font-medium text-gray-700 mb-2">{t('bookings.paymentMethod', 'Payment method')}</p>
-              <div className="flex flex-wrap gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="payment-status-method"
-                    checked={paymentStatusModalMethod === 'onsite'}
-                    onChange={() => setPaymentStatusModalMethod('onsite')}
-                    className="rounded-full border-gray-300 text-blue-600"
-                  />
-                  <span>مدفوع يدوياً</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="payment-status-method"
-                    checked={paymentStatusModalMethod === 'transfer'}
-                    onChange={() => setPaymentStatusModalMethod('transfer')}
-                    className="rounded-full border-gray-300 text-blue-600"
-                  />
-                  <span>حوالة</span>
-                </label>
-              </div>
-            </div>
             {paymentStatusModalMethod === 'transfer' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -2015,7 +1994,7 @@ export function BookingsPage() {
               <Button
                 variant="primary"
                 onClick={async () => {
-                  if (paymentStatusModalMethod === 'transfer' && !paymentStatusModalReference.trim()) {
+                  if (!paymentStatusModalReference.trim()) {
                     alert(t('bookings.transactionReferenceRequired') || 'Transaction reference is required for transfer.');
                     return;
                   }
@@ -2023,8 +2002,8 @@ export function BookingsPage() {
                   try {
                     await updatePaymentStatus(
                       paymentStatusModal.bookingId,
-                      paymentStatusModal.value,
-                      paymentStatusModalMethod,
+                      'paid_manual',
+                      'transfer',
                       paymentStatusModalReference.trim() || undefined
                     );
                     setPaymentStatusModal(null);
@@ -2033,7 +2012,7 @@ export function BookingsPage() {
                     setPaymentStatusModalSubmitting(false);
                   }
                 }}
-                disabled={paymentStatusModalSubmitting || (paymentStatusModalMethod === 'transfer' && !paymentStatusModalReference.trim())}
+                disabled={paymentStatusModalSubmitting || !paymentStatusModalReference.trim()}
                 icon={<DollarSign className="w-4 h-4" />}
               >
                 {paymentStatusModalSubmitting ? t('bookings.updating') : t('common.confirm')}
