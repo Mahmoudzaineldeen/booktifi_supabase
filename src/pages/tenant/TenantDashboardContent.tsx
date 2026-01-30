@@ -12,7 +12,7 @@ import { PerformanceChart } from '../../components/dashboard/PerformanceChart';
 import { PieChart } from '../../components/dashboard/PieChart';
 import { ComparisonChart } from '../../components/dashboard/ComparisonChart';
 import { StatCard } from '../../components/dashboard/StatCard';
-import { Calendar, Users, Briefcase, DollarSign, TrendingUp, CheckCircle, Grid, List, ChevronLeft, ChevronRight, Clock, XCircle, User } from 'lucide-react';
+import { Calendar, Users, Briefcase, DollarSign, TrendingUp, CheckCircle, Grid, List, ChevronLeft, ChevronRight, Clock, XCircle, User, Package } from 'lucide-react';
 import { startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, parseISO, eachDayOfInterval, addDays, isSameDay, addMinutes, isAfter, isBefore, parse } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
@@ -37,6 +37,8 @@ export function TenantDashboardContent() {
   const [stats, setStats] = useState({
     totalBookings: 0,
     totalRevenue: 0,
+    packageSubscriptions: 0,
+    packageRevenue: 0,
     completedBookings: 0,
     averageBookingValue: 0,
   });
@@ -120,9 +122,34 @@ export function TenantDashboardContent() {
       const completedBookings = bookings?.filter(b => b.status === 'completed').length || 0;
       const averageBookingValue = totalBookings > 0 ? totalRevenue / totalBookings : 0;
 
+      // Package metrics (same date range: subscribed_at)
+      let packageSubscriptions = 0;
+      let packageRevenue = 0;
+      try {
+        const { data: subs, error: subsError } = await db
+          .from('package_subscriptions')
+          .select('id, subscribed_at, service_packages(total_price)')
+          .eq('tenant_id', userProfile.tenant_id)
+          .gte('subscribed_at', start.toISOString())
+          .lte('subscribed_at', end.toISOString());
+
+        if (!subsError && subs?.length) {
+          packageSubscriptions = subs.length;
+          packageRevenue = subs.reduce((sum, s) => {
+            const pkg = s.service_packages as { total_price?: number } | null;
+            const price = pkg?.total_price != null ? parseFloat(String(pkg.total_price)) : 0;
+            return sum + price;
+          }, 0);
+        }
+      } catch (e) {
+        console.warn('Dashboard: could not fetch package stats', e);
+      }
+
       setStats({
         totalBookings,
         totalRevenue,
+        packageSubscriptions,
+        packageRevenue,
         completedBookings,
         averageBookingValue,
       });
@@ -400,11 +427,12 @@ export function TenantDashboardContent() {
     color: colors[index % colors.length],
   }));
 
+  const totalRevenueForPie = stats.totalRevenue > 0 ? stats.totalRevenue : 1;
   const servicePieData = servicePerformance.slice(0, 8).map((service, index) => ({
     label: service.name,
     value: service.revenue,
     color: colors[index % colors.length],
-    percentage: (service.revenue / stats.totalRevenue) * 100,
+    percentage: (service.revenue / totalRevenueForPie) * 100,
   }));
 
   const serviceComparisonSeries = servicePerformance.slice(0, 5).map((service, index) => ({
@@ -558,7 +586,7 @@ export function TenantDashboardContent() {
             }}
           />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         <StatCard
           title={t('dashboard.totalBookings', 'Total Bookings')}
           value={stats.totalBookings}
@@ -568,11 +596,27 @@ export function TenantDashboardContent() {
         />
 
         <StatCard
-          title={t('dashboard.totalRevenue', 'Total Revenue')}
+          title={t('dashboard.bookingRevenue', 'Booking Revenue')}
           value={formatPrice(stats.totalRevenue)}
           icon={DollarSign}
           iconColor="text-green-600"
           iconBgColor="bg-green-100"
+        />
+
+        <StatCard
+          title={t('dashboard.packageSubscriptions', 'Package Subscriptions')}
+          value={stats.packageSubscriptions}
+          icon={Package}
+          iconColor="text-violet-600"
+          iconBgColor="bg-violet-100"
+        />
+
+        <StatCard
+          title={t('dashboard.packageRevenue', 'Package Revenue')}
+          value={formatPrice(stats.packageRevenue)}
+          icon={Package}
+          iconColor="text-purple-600"
+          iconBgColor="bg-purple-100"
         />
 
         <StatCard
@@ -590,6 +634,16 @@ export function TenantDashboardContent() {
           iconColor="text-orange-600"
           iconBgColor="bg-orange-100"
         />
+      </div>
+
+      {/* Combined revenue summary */}
+      <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <p className="text-sm text-gray-600">
+          {t('dashboard.totalRevenueCombined', 'Total Revenue (Bookings + Packages)')}:{' '}
+          <span className="font-semibold text-gray-900">
+            {formatPrice(stats.totalRevenue + stats.packageRevenue)}
+          </span>
+        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-6 mb-8">

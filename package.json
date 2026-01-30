@@ -20,6 +20,7 @@
     "test:integration": "vitest run tests/integration",
     "test:integration:zoho": "vitest run tests/integration/zoho-package-invoice-create-and-send.test.ts",
     "test:integration:booking-invoice": "vitest run tests/integration/booking-invoice-payment-flow.test.ts",
+    "test:integration:dashboard": "vitest run tests/integration/dashboard-metrics.test.ts",
     "test:security": "vitest run tests/security",
     "test:coverage": "vitest run --coverage",
     "test:setup": "node tests/scripts/setup-test-data.js",
