@@ -172,6 +172,8 @@ export function ReceptionPage() {
     customer_email: '',
     package_id: ''
   });
+  const [subscriptionPaymentMethod, setSubscriptionPaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [subscriptionTransactionReference, setSubscriptionTransactionReference] = useState('');
 
   const [bookingForm, setBookingForm] = useState({
     customer_phone: '',
@@ -677,6 +679,10 @@ export function ReceptionPage() {
       alert(t('packages.selectPackage') || 'Please select a package');
       return;
     }
+    if (subscriptionPaymentMethod === 'transfer' && !subscriptionTransactionReference.trim()) {
+      alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+      return;
+    }
 
     try {
       const API_URL = getApiUrl();
@@ -690,6 +696,8 @@ export function ReceptionPage() {
       if (subscriptionCustomerLookup?.id) {
         body.customer_id = subscriptionCustomerLookup.id;
       }
+      if (subscriptionPaymentMethod) body.payment_method = subscriptionPaymentMethod;
+      if (subscriptionPaymentMethod === 'transfer' && subscriptionTransactionReference.trim()) body.transaction_reference = subscriptionTransactionReference.trim();
       const response = await fetch(`${API_URL}/packages/receptionist/subscriptions`, {
         method: 'POST',
         headers: {
@@ -724,6 +732,8 @@ export function ReceptionPage() {
     setSubscriptionCustomerLookup(null);
     setSubscriptionPhoneFull('');
     setIsLookingUpSubscriptionCustomer(false);
+    setSubscriptionPaymentMethod('onsite');
+    setSubscriptionTransactionReference('');
   }
 
   // Validate search input based on search type
@@ -5978,6 +5988,44 @@ export function ReceptionPage() {
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* Payment method (same as bookings) */}
+          <div>
+            <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('reception.paymentMethod') || 'Payment method'}</h4>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="subscriptionPaymentMethod"
+                  checked={subscriptionPaymentMethod === 'onsite'}
+                  onChange={() => { setSubscriptionPaymentMethod('onsite'); setSubscriptionTransactionReference(''); }}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>{i18n.language === 'ar' ? 'مدفوع يدوياً' : 'Paid On Site'}</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="subscriptionPaymentMethod"
+                  checked={subscriptionPaymentMethod === 'transfer'}
+                  onChange={() => setSubscriptionPaymentMethod('transfer')}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>{i18n.language === 'ar' ? 'حوالة بنكية' : 'Bank Transfer'}</span>
+              </label>
+            </div>
+            {subscriptionPaymentMethod === 'transfer' && (
+              <div className="mt-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">{t('reception.transactionReference') || 'Transaction reference'} *</label>
+                <Input
+                  type="text"
+                  value={subscriptionTransactionReference}
+                  onChange={(e) => setSubscriptionTransactionReference(e.target.value)}
+                  placeholder={i18n.language === 'ar' ? 'رقم المرجع أو الحوالة' : 'Transfer reference number'}
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2 pt-4">

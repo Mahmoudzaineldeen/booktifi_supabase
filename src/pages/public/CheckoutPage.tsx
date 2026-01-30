@@ -162,6 +162,10 @@ export function CheckoutPage() {
     phone: customerInfoFromState?.phone || userProfile?.phone || '',
   });
 
+  // Package subscription payment (same options as bookings)
+  const [packagePaymentMethod, setPackagePaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [packageTransactionReference, setPackageTransactionReference] = useState('');
+
   // Update customer info if provided from state (from phone entry page)
   useEffect(() => {
     if (customerInfoFromState) {
@@ -893,9 +897,15 @@ export function CheckoutPage() {
           }
         }
 
+        if (packagePaymentMethod === 'transfer' && !packageTransactionReference.trim()) {
+          setSubmitting(false);
+          alert(i18n.language === 'ar' ? 'رقم المرجع مطلوب عند الدفع بالحوالة.' : 'Transaction reference number is required for transfer payment.');
+          return;
+        }
+
         // Create package subscription
         const subscriptionUrl = `${API_URL}/packages/subscriptions`;
-        const subscriptionPayload = {
+        const subscriptionPayload: Record<string, unknown> = {
           tenant_id: tenant.id,
           package_id: servicePackage.id,
           customer_id: customerId,
@@ -904,6 +914,8 @@ export function CheckoutPage() {
           customer_phone: customerPhoneFull || `${countryCode}${customerInfo.phone}`,
           total_price: servicePackage.total_price,
         };
+        if (packagePaymentMethod) subscriptionPayload.payment_method = packagePaymentMethod;
+        if (packagePaymentMethod === 'transfer' && packageTransactionReference.trim()) subscriptionPayload.transaction_reference = packageTransactionReference.trim();
 
         console.log('[Checkout] Creating package subscription:', {
           url: subscriptionUrl,
@@ -1777,6 +1789,51 @@ export function CheckoutPage() {
                   </div>
                 )}
 
+                {/* Package purchase: Payment method (same as bookings) */}
+                {isPackagePurchase && servicePackage && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <p className="text-sm font-semibold text-gray-700 mb-2">
+                      {i18n.language === 'ar' ? 'طريقة الدفع' : 'Payment method'}
+                    </p>
+                    <div className="flex flex-wrap gap-4 mb-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="packagePaymentMethod"
+                          checked={packagePaymentMethod === 'onsite'}
+                          onChange={() => { setPackagePaymentMethod('onsite'); setPackageTransactionReference(''); }}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm">{i18n.language === 'ar' ? 'مدفوع يدوياً' : 'Paid On Site'}</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="packagePaymentMethod"
+                          checked={packagePaymentMethod === 'transfer'}
+                          onChange={() => setPackagePaymentMethod('transfer')}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm">{i18n.language === 'ar' ? 'حوالة بنكية' : 'Bank Transfer'}</span>
+                      </label>
+                    </div>
+                    {packagePaymentMethod === 'transfer' && (
+                      <div className="mt-2">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          {i18n.language === 'ar' ? 'رقم المرجع' : 'Transaction reference'} *
+                        </label>
+                        <input
+                          type="text"
+                          value={packageTransactionReference}
+                          onChange={(e) => setPackageTransactionReference(e.target.value)}
+                          placeholder={i18n.language === 'ar' ? 'رقم المرجع أو الحوالة' : 'Transfer reference number'}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* CTA Button */}
                 <Button
                   type="submit"
@@ -1796,6 +1853,7 @@ export function CheckoutPage() {
                       !customerInfo.name || 
                       !customerInfo.phone || 
                       !!phoneError ||
+                      (isPackagePurchase && packagePaymentMethod === 'transfer' && !packageTransactionReference.trim()) ||
                       (slotCapacity !== null && slotCapacity < actualVisitorCount) ||
                       total <= 0 ||
                       (!isLoggedIn && otpStep !== 'verified') || // Require OTP verification for guests

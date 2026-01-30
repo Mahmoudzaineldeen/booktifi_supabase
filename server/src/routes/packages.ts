@@ -673,7 +673,17 @@ router.post('/subscriptions', async (req, res) => {
       customer_phone,
       customer_email,
       total_price,
+      payment_method: reqPaymentMethod,
+      transaction_reference: reqTransactionRef,
     } = req.body;
+
+    // Validate payment method + transaction reference (same as bookings)
+    if (reqPaymentMethod === 'transfer') {
+      const refVal = reqTransactionRef != null ? String(reqTransactionRef).trim() : '';
+      if (!refVal) {
+        return res.status(400).json({ error: 'transaction_reference is required when payment method is transfer (حوالة)' });
+      }
+    }
 
     // Validation
     if (!tenant_id || !package_id) {
@@ -830,6 +840,10 @@ router.post('/subscriptions', async (req, res) => {
       package_id,
       customer_id: finalCustomerId,
     };
+    if (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') {
+      subscriptionData.payment_method = reqPaymentMethod;
+      subscriptionData.transaction_reference = reqPaymentMethod === 'transfer' && reqTransactionRef != null ? String(reqTransactionRef).trim() : null;
+    }
 
     // Try to add new schema columns (may not exist in older migrations)
     // Check error to see if columns don't exist, then retry without them
@@ -1346,7 +1360,14 @@ router.get('/receptionist/subscribers', authenticateSubscriptionManager, async (
 router.post('/receptionist/subscriptions', authenticateSubscriptionManager, async (req, res) => {
   try {
     const tenantId = req.user!.tenant_id!;
-    const { package_id, customer_id, customer_phone, customer_name, customer_email } = req.body;
+    const { package_id, customer_id, customer_phone, customer_name, customer_email, payment_method: reqPaymentMethod, transaction_reference: reqTransactionRef } = req.body;
+
+    if (reqPaymentMethod === 'transfer') {
+      const refVal = reqTransactionRef != null ? String(reqTransactionRef).trim() : '';
+      if (!refVal) {
+        return res.status(400).json({ error: 'transaction_reference is required when payment method is transfer (حوالة)' });
+      }
+    }
 
     // Validation
     if (!package_id) {
@@ -1457,16 +1478,21 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
       return res.status(400).json({ error: 'Package has no services' });
     }
 
-    // Create subscription
+    // Create subscription (include payment_method and transaction_reference when provided)
+    const insertPayload: Record<string, unknown> = {
+      tenant_id: tenantId,
+      customer_id: finalCustomerId,
+      package_id: package_id,
+      status: 'active',
+      is_active: true
+    };
+    if (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') {
+      insertPayload.payment_method = reqPaymentMethod;
+      insertPayload.transaction_reference = reqPaymentMethod === 'transfer' && reqTransactionRef != null ? String(reqTransactionRef).trim() : null;
+    }
     const { data: subscription, error: subscriptionError } = await supabase
       .from('package_subscriptions')
-      .insert({
-        tenant_id: tenantId,
-        customer_id: finalCustomerId,
-        package_id: package_id,
-        status: 'active',
-        is_active: true
-      })
+      .insert(insertPayload)
       .select()
       .single();
 

@@ -53,6 +53,8 @@ export function ReceptionSubscribeModal({
   const [customerLookup, setCustomerLookup] = useState<{ id: string; name: string; email?: string; phone: string } | null>(null);
   const [isLookingUpCustomer, setIsLookingUpCustomer] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [transactionReference, setTransactionReference] = useState('');
   const lookupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Pre-select package when opening with initialPackageId
@@ -158,6 +160,8 @@ export function ReceptionSubscribeModal({
     setCustomerName('');
     setCustomerEmail('');
     setCustomerLookup(null);
+    setPaymentMethod('onsite');
+    setTransactionReference('');
     onClose();
   }
 
@@ -170,21 +174,28 @@ export function ReceptionSubscribeModal({
       );
       return;
     }
+    if (paymentMethod === 'transfer' && !transactionReference.trim()) {
+      alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+      return;
+    }
     try {
       setSubscribing(true);
       const token = localStorage.getItem('auth_token');
+      const body: Record<string, string | undefined> = {
+        package_id: selectedPackageId,
+        customer_phone: customerPhoneFull.trim(),
+        customer_name: customerName.trim(),
+        customer_email: customerEmail.trim() || undefined,
+      };
+      if (paymentMethod) body.payment_method = paymentMethod;
+      if (paymentMethod === 'transfer' && transactionReference.trim()) body.transaction_reference = transactionReference.trim();
       const response = await fetch(`${getApiUrl()}/packages/receptionist/subscriptions`, {
         method: 'POST',
         headers: {
           Authorization: token ? `Bearer ${token}` : '',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          package_id: selectedPackageId,
-          customer_phone: customerPhoneFull.trim(),
-          customer_name: customerName.trim(),
-          customer_email: customerEmail.trim() || undefined,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -307,6 +318,48 @@ export function ReceptionSubscribeModal({
               ))
             )}
           </select>
+        </div>
+
+        {/* Payment method (same as bookings) */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            {t('reception.paymentMethod') || 'Payment method'}
+          </label>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="subscriptionPaymentMethod"
+                checked={paymentMethod === 'onsite'}
+                onChange={() => { setPaymentMethod('onsite'); setTransactionReference(''); }}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>{i18n.language === 'ar' ? 'مدفوع يدوياً' : 'Paid On Site'}</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="subscriptionPaymentMethod"
+                checked={paymentMethod === 'transfer'}
+                onChange={() => setPaymentMethod('transfer')}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>{i18n.language === 'ar' ? 'حوالة بنكية' : 'Bank Transfer'}</span>
+            </label>
+          </div>
+          {paymentMethod === 'transfer' && (
+            <div className="mt-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                {t('reception.transactionReference') || 'Transaction reference'} <span className="text-red-600">*</span>
+              </label>
+              <Input
+                type="text"
+                value={transactionReference}
+                onChange={(e) => setTransactionReference(e.target.value)}
+                placeholder={i18n.language === 'ar' ? 'رقم المرجع أو الحوالة' : 'Transfer reference number'}
+              />
+            </div>
+          )}
         </div>
 
         {/* Actions */}
