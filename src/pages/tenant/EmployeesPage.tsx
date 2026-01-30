@@ -325,6 +325,14 @@ export function EmployeesPage() {
             role: formData.role,
             tenant_id: userProfile.tenant_id,
             service_shift_assignments: formData.service_shift_assignments,
+            employee_shifts: formData.role === 'employee' && employeeShifts.length > 0
+              ? employeeShifts.map(sh => ({
+                  days_of_week: sh.days_of_week,
+                  start_time_utc: sh.start_time_utc,
+                  end_time_utc: sh.end_time_utc,
+                  is_active: sh.is_active ?? true,
+                }))
+              : undefined,
           }),
         });
 
@@ -1051,7 +1059,7 @@ export function EmployeesPage() {
             </div>
           )}
 
-          {formData.role === 'employee' && editingEmployee && (
+          {formData.role === 'employee' && (
             <div className="border-t pt-4">
               <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                 <Clock className="w-4 h-4" />
@@ -1061,37 +1069,27 @@ export function EmployeesPage() {
                 {t('employee.workingShiftsHelp', 'Define when this employee is available. Used for employee-based services.')}
               </p>
               {employeeShifts.length > 0 && (
-                <div className="space-y-2 mb-4 max-h-40 overflow-y-auto">
+                <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
                   {employeeShifts.map((sh) => (
-                    <div key={sh.id} className="flex items-center justify-between p-2 bg-gray-50 rounded border text-sm">
-                      <span>
-                        {sh.start_time_utc?.slice(0, 5)} - {sh.end_time_utc?.slice(0, 5)}
-                        {' · '}
-                        {sh.days_of_week.sort().map(d => (i18n.language === 'ar' ? dayNamesAr[d] : dayNames[d])).join(', ')}
-                      </span>
+                    <div key={sh.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 text-sm">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium text-gray-800">
+                          {sh.start_time_utc?.slice(0, 5)} – {sh.end_time_utc?.slice(0, 5)}
+                        </span>
+                        <span className="text-xs text-gray-600">
+                          {[...(sh.days_of_week || [])].sort().map(d => (i18n.language === 'ar' ? dayNamesAr[d] : dayNames[d])).join(', ')}
+                        </span>
+                      </div>
                       <Button type="button" variant="danger" size="sm" onClick={() => removeEmployeeShift(sh.id)} icon={<Trash2 className="w-3 h-3" />} />
                     </div>
                   ))}
                 </div>
               )}
-              <form onSubmit={addEmployeeShift} className="space-y-3 p-3 bg-gray-50 rounded border">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">{t('service.daysOfWeek')}</label>
-                  <div className="flex flex-wrap gap-1">
-                    {dayNames.map((day, idx) => (
-                      <label key={idx} className="flex items-center gap-1 text-xs cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={employeeShiftForm.days_of_week.includes(idx)}
-                          onChange={() => toggleEmployeeShiftDay(idx)}
-                          className="w-3 h-3 text-blue-600 border-gray-300 rounded"
-                        />
-                        {i18n.language === 'ar' ? dayNamesAr[idx] : dayNames[idx]}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
+              <form onSubmit={addEmployeeShift} className="space-y-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                  {t('employee.selectShifts', 'Select shifts')}
+                </label>
+                <div className="grid grid-cols-2 gap-3">
                   <Input
                     type="time"
                     label={t('employee.startTime', 'Start')}
@@ -1104,6 +1102,22 @@ export function EmployeesPage() {
                     value={employeeShiftForm.end_time}
                     onChange={(e) => setEmployeeShiftForm(prev => ({ ...prev, end_time: e.target.value }))}
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">{t('service.daysOfWeek', 'Days of week')}</label>
+                  <div className="flex flex-wrap gap-2">
+                    {dayNames.map((day, idx) => (
+                      <label key={idx} className="flex items-center gap-1.5 text-sm cursor-pointer px-2 py-1 rounded bg-white border border-gray-200 hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+                        <input
+                          type="checkbox"
+                          checked={employeeShiftForm.days_of_week.includes(idx)}
+                          onChange={() => toggleEmployeeShiftDay(idx)}
+                          className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded"
+                        />
+                        {i18n.language === 'ar' ? dayNamesAr[idx] : dayNames[idx]}
+                      </label>
+                    ))}
+                  </div>
                 </div>
                 <Button type="submit" size="sm" disabled={employeeShiftForm.days_of_week.length === 0}>
                   {t('employee.addShift', 'Add shift')}

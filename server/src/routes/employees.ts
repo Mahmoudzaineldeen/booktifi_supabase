@@ -17,6 +17,7 @@ router.post('/create', async (req, res) => {
       role,
       tenant_id,
       service_shift_assignments,
+      employee_shifts: employeeShiftsBody,
     } = req.body;
 
     if (!username || !password || !full_name || !tenant_id) {
@@ -137,6 +138,27 @@ router.post('/create', async (req, res) => {
 
         if (assignmentError) {
           throw assignmentError;
+        }
+      }
+    }
+
+    // Create employee shifts (working hours) when provided
+    if (role === 'employee' && employeeShiftsBody && Array.isArray(employeeShiftsBody) && employeeShiftsBody.length > 0) {
+      const shiftsToInsert = employeeShiftsBody
+        .filter((s: any) => s && Array.isArray(s.days_of_week) && s.days_of_week.length > 0 && s.start_time_utc && s.end_time_utc)
+        .map((s: any) => ({
+          tenant_id,
+          employee_id: newUser.id,
+          days_of_week: s.days_of_week,
+          start_time_utc: s.start_time_utc,
+          end_time_utc: s.end_time_utc,
+          is_active: s.is_active !== false,
+        }));
+      if (shiftsToInsert.length > 0) {
+        const { error: shiftsError } = await supabase.from('employee_shifts').insert(shiftsToInsert);
+        if (shiftsError) {
+          console.error('Create employee_shifts error:', shiftsError);
+          // Don't fail the whole create; user was created
         }
       }
     }
