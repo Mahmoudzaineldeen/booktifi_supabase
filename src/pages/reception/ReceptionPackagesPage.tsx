@@ -28,7 +28,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
-import { Package, Users, Search, X, CheckCircle, AlertCircle, Phone, Mail, XCircle, Edit2 } from 'lucide-react';
+import { Package, Users, Search, X, CheckCircle, AlertCircle, Phone, Mail, XCircle, Edit2, Download } from 'lucide-react';
 import { ReceptionSubscribeModal } from '../../components/reception/ReceptionSubscribeModal';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -57,6 +57,7 @@ interface PackageSubscriber {
   id: string;
   customer_id: string;
   package_id: string;
+  zoho_invoice_id?: string | null;
   payment_status?: string | null;
   payment_method?: string | null;
   transaction_reference?: string | null;
@@ -115,6 +116,7 @@ export function ReceptionPackagesPage() {
   const [editPaymentMethod, setEditPaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
   const [editTransactionReference, setEditTransactionReference] = useState('');
   const [savingPaymentEdit, setSavingPaymentEdit] = useState(false);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
 
   // Fetch services for search filter
   useEffect(() => {
@@ -323,6 +325,36 @@ export function ReceptionPackagesPage() {
       alert(err.message || (i18n.language === 'ar' ? 'فشل تحديث حالة الدفع' : 'Failed to update payment status'));
     } finally {
       setSavingPaymentEdit(false);
+    }
+  }
+
+  async function downloadSubscriptionInvoice(subscriptionId: string) {
+    try {
+      setDownloadingInvoiceId(subscriptionId);
+      const token = localStorage.getItem('auth_token');
+      const baseUrl = getApiUrl().replace(/\/$/, '');
+      const res = await fetch(`${baseUrl}/packages/subscriptions/${subscriptionId}/invoice/download`, {
+        method: 'GET',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Download failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `subscription-invoice-${subscriptionId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Download subscription invoice error:', err);
+      alert(i18n.language === 'ar' ? `فشل تنزيل الفاتورة: ${err.message}` : `Failed to download invoice: ${err.message}`);
+    } finally {
+      setDownloadingInvoiceId(null);
     }
   }
 
@@ -672,7 +704,7 @@ export function ReceptionPackagesPage() {
                           </span>
                         </td>
                         <td className={`px-4 py-4 whitespace-nowrap ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 flex-wrap">
                             <Button
                               type="button"
                               variant="secondary"
@@ -683,6 +715,22 @@ export function ReceptionPackagesPage() {
                               <Edit2 className="w-4 h-4 mr-1" />
                               {i18n.language === 'ar' ? 'تعديل الدفع' : 'Edit payment'}
                             </Button>
+                            {subscriber.zoho_invoice_id && (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => downloadSubscriptionInvoice(subscriber.id)}
+                                disabled={downloadingInvoiceId === subscriber.id}
+                              >
+                                {downloadingInvoiceId === subscriber.id ? (
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-1" />
+                                ) : (
+                                  <Download className="w-4 h-4 mr-1" />
+                                )}
+                                {i18n.language === 'ar' ? 'تنزيل الفاتورة' : 'Download invoice'}
+                              </Button>
+                            )}
                             <Button
                               type="button"
                               variant="secondary"

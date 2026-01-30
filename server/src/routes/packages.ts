@@ -1155,6 +1155,51 @@ router.patch('/subscriptions/:subscriptionId/payment-status', authenticateSubscr
 });
 
 // ============================================================================
+// GET /subscriptions/:subscriptionId/invoice/download - Download package subscription invoice PDF
+// ============================================================================
+router.get('/subscriptions/:subscriptionId/invoice/download', authenticateSubscriptionManager, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const { subscriptionId } = req.params;
+
+    if (!subscriptionId) {
+      return res.status(400).json({ error: 'Subscription ID is required' });
+    }
+
+    const { data: subscription, error } = await supabase
+      .from('package_subscriptions')
+      .select('id, tenant_id, zoho_invoice_id')
+      .eq('id', subscriptionId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (error || !subscription) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    const invoiceId = (subscription as any).zoho_invoice_id;
+    if (!invoiceId || typeof invoiceId !== 'string') {
+      return res.status(404).json({ error: 'No invoice found for this subscription' });
+    }
+
+    const { zohoService } = await import('../services/zohoService.js');
+    const pdfBuffer = await zohoService.downloadInvoicePdf(tenantId, invoiceId);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="subscription-invoice-${subscriptionId}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length.toString());
+    res.send(pdfBuffer);
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Download subscription invoice error', error, context);
+    res.status(500).json({
+      error: error.message || 'Failed to download invoice',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+    });
+  }
+});
+
+// ============================================================================
 // RECEPTIONIST PACKAGE MANAGEMENT ENDPOINTS
 // Receptionists can view packages and subscribe customers, but NOT edit/delete
 // ============================================================================
@@ -1278,6 +1323,7 @@ router.get('/receptionist/subscribers', authenticateSubscriptionManager, async (
         package_id,
         status,
         subscribed_at,
+        zoho_invoice_id,
         payment_status,
         payment_method,
         transaction_reference
@@ -1357,6 +1403,7 @@ router.get('/receptionist/subscribers', authenticateSubscriptionManager, async (
         id: sub.id,
         customer_id: sub.customer_id,
         package_id: sub.package_id,
+        zoho_invoice_id: (sub as any).zoho_invoice_id ?? null,
         payment_status: (sub as any).payment_status ?? null,
         payment_method: (sub as any).payment_method ?? null,
         transaction_reference: (sub as any).transaction_reference ?? null,
