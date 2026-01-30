@@ -261,6 +261,14 @@ async function createInvoiceForPackageSubscription(
 
     const { zohoService } = await import('../services/zohoService.js');
     const packageName = packageData.name || packageData.name_ar || 'Service Package';
+    let notes = `Package Subscription ID: ${subscription.id}\nPackage ID: ${package_id}`;
+    if (options?.payment) {
+      if (options.payment.payment_method === 'transfer' && options.payment.transaction_reference?.trim()) {
+        notes += `\nPayment: Bank transfer. Reference: ${options.payment.transaction_reference.trim()}`;
+      } else if (options.payment.payment_method === 'onsite') {
+        notes += '\nPayment: Paid on site';
+      }
+    }
     const invoiceData = {
       customer_name: customerData.name,
       customer_email: customer_email || undefined,
@@ -275,7 +283,7 @@ async function createInvoiceForPackageSubscription(
       date: new Date().toISOString().split('T')[0],
       due_date: new Date().toISOString().split('T')[0],
       currency_code: currencyCode,
-      notes: `Package Subscription ID: ${subscription.id}\nPackage ID: ${package_id}`
+      notes
     };
 
     const invoiceResponse = await zohoService.createInvoice(tenant_id, invoiceData);

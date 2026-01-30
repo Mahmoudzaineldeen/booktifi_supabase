@@ -1378,6 +1378,14 @@ class ZohoService {
         customFields.slot_time = `${startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - ${endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
       }
 
+      let notes = booking.notes || `Booking ID: ${booking.id}`;
+      const payMethod = (booking as any).payment_method;
+      const payRef = (booking as any).transaction_reference?.trim();
+      if (payMethod === 'transfer' && payRef) {
+        notes += `\nPayment: Bank transfer. Reference: ${payRef}`;
+      } else if (payMethod === 'onsite' || payMethod === 'cash') {
+        notes += '\nPayment: Paid on site';
+      }
       return {
         customer_name: booking.customer_name,
         customer_email: booking.customer_email || undefined, // Optional
@@ -1386,7 +1394,7 @@ class ZohoService {
         date: invoiceDate.toISOString().split('T')[0], // Use today's date for invoice
         due_date: dueDate.toISOString().split('T')[0], // Due date must be after invoice date
         currency_code: (booking as any).tenant_currency_code || 'SAR',
-        notes: booking.notes || `Booking ID: ${booking.id}`,
+        notes,
         custom_fields: customFields,
       };
       
