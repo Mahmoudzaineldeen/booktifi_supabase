@@ -559,6 +559,14 @@ router.post('/update/:table', async (req, res) => {
 
     if (error) {
       console.error('[Update] Supabase error:', error);
+      // Return a clear message when column is missing (migration not run on this DB)
+      const msg = error.message || '';
+      if (msg.includes('does not exist') && msg.includes('column')) {
+        return res.status(500).json({
+          error: msg,
+          hint: 'A required database column may be missing. Run Supabase migrations (e.g. scheduling_mode on tenant_features).',
+        });
+      }
       throw error;
     }
 
@@ -567,8 +575,11 @@ router.post('/update/:table', async (req, res) => {
     res.json(result);
   } catch (error: any) {
     console.error('[Update] ERROR:', error);
-    console.error('[Update] Error message:', error.message);
-    res.status(500).json({ error: error.message });
+    const message = error.message || 'Update failed';
+    const hint = message.includes('does not exist') && message.includes('column')
+      ? ' Run Supabase migrations for this environment.'
+      : undefined;
+    res.status(500).json({ error: message, ...(hint && { hint }) });
   }
 });
 
