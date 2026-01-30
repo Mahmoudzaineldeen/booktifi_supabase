@@ -663,9 +663,13 @@ class ZohoService {
     console.log(`   Total: ${payload.line_items.reduce((sum: number, item: any) => sum + (item.rate * item.quantity), 0)} ${payload.currency_code}`);
     console.log('[ZohoService] ⚠️  Creating invoice with status: "sent" (not draft) - this allows email sending');
 
+    const apiBaseUrl = this.normalizeApiBaseUrl(await this.getApiBaseUrlForTenant(tenantId));
+    const orgId = await this.getZohoOrganizationId(tenantId);
+    const createUrl = orgId ? `${apiBaseUrl}/invoices?organization_id=${encodeURIComponent(orgId)}` : `${apiBaseUrl}/invoices`;
+
     try {
       const response = await axios.post(
-        `${this.apiBaseUrl}/invoices`,
+        createUrl,
         payload,
         {
           headers: {
@@ -715,10 +719,14 @@ class ZohoService {
   /**
    * Mark invoice as sent in Zoho
    * This is required if invoice was created as draft
-   * Tries multiple methods to ensure invoice is marked as sent
+   * Uses tenant API base URL and organization_id so Zoho applies the update
    */
   async markInvoiceAsSent(tenantId: string, invoiceId: string): Promise<void> {
     const accessToken = await this.getAccessToken(tenantId);
+    const apiBaseUrl = this.normalizeApiBaseUrl(await this.getApiBaseUrlForTenant(tenantId));
+    const orgId = await this.getZohoOrganizationId(tenantId);
+    const base = orgId ? `${apiBaseUrl}/invoices/${invoiceId}?organization_id=${encodeURIComponent(orgId)}` : `${apiBaseUrl}/invoices/${invoiceId}`;
+    const markSentUrl = orgId ? `${apiBaseUrl}/invoices/${invoiceId}/mark-as-sent?organization_id=${encodeURIComponent(orgId)}` : `${apiBaseUrl}/invoices/${invoiceId}/mark-as-sent`;
 
     try {
       console.log(`[ZohoService] Marking invoice ${invoiceId} as sent...`);
@@ -726,7 +734,7 @@ class ZohoService {
       // Method 1: Try mark-as-sent endpoint
       try {
         const response = await axios.post(
-          `${this.apiBaseUrl}/invoices/${invoiceId}/mark-as-sent`,
+          markSentUrl,
           {},
           {
             headers: {
@@ -750,9 +758,9 @@ class ZohoService {
         }
       }
 
-      // Method 2: Update invoice status directly
+      // Method 2: Update invoice status directly (with organization_id so it applies)
       const updateResponse = await axios.put(
-        `${this.apiBaseUrl}/invoices/${invoiceId}`,
+        base,
         { 
           status: 'sent',
           invoice_status: 'sent' // Try both field names
@@ -2744,8 +2752,12 @@ Note: The booking payment status was updated successfully in the database. Only 
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message;
       console.error('[ZohoService] recordCustomerPayment failed:', msg);
-      const hint = (err.response?.status === 401 || (msg && String(msg).toLowerCase().includes('not authorized')))
-        ? ' Reconnect Zoho in Settings with full access (ZohoInvoice.fullaccess.all) so recording payments and sending invoices work.'
+      const isUnauthorized = err.response?.status === 401 || (msg && String(msg).toLowerCase().includes('not authorized'));
+      if (isUnauthorized) {
+        console.error('[ZohoService] ⚠️  Recording payments requires Zoho scope ZohoInvoice.fullaccess.all. Disconnect and reconnect Zoho in Settings so the new token has this scope.');
+      }
+      const hint = isUnauthorized
+        ? ' Reconnect Zoho in Settings with scope ZohoInvoice.fullaccess.all (Disconnect then Connect again) so recording payments works.'
         : '';
       return { success: false, error: msg + hint };
     }

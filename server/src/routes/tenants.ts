@@ -1177,9 +1177,10 @@ router.put('/zoho-config', authenticateTenantAdmin, async (req, res) => {
     const defaultScopes = scopes || [
       'ZohoInvoice.invoices.CREATE',
       'ZohoInvoice.invoices.READ',
-      'ZohoInvoice.invoices.UPDATE', // Required for payment status sync
+      'ZohoInvoice.invoices.UPDATE',
       'ZohoInvoice.contacts.CREATE',
-      'ZohoInvoice.contacts.READ'
+      'ZohoInvoice.contacts.READ',
+      'ZohoInvoice.fullaccess.all', // Required for recording customer payments and organizations
     ];
     const defaultRegion = region || 'com';
 
