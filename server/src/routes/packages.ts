@@ -208,7 +208,12 @@ async function createInvoiceForPackageSubscription(
   package_id: string,
   packageData: { name: string; name_ar?: string; total_price: number },
   customerData: { name: string; email?: string | null; phone?: string | null },
-  options?: { customer_phone?: string; customer_email?: string }
+  options?: {
+    customer_phone?: string;
+    customer_email?: string;
+    /** When present, record payment in Zoho so invoice becomes Paid before sending email/WhatsApp. */
+    payment?: { payment_method: 'onsite' | 'transfer'; transaction_reference?: string | null };
+  }
 ): Promise<{ zohoInvoiceId: string | null; invoiceError: string | null }> {
   let zohoInvoiceId: string | null = null;
   let invoiceError: string | null = null;
@@ -279,6 +284,31 @@ async function createInvoiceForPackageSubscription(
       zohoInvoiceId = invoiceResponse.invoice.invoice_id;
       if (isVerboseLogging()) {
         logger.info('Package subscription invoice: created', {}, {}, { subscriptionId: subscription.id, zohoInvoiceId });
+      }
+      // If subscription was created as paid (onsite/transfer), record payment in Zoho so invoice becomes Paid before sending email/WhatsApp
+      if (options?.payment && total_price > 0) {
+        try {
+          const paymentMode = options.payment.payment_method === 'transfer' ? 'banktransfer' : 'cash';
+          const referenceNumber = options.payment.transaction_reference?.trim() || (paymentMode === 'cash' ? 'Paid On Site' : '');
+          const recordResult = await zohoService.recordCustomerPayment(
+            tenant_id,
+            zohoInvoiceId,
+            total_price,
+            paymentMode,
+            referenceNumber
+          );
+          if (recordResult.success && isVerboseLogging()) {
+            logger.info('Package subscription invoice: payment recorded in Zoho', {}, {}, { subscriptionId: subscription.id, zohoInvoiceId });
+          }
+          if (!recordResult.success && isVerboseLogging()) {
+            logger.warn('Package subscription invoice: Zoho record payment failed (email/WhatsApp may be skipped)', undefined, {}, { subscriptionId: subscription.id, error: recordResult.error });
+          }
+        } catch (recordErr: any) {
+          if (isVerboseLogging()) {
+            logger.warn('Package subscription invoice: Zoho record payment exception', recordErr, {}, { subscriptionId: subscription.id });
+          }
+          // Continue — send attempts may still fail due to unpaid status
+        }
       }
       if (invoiceData.customer_email) {
         try {
@@ -924,13 +954,23 @@ router.post('/subscriptions', async (req, res) => {
     if (!customerDataForInvoice) {
       invoiceError = 'Customer not found for invoice';
     } else {
+      const invoiceOptions: { customer_phone?: string; customer_email?: string; payment?: { payment_method: 'onsite' | 'transfer'; transaction_reference?: string | null } } = {
+        customer_phone: customer_phone,
+        customer_email: customer_email || undefined,
+      };
+      if (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') {
+        invoiceOptions.payment = {
+          payment_method: reqPaymentMethod,
+          transaction_reference: reqTransactionRef != null ? String(reqTransactionRef).trim() : undefined,
+        };
+      }
       const result = await createInvoiceForPackageSubscription(
         tenant_id,
         subscription,
         package_id,
         { name: packageData.name, name_ar: packageData.name_ar, total_price: packageData.total_price },
         { name: customerDataForInvoice.name, email: customerDataForInvoice.email ?? undefined, phone: customerDataForInvoice.phone ?? undefined },
-        { customer_phone: customer_phone, customer_email: customer_email || undefined }
+        invoiceOptions
       );
       zohoInvoiceId = result.zohoInvoiceId;
       invoiceError = result.invoiceError;
@@ -1650,13 +1690,23 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
     if (isVerboseLogging()) {
       logger.info('Receptionist subscribe: creating package subscription invoice', {}, {}, { subscriptionId: subscription.id, packageId: package_id });
     }
+    const receptionInvoiceOptions: { customer_phone?: string; customer_email?: string; payment?: { payment_method: 'onsite' | 'transfer'; transaction_reference?: string | null } } = {
+      customer_phone: customer_phone_raw,
+      customer_email: customer_email_raw,
+    };
+    if (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') {
+      receptionInvoiceOptions.payment = {
+        payment_method: reqPaymentMethod,
+        transaction_reference: reqTransactionRef != null ? String(reqTransactionRef).trim() : undefined,
+      };
+    }
     const { zohoInvoiceId, invoiceError } = await createInvoiceForPackageSubscription(
       tenantId,
       subscription,
       package_id,
       { name: packageData.name, name_ar: packageData.name_ar, total_price: packageData.total_price },
       { name: customerData.name, email: customerData.email ?? undefined, phone: customerData.phone ?? undefined },
-      { customer_phone: customer_phone_raw, customer_email: customer_email_raw }
+      receptionInvoiceOptions
     );
     if (invoiceError && isVerboseLogging()) {
       logger.warn('Receptionist subscribe: invoice creation failed (subscription still created)', undefined, {}, { subscriptionId: subscription.id, invoiceError });
