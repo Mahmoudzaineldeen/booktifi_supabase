@@ -5,7 +5,8 @@ import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
-import { Package, Users, Search, X, Calendar, Filter, FileSearch, Phone, Mail, CheckCircle, Briefcase, TrendingUp, TrendingDown, Hash, XCircle, AlertTriangle, Plus } from 'lucide-react';
+import { Modal } from '../../components/ui/Modal';
+import { Package, Users, Search, X, Calendar, Filter, FileSearch, Phone, Mail, CheckCircle, Briefcase, TrendingUp, TrendingDown, Hash, XCircle, AlertTriangle, Plus, Edit2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
@@ -15,6 +16,9 @@ interface PackageSubscriber {
   id: string;
   customer_id: string;
   package_id: string;
+  payment_status?: string | null;
+  payment_method?: string | null;
+  transaction_reference?: string | null;
   customer: {
     id: string;
     name: string;
@@ -60,6 +64,13 @@ export function PackageSubscribersPage() {
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
+  // Edit payment status modal
+  const [editingPaymentSubscription, setEditingPaymentSubscription] = useState<PackageSubscriber | null>(null);
+  const [editPaymentStatus, setEditPaymentStatus] = useState<string>('paid');
+  const [editPaymentMethod, setEditPaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [editTransactionReference, setEditTransactionReference] = useState('');
+  const [savingPaymentEdit, setSavingPaymentEdit] = useState(false);
+
   useEffect(() => {
     fetchSubscribers();
   }, [userProfile]);
@@ -79,6 +90,9 @@ export function PackageSubscribersPage() {
           package_id,
           status,
           subscribed_at,
+          payment_status,
+          payment_method,
+          transaction_reference,
           customers (
             id,
             name,
@@ -141,6 +155,9 @@ export function PackageSubscribersPage() {
             id: sub.id,
             customer_id: sub.customer_id,
             package_id: sub.package_id,
+            payment_status: (sub as any).payment_status ?? null,
+            payment_method: (sub as any).payment_method ?? null,
+            transaction_reference: (sub as any).transaction_reference ?? null,
             customer: sub.customers,
             service_packages: sub.service_packages,
             usage,
@@ -287,6 +304,50 @@ export function PackageSubscribersPage() {
       );
     } finally {
       setCancellingId(null);
+    }
+  }
+
+  function openEditPaymentModal(sub: PackageSubscriber) {
+    setEditingPaymentSubscription(sub);
+    setEditPaymentStatus(sub.payment_status || 'paid');
+    setEditPaymentMethod((sub.payment_method === 'transfer' ? 'transfer' : 'onsite') as 'onsite' | 'transfer');
+    setEditTransactionReference(sub.transaction_reference || '');
+  }
+
+  async function saveEditPayment() {
+    if (!editingPaymentSubscription) return;
+    if (editPaymentMethod === 'transfer' && !editTransactionReference.trim()) {
+      alert(i18n.language === 'ar' ? 'رقم المرجع مطلوب عند الدفع بالحوالة.' : 'Transaction reference is required for transfer.');
+      return;
+    }
+    try {
+      setSavingPaymentEdit(true);
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(
+        `${getApiUrl()}/packages/subscriptions/${editingPaymentSubscription.id}/payment-status`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: token ? `Bearer ${token}` : '',
+          },
+          body: JSON.stringify({
+            payment_status: editPaymentStatus,
+            payment_method: editPaymentMethod,
+            transaction_reference: editPaymentMethod === 'transfer' ? editTransactionReference.trim() : undefined,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to update payment status');
+      setEditingPaymentSubscription(null);
+      await fetchSubscribers({ silent: true });
+      alert(i18n.language === 'ar' ? 'تم تحديث حالة الدفع' : 'Payment status updated');
+    } catch (err: any) {
+      console.error('Error updating payment status:', err);
+      alert(err.message || (i18n.language === 'ar' ? 'فشل تحديث حالة الدفع' : 'Failed to update payment status'));
+    } finally {
+      setSavingPaymentEdit(false);
     }
   }
 
@@ -455,11 +516,25 @@ export function PackageSubscribersPage() {
                         locale: i18n.language === 'ar' ? ar : undefined
                       })}
                     </div>
-                    <div className="flex items-center gap-2 justify-end">
-                      <div className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-                        <CheckCircle className="w-3 h-3" />
-                        {t('packages.subscribers.active', 'Active')}
-                      </div>
+                    <div className="flex items-center gap-2 justify-end flex-wrap">
+                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                        subscriber.payment_status === 'paid' ? 'bg-green-100 text-green-800' :
+                        subscriber.payment_status === 'pending' ? 'bg-amber-100 text-amber-800' :
+                        subscriber.payment_status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-700'
+                      }`}>
+                        {subscriber.payment_status === 'paid' ? (i18n.language === 'ar' ? 'مدفوع' : 'Paid') :
+                         subscriber.payment_status === 'pending' ? (i18n.language === 'ar' ? 'قيد الانتظار' : 'Pending') :
+                         subscriber.payment_status === 'failed' ? (i18n.language === 'ar' ? 'فشل' : 'Failed') : (i18n.language === 'ar' ? 'مدفوع' : 'Paid')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => openEditPaymentModal(subscriber)}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium hover:bg-blue-200 transition-colors"
+                        title={i18n.language === 'ar' ? 'تعديل حالة الدفع' : 'Edit payment status'}
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        {i18n.language === 'ar' ? 'تعديل الدفع' : 'Edit payment'}
+                      </button>
                       <button
                         onClick={() => handleCancelSubscription(subscriber.id)}
                         disabled={cancellingId === subscriber.id}
@@ -549,6 +624,77 @@ export function PackageSubscribersPage() {
           ))}
         </div>
       )}
+
+      {/* Edit payment status modal */}
+      <Modal
+        isOpen={!!editingPaymentSubscription}
+        onClose={() => setEditingPaymentSubscription(null)}
+        title={i18n.language === 'ar' ? 'تعديل حالة الدفع' : 'Edit payment status'}
+      >
+        {editingPaymentSubscription && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              {editingPaymentSubscription.customer?.name} — {i18n.language === 'ar' ? editingPaymentSubscription.service_packages?.name_ar : editingPaymentSubscription.service_packages?.name}
+            </p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">{t('packages.subscribers.paymentStatus', 'Payment status')}</label>
+              <select
+                value={editPaymentStatus}
+                onChange={(e) => setEditPaymentStatus(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="paid">{i18n.language === 'ar' ? 'مدفوع' : 'Paid'}</option>
+                <option value="pending">{i18n.language === 'ar' ? 'قيد الانتظار' : 'Pending'}</option>
+                <option value="failed">{i18n.language === 'ar' ? 'فشل' : 'Failed'}</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">{t('reception.paymentMethod') || 'Payment method'}</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="editPaymentMethod"
+                    checked={editPaymentMethod === 'onsite'}
+                    onChange={() => { setEditPaymentMethod('onsite'); setEditTransactionReference(''); }}
+                    className="rounded border-gray-300 text-blue-600"
+                  />
+                  <span className="text-sm">{i18n.language === 'ar' ? 'مدفوع يدوياً' : 'Paid On Site'}</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="editPaymentMethod"
+                    checked={editPaymentMethod === 'transfer'}
+                    onChange={() => setEditPaymentMethod('transfer')}
+                    className="rounded border-gray-300 text-blue-600"
+                  />
+                  <span className="text-sm">{i18n.language === 'ar' ? 'حوالة بنكية' : 'Bank Transfer'}</span>
+                </label>
+              </div>
+              {editPaymentMethod === 'transfer' && (
+                <div className="mt-2">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('reception.transactionReference') || 'Transaction reference'} *</label>
+                  <Input
+                    type="text"
+                    value={editTransactionReference}
+                    onChange={(e) => setEditTransactionReference(e.target.value)}
+                    placeholder={i18n.language === 'ar' ? 'رقم المرجع أو الحوالة' : 'Transfer reference number'}
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button onClick={saveEditPayment} disabled={savingPaymentEdit}>
+                {savingPaymentEdit ? (i18n.language === 'ar' ? 'جاري الحفظ...' : 'Saving...') : (i18n.language === 'ar' ? 'حفظ' : 'Save')}
+              </Button>
+              <Button variant="secondary" onClick={() => setEditingPaymentSubscription(null)}>
+                {t('common.cancel') || 'Cancel'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Admin Add Subscription — exact clone: reuse ReceptionSubscribeModal (same UI + logic as reception) */}
       <ReceptionSubscribeModal

@@ -1085,6 +1085,76 @@ router.put('/subscriptions/:subscriptionId/cancel', authenticateSubscriptionMana
 });
 
 // ============================================================================
+// PATCH /subscriptions/:subscriptionId/payment-status - Edit payment status (admin/reception)
+// ============================================================================
+router.patch('/subscriptions/:subscriptionId/payment-status', authenticateSubscriptionManager, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const { subscriptionId } = req.params;
+    const { payment_status, payment_method, transaction_reference } = req.body;
+
+    if (!subscriptionId) {
+      return res.status(400).json({ error: 'Subscription ID is required' });
+    }
+
+    const validStatuses = ['paid', 'pending', 'failed'];
+    if (payment_status != null && !validStatuses.includes(String(payment_status))) {
+      return res.status(400).json({ error: 'Invalid payment_status. Must be paid, pending, or failed.' });
+    }
+
+    const payMethod = payment_method === 'transfer' ? 'transfer' : payment_method === 'onsite' ? 'onsite' : undefined;
+    if (payMethod === 'transfer') {
+      const refVal = transaction_reference != null ? String(transaction_reference).trim() : '';
+      if (!refVal) {
+        return res.status(400).json({ error: 'transaction_reference is required when payment method is transfer (حوالة)' });
+      }
+    }
+
+    const { data: subscription, error: fetchError } = await supabase
+      .from('package_subscriptions')
+      .select('id, tenant_id')
+      .eq('id', subscriptionId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (fetchError || !subscription) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    const updatePayload: Record<string, unknown> = {};
+    if (payment_status != null) updatePayload.payment_status = payment_status;
+    if (payMethod !== undefined) updatePayload.payment_method = payMethod;
+    if (payMethod === 'transfer' && transaction_reference != null) {
+      updatePayload.transaction_reference = String(transaction_reference).trim();
+    } else if (payMethod === 'onsite' || (payment_status != null && payMethod === undefined)) {
+      updatePayload.transaction_reference = null;
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
+      return res.status(400).json({ error: 'No payment fields to update. Provide payment_status and/or payment_method.' });
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from('package_subscriptions')
+      .update(updatePayload)
+      .eq('id', subscriptionId)
+      .eq('tenant_id', tenantId)
+      .select()
+      .single();
+
+    if (updateError) {
+      return res.status(500).json({ error: 'Failed to update payment status', details: updateError.message });
+    }
+
+    res.json({ success: true, subscription: updated });
+  } catch (error: any) {
+    const context = logger.extractContext(req);
+    logger.error('Update subscription payment status error', error, context);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ============================================================================
 // RECEPTIONIST PACKAGE MANAGEMENT ENDPOINTS
 // Receptionists can view packages and subscribe customers, but NOT edit/delete
 // ============================================================================
@@ -1207,7 +1277,10 @@ router.get('/receptionist/subscribers', authenticateSubscriptionManager, async (
         customer_id,
         package_id,
         status,
-        subscribed_at
+        subscribed_at,
+        payment_status,
+        payment_method,
+        transaction_reference
       `)
       .eq('tenant_id', tenantId)
       .eq('status', 'active')
@@ -1284,6 +1357,9 @@ router.get('/receptionist/subscribers', authenticateSubscriptionManager, async (
         id: sub.id,
         customer_id: sub.customer_id,
         package_id: sub.package_id,
+        payment_status: (sub as any).payment_status ?? null,
+        payment_method: (sub as any).payment_method ?? null,
+        transaction_reference: (sub as any).transaction_reference ?? null,
         customer,
         package: packageData,
         usage,
