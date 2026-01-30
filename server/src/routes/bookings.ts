@@ -197,7 +197,7 @@ function authenticateTenantAdminOnly(req: express.Request, res: express.Response
   }
 }
 
-// Middleware to authenticate cashier only
+// Middleware to authenticate cashier or reception (cashiers, receptionists, tenant admins, admins)
 function authenticateCashierOnly(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
     const authHeader = req.headers.authorization;
@@ -234,12 +234,12 @@ function authenticateCashierOnly(req: express.Request, res: express.Response, ne
       });
     }
     
-    // STRICT: Only cashiers allowed
-    if (decoded.role !== 'cashier') {
+    const allowedRoles = ['cashier', 'receptionist', 'tenant_admin', 'admin_user'];
+    if (!decoded.role || !allowedRoles.includes(decoded.role)) {
       return res.status(403).json({ 
-        error: 'Access denied. Only cashiers can perform this action.',
+        error: 'Access denied. Only cashiers and receptionists can perform this action.',
         userRole: decoded.role,
-        hint: 'You must be logged in as a cashier to perform this action.'
+        hint: 'You must be logged in as a cashier or receptionist to perform this action.'
       });
     }
 
