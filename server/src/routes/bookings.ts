@@ -4722,7 +4722,7 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
     }
 
     const isBecomingPaid = (payment_status === 'paid' || payment_status === 'paid_manual') && oldStatus !== 'paid' && oldStatus !== 'paid_manual';
-    const payMethod = payment_method === 'transfer' ? 'transfer' : (payment_method === 'onsite' ? 'onsite' : (currentBooking as any).payment_method || 'onsite'));
+    const payMethod = payment_method === 'transfer' ? 'transfer' : (payment_method === 'onsite' ? 'onsite' : (currentBooking as any).payment_method || 'onsite');
     const refNum = (transaction_reference && String(transaction_reference).trim()) || '';
 
     if (isBecomingPaid && payMethod === 'transfer' && !refNum) {
