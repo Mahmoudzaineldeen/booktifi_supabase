@@ -272,6 +272,7 @@ class ZohoService {
   async storeTokens(tenantId: string, accessToken: string, refreshToken: string, expiresIn: number, grantedScopes?: string): Promise<void> {
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
+    // Only include columns that exist in all schema versions (granted_scopes may be missing if migration not applied)
     const { data, error } = await supabase
       .from('zoho_tokens')
       .upsert({
@@ -279,7 +280,6 @@ class ZohoService {
         access_token: accessToken,
         refresh_token: refreshToken,
         expires_at: expiresAt.toISOString(),
-        granted_scopes: grantedScopes || null, // Store granted scopes for verification
         updated_at: new Date().toISOString()
       }, {
         onConflict: 'tenant_id'
