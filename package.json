@@ -19,6 +19,7 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:integration:zoho": "vitest run tests/integration/zoho-package-invoice-create-and-send.test.ts",
+    "test:integration:booking-invoice": "vitest run tests/integration/booking-invoice-payment-flow.test.ts",
     "test:security": "vitest run tests/security",
     "test:coverage": "vitest run --coverage",
     "test:setup": "node tests/scripts/setup-test-data.js",
@@ -29,7 +30,8 @@
     "test:booking-date-update": "node tests/test-booking-date-update-comprehensive.js",
     "test:booking-date-update-simple": "node tests/test-booking-date-update-simple.js",
     "test:frontend-booking-time-change": "node tests/test-frontend-booking-time-change.js",
-    "test:package-invoice-create-send": "node tests/test-package-subscription-invoice-create-and-send.js"
+    "test:package-invoice-create-send": "node tests/test-package-subscription-invoice-create-and-send.js",
+    "test:package-partial-coverage-cap": "node tests/test-package-partial-coverage-cap.js"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",

@@ -1066,9 +1066,10 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
           // If we have any capacity, use it (even if partial)
           if (totalRemaining > 0) {
             shouldUsePackage = true;
-            
-            // Find the subscription ID to use
-            // Priority: use the one with most remaining capacity
+
+            // Find the subscription ID to use (we can only deduct from ONE subscription per booking)
+            // CRITICAL: Cap coverage by the chosen subscription's remaining, not totalRemaining across all subs.
+            let effectiveRemaining = totalRemaining;
             if (exhaustionStatus.length > 0) {
               const availableSubscriptions = exhaustionStatus
                 .filter((s: any) => !s.is_exhausted && s.remaining > 0)
@@ -1076,15 +1077,21 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
 
               if (availableSubscriptions.length > 0) {
                 packageSubscriptionId = availableSubscriptions[0].subscription_id;
-                console.log(`[Booking Creation] ✅ Using package subscription: ${packageSubscriptionId} (remaining: ${availableSubscriptions[0].remaining})`);
+                effectiveRemaining = availableSubscriptions[0].remaining;
+                if (effectiveRemaining < totalRemaining) {
+                  console.log(`[Booking Creation] 📌 Capping coverage by chosen subscription remaining: ${effectiveRemaining} (total across subs was ${totalRemaining})`);
+                }
+                console.log(`[Booking Creation] ✅ Using package subscription: ${packageSubscriptionId} (remaining: ${effectiveRemaining})`);
               }
             }
 
+            // Use effectiveRemaining so we never cover more than the single subscription we attach can provide
+            packageCoveredQty = Math.min(visitor_count, effectiveRemaining);
+            paidQty = visitor_count - packageCoveredQty;
+
             // Calculate price only for paid portion
-            // CRITICAL: Final validation before price calculation
-            // Recalculate to ensure consistency
-            const finalPackageCovered = Math.min(visitor_count, totalRemaining);
-            const finalPaidQty = visitor_count - finalPackageCovered;
+            const finalPackageCovered = packageCoveredQty;
+            const finalPaidQty = paidQty;
             
             if (finalPackageCovered !== packageCoveredQty || finalPaidQty !== paidQty) {
               console.error(`[Booking Creation] ❌ CRITICAL: Package coverage values changed during price calculation!`);
@@ -1114,13 +1121,13 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
               console.log(`[Booking Creation]    → NO invoice will be created (fully covered by package)`);
             }
             
-            // Check if package will be exhausted after this booking
-            const packageWillBeExhausted = totalRemaining <= packageCoveredQty;
+            // Check if chosen subscription will be exhausted after this booking
+            const packageWillBeExhausted = effectiveRemaining <= packageCoveredQty;
             if (packageWillBeExhausted && packageSubscriptionId) {
               console.log(`[Booking Creation] 🔔 Package will be exhausted after this booking`);
               console.log(`[Booking Creation]    Subscription: ${packageSubscriptionId}`);
-              console.log(`[Booking Creation]    Remaining before: ${totalRemaining}, Using: ${packageCoveredQty}`);
-              console.log(`[Booking Creation]    Remaining after: ${totalRemaining - packageCoveredQty}`);
+              console.log(`[Booking Creation]    Remaining before: ${effectiveRemaining}, Using: ${packageCoveredQty}`);
+              console.log(`[Booking Creation]    Remaining after: ${effectiveRemaining - packageCoveredQty}`);
               
               // Create one-time exhaustion notification
               // Note: Table schema only has: id, subscription_id, service_id, notified_at
@@ -2470,13 +2477,29 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
           const totalRemaining = capacityResult.total_remaining_capacity || 0;
           const exhaustionStatus = capacityResult.exhaustion_status || [];
 
-          // Calculate partial coverage for bulk bookings
-          packageCoveredQty = Math.min(visitor_count, totalRemaining);
+          // Cap coverage by chosen subscription's remaining (we deduct from ONE subscription per booking)
+          let effectiveRemaining = totalRemaining;
+          if (totalRemaining > 0 && exhaustionStatus.length > 0) {
+            const availableSubscriptions = exhaustionStatus
+              .filter((s: any) => !s.is_exhausted && s.remaining > 0)
+              .sort((a: any, b: any) => b.remaining - a.remaining);
+            if (availableSubscriptions.length > 0) {
+              packageSubscriptionId = availableSubscriptions[0].subscription_id;
+              effectiveRemaining = availableSubscriptions[0].remaining;
+              if (effectiveRemaining < totalRemaining) {
+                console.log(`[Bulk Booking Creation] 📌 Capping coverage by chosen subscription remaining: ${effectiveRemaining} (total across subs was ${totalRemaining})`);
+              }
+              console.log(`[Bulk Booking Creation] ✅ Using package subscription: ${packageSubscriptionId} (remaining: ${effectiveRemaining})`);
+            }
+          }
+
+          packageCoveredQty = Math.min(visitor_count, effectiveRemaining);
           paidQty = visitor_count - packageCoveredQty;
 
           console.log(`[Bulk Booking Creation] Package capacity check:`, {
             requestedQty: visitor_count,
             remainingCapacity: totalRemaining,
+            effectiveRemaining,
             packageCoveredQty,
             paidQty
           });
@@ -2484,18 +2507,6 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
           // If we have any capacity, use it (even if partial)
           if (totalRemaining > 0) {
             shouldUsePackage = true;
-            
-            // Find the subscription ID to use
-            if (exhaustionStatus.length > 0) {
-              const availableSubscriptions = exhaustionStatus
-                .filter((s: any) => !s.is_exhausted && s.remaining > 0)
-                .sort((a: any, b: any) => b.remaining - a.remaining);
-
-              if (availableSubscriptions.length > 0) {
-                packageSubscriptionId = availableSubscriptions[0].subscription_id;
-                console.log(`[Bulk Booking Creation] ✅ Using package subscription: ${packageSubscriptionId}`);
-              }
-            }
 
             // Calculate price only for paid portion
             if (paidQty > 0) {
@@ -2516,12 +2527,12 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
               console.log(`[Bulk Booking Creation]    → NO invoice will be created (fully covered by package)`);
             }
             
-            // Check if package will be exhausted after this booking
-            const packageWillBeExhausted = totalRemaining <= packageCoveredQty;
+            // Check if chosen subscription will be exhausted after this booking
+            const packageWillBeExhausted = effectiveRemaining <= packageCoveredQty;
             if (packageWillBeExhausted && packageSubscriptionId) {
               console.log(`[Bulk Booking Creation] 🔔 Package will be exhausted after this booking`);
               console.log(`[Bulk Booking Creation]    Subscription: ${packageSubscriptionId}`);
-              console.log(`[Bulk Booking Creation]    Remaining before: ${totalRemaining}, Using: ${packageCoveredQty}`);
+              console.log(`[Bulk Booking Creation]    Remaining before: ${effectiveRemaining}, Using: ${packageCoveredQty}`);
               
               // Create one-time exhaustion notification
               try {

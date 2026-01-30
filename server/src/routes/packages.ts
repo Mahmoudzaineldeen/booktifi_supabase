@@ -1660,7 +1660,7 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
       return res.status(404).json({ error: 'Customer not found' });
     }
 
-    // Check if subscription already exists
+    // Check if subscription already exists with remaining capacity
     const { data: existingSubscription } = await supabase
       .from('package_subscriptions')
       .select('id')
@@ -1672,10 +1672,29 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
       .maybeSingle();
 
     if (existingSubscription) {
-      return res.status(400).json({ 
-        error: 'Subscription already exists',
-        details: 'This customer already has an active subscription for this package'
-      });
+      // If package is fully consumed (0 remaining), allow re-purchase: deactivate old subscription and create new one
+      const { data: usageRows } = await supabase
+        .from('package_subscription_usage')
+        .select('remaining_quantity')
+        .eq('subscription_id', existingSubscription.id);
+
+      const totalRemaining = usageRows?.reduce((sum, row) => sum + (row.remaining_quantity ?? 0), 0) ?? 0;
+
+      if (totalRemaining > 0) {
+        return res.status(400).json({
+          error: 'Subscription already exists',
+          details: `This customer already has an active subscription for this package with ${totalRemaining} session(s) remaining`
+        });
+      }
+
+      // Fully consumed: deactivate the old subscription so customer can purchase again
+      await supabase
+        .from('package_subscriptions')
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq('id', existingSubscription.id);
+      if (isVerboseLogging()) {
+        logger.info('Receptionist subscribe: deactivated exhausted subscription to allow re-purchase', {}, {}, { subscriptionId: existingSubscription.id, packageId: package_id });
+      }
     }
 
     // Get package services to initialize usage
