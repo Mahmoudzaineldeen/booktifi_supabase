@@ -1228,6 +1228,7 @@
       "connectedStatus": "✓ متصل",
       "expiredStatus": "⚠ منتهي الصلاحية",
       "notConnectedStatus": "غير متصل",
+      "connectHintWhenSaved": "التكوين محفوظ. انقر على \"ربط Zoho\" أدناه لفتح Zoho والتفويض. إذا قمت بذلك بالفعل ولا يزال يظهر غير متصل، تأكد من أن الخادم يستخدم SUPABASE_SERVICE_ROLE_KEY (وليس المفتاح المجهول) حتى يمكن تخزين الرموز.",
       "tokenExpired": "انتهت صلاحية الرمز:",
       "tokenExpires": "ينتهي الرمز:",
       "tokenExpiredMessage": "انتهت صلاحية رمز الوصول الخاص بك. انقر على \"إعادة ربط Zoho\" لتحديث اتصالك.",

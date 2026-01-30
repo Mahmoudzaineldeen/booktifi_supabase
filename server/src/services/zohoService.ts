@@ -272,7 +272,7 @@ class ZohoService {
   async storeTokens(tenantId: string, accessToken: string, refreshToken: string, expiresIn: number, grantedScopes?: string): Promise<void> {
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-    await supabase
+    const { data, error } = await supabase
       .from('zoho_tokens')
       .upsert({
         tenant_id: tenantId,
@@ -283,7 +283,20 @@ class ZohoService {
         updated_at: new Date().toISOString()
       }, {
         onConflict: 'tenant_id'
-      });
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error(`[ZohoService] Failed to store tokens for tenant ${tenantId}:`, error.code, error.message);
+      if (error.message?.includes('row-level security') || error.code === '42501') {
+        throw new Error(
+          'Zoho tokens could not be saved: Row Level Security is blocking the write. ' +
+          'Ensure the server uses SUPABASE_SERVICE_ROLE_KEY (not the anon key) so Zoho token storage works.'
+        );
+      }
+      throw new Error(`Failed to store Zoho tokens: ${error.message}`);
+    }
 
     console.log(`[ZohoService] Tokens stored for tenant ${tenantId}`);
     if (grantedScopes) {

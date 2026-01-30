@@ -964,6 +964,7 @@
       "connectedStatus": "✓ Connected",
       "expiredStatus": "⚠ Expired",
       "notConnectedStatus": "Not connected",
+      "connectHintWhenSaved": "Configuration is saved. Click \"Connect to Zoho\" below to open Zoho and authorize. If you already did and still see Not connected, ensure your server uses SUPABASE_SERVICE_ROLE_KEY (not the anon key) so tokens can be stored.",
       "tokenExpired": "Token expired:",
       "tokenExpires": "Token expires",
       "tokenExpiredMessage": "Your access token has expired. Click \"Reconnect Zoho\" to refresh your connection.",

@@ -1920,6 +1920,11 @@ export function SettingsPage() {
                           <strong>{t('settings.zoho.tokenExpired')}:</strong> {t('settings.zoho.tokenExpiredMessage')}
                         </div>
                       )}
+                      {zohoStatus.has_config && zohoStatus.connection_status !== 'connected' && (
+                        <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+                          {t('settings.zoho.connectHintWhenSaved')}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

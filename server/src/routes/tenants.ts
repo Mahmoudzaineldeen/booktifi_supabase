@@ -1293,14 +1293,14 @@ router.get('/zoho-status', authenticateTenantAdmin, async (req, res) => {
 
     const hasConfig = configData && configData.is_active;
 
-    // Check if tokens exist
+    // Check if tokens exist (use maybeSingle so 0 rows is not an error)
     const { data: tokenData } = await supabase
       .from('zoho_tokens')
       .select('id, expires_at')
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     const hasTokens = !!tokenData;
     let tokenStatus = 'not_connected';
