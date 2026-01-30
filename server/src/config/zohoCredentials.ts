@@ -185,7 +185,7 @@ class ZohoCredentialsManager {
 
   /**
    * Get default scope
-   * Includes UPDATE scope for invoice status updates
+   * Includes UPDATE for invoice status, and fullaccess so customer payments and organizations work.
    */
   private getDefaultScope(): string[] {
     return process.env.ZOHO_SCOPE?.split(',').map(s => s.trim()) || [
@@ -193,7 +193,8 @@ class ZohoCredentialsManager {
       'ZohoInvoice.invoices.READ',
       'ZohoInvoice.invoices.UPDATE', // Required for updating invoice status
       'ZohoInvoice.contacts.CREATE',
-      'ZohoInvoice.contacts.READ'
+      'ZohoInvoice.contacts.READ',
+      'ZohoInvoice.fullaccess.all',  // Required for customer payments (record payment) and organizations
     ];
   }
 

@@ -2593,15 +2593,21 @@ Note: The booking payment status was updated successfully in the database. Only 
       return { success: false, error: 'Invoice has no customer_id' };
     }
 
-    let orgId: string | null = null;
-    try {
-      const orgRes = await axios.get(`${apiBaseUrl}/organizations`, {
-        headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
-      });
-      const orgs = (orgRes.data as any)?.organizations;
-      if (orgs && orgs.length > 0) orgId = orgs[0].organization_id;
-    } catch (e) {
-      console.warn('[ZohoService] Could not fetch organization id:', (e as any)?.message);
+    // Organization ID is required for customerpayments. Prefer from invoice response (avoids extra /organizations call that may 401).
+    let orgId: string | null = (invoice as any).organization_id ?? null;
+    if (!orgId) {
+      try {
+        const orgRes = await axios.get(`${apiBaseUrl}/organizations`, {
+          headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+        });
+        const orgs = (orgRes.data as any)?.organizations;
+        if (orgs && orgs.length > 0) orgId = orgs[0].organization_id;
+      } catch (e) {
+        console.warn('[ZohoService] Could not fetch organization id:', (e as any)?.message);
+      }
+    }
+    if (!orgId) {
+      console.warn('[ZohoService] No organization id available; customer payment may fail. Reconnect Zoho with scope ZohoInvoice.fullaccess.all.');
     }
 
     const payload = {
@@ -2619,8 +2625,12 @@ Note: The booking payment status was updated successfully in the database. Only 
     };
     if (orgId) headers['X-com-zoho-invoice-organizationid'] = orgId;
 
+    const customerPaymentsUrl = orgId
+      ? `${apiBaseUrl}/customerpayments?organization_id=${encodeURIComponent(orgId)}`
+      : `${apiBaseUrl}/customerpayments`;
+
     try {
-      const res = await axios.post(`${apiBaseUrl}/customerpayments`, payload, { headers });
+      const res = await axios.post(customerPaymentsUrl, payload, { headers });
       const data = res.data as any;
       if (data.code === 0 && data.payment?.payment_id) {
         console.log(`[ZohoService] ✅ Customer payment recorded: ${data.payment.payment_id}`);
@@ -2630,7 +2640,10 @@ Note: The booking payment status was updated successfully in the database. Only 
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message;
       console.error('[ZohoService] recordCustomerPayment failed:', msg);
-      return { success: false, error: msg };
+      const hint = (err.response?.status === 401 || (msg && String(msg).toLowerCase().includes('not authorized')))
+        ? ' Reconnect Zoho in Settings with full access (ZohoInvoice.fullaccess.all) so recording payments and sending invoices work.'
+        : '';
+      return { success: false, error: msg + hint };
     }
   }
 
