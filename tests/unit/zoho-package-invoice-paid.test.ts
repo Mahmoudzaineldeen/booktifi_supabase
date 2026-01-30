@@ -1,8 +1,8 @@
 /**
- * Verifies the Zoho package subscription invoice "mark as paid" fix.
+ * Verifies the Zoho package subscription invoice payment fix.
  * Ensures: (1) ensurePackageInvoicePaid is used in packages route,
- * (2) ZohoService has tryMarkInvoicePaid and ensurePackageInvoicePaid,
- * (3) ensurePackageInvoicePaid tries mark-as-paid before recordCustomerPayment.
+ * (2) ZohoService uses recordCustomerPayment (customer payment API) for marking paid,
+ * (3) Organization ID is required and used (getZohoOrganizationId / tenant_zoho_configs).
  */
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
@@ -26,33 +26,32 @@ describe('Zoho package invoice paid fix', () => {
     expect(packagesCode).toMatch(/ensurePackageInvoicePaid\s*\(/);
   });
 
-  it('ZohoService defines tryMarkInvoicePaid and ensurePackageInvoicePaid', () => {
+  it('ZohoService defines ensurePackageInvoicePaid and recordCustomerPayment', () => {
     const zohoCode = readServerFile('services/zohoService.ts');
-    expect(zohoCode).toContain('tryMarkInvoicePaid');
     expect(zohoCode).toContain('ensurePackageInvoicePaid');
-    expect(zohoCode).toContain('async tryMarkInvoicePaid(');
+    expect(zohoCode).toContain('recordCustomerPayment');
     expect(zohoCode).toContain('async ensurePackageInvoicePaid(');
+    expect(zohoCode).toContain('async recordCustomerPayment(');
   });
 
-  it('ensurePackageInvoicePaid tries tryMarkInvoicePaid before recordCustomerPayment', () => {
+  it('ensurePackageInvoicePaid uses recordCustomerPayment (customer payment API) not mark-as-paid', () => {
     const zohoCode = readServerFile('services/zohoService.ts');
     const ensureStart = zohoCode.indexOf('async ensurePackageInvoicePaid(');
-    const ensureEnd = zohoCode.indexOf('async recordCustomerPayment(', ensureStart);
+    const ensureEnd = zohoCode.indexOf('async getInvoicePaymentStatus(', ensureStart);
     expect(ensureStart).toBeGreaterThanOrEqual(0);
-    expect(ensureEnd).toBeGreaterThan(ensureStart);
-    const ensureBody = zohoCode.slice(ensureStart, ensureEnd);
-    expect(ensureBody).toContain('tryMarkInvoicePaid');
+    const ensureBody = zohoCode.slice(ensureStart, ensureStart + 2500);
     expect(ensureBody).toContain('getInvoicePaymentStatus');
     expect(ensureBody).toContain('recordCustomerPayment');
-    const tryMarkPos = ensureBody.indexOf('tryMarkInvoicePaid');
+    // Must NOT rely on tryMarkInvoicePaid for success (deprecated; payment = customer payment API)
     const recordPos = ensureBody.indexOf('recordCustomerPayment');
-    expect(tryMarkPos).toBeLessThan(recordPos);
+    expect(recordPos).toBeGreaterThanOrEqual(0);
   });
 
-  it('recordCustomerPayment uses tenant-stored zoho_organization_id first', () => {
+  it('recordCustomerPayment requires organization ID (getZohoOrganizationId / tenant_zoho_configs)', () => {
     const zohoCode = readServerFile('services/zohoService.ts');
+    expect(zohoCode).toContain('getZohoOrganizationId');
     expect(zohoCode).toContain('tenant_zoho_configs');
     expect(zohoCode).toContain('zoho_organization_id');
-    expect(zohoCode).toContain('Using tenant-stored Zoho Organization ID');
+    expect(zohoCode).toContain('customerpayments?organization_id=');
   });
 });

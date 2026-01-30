@@ -389,19 +389,31 @@ router.get('/callback', async (req, res) => {
       console.log(`[Zoho Routes] ✅ Token exchange successful`);
       console.log(`[Zoho Routes] Granted Scopes: ${grantedScopes}`);
       
-      // Check if UPDATE scope is included
-      const hasUpdateScope = grantedScopes.includes('ZohoInvoice.invoices.UPDATE') || 
-                            grantedScopes.includes('invoices.UPDATE');
-      if (!hasUpdateScope) {
-        console.warn(`[Zoho Routes] ⚠️  WARNING: UPDATE scope not found in granted scopes!`);
-        console.warn(`[Zoho Routes] ⚠️  Payment status sync will fail. Please reconnect with UPDATE scope.`);
+      // Check if full access or required scopes for payments
+      const hasFullAccess = grantedScopes.includes('ZohoInvoice.fullaccess.all');
+      const hasUpdateScope = grantedScopes.includes('ZohoInvoice.invoices.UPDATE') || grantedScopes.includes('invoices.UPDATE');
+      if (!hasFullAccess && !hasUpdateScope) {
+        console.warn(`[Zoho Routes] ⚠️  WARNING: Full access or UPDATE scope not found!`);
+        console.warn(`[Zoho Routes] ⚠️  Recording payments requires ZohoInvoice.fullaccess.all or ZohoInvoice.invoices.UPDATE. Please reconnect.`);
         console.warn(`[Zoho Routes] ⚠️  Granted scopes: ${grantedScopes}`);
       } else {
-        console.log(`[Zoho Routes] ✅ UPDATE scope confirmed - payment status sync will work`);
+        console.log(`[Zoho Routes] ✅ Scope confirmed - payment recording will work`);
       }
 
       // Store tokens with granted scopes
       await zohoService.storeTokens(tenantId, access_token, refresh_token, expires_in, grantedScopes);
+
+      // Fetch and store Zoho Organization ID so payments and invoice APIs work (required for customerpayments)
+      try {
+        const storedOrgId = await zohoService.fetchAndStoreZohoOrganizationId(tenantId, access_token);
+        if (storedOrgId) {
+          console.log(`[Zoho Routes] ✅ Organization ID stored for tenant ${tenantId}`);
+        } else {
+          console.warn(`[Zoho Routes] ⚠️ Could not fetch/store organization ID. Add it manually in Settings → Zoho (Organization Profile in Zoho Invoice).`);
+        }
+      } catch (orgErr: any) {
+        console.warn('[Zoho Routes] Organization ID fetch failed (non-blocking):', orgErr?.message);
+      }
 
       // Redirect to success page with postMessage to parent window
       res.send(`

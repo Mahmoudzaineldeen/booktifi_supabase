@@ -346,6 +346,65 @@ class ZohoService {
   }
 
   /**
+   * Get stored Zoho Organization ID for a tenant (from tenant_zoho_configs).
+   * Required for customer payments and recommended for all Zoho Invoice API calls.
+   * Returns null if not set — do NOT call GET /organizations here (often 401).
+   */
+  async getZohoOrganizationId(tenantId: string): Promise<string | null> {
+    try {
+      const { data, error } = await supabase
+        .from('tenant_zoho_configs')
+        .select('zoho_organization_id')
+        .eq('tenant_id', tenantId)
+        .single();
+      if (error || !data) return null;
+      const id = (data as any)?.zoho_organization_id;
+      return id && String(id).trim() ? String(id).trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetch organizations from Zoho and store the first organization_id in tenant_zoho_configs.
+   * Call this after OAuth token exchange so payments and invoice APIs work.
+   * GET https://invoice.zoho.com/api/v3/organizations with Zoho-oauthtoken.
+   */
+  async fetchAndStoreZohoOrganizationId(tenantId: string, accessToken: string): Promise<string | null> {
+    try {
+      const apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
+      const url = `${apiBaseUrl}/organizations`;
+      const res = await axios.get(url, {
+        headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+      });
+      const orgs = (res.data as any)?.organizations;
+      if (!orgs || orgs.length === 0) {
+        console.warn('[ZohoService] No organizations returned from Zoho');
+        return null;
+      }
+      const orgId = orgs[0].organization_id;
+      if (!orgId) return null;
+      const { error } = await supabase
+        .from('tenant_zoho_configs')
+        .update({
+          zoho_organization_id: String(orgId).trim(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('tenant_id', tenantId);
+      if (error) {
+        console.warn('[ZohoService] Could not save organization id:', error.message);
+        return orgId;
+      }
+      console.log('[ZohoService] Stored Zoho Organization ID for tenant', tenantId);
+      return String(orgId).trim();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.message;
+      console.warn('[ZohoService] Could not fetch organization id:', msg);
+      return null;
+    }
+  }
+
+  /**
    * Create or get customer/contact in Zoho
    * Zoho Invoice requires customers to exist before creating invoices
    */
@@ -754,9 +813,13 @@ class ZohoService {
 
     try {
       console.log(`[ZohoService] 📧 Sending invoice ${invoiceId} to ${customerEmail} (attempt ${retryCount + 1}/${MAX_RETRIES + 1})...`);
-      
+      const apiBaseUrl = this.normalizeApiBaseUrl(await this.getApiBaseUrlForTenant(tenantId));
+      const orgId = await this.getZohoOrganizationId(tenantId);
+      const emailUrl = orgId
+        ? `${apiBaseUrl}/invoices/${invoiceId}/email?organization_id=${encodeURIComponent(orgId)}`
+        : `${apiBaseUrl}/invoices/${invoiceId}/email`;
       const response = await axios.post(
-        `${this.apiBaseUrl}/invoices/${invoiceId}/email`,
+        emailUrl,
         {
           send_from_org_email_id: true,
           to_mail_ids: [customerEmail.trim()], // Ensure email is trimmed
@@ -835,19 +898,15 @@ class ZohoService {
    */
   async getInvoicePdfUrl(tenantId: string, invoiceId: string): Promise<string> {
     const accessToken = await this.getAccessToken(tenantId);
+    const apiBaseUrl = this.normalizeApiBaseUrl(await this.getApiBaseUrlForTenant(tenantId));
+    const orgId = await this.getZohoOrganizationId(tenantId);
+    const url = orgId ? `${apiBaseUrl}/invoices/${invoiceId}?organization_id=${encodeURIComponent(orgId)}` : `${apiBaseUrl}/invoices/${invoiceId}`;
 
     try {
-      const response = await axios.get(
-        `${this.apiBaseUrl}/invoices/${invoiceId}`,
-        {
-          headers: {
-            'Authorization': `Zoho-oauthtoken ${accessToken}`,
-          },
-          params: {
-            accept: 'pdf',
-          },
-        }
-      );
+      const response = await axios.get(url, {
+        headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` },
+        params: { accept: 'pdf' },
+      });
 
       // Zoho returns PDF URL in response
       return response.data.invoice?.pdf_url || '';
@@ -862,20 +921,16 @@ class ZohoService {
    */
   async downloadInvoicePdf(tenantId: string, invoiceId: string): Promise<Buffer> {
     let accessToken = await this.getAccessToken(tenantId);
+    const apiBaseUrl = this.normalizeApiBaseUrl(await this.getApiBaseUrlForTenant(tenantId));
+    const orgId = await this.getZohoOrganizationId(tenantId);
+    const url = orgId ? `${apiBaseUrl}/invoices/${invoiceId}?organization_id=${encodeURIComponent(orgId)}` : `${apiBaseUrl}/invoices/${invoiceId}`;
 
     try {
-      const response = await axios.get(
-        `${this.apiBaseUrl}/invoices/${invoiceId}`,
-        {
-          headers: {
-            'Authorization': `Zoho-oauthtoken ${accessToken}`,
-          },
-          params: {
-            accept: 'pdf',
-          },
-          responseType: 'arraybuffer', // Get PDF as binary data
-        }
-      );
+      const response = await axios.get(url, {
+        headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` },
+        params: { accept: 'pdf' },
+        responseType: 'arraybuffer', // Get PDF as binary data
+      });
 
       return Buffer.from(response.data);
     } catch (error: any) {
@@ -894,19 +949,12 @@ class ZohoService {
             // Refresh token and retry
             accessToken = await this.refreshAccessToken(tenantId, tokens.refresh_token);
 
-            // Retry the request with new token
-            const retryResponse = await axios.get(
-              `${this.apiBaseUrl}/invoices/${invoiceId}`,
-              {
-                headers: {
-                  'Authorization': `Zoho-oauthtoken ${accessToken}`,
-                },
-                params: {
-                  accept: 'pdf',
-                },
-                responseType: 'arraybuffer',
-              }
-            );
+            // Retry the request with new token (same URL with org_id if present)
+            const retryResponse = await axios.get(url, {
+              headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` },
+              params: { accept: 'pdf' },
+              responseType: 'arraybuffer',
+            });
 
             console.log(`[ZohoService] Retry successful after token refresh`);
             return Buffer.from(retryResponse.data);
@@ -1690,7 +1738,7 @@ class ZohoService {
         // Include paid_quantity and package_covered_quantity for partial coverage support
         const { data: bookingData, error: bookingError } = await supabase
           .from('bookings')
-          .select('zoho_invoice_id, tenant_id, customer_email, customer_phone, customer_name, paid_quantity, package_covered_quantity, payment_status')
+          .select('zoho_invoice_id, tenant_id, customer_email, customer_phone, customer_name, paid_quantity, package_covered_quantity, payment_status, total_price, payment_method, transaction_reference')
           .eq('id', bookingId)
           .maybeSingle(); // Use maybeSingle to avoid throwing error if not found
         
@@ -2139,6 +2187,22 @@ class ZohoService {
       // Send invoice via email (if email is provided) — ONLY when booking is paid
       // Note: Errors here won't affect invoice save since it's already persisted
       if (maySendInvoice) {
+      // Ensure invoice is marked Paid in Zoho before sending (Zoho only allows email/WhatsApp when invoice is Paid)
+      const totalAmount = Number((booking as any).total_price) || 0;
+      if (totalAmount > 0) {
+        try {
+          const payMode = (booking as any).payment_method === 'transfer' ? 'banktransfer' : 'cash';
+          const payRef = ((booking as any).transaction_reference || 'Paid On Site').toString().trim() || (payMode === 'cash' ? 'Paid On Site' : '');
+          const paidResult = await this.ensurePackageInvoicePaid(booking.tenant_id, invoiceId, totalAmount, payMode, payRef);
+          if (paidResult.success) {
+            console.log(`[ZohoService] ✅ Invoice ${invoiceId} marked paid in Zoho — proceeding with email/WhatsApp`);
+          } else if (paidResult.error) {
+            console.warn(`[ZohoService] ⚠️ Could not mark invoice paid in Zoho: ${paidResult.error} — email/WhatsApp may fail`);
+          }
+        } catch (ensureErr: any) {
+          console.warn(`[ZohoService] ⚠️ Ensure invoice paid failed: ${ensureErr?.message} — email/WhatsApp may fail`);
+        }
+      }
       console.log(`[ZohoService] ========================================`);
       console.log(`[ZohoService] EMAIL DELIVERY PROCESS STARTING`);
       console.log(`[ZohoService] ========================================`);
@@ -2581,36 +2645,17 @@ Note: The booking payment status was updated successfully in the database. Only 
   }
 
   /**
-   * Try to mark an invoice as paid via Zoho's mark-as-paid endpoint (no org id or payments scope needed).
-   * Used for package subscription invoices when we consider the subscription paid locally.
+   * @deprecated Do NOT update invoice status directly. Use recordCustomerPayment instead.
+   * Zoho marks invoice as Paid only when a customer payment is recorded (POST /customerpayments).
    */
-  async tryMarkInvoicePaid(tenantId: string, invoiceId: string): Promise<boolean> {
-    try {
-      const accessToken = await this.getAccessToken(tenantId);
-      let apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
-      apiBaseUrl = this.normalizeApiBaseUrl(apiBaseUrl);
-      const url = `${apiBaseUrl}/invoices/${invoiceId}/mark-as-paid`;
-      const res = await axios.post(
-        url,
-        {},
-        {
-          headers: {
-            'Authorization': `Zoho-oauthtoken ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-      const data = res.data as any;
-      return !!(data?.code === 0 || data?.invoice);
-    } catch (e: any) {
-      console.warn('[ZohoService] tryMarkInvoicePaid failed:', e?.response?.data?.message || e?.message);
-      return false;
-    }
+  async tryMarkInvoicePaid(_tenantId: string, _invoiceId: string): Promise<boolean> {
+    console.warn('[ZohoService] tryMarkInvoicePaid is deprecated; use recordCustomerPayment to record payment.');
+    return false;
   }
 
   /**
    * Ensure a package subscription invoice is marked as PAID in Zoho so email/WhatsApp can be sent.
-   * Tries (1) mark-as-paid endpoint, (2) then recordCustomerPayment if still not paid.
+   * Correct way: record a customer payment via POST /customerpayments (not mark-as-paid).
    * Use this when the subscription was created as paid (onsite/transfer).
    */
   async ensurePackageInvoicePaid(
@@ -2624,21 +2669,23 @@ Note: The booking payment status was updated successfully in the database. Only 
     if (status.isPaid) {
       return { success: true };
     }
-    if (await this.tryMarkInvoicePaid(tenantId, invoiceId)) {
-      const after = await this.getInvoicePaymentStatus(tenantId, invoiceId);
-      if (after.isPaid) {
-        console.log(`[ZohoService] ✅ Invoice ${invoiceId} marked as paid via mark-as-paid`);
-        return { success: true };
-      }
-    }
     const record = await this.recordCustomerPayment(tenantId, invoiceId, amount, paymentMode, referenceNumber);
-    return record.success ? { success: true } : { success: false, error: record.error };
+    if (!record.success) {
+      return { success: false, error: record.error };
+    }
+    const after = await this.getInvoicePaymentStatus(tenantId, invoiceId);
+    if (after.isPaid) {
+      console.log(`[ZohoService] ✅ Invoice ${invoiceId} marked as paid via customer payment`);
+      return { success: true };
+    }
+    return { success: true };
   }
 
   /**
    * Record a customer payment in Zoho so the invoice is marked as PAID.
    * Zoho marks invoice as paid only when a PAYMENT is recorded (not by updating status).
-   * paymentMode: 'cash' = مدفوع يدوياً (Paid On Site), 'banktransfer' = حوالة
+   * paymentMode: 'cash' = Paid On Site, 'banktransfer' = Bank Transfer.
+   * Organization ID is MANDATORY — stored in Settings or fetched on OAuth completion.
    */
   async recordCustomerPayment(
     tenantId: string,
@@ -2648,8 +2695,15 @@ Note: The booking payment status was updated successfully in the database. Only 
     referenceNumber: string,
     date?: string
   ): Promise<{ success: boolean; paymentId?: string; error?: string }> {
+    const orgId = await this.getZohoOrganizationId(tenantId);
+    if (!orgId) {
+      const msg = 'No organization id. Add Zoho Organization ID in Settings (Zoho Invoice → Settings → Organization Profile), or reconnect Zoho so it can be saved automatically.';
+      console.warn('[ZohoService]', msg);
+      return { success: false, error: msg };
+    }
+
     const accessToken = await this.getAccessToken(tenantId);
-    const apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
+    const apiBaseUrl = this.normalizeApiBaseUrl(await this.getApiBaseUrlForTenant(tenantId));
     const paymentDate = date || new Date().toISOString().slice(0, 10);
 
     const { invoice, error: invError } = await this.getInvoice(tenantId, invoiceId);
@@ -2661,58 +2715,23 @@ Note: The booking payment status was updated successfully in the database. Only 
       return { success: false, error: 'Invoice has no customer_id' };
     }
 
-    // Organization ID is required for customerpayments. Use tenant-stored ID first (avoids GET /organizations which often 401s).
-    let orgId: string | null = null;
-    const { data: configRow, error: configError } = await supabase
-      .from('tenant_zoho_configs')
-      .select('zoho_organization_id')
-      .eq('tenant_id', tenantId)
-      .single();
-    if (configError?.message?.includes('column') && configError?.message?.includes('zoho_organization_id')) {
-      console.warn('[ZohoService] zoho_organization_id column missing. Run migration 20260202000004_add_zoho_organization_id_to_tenant_zoho_configs.sql');
-    } else if (configRow) {
-      const storedOrgId = (configRow as any)?.zoho_organization_id;
-      if (storedOrgId && String(storedOrgId).trim()) {
-        orgId = String(storedOrgId).trim();
-        console.log('[ZohoService] Using tenant-stored Zoho Organization ID for customer payment');
-      }
-    }
-    if (!orgId) {
-      orgId = (invoice as any).organization_id ?? null;
-    }
-    if (!orgId) {
-      try {
-        const orgRes = await axios.get(`${apiBaseUrl}/organizations`, {
-          headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
-        });
-        const orgs = (orgRes.data as any)?.organizations;
-        if (orgs && orgs.length > 0) orgId = orgs[0].organization_id;
-      } catch (e) {
-        console.warn('[ZohoService] Could not fetch organization id:', (e as any)?.message);
-      }
-    }
-    if (!orgId) {
-      console.warn('[ZohoService] No organization id. Add Zoho Organization ID in Settings → Zoho (Organization Profile in Zoho Invoice), or reconnect with scope ZohoInvoice.fullaccess.all.');
-    }
-
-    const payload = {
+    // Zoho Invoice API expects payment_mode: "Cash" or "Bank Transfer"
+    const zohoPaymentMode = paymentMode === 'banktransfer' ? 'Bank Transfer' : 'Cash';
+    const payload: Record<string, unknown> = {
       customer_id: customerId,
-      payment_mode: paymentMode === 'cash' ? 'cash' : 'banktransfer',
+      payment_mode: zohoPaymentMode,
       amount: Number(amount),
       date: paymentDate,
-      reference_number: referenceNumber || (paymentMode === 'cash' ? 'Paid On Site' : ''),
       invoices: [{ invoice_id: invoiceId, amount_applied: Number(amount) }],
     };
+    const ref = referenceNumber?.trim() || (paymentMode === 'cash' ? 'Paid On Site' : undefined);
+    if (ref) payload.reference_number = ref;
 
+    const customerPaymentsUrl = `${apiBaseUrl}/customerpayments?organization_id=${encodeURIComponent(orgId)}`;
     const headers: Record<string, string> = {
       Authorization: `Zoho-oauthtoken ${accessToken}`,
       'Content-Type': 'application/json',
     };
-    if (orgId) headers['X-com-zoho-invoice-organizationid'] = orgId;
-
-    const customerPaymentsUrl = orgId
-      ? `${apiBaseUrl}/customerpayments?organization_id=${encodeURIComponent(orgId)}`
-      : `${apiBaseUrl}/customerpayments`;
 
     try {
       const res = await axios.post(customerPaymentsUrl, payload, { headers });
@@ -2762,22 +2781,24 @@ Note: The booking payment status was updated successfully in the database. Only 
   }
 
   /**
-   * Get invoice details from Zoho
+   * Get invoice details from Zoho.
+   * Uses organization_id when available so API calls succeed (required in some regions).
    */
   async getInvoice(tenantId: string, invoiceId: string): Promise<{ invoice?: any; error?: string }> {
     const accessToken = await this.getAccessToken(tenantId);
-    const apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
+    const apiBaseUrl = this.normalizeApiBaseUrl(await this.getApiBaseUrlForTenant(tenantId));
+    const orgId = await this.getZohoOrganizationId(tenantId);
+    const url = orgId
+      ? `${apiBaseUrl}/invoices/${invoiceId}?organization_id=${encodeURIComponent(orgId)}`
+      : `${apiBaseUrl}/invoices/${invoiceId}`;
 
     try {
-      const response = await axios.get(
-        `${apiBaseUrl}/invoices/${invoiceId}`,
-        {
-          headers: {
-            'Authorization': `Zoho-oauthtoken ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      const response = await axios.get(url, {
+        headers: {
+          'Authorization': `Zoho-oauthtoken ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
       const responseData = response.data as any;
       if (responseData.invoice) {
