@@ -2095,7 +2095,10 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
           console.log(`[Booking Creation] 🔍 Step 5: Calling zohoService.generateReceipt(${bookingId})...`);
           const startTime = Date.now();
           
-          const invoiceResult = await zohoService.generateReceipt(bookingId);
+          const invoiceResult = await zohoService.generateReceipt(bookingId, {
+            paymentMethod: reqPaymentMethod === 'transfer' ? 'transfer' : reqPaymentMethod === 'onsite' ? 'onsite' : undefined,
+            transactionReference: reqPaymentMethod === 'transfer' && reqTransactionRef ? String(reqTransactionRef).trim() : undefined,
+          });
           
           const duration = Date.now() - startTime;
           console.log(`[Booking Creation] ⏱️ Invoice generation took ${duration}ms`);

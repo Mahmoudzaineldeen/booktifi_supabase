@@ -1380,9 +1380,9 @@ class ZohoService {
 
       let notes = booking.notes || `Booking ID: ${booking.id}`;
       const payMethod = (booking as any).payment_method;
-      const payRef = (booking as any).transaction_reference?.trim();
+      const payRef = (booking as any).transaction_reference?.toString?.()?.trim();
       if (payMethod === 'transfer' && payRef) {
-        notes += `\nPayment: Bank transfer. Reference: ${payRef}`;
+        notes += `\nPayment: Bank transfer.\nBank Transfer Reference: ${payRef}`;
       } else if (payMethod === 'onsite' || payMethod === 'cash') {
         notes += '\nPayment: Paid on site';
       }
@@ -1730,9 +1730,14 @@ class ZohoService {
   }
 
   /**
-   * Generate and send receipt for a booking
+   * Generate and send receipt for a booking.
+   * Optional paymentMethod and transactionReference ensure the bank transfer reference
+   * is included on the invoice when creating at booking creation (avoids race with DB update).
    */
-  async generateReceipt(bookingId: string): Promise<{ invoiceId: string; success: boolean; error?: string }> {
+  async generateReceipt(
+    bookingId: string,
+    options?: { paymentMethod?: string; transactionReference?: string }
+  ): Promise<{ invoiceId: string; success: boolean; error?: string }> {
     try {
       // CRITICAL: The booking was just created via RPC, and there might be a slight delay
       // before it's visible in queries. Retry with exponential backoff.
@@ -1932,6 +1937,17 @@ class ZohoService {
       try {
         invoiceData = await this.mapBookingToInvoice(bookingId);
         console.log(`[ZohoService] ✅ Booking mapped to invoice data successfully`);
+        
+        // Ensure bank transfer reference is on the invoice (from request when creating at booking creation)
+        const payMethod = options?.paymentMethod ?? (booking as any)?.payment_method;
+        const payRef = (options?.transactionReference ?? (booking as any)?.transaction_reference)?.toString?.()?.trim();
+        if (payMethod === 'transfer' && payRef) {
+          const refLine = `\nBank Transfer Reference: ${payRef}`;
+          if (!invoiceData.notes?.includes(payRef)) {
+            invoiceData.notes = (invoiceData.notes || '').trim() + refLine;
+            console.log(`[ZohoService] ✅ Added bank transfer reference to invoice notes`);
+          }
+        }
         
         // Verify invoice has line items (should have paidQty items)
         if (!invoiceData.line_items || invoiceData.line_items.length === 0) {
