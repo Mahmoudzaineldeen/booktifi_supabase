@@ -1388,7 +1388,7 @@ class ZohoService {
       const payMethod = (booking as any).payment_method;
       const payRef = (booking as any).transaction_reference?.toString?.()?.trim();
       if (payMethod === 'transfer' && payRef) {
-        notes += `\nPayment: Bank transfer.\nBank Transfer Reference: ${payRef}`;
+        notes += `\nPayment: Bank transfer. Reference: ${payRef}`;
       } else if (payMethod === 'onsite' || payMethod === 'cash') {
         notes += '\nPayment: Paid on site';
       }
@@ -1949,7 +1949,7 @@ class ZohoService {
         const payMethod = options?.paymentMethod ?? (booking as any)?.payment_method;
         const payRef = (options?.transactionReference ?? (booking as any)?.transaction_reference)?.toString?.()?.trim();
         if (payMethod === 'transfer' && payRef) {
-          const refLine = `\nBank Transfer Reference: ${payRef}`;
+          const refLine = `\nPayment: Bank transfer. Reference: ${payRef}`;
           if (!invoiceData.notes?.includes(payRef)) {
             invoiceData.notes = (invoiceData.notes || '').trim() + refLine;
             console.log(`[ZohoService] ✅ Added bank transfer reference to invoice notes`);
