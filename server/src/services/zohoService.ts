@@ -646,13 +646,15 @@ class ZohoService {
     
     console.log(`[ZohoService] 📋 Invoice payload prepared with currency: ${payload.currency_code}`);
     
-    // Add notes if provided
-    if (invoiceData.notes) {
+    // Bank transfer reference: always set reference_number and ensure it appears in notes (permanent fix for PDF)
+    const refNum = invoiceData.reference_number && String(invoiceData.reference_number).trim();
+    if (refNum) {
+      payload.reference_number = refNum;
+      const refLine = `\nPayment: Bank transfer. Reference: ${refNum}`;
+      const existingNotes = (invoiceData.notes || '').trim();
+      payload.notes = existingNotes.includes(refNum) ? existingNotes : (existingNotes + refLine).trim();
+    } else if (invoiceData.notes) {
       payload.notes = invoiceData.notes;
-    }
-    // Add reference number (bank transfer) - appears on invoice PDF
-    if (invoiceData.reference_number && String(invoiceData.reference_number).trim()) {
-      payload.reference_number = String(invoiceData.reference_number).trim();
     }
     
     // Log payload for debugging (remove sensitive data in production)

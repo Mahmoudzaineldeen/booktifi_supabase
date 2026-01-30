@@ -839,7 +839,11 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       transaction_reference: reqTransactionRef, // Optional: required when payment_method is 'transfer'
       payment_status: reqPaymentStatusRaw, // Optional: normalized to 'unpaid' | 'paid' | 'paid_manual' (display: Unpaid, Paid On Site, Bank Transfer)
     } = req.body;
-    const reqPaymentStatus = (reqPaymentStatusRaw === 'awaiting_payment' || reqPaymentStatusRaw === 'refunded') ? 'unpaid' : reqPaymentStatusRaw;
+    let reqPaymentStatus = (reqPaymentStatusRaw === 'awaiting_payment' || reqPaymentStatusRaw === 'refunded') ? 'unpaid' : reqPaymentStatusRaw;
+    // When frontend sends payment_method (Paid On Site / Bank Transfer) but not payment_status, treat as paid
+    if ((reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') && (reqPaymentStatus === undefined || reqPaymentStatus === null || reqPaymentStatus === '')) {
+      reqPaymentStatus = 'paid_manual';
+    }
     
     // Ensure booking_group_id is either a valid UUID string or null (not undefined)
     const finalBookingGroupId = booking_group_id && typeof booking_group_id === 'string' && booking_group_id.trim() !== '' 

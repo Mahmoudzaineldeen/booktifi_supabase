@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { safeTranslateStatus, safeTranslate } from '../../lib/safeTranslation';
-import { getPaymentDisplayLabel, getPaymentDisplayValue } from '../../lib/paymentDisplay';
+import { getPaymentDisplayLabel, getPaymentDisplayValue, PAYMENT_DISPLAY_KEYS } from '../../lib/paymentDisplay';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -213,8 +213,8 @@ export function ReceptionPage() {
   const [markPaidReference, setMarkPaidReference] = useState('');
   const [markPaidSubmitting, setMarkPaidSubmitting] = useState(false);
 
-  // Create booking: payment method (when booking has payable amount)
-  const [createPaymentMethod, setCreatePaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
+  // Create booking: payment method (when booking has payable amount). 'unpaid' | 'onsite' | 'transfer'
+  const [createPaymentMethod, setCreatePaymentMethod] = useState<'unpaid' | 'onsite' | 'transfer'>('onsite');
   const [createTransactionReference, setCreateTransactionReference] = useState('');
 
   const isCoordinator = userProfile?.role === 'coordinator';
@@ -1417,10 +1417,12 @@ export function ReceptionPage() {
             notes: bookingForm.notes || null,
             booking_group_id: bookingGroupId,
             language: i18n.language,
-            ...(totalPrice > 0 ? {
-              payment_method: createPaymentMethod,
-              transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
-            } : {}),
+            ...(totalPrice > 0 ? (createPaymentMethod === 'unpaid'
+              ? { payment_status: 'unpaid' }
+              : {
+                  payment_method: createPaymentMethod,
+                  transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+                }) : {}),
           })
         });
 
@@ -1563,10 +1565,12 @@ export function ReceptionPage() {
         offer_id: selectedOffer || null,
         language: i18n.language,
         booking_group_id: bookingGroupId,
-        ...(totalPrice > 0 ? {
-          payment_method: createPaymentMethod,
-          transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
-        } : {}),
+        ...(totalPrice > 0 ? (createPaymentMethod === 'unpaid'
+          ? { payment_status: 'unpaid' }
+          : {
+              payment_method: createPaymentMethod,
+              transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+            }) : {}),
       });
       return result.bookings?.[0]?.id ?? null;
     } catch (error: any) {
@@ -1630,10 +1634,12 @@ export function ReceptionPage() {
         offer_id: selectedOffer || null,
         language: i18n.language,
         booking_group_id: bookingGroupId,
-        ...(totalPrice > 0 ? {
-          payment_method: createPaymentMethod,
-          transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
-        } : {}),
+        ...(totalPrice > 0 ? (createPaymentMethod === 'unpaid'
+          ? { payment_status: 'unpaid' }
+          : {
+              payment_method: createPaymentMethod,
+              transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+            }) : {}),
       });
       return result.bookings?.[0]?.id ?? null;
     } catch (error: any) {
@@ -1742,7 +1748,7 @@ export function ReceptionPage() {
 
           // Insert booking via API
           // NOTE: Backend calculates package_subscription_id, package_covered_quantity, and paid_quantity automatically
-          // Do NOT send status, payment_status, package_subscription_id, or created_by_user_id - backend handles these
+          // Do NOT send status, package_subscription_id, or created_by_user_id - backend handles these
           try {
             const bookingData = await createBookingViaAPI({
               tenant_id: userProfile.tenant_id!,
@@ -1756,10 +1762,12 @@ export function ReceptionPage() {
               visitor_count: bookingVisitorCount,
               total_price: bookingPrice,
               notes: bookingForm.notes || null,
-              ...(bookingPrice > 0 ? {
-                payment_method: createPaymentMethod,
-                transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
-              } : {}),
+              ...(bookingPrice > 0 ? (createPaymentMethod === 'unpaid'
+                ? { payment_status: 'unpaid' }
+                : {
+                    payment_method: createPaymentMethod,
+                    transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+                  }) : {}),
               ...(bookingGroupId ? { booking_group_id: bookingGroupId } : {})
             });
 
@@ -2103,10 +2111,12 @@ export function ReceptionPage() {
           visitor_count: typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1,
           total_price: totalPrice,
           notes: bookingForm.notes || null,
-          ...(totalPrice > 0 ? {
-            payment_method: createPaymentMethod,
-            transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
-          } : {}),
+          ...(totalPrice > 0 ? (createPaymentMethod === 'unpaid'
+            ? { payment_status: 'unpaid' }
+            : {
+                payment_method: createPaymentMethod,
+                transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+              }) : {}),
         });
 
         // Note: Slot capacity is updated by the backend API
@@ -4204,7 +4214,7 @@ export function ReceptionPage() {
                   <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
                     <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('reception.paymentMethod') || 'Payment method'}</h4>
                     <p className="text-sm text-gray-900">
-                      {createPaymentMethod === 'onsite' ? 'مدفوع يدوياً' : 'حوالة'}
+                      {createPaymentMethod === 'unpaid' ? (t(PAYMENT_DISPLAY_KEYS.unpaid) || 'Unpaid') : createPaymentMethod === 'onsite' ? (t(PAYMENT_DISPLAY_KEYS.paid_onsite) || 'Paid On Site') : (t(PAYMENT_DISPLAY_KEYS.bank_transfer) || 'Bank Transfer')}
                       {createPaymentMethod === 'transfer' && createTransactionReference && (
                         <span className="block mt-1 text-gray-600">Ref: {createTransactionReference}</span>
                       )}
@@ -4565,11 +4575,21 @@ export function ReceptionPage() {
                     <input
                       type="radio"
                       name="createPaymentMethod"
-                      checked={createPaymentMethod === 'onsite'}
-                      onChange={() => setCreatePaymentMethod('onsite')}
+                      checked={createPaymentMethod === 'unpaid'}
+                      onChange={() => { setCreatePaymentMethod('unpaid'); setCreateTransactionReference(''); }}
                       className="rounded-full border-gray-300 text-blue-600"
                     />
-                    <span>مدفوع يدوياً</span>
+                    <span>{t(PAYMENT_DISPLAY_KEYS.unpaid) || 'Unpaid'}</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="createPaymentMethod"
+                      checked={createPaymentMethod === 'onsite'}
+                      onChange={() => { setCreatePaymentMethod('onsite'); setCreateTransactionReference(''); }}
+                      className="rounded-full border-gray-300 text-blue-600"
+                    />
+                    <span>{t(PAYMENT_DISPLAY_KEYS.paid_onsite) || 'Paid On Site'}</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -4579,7 +4599,7 @@ export function ReceptionPage() {
                       onChange={() => setCreatePaymentMethod('transfer')}
                       className="rounded-full border-gray-300 text-blue-600"
                     />
-                    <span>حوالة</span>
+                    <span>{t(PAYMENT_DISPLAY_KEYS.bank_transfer) || 'Bank Transfer'}</span>
                   </label>
                 </div>
                 {createPaymentMethod === 'transfer' && (
