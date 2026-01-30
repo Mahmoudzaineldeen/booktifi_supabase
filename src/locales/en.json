@@ -141,7 +141,18 @@
     "ourServices": "Our Services",
     "chooseService": "Choose a service to book your appointment",
     "noServicesAvailable": "No services available at the moment",
-    "min": "min"
+    "min": "min",
+    "schedulingType": "Scheduling Type",
+    "slotBased": "Slot-based",
+    "slotBasedHelp": "Service has its own time slots. No employee assignment.",
+    "employeeBased": "Employee-based",
+    "employeeBasedHelp": "Availability comes from employees assigned to this service.",
+    "assignmentMode": "Assignment Mode",
+    "autoAssign": "Auto-assign (fair rotation)",
+    "manualAssign": "Manual (reception picks employee)",
+    "employeeBasedNoShifts": "Uses employee shifts. Configure in Employees.",
+    "employeeBasedScheduleMessage": "This service is employee-based. Availability is determined by the working shifts of employees assigned to this service. Configure employee shifts in Settings → Employees.",
+    "globalSchedulingEmployeeBased": "Scheduling is set to Employee based in Settings. Availability comes from employee shifts. Configure in Settings → Employees."
   },
   "booking": {
     "booking": "Booking",
@@ -293,7 +304,18 @@
       "tenant_admin": "Tenant Admin",
       "customer_admin": "Customer Admin",
       "admin_user": "Admin User"
-    }
+    },
+    "pauseUntil": "Pause until (absent)",
+    "pauseUntilPlaceholder": "Leave empty if not absent",
+    "pauseUntilHelp": "Set a date if this employee is absent until then. Leave empty when available.",
+    "workingShifts": "Working Shifts",
+    "workingShiftsHelp": "Define when this employee is available. Used for employee-based services.",
+    "addShift": "Add shift",
+    "selectAtLeastOneDay": "Select at least one day",
+    "startTime": "Start",
+    "endTime": "End",
+    "availabilityFromYourShifts": "Availability from your working shifts below.",
+    "pausedUntil": "Paused until"
   },
   "admin": {
     "platformManagement": "Platform Management",
@@ -895,6 +917,14 @@
     "settingsSavedSuccessfully": "Settings saved successfully!",
     "errorSavingSettings": "Error saving settings. Please try again.",
     "contactEmailPlaceholder": "contact@example.com",
+    "schedulingConfiguration": "Scheduling Configuration",
+    "schedulingModeDescription": "This setting controls how the entire booking system behaves. Changing the mode updates availability source and UI across Admin and Receptionist panels.",
+    "serviceSlotBased": "Service slot based",
+    "serviceSlotBasedHelp": "Availability from service-defined slots. Add/Edit/Delete slots per service. No employee assignment required.",
+    "employeeBased": "Employee based",
+    "employeeBasedHelp": "Availability from employee working shifts. Service slot management is hidden. Bookings are linked to employees (auto or manual assign).",
+    "schedulingModeSaved": "Scheduling mode updated. Service slots are now used for availability.",
+    "schedulingModeSavedEmployee": "Scheduling mode updated. Employee shifts are now used for availability.",
     "security": {
       "title": "Security Settings",
       "accountEmail": "Account Email",

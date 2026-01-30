@@ -75,6 +75,55 @@ export async function fetchAvailableSlots(
 
   const dateStr = format(date, 'yyyy-MM-dd');
 
+  // Step 0: Global scheduling mode (tenant_features) overrides per-service behavior
+  const { data: tenantFeatures } = await db
+    .from('tenant_features')
+    .select('scheduling_mode, employee_assignment_mode')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  const globalSchedulingMode = (tenantFeatures as any)?.scheduling_mode ?? 'service_slot_based';
+  const tenantAssignmentMode = (tenantFeatures as any)?.employee_assignment_mode ?? 'both';
+
+  const { data: serviceRow } = await db
+    .from('services')
+    .select('scheduling_type, assignment_mode')
+    .eq('id', serviceId)
+    .eq('tenant_id', tenantId)
+    .single();
+  const schedulingType = (serviceRow as any)?.scheduling_type;
+  const assignmentMode = (serviceRow as any)?.assignment_mode;
+
+  const useEmployeeBasedAvailability = globalSchedulingMode === 'employee_based';
+  if (useEmployeeBasedAvailability) {
+    try {
+      const API_URL = getApiUrl();
+      const res = await fetch(`${API_URL}/bookings/ensure-employee-based-slots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, serviceId, date: dateStr }),
+      });
+      if (!res.ok) {
+        console.warn('[bookingAvailability] ensure-employee-based-slots failed:', res.status, await res.text());
+      }
+    } catch (err) {
+      console.warn('[bookingAvailability] ensure-employee-based-slots error:', err);
+    }
+  } else if (schedulingType === 'employee_based') {
+    try {
+      const API_URL = getApiUrl();
+      const res = await fetch(`${API_URL}/bookings/ensure-employee-based-slots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, serviceId, date: dateStr }),
+      });
+      if (!res.ok) {
+        console.warn('[bookingAvailability] ensure-employee-based-slots failed:', res.status, await res.text());
+      }
+    } catch (err) {
+      console.warn('[bookingAvailability] ensure-employee-based-slots error:', err);
+    }
+  }
+
   // Step 1: Fetch shifts for this service
   console.log('[bookingAvailability] ========================================');
   console.log('[bookingAvailability] Fetching shifts for service:', serviceId);
@@ -399,6 +448,32 @@ export async function fetchAvailableSlots(
   } else {
     // For future dates, mark all slots as future
     availableSlots = availableSlots.map((slot: Slot) => ({ ...slot, isPast: false }));
+  }
+
+  // For employee-based + auto_assign: show one slot per time (the next employee in rotation)
+  const effectiveEmployeeBased = useEmployeeBasedAvailability || schedulingType === 'employee_based';
+  const useAutoAssign = useEmployeeBasedAvailability
+    ? (tenantAssignmentMode === 'automatic' || tenantAssignmentMode === 'both')
+    : assignmentMode === 'auto_assign';
+  if (effectiveEmployeeBased && useAutoAssign && availableSlots.length > 0) {
+    const { data: rotationRow } = await db.from('service_rotation_state').select('last_assigned_employee_id').eq('service_id', serviceId).single();
+    const lastAssignedId = (rotationRow as any)?.last_assigned_employee_id ?? null;
+    const { data: empServices } = await db.from('employee_services').select('employee_id').eq('service_id', serviceId).is('shift_id', null);
+    const employeeIds = [...new Set((empServices || []).map((es: any) => es.employee_id))].sort();
+    const nextIndex = lastAssignedId ? (employeeIds.indexOf(lastAssignedId) + 1) % Math.max(1, employeeIds.length) : 0;
+    const nextEmployeeId = employeeIds[nextIndex] ?? employeeIds[0];
+    const byStartTime = new Map<string, Slot[]>();
+    for (const slot of availableSlots) {
+      const key = slot.start_time || '';
+      if (!byStartTime.has(key)) byStartTime.set(key, []);
+      byStartTime.get(key)!.push(slot);
+    }
+    availableSlots = [];
+    for (const [, slotsAtTime] of byStartTime) {
+      const rotated = slotsAtTime.find(s => s.employee_id === nextEmployeeId) ?? slotsAtTime[0];
+      availableSlots.push(rotated);
+    }
+    availableSlots.sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
   }
 
   console.log('[bookingAvailability] ========================================');

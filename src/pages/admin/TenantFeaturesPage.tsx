@@ -12,6 +12,7 @@ interface TenantFeatures {
   employee_assignment_mode: 'automatic' | 'manual' | 'both';
   packages_enabled: boolean;
   landing_page_enabled: boolean;
+  scheduling_mode: 'employee_based' | 'service_slot_based';
 }
 
 interface Tenant {
@@ -75,7 +76,7 @@ export function TenantFeaturesPage() {
         .maybeSingle();
 
       if (error) throw error;
-      setFeatures(data);
+      setFeatures(data ? { ...data, scheduling_mode: (data as any).scheduling_mode ?? 'service_slot_based' } : null);
     } catch (error) {
       console.error('Error loading features:', error);
       setMessage({ type: 'error', text: 'Failed to load tenant features' });
@@ -99,6 +100,7 @@ export function TenantFeaturesPage() {
           employee_assignment_mode: features.employee_assignment_mode,
           packages_enabled: features.packages_enabled,
           landing_page_enabled: features.landing_page_enabled,
+          scheduling_mode: features.scheduling_mode ?? 'service_slot_based',
         })
         .eq('tenant_id', selectedTenantId);
 
@@ -288,6 +290,42 @@ export function TenantFeaturesPage() {
                             </div>
                           </label>
                         </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Global Scheduling Mode */}
+                  <div className="border-b border-gray-200 pb-6">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">
+                        Scheduling Mode
+                      </h3>
+                      <p className="text-sm text-gray-600 mb-4">
+                        Controls how the entire booking system behaves. When Employee based, availability comes from employee shifts only; service slot management is hidden. When Service slot based, availability comes from service-defined slots.
+                      </p>
+                      <div className="space-y-3">
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="scheduling_mode"
+                            value="service_slot_based"
+                            checked={(features.scheduling_mode ?? 'service_slot_based') === 'service_slot_based'}
+                            onChange={() => handleFeatureChange('scheduling_mode', 'service_slot_based')}
+                            className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                          />
+                          <span className="text-sm font-medium text-gray-700">Service slot based</span>
+                        </label>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="scheduling_mode"
+                            value="employee_based"
+                            checked={(features.scheduling_mode ?? 'service_slot_based') === 'employee_based'}
+                            onChange={() => handleFeatureChange('scheduling_mode', 'employee_based')}
+                            className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                          />
+                          <span className="text-sm font-medium text-gray-700">Employee based</span>
+                        </label>
                       </div>
                     </div>
                   </div>

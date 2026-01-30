@@ -102,8 +102,9 @@ router.post('/create', async (req, res) => {
     if (role === 'employee' && service_shift_assignments && service_shift_assignments.length > 0) {
       const assignments: any[] = [];
       service_shift_assignments.forEach((serviceAssignment: any) => {
-        if (serviceAssignment.shiftIds && serviceAssignment.shiftIds.length > 0) {
-          serviceAssignment.shiftIds.forEach((shift_id: string) => {
+        const shiftIds = serviceAssignment.shiftIds || [];
+        if (shiftIds.length > 0) {
+          shiftIds.forEach((shift_id: string) => {
             assignments.push({
               employee_id: newUser.id,
               service_id: serviceAssignment.serviceId,
@@ -112,6 +113,16 @@ router.post('/create', async (req, res) => {
               duration_minutes: serviceAssignment.durationMinutes || null,
               capacity_per_slot: serviceAssignment.capacityPerSlot || 1,
             });
+          });
+        } else {
+          // Employee-based service: no shift (availability from employee_shifts)
+          assignments.push({
+            employee_id: newUser.id,
+            service_id: serviceAssignment.serviceId,
+            shift_id: null,
+            tenant_id,
+            duration_minutes: serviceAssignment.durationMinutes || null,
+            capacity_per_slot: serviceAssignment.capacityPerSlot || 1,
           });
         }
       });
@@ -149,6 +160,7 @@ router.post('/update', async (req, res) => {
       phone,
       role,
       is_active,
+      is_paused_until,
     } = req.body;
 
     if (!employee_id) {
@@ -192,6 +204,7 @@ router.post('/update', async (req, res) => {
       updates.role = role;
     }
     if (is_active !== undefined) updates.is_active = is_active;
+    if (is_paused_until !== undefined) updates.is_paused_until = is_paused_until === '' || is_paused_until === null ? null : is_paused_until;
     if (username !== undefined && username !== existing.username) {
       // Check if new username already exists
       const { data: usernameCheck, error: usernameCheckError } = await supabase

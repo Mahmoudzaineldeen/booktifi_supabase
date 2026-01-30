@@ -9,7 +9,7 @@ import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { countryCodes } from '../../lib/countryCodes';
-import { Plus, Edit, Users, Mail, Phone, Briefcase, UserX, UserCheck, Search } from 'lucide-react';
+import { Plus, Edit, Users, Mail, Phone, Briefcase, UserX, UserCheck, Search, Clock, Trash2 } from 'lucide-react';
 import { getApiUrl } from '../../lib/apiUrl';
 
 interface Employee {
@@ -21,6 +21,7 @@ interface Employee {
   phone: string | null;
   role: string;
   is_active: boolean;
+  is_paused_until?: string | null;
   employee_services?: Array<{
     service_id: string;
     shift_id: string | null;
@@ -38,6 +39,8 @@ interface Service {
   name: string;
   name_ar: string;
   capacity_mode: 'employee_based' | 'service_based';
+  scheduling_type?: 'slot_based' | 'employee_based';
+  assignment_mode?: 'auto_assign' | 'manual_assign' | null;
   service_duration_minutes: number;
   service_capacity_per_slot: number | null;
 }
@@ -56,6 +59,15 @@ interface ServiceShiftAssignment {
   shiftIds: string[];
   durationMinutes?: number;
   capacityPerSlot?: number;
+}
+
+interface EmployeeShift {
+  id: string;
+  employee_id: string;
+  days_of_week: number[];
+  start_time_utc: string;
+  end_time_utc: string;
+  is_active: boolean;
 }
 
 export function EmployeesPage() {
@@ -82,6 +94,15 @@ export function EmployeesPage() {
   const [phoneFull, setPhoneFull] = useState<string>(''); // Full phone number with country code
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState<'all' | 'employee' | 'cashier' | 'receptionist' | 'coordinator' | 'customer_admin' | 'admin_user'>('all');
+  const [isPausedUntil, setIsPausedUntil] = useState<string>('');
+  const [employeeShifts, setEmployeeShifts] = useState<EmployeeShift[]>([]);
+  const [employeeShiftForm, setEmployeeShiftForm] = useState({
+    days_of_week: [] as number[],
+    start_time: '09:00',
+    end_time: '17:00',
+    is_active: true,
+  });
+  const [editingEmployeeShift, setEditingEmployeeShift] = useState<EmployeeShift | null>(null);
 
   useEffect(() => {
     fetchServices();
@@ -92,7 +113,7 @@ export function EmployeesPage() {
     if (!userProfile?.tenant_id) return;
     const { data } = await db
       .from('services')
-      .select('id, name, name_ar, capacity_mode, service_duration_minutes, service_capacity_per_slot')
+      .select('id, name, name_ar, capacity_mode, scheduling_type, assignment_mode, service_duration_minutes, service_capacity_per_slot')
       .eq('tenant_id', userProfile.tenant_id)
       .eq('is_active', true)
       .order('name');
@@ -128,6 +149,7 @@ export function EmployeesPage() {
           phone,
           role,
           is_active,
+          is_paused_until,
           employee_services(
             service_id,
             shift_id,
@@ -171,6 +193,7 @@ export function EmployeesPage() {
           full_name_ar: formData.full_name_ar,
           phone: phoneFull || null,
           role: formData.role,
+          is_paused_until: isPausedUntil ? isPausedUntil : null,
         };
 
         if (formData.username && formData.username !== editingEmployee.username) {
@@ -217,8 +240,9 @@ export function EmployeesPage() {
           if (formData.service_shift_assignments.length > 0) {
             const assignments: any[] = [];
             formData.service_shift_assignments.forEach(serviceAssignment => {
-              if (serviceAssignment.shiftIds.length > 0) {
-                serviceAssignment.shiftIds.forEach(shift_id => {
+              const shiftIds = serviceAssignment.shiftIds || [];
+              if (shiftIds.length > 0) {
+                shiftIds.forEach(shift_id => {
                   assignments.push({
                     employee_id: editingEmployee.id,
                     service_id: serviceAssignment.serviceId,
@@ -227,6 +251,16 @@ export function EmployeesPage() {
                     duration_minutes: serviceAssignment.durationMinutes,
                     capacity_per_slot: serviceAssignment.capacityPerSlot
                   });
+                });
+              } else {
+                // Employee-based service: no shift (availability from employee_shifts)
+                assignments.push({
+                  employee_id: editingEmployee.id,
+                  service_id: serviceAssignment.serviceId,
+                  shift_id: null,
+                  tenant_id: userProfile.tenant_id,
+                  duration_minutes: serviceAssignment.durationMinutes,
+                  capacity_per_slot: serviceAssignment.capacityPerSlot
                 });
               }
             });
@@ -238,6 +272,25 @@ export function EmployeesPage() {
                 return;
               }
             }
+          }
+        }
+
+        // Save employee shifts (for employee-based services availability)
+        if (formData.role === 'employee' && editingEmployee.id && userProfile?.tenant_id) {
+          const { data: currentShifts } = await db.from('employee_shifts').select('id').eq('employee_id', editingEmployee.id);
+          const currentIds = (currentShifts || []).map((s: { id: string }) => s.id);
+          for (const id of currentIds) {
+            await db.from('employee_shifts').delete().eq('id', id);
+          }
+          for (const sh of employeeShifts) {
+            await db.from('employee_shifts').insert({
+              tenant_id: userProfile.tenant_id,
+              employee_id: editingEmployee.id,
+              days_of_week: sh.days_of_week,
+              start_time_utc: sh.start_time_utc,
+              end_time_utc: sh.end_time_utc,
+              is_active: sh.is_active ?? true,
+            });
           }
         }
 
@@ -322,9 +375,7 @@ export function EmployeesPage() {
         .map(es => es.shift_id)
         .filter(id => id) as string[];
 
-      // Get duration and capacity from the first assignment (they should be the same for all shifts of this service)
       const firstAssignment = serviceAssignments[0];
-
       serviceShiftMap.push({
         serviceId,
         shiftIds,
@@ -344,8 +395,18 @@ export function EmployeesPage() {
       assigned_services: uniqueServiceIds,
       service_shift_assignments: serviceShiftMap,
     });
-    // Set full phone number (with country code) for PhoneInput
     setPhoneFull(employee.phone || '');
+    setIsPausedUntil(employee.is_paused_until ? employee.is_paused_until.split('T')[0] : '');
+    setEmployeeShiftForm({ days_of_week: [], start_time: '09:00', end_time: '17:00', is_active: true });
+    setEditingEmployeeShift(null);
+
+    const { data: shiftsData } = await db
+      .from('employee_shifts')
+      .select('*')
+      .eq('employee_id', employee.id)
+      .order('created_at');
+    setEmployeeShifts(shiftsData || []);
+
     setIsModalOpen(true);
   }
 
@@ -363,6 +424,10 @@ export function EmployeesPage() {
     });
     setPhoneFull('');
     setShifts([]);
+    setIsPausedUntil('');
+    setEmployeeShifts([]);
+    setEmployeeShiftForm({ days_of_week: [], start_time: '09:00', end_time: '17:00', is_active: true });
+    setEditingEmployeeShift(null);
   }
 
   function closeModal() {
@@ -436,21 +501,25 @@ export function EmployeesPage() {
         : [...prev.assigned_services, serviceId];
 
       const service = services.find(s => s.id === serviceId);
+      const isEmployeeBased = service?.scheduling_type === 'employee_based';
 
       const newServiceShiftAssignments = isRemoving
         ? prev.service_shift_assignments.filter(a => a.serviceId !== serviceId)
         : [...prev.service_shift_assignments, {
             serviceId,
-            shiftIds: [],
-            durationMinutes: service?.capacity_mode === 'service_based'
-              ? service.service_duration_minutes
+            shiftIds: [], // employee_based: no service shifts; slot_based: user will select
+            durationMinutes: (service?.scheduling_type === 'slot_based' || !isEmployeeBased)
+              ? (service?.service_duration_minutes ?? 60)
               : (serviceCapacitySettings[serviceId]?.duration || 60),
-            capacityPerSlot: service?.capacity_mode === 'service_based'
-              ? (service.service_capacity_per_slot || 1)
+            capacityPerSlot: (service?.scheduling_type === 'slot_based' || !isEmployeeBased)
+              ? (service?.service_capacity_per_slot || 1)
               : (serviceCapacitySettings[serviceId]?.capacity || 1)
           }];
 
-      fetchShiftsForServices(newAssignedServices);
+      fetchShiftsForServices(newAssignedServices.filter(id => {
+        const s = services.find(sv => sv.id === id);
+        return s?.scheduling_type === 'slot_based';
+      }));
 
       return {
         ...prev,
@@ -480,6 +549,40 @@ export function EmployeesPage() {
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const dayNamesAr = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+  function toggleEmployeeShiftDay(day: number) {
+    setEmployeeShiftForm(prev => ({
+      ...prev,
+      days_of_week: prev.days_of_week.includes(day)
+        ? prev.days_of_week.filter(d => d !== day)
+        : [...prev.days_of_week, day].sort()
+    }));
+  }
+
+  function addEmployeeShift(e: React.FormEvent) {
+    e.preventDefault();
+    if (employeeShiftForm.days_of_week.length === 0) {
+      alert(t('employee.selectAtLeastOneDay', 'Select at least one day'));
+      return;
+    }
+    const start = employeeShiftForm.start_time.length === 5 ? `${employeeShiftForm.start_time}:00` : employeeShiftForm.start_time;
+    const end = employeeShiftForm.end_time.length === 5 ? `${employeeShiftForm.end_time}:00` : employeeShiftForm.end_time;
+    setEmployeeShifts(prev => [...prev, {
+      id: `temp-${Date.now()}`,
+      employee_id: editingEmployee?.id || '',
+      days_of_week: employeeShiftForm.days_of_week,
+      start_time_utc: start,
+      end_time_utc: end,
+      is_active: employeeShiftForm.is_active,
+    }]);
+    setEmployeeShiftForm({ days_of_week: [], start_time: '09:00', end_time: '17:00', is_active: true });
+    setEditingEmployeeShift(null);
+  }
+
+  function removeEmployeeShift(id: string) {
+    setEmployeeShifts(prev => prev.filter(s => s.id !== id));
+    setEditingEmployeeShift(null);
+  }
 
   if (loading) {
     return (
@@ -641,6 +744,11 @@ export function EmployeesPage() {
                   }`}>
                     {employee.is_active ? t('employee.active') : t('employee.inactive')}
                   </span>
+                  {employee.is_paused_until && (
+                    <span className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800" title={employee.is_paused_until}>
+                      {t('employee.pausedUntil')} {employee.is_paused_until.split('T')[0]}
+                    </span>
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -794,6 +902,23 @@ export function EmployeesPage() {
             </select>
           </div>
 
+          {formData.role === 'employee' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('employee.pauseUntil', 'Pause until (absent)')}
+              </label>
+              <Input
+                type="date"
+                value={isPausedUntil}
+                onChange={(e) => setIsPausedUntil(e.target.value)}
+                placeholder={t('employee.pauseUntilPlaceholder', 'Leave empty if not absent')}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                {t('employee.pauseUntilHelp', 'Set a date if this employee is absent until then. Leave empty when available.')}
+              </p>
+            </div>
+          )}
+
           {formData.role === 'employee' && services.length > 0 && (
             <div className="border-t pt-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -866,7 +991,15 @@ export function EmployeesPage() {
                         </div>
                       )}
 
-                      {isServiceSelected && service.capacity_mode === 'service_based' && (
+                      {isServiceSelected && service.scheduling_type === 'employee_based' && (
+                        <div className="mt-3 ml-6 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                          <div className="text-xs text-blue-800">
+                            {t('employee.availabilityFromYourShifts', 'Availability from your working shifts below.')}
+                          </div>
+                        </div>
+                      )}
+
+                      {isServiceSelected && (service.scheduling_type === 'slot_based' || !service.scheduling_type) && service.capacity_mode === 'service_based' && (
                         <div className="mt-3 ml-6 bg-blue-50 border border-blue-200 rounded-lg p-3">
                           <div className="text-xs text-blue-800">
                             <div className="font-medium mb-1">{t('employee.serviceBasedCapacity')}</div>
@@ -878,7 +1011,7 @@ export function EmployeesPage() {
                         </div>
                       )}
 
-                      {isServiceSelected && serviceShifts.length > 0 && (
+                      {isServiceSelected && (service.scheduling_type === 'slot_based' || !service.scheduling_type) && serviceShifts.length > 0 && (
                         <div className="mt-3 ml-6 space-y-2 pl-3 border-l-2 border-gray-200">
                           <div className="text-xs font-medium text-gray-600 mb-2">
                             {t('employee.selectShifts')}
@@ -906,7 +1039,7 @@ export function EmployeesPage() {
                         </div>
                       )}
 
-                      {isServiceSelected && serviceShifts.length === 0 && (
+                      {isServiceSelected && (service.scheduling_type === 'slot_based' || !service.scheduling_type) && serviceShifts.length === 0 && (
                         <div className="mt-2 ml-6 text-xs text-amber-600">
                           {t('employee.noShiftsConfigured')}
                         </div>
@@ -915,6 +1048,67 @@ export function EmployeesPage() {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {formData.role === 'employee' && editingEmployee && (
+            <div className="border-t pt-4">
+              <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                {t('employee.workingShifts', 'Working Shifts')}
+              </h4>
+              <p className="text-xs text-gray-500 mb-3">
+                {t('employee.workingShiftsHelp', 'Define when this employee is available. Used for employee-based services.')}
+              </p>
+              {employeeShifts.length > 0 && (
+                <div className="space-y-2 mb-4 max-h-40 overflow-y-auto">
+                  {employeeShifts.map((sh) => (
+                    <div key={sh.id} className="flex items-center justify-between p-2 bg-gray-50 rounded border text-sm">
+                      <span>
+                        {sh.start_time_utc?.slice(0, 5)} - {sh.end_time_utc?.slice(0, 5)}
+                        {' · '}
+                        {sh.days_of_week.sort().map(d => (i18n.language === 'ar' ? dayNamesAr[d] : dayNames[d])).join(', ')}
+                      </span>
+                      <Button type="button" variant="danger" size="sm" onClick={() => removeEmployeeShift(sh.id)} icon={<Trash2 className="w-3 h-3" />} />
+                    </div>
+                  ))}
+                </div>
+              )}
+              <form onSubmit={addEmployeeShift} className="space-y-3 p-3 bg-gray-50 rounded border">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">{t('service.daysOfWeek')}</label>
+                  <div className="flex flex-wrap gap-1">
+                    {dayNames.map((day, idx) => (
+                      <label key={idx} className="flex items-center gap-1 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={employeeShiftForm.days_of_week.includes(idx)}
+                          onChange={() => toggleEmployeeShiftDay(idx)}
+                          className="w-3 h-3 text-blue-600 border-gray-300 rounded"
+                        />
+                        {i18n.language === 'ar' ? dayNamesAr[idx] : dayNames[idx]}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    type="time"
+                    label={t('employee.startTime', 'Start')}
+                    value={employeeShiftForm.start_time}
+                    onChange={(e) => setEmployeeShiftForm(prev => ({ ...prev, start_time: e.target.value }))}
+                  />
+                  <Input
+                    type="time"
+                    label={t('employee.endTime', 'End')}
+                    value={employeeShiftForm.end_time}
+                    onChange={(e) => setEmployeeShiftForm(prev => ({ ...prev, end_time: e.target.value }))}
+                  />
+                </div>
+                <Button type="submit" size="sm" disabled={employeeShiftForm.days_of_week.length === 0}>
+                  {t('employee.addShift', 'Add shift')}
+                </Button>
+              </form>
             </div>
           )}
 

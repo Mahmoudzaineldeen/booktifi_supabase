@@ -6,9 +6,10 @@ import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
-import { Settings, Save, Building2, Lock, Eye, EyeOff, Mail, CheckCircle, XCircle, MessageCircle, FileText, ExternalLink, DollarSign } from 'lucide-react';
+import { Settings, Save, Building2, Lock, Eye, EyeOff, Mail, CheckCircle, XCircle, MessageCircle, FileText, ExternalLink, DollarSign, Clock } from 'lucide-react';
 
 import { getApiUrl } from '../../lib/apiUrl';
+import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { getAvailableCurrencies } from '../../lib/currency';
@@ -18,7 +19,10 @@ export function SettingsPage() {
   const { t } = useTranslation();
   const { userProfile, tenant, user, signOut, loading: authLoading } = useAuth();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  const { features: tenantFeatures, reload: reloadTenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
   const [loading, setLoading] = useState(false);
+  const [schedulingModeSaving, setSchedulingModeSaving] = useState(false);
+  const [schedulingModeMessage, setSchedulingModeMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -1266,6 +1270,86 @@ export function SettingsPage() {
                   </p>
                 </div>
               </label>
+            </CardContent>
+          </Card>
+
+          {/* Scheduling Configuration (global mode) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="w-5 h-5" />
+                {t('settings.schedulingConfiguration', 'Scheduling Configuration')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-gray-600">
+                {t('settings.schedulingModeDescription', 'This setting controls how the entire booking system behaves. Changing the mode updates availability source and UI across Admin and Receptionist panels.')}
+              </p>
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg border border-gray-200 hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    name="scheduling_mode"
+                    value="service_slot_based"
+                    checked={(tenantFeatures?.scheduling_mode ?? 'service_slot_based') === 'service_slot_based'}
+                    onChange={async () => {
+                      if (!userProfile?.tenant_id) return;
+                      setSchedulingModeMessage(null);
+                      setSchedulingModeSaving(true);
+                      try {
+                        const { error } = await db.from('tenant_features').update({ scheduling_mode: 'service_slot_based' }).eq('tenant_id', userProfile.tenant_id);
+                        if (error) throw error;
+                        setSchedulingModeMessage({ type: 'success', text: t('settings.schedulingModeSaved', 'Scheduling mode updated. Service slots are now used for availability.') });
+                        await reloadTenantFeatures();
+                      } catch (err: any) {
+                        setSchedulingModeMessage({ type: 'error', text: err.message || t('common.error') });
+                      } finally {
+                        setSchedulingModeSaving(false);
+                      }
+                    }}
+                    disabled={schedulingModeSaving}
+                    className="mt-1 w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                  />
+                  <div>
+                    <span className="font-medium text-gray-900">{t('settings.serviceSlotBased', 'Service slot based')}</span>
+                    <p className="text-xs text-gray-500 mt-0.5">{t('settings.serviceSlotBasedHelp', 'Availability from service-defined slots. Add/Edit/Delete slots per service. No employee assignment required.')}</p>
+                  </div>
+                </label>
+                <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg border border-gray-200 hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    name="scheduling_mode"
+                    value="employee_based"
+                    checked={(tenantFeatures?.scheduling_mode ?? 'service_slot_based') === 'employee_based'}
+                    onChange={async () => {
+                      if (!userProfile?.tenant_id) return;
+                      setSchedulingModeMessage(null);
+                      setSchedulingModeSaving(true);
+                      try {
+                        const { error } = await db.from('tenant_features').update({ scheduling_mode: 'employee_based' }).eq('tenant_id', userProfile.tenant_id);
+                        if (error) throw error;
+                        setSchedulingModeMessage({ type: 'success', text: t('settings.schedulingModeSavedEmployee', 'Scheduling mode updated. Employee shifts are now used for availability.') });
+                        await reloadTenantFeatures();
+                      } catch (err: any) {
+                        setSchedulingModeMessage({ type: 'error', text: err.message || t('common.error') });
+                      } finally {
+                        setSchedulingModeSaving(false);
+                      }
+                    }}
+                    disabled={schedulingModeSaving}
+                    className="mt-1 w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                  />
+                  <div>
+                    <span className="font-medium text-gray-900">{t('settings.employeeBased', 'Employee based')}</span>
+                    <p className="text-xs text-gray-500 mt-0.5">{t('settings.employeeBasedHelp', 'Availability from employee working shifts. Service slot management is hidden. Bookings are linked to employees (auto or manual assign).')}</p>
+                  </div>
+                </label>
+              </div>
+              {schedulingModeMessage && (
+                <div className={`p-3 rounded-lg text-sm ${schedulingModeMessage.type === 'success' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+                  {schedulingModeMessage.text}
+                </div>
+              )}
             </CardContent>
           </Card>
 

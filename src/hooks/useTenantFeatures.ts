@@ -6,6 +6,8 @@ export interface TenantFeatures {
   employee_assignment_mode: 'automatic' | 'manual' | 'both';
   packages_enabled: boolean;
   landing_page_enabled: boolean;
+  /** Global scheduling mode: employee_based = availability from employee shifts only; service_slot_based = service-defined slots */
+  scheduling_mode: 'employee_based' | 'service_slot_based';
 }
 
 export function useTenantFeatures(tenantId: string | undefined) {
@@ -31,11 +33,12 @@ export function useTenantFeatures(tenantId: string | undefined) {
       if (error) throw error;
 
       // Default to all features enabled if no data
-      setFeatures(data || {
+      setFeatures(data ? { ...data, scheduling_mode: (data as any).scheduling_mode ?? 'service_slot_based' } : {
         employees_enabled: true,
         employee_assignment_mode: 'both',
         packages_enabled: true,
         landing_page_enabled: true,
+        scheduling_mode: 'service_slot_based',
       });
     } catch (error) {
       console.error('Error loading tenant features:', error);
@@ -45,11 +48,12 @@ export function useTenantFeatures(tenantId: string | undefined) {
         employee_assignment_mode: 'both',
         packages_enabled: true,
         landing_page_enabled: true,
+        scheduling_mode: 'service_slot_based',
       });
     } finally {
       setLoading(false);
     }
   };
 
-  return { features, loading };
+  return { features, loading, reload: loadFeatures };
 }

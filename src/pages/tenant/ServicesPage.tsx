@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
+import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -36,6 +37,8 @@ interface Service {
   capacity_mode?: 'employee_based' | 'service_based';
   service_duration_minutes?: number;
   service_capacity_per_slot?: number | null;
+  scheduling_type?: 'slot_based' | 'employee_based';
+  assignment_mode?: 'auto_assign' | 'manual_assign' | null;
 }
 
 interface Shift {
@@ -50,7 +53,10 @@ interface Shift {
 export function ServicesPage() {
   const { t, i18n } = useTranslation();
   const { userProfile } = useAuth();
+  const { features: tenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
   const { formatPrice, formatPriceString } = useCurrency();
+  const globalSchedulingMode = tenantFeatures?.scheduling_mode ?? 'service_slot_based';
+  const hideServiceSlots = globalSchedulingMode === 'employee_based';
   const [services, setServices] = useState<Service[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,7 +84,7 @@ export function ServicesPage() {
     original_price: null as number | null,
     discount_percentage: null as number | null,
     capacity_per_slot: 1,
-    capacity_mode: 'service_based' as 'employee_based' | 'service_based', // ARCHIVED: Default changed from employee_based to service_based
+    capacity_mode: 'service_based' as 'employee_based' | 'service_based',
     service_duration_minutes: 60,
     service_capacity_per_slot: null as number | null,
     is_public: true,
@@ -87,7 +93,9 @@ export function ServicesPage() {
     image_url: '',
     gallery_urls: [] as string[],
     is_combo: false,
-    combo_services: [] as string[]
+    combo_services: [] as string[],
+    scheduling_type: 'slot_based' as 'slot_based' | 'employee_based',
+    assignment_mode: null as 'auto_assign' | 'manual_assign' | null,
   });
 
   const [categoryForm, setCategoryForm] = useState({
@@ -275,7 +283,9 @@ export function ServicesPage() {
         description_ar: serviceForm.description_ar || null,
         category_id: serviceForm.category_id || null,
         tenant_id: userProfile.tenant_id,
-        capacity_mode: 'service_based', // Force service_based
+        capacity_mode: serviceForm.scheduling_type === 'employee_based' ? 'employee_based' : 'service_based',
+        scheduling_type: serviceForm.scheduling_type,
+        assignment_mode: serviceForm.scheduling_type === 'employee_based' ? (serviceForm.assignment_mode || 'manual_assign') : null,
         service_capacity_per_slot: validCapacity,
         duration_minutes: parseInt(String(serviceForm.service_duration_minutes || 60), 10),
         service_duration_minutes: parseInt(String(serviceForm.service_duration_minutes || 60), 10),
@@ -434,8 +444,8 @@ export function ServicesPage() {
           return;
         }
         
-        // Auto-create default shift for new service (Monday-Friday, 9 AM - 6 PM)
-        if (result.data && userProfile?.tenant_id) {
+        // Auto-create default shift only for slot_based services (employee_based use employee shifts)
+        if (result.data && userProfile?.tenant_id && serviceForm.scheduling_type === 'slot_based') {
           try {
             const newServiceId = result.data.id;
             const defaultShift = {
@@ -452,7 +462,7 @@ export function ServicesPage() {
             if (shiftResult.error) {
               console.warn('Failed to create default shift:', shiftResult.error);
             } else if (shiftResult.data) {
-              console.log('✓ Created default shift for new service');
+              console.log('✓ Created default shift for new slot_based service');
               
               // Auto-generate slots for the next 60 days
               try {
@@ -726,6 +736,7 @@ export function ServicesPage() {
         galleryUrls = serviceData.gallery_urls.filter((img: any) => img && typeof img === 'string');
       }
     }
+    const schedulingType = serviceData.scheduling_type || 'slot_based';
     setServiceForm({
       name: service.name,
       name_ar: service.name_ar,
@@ -736,7 +747,7 @@ export function ServicesPage() {
       original_price: serviceData.original_price || null,
       discount_percentage: serviceData.discount_percentage || null,
       capacity_per_slot: service.capacity_per_slot,
-      capacity_mode: serviceData.capacity_mode || 'service_based', // ARCHIVED: Default changed from employee_based
+      capacity_mode: schedulingType === 'employee_based' ? 'employee_based' : 'service_based',
       service_duration_minutes: serviceData.service_duration_minutes || service.duration_minutes,
       service_capacity_per_slot: serviceData.service_capacity_per_slot || null,
       is_public: service.is_public,
@@ -744,8 +755,10 @@ export function ServicesPage() {
       category_id: service.category_id || '',
       image_url: serviceData.image_url || '',
       gallery_urls: galleryUrls.length > 0 ? galleryUrls : (serviceData.image_url ? [serviceData.image_url] : []),
-      is_combo: false, // Will be determined by service_packages
-      combo_services: []
+      is_combo: false,
+      combo_services: [],
+      scheduling_type: schedulingType,
+      assignment_mode: serviceData.assignment_mode || (schedulingType === 'employee_based' ? 'manual_assign' : null),
     });
     setIsServiceModalOpen(true);
   }
@@ -772,7 +785,7 @@ export function ServicesPage() {
       original_price: null,
       discount_percentage: null,
       capacity_per_slot: 1,
-      capacity_mode: 'service_based', // Fixed: Changed from employee_based to service_based
+      capacity_mode: 'service_based',
       service_duration_minutes: 60,
       service_capacity_per_slot: null,
       is_public: true,
@@ -781,7 +794,9 @@ export function ServicesPage() {
       image_url: '',
       gallery_urls: [],
       is_combo: false,
-      combo_services: []
+      combo_services: [],
+      scheduling_type: 'slot_based',
+      assignment_mode: null,
     });
   }
 
@@ -1113,15 +1128,21 @@ export function ServicesPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    fullWidth
-                    onClick={() => openScheduleModal(service)}
-                    icon={<Clock className="w-4 h-4" />}
-                  >
-                    Schedule
-                  </Button>
+                  {(hideServiceSlots || service.scheduling_type === 'employee_based') ? (
+                    <p className="text-xs text-gray-500 italic">
+                      {t('service.employeeBasedNoShifts', 'Uses employee shifts. Configure in Employees.')}
+                    </p>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      fullWidth
+                      onClick={() => openScheduleModal(service)}
+                      icon={<Clock className="w-4 h-4" />}
+                    >
+                      Schedule
+                    </Button>
+                  )}
                   <div className="flex gap-2">
                     <Button
                       variant="secondary"
@@ -1229,6 +1250,91 @@ export function ServicesPage() {
               ))}
             </select>
           </div>
+
+          {/* Scheduling Type: only shown when global mode is service_slot_based. When employee_based, global setting controls behavior. */}
+          {hideServiceSlots ? (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('service.schedulingType', 'Scheduling Type')}</h4>
+              <p className="text-sm text-gray-600">
+                {t('service.globalSchedulingEmployeeBased', 'Scheduling is set to Employee based in Settings. Availability comes from employee shifts. Configure in Settings → Employees.')}
+              </p>
+            </div>
+          ) : (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <h4 className="text-sm font-semibold text-gray-700 mb-3">{t('service.schedulingType', 'Scheduling Type')}</h4>
+            <div className="space-y-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="radio"
+                  name="scheduling_type"
+                  value="slot_based"
+                  checked={serviceForm.scheduling_type === 'slot_based'}
+                  onChange={() => setServiceForm({
+                    ...serviceForm,
+                    scheduling_type: 'slot_based',
+                    assignment_mode: null,
+                  })}
+                  className="mt-1 w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                />
+                <div className="flex-1">
+                  <span className="font-medium text-gray-900">{t('service.slotBased', 'Slot-based')}</span>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    {t('service.slotBasedHelp', 'Service has its own time slots. No employee assignment.')}
+                  </p>
+                </div>
+              </label>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="radio"
+                  name="scheduling_type"
+                  value="employee_based"
+                  checked={serviceForm.scheduling_type === 'employee_based'}
+                  onChange={() => setServiceForm({
+                    ...serviceForm,
+                    scheduling_type: 'employee_based',
+                    assignment_mode: serviceForm.assignment_mode || 'manual_assign',
+                  })}
+                  className="mt-1 w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                />
+                <div className="flex-1">
+                  <span className="font-medium text-gray-900">{t('service.employeeBased', 'Employee-based')}</span>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    {t('service.employeeBasedHelp', 'Availability comes from employees assigned to this service.')}
+                  </p>
+                </div>
+              </label>
+            </div>
+            {serviceForm.scheduling_type === 'employee_based' && (
+              <div className="mt-4 pl-7 border-l-2 border-blue-200">
+                <h5 className="text-xs font-semibold text-gray-700 mb-2">{t('service.assignmentMode', 'Assignment Mode')}</h5>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="assignment_mode"
+                      value="auto_assign"
+                      checked={serviceForm.assignment_mode === 'auto_assign'}
+                      onChange={() => setServiceForm({ ...serviceForm, assignment_mode: 'auto_assign' })}
+                      className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                    />
+                    <span className="text-sm">{t('service.autoAssign', 'Auto-assign (fair rotation)')}</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="assignment_mode"
+                      value="manual_assign"
+                      checked={serviceForm.assignment_mode === 'manual_assign'}
+                      onChange={() => setServiceForm({ ...serviceForm, assignment_mode: 'manual_assign' })}
+                      className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                    />
+                    <span className="text-sm">{t('service.manualAssign', 'Manual (reception picks employee)')}</span>
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+          )}
 
           {/* ARCHIVED: Capacity Model selection - Now always service_based */}
           {/* <div>
@@ -1725,7 +1831,11 @@ export function ServicesPage() {
         title={`Schedule: ${selectedServiceForSchedule ? (i18n.language === 'ar' ? selectedServiceForSchedule.name_ar : selectedServiceForSchedule.name) : ''}`}
       >
         <div className="space-y-4">
-          {shifts.length > 0 && !editingShift && (
+          {(hideServiceSlots || selectedServiceForSchedule?.scheduling_type === 'employee_based') ? (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+              {t('service.employeeBasedScheduleMessage', 'This service is employee-based. Availability is determined by the working shifts of employees assigned to this service. Configure employee shifts in Settings → Employees.')}
+            </div>
+          ) : shifts.length > 0 && !editingShift ? (
             <div className="mb-6">
               <h4 className="font-medium mb-3">Existing Shifts</h4>
               <div className="space-y-2 max-h-60 overflow-y-auto">
@@ -1774,8 +1884,9 @@ export function ServicesPage() {
                 <h4 className="font-medium mb-3">{editingShift ? t('service.editShift') : t('service.addNewShift')}</h4>
               </div>
             </div>
-          )}
+          ) : null}
 
+          {!hideServiceSlots && selectedServiceForSchedule?.scheduling_type !== 'employee_based' && (
           <form onSubmit={handleShiftSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1844,6 +1955,7 @@ export function ServicesPage() {
               )}
             </div>
           </form>
+          )}
         </div>
       </Modal>
     </div>

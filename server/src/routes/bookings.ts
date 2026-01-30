@@ -629,6 +629,194 @@ router.get('/capacity/:customerId/:serviceId', authenticate, async (req, res) =>
 });
 
 // ============================================================================
+// Ensure employee-based slots for a service/date (generates slots from employee_shifts)
+// Called by availability layer when service.scheduling_type === 'employee_based'
+// ============================================================================
+router.post('/ensure-employee-based-slots', async (req, res) => {
+  try {
+    const { tenantId, serviceId, date: dateStr } = req.body;
+    if (!tenantId || !serviceId || !dateStr) {
+      return res.status(400).json({ error: 'tenantId, serviceId, and date are required' });
+    }
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const slotDate = new Date(y, m - 1, d);
+    const dayOfWeek = slotDate.getDay();
+
+    const { data: service, error: serviceError } = await supabase
+      .from('services')
+      .select('id, tenant_id, scheduling_type, duration_minutes, service_duration_minutes')
+      .eq('id', serviceId)
+      .eq('tenant_id', tenantId)
+      .single();
+    if (serviceError || !service) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+    if ((service as any).scheduling_type !== 'employee_based') {
+      return res.json({ shiftIds: [] });
+    }
+
+    const durationMinutes = (service as any).service_duration_minutes ?? (service as any).duration_minutes ?? 60;
+
+    let { data: shifts, error: shiftsError } = await supabase
+      .from('shifts')
+      .select('id')
+      .eq('service_id', serviceId)
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true);
+    if (shiftsError) {
+      logger.error('ensure-employee-based-slots: shifts fetch', shiftsError);
+      return res.status(500).json({ error: shiftsError.message });
+    }
+    let virtualShiftId: string | null = (shifts && shifts.length > 0) ? shifts[0].id : null;
+    if (!virtualShiftId) {
+      const { data: newShift, error: insertShiftError } = await supabase
+        .from('shifts')
+        .insert({
+          tenant_id: tenantId,
+          service_id: serviceId,
+          days_of_week: [0, 1, 2, 3, 4, 5, 6],
+          start_time_utc: '00:00',
+          end_time_utc: '23:59',
+          is_active: true,
+        })
+        .select('id')
+        .single();
+      if (insertShiftError || !newShift) {
+        logger.error('ensure-employee-based-slots: create shift', insertShiftError);
+        return res.status(500).json({ error: insertShiftError?.message || 'Failed to create virtual shift' });
+      }
+      virtualShiftId = newShift.id;
+    }
+
+    const { data: employeeServices, error: esError } = await supabase
+      .from('employee_services')
+      .select('employee_id')
+      .eq('service_id', serviceId)
+      .is('shift_id', null);
+    if (esError || !employeeServices || employeeServices.length === 0) {
+      return res.json({ shiftIds: [virtualShiftId] });
+    }
+    const employeeIds = [...new Set(employeeServices.map((es: any) => es.employee_id))];
+
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select('id')
+      .in('id', employeeIds)
+      .eq('is_active', true);
+    if (usersError || !users) {
+      return res.json({ shiftIds: [virtualShiftId] });
+    }
+    const activeEmployeeIds = new Set(users.map((u: any) => u.id));
+    const { data: paused } = await supabase
+      .from('users')
+      .select('id, is_paused_until')
+      .in('id', employeeIds);
+    const availableEmployeeIds = (paused || []).filter((u: any) => {
+      if (!activeEmployeeIds.has(u.id)) return false;
+      const until = u.is_paused_until;
+      if (!until) return true;
+      const untilDate = new Date(until);
+      return slotDate > untilDate;
+    }).map((u: any) => u.id);
+    if (availableEmployeeIds.length === 0) {
+      return res.json({ shiftIds: [virtualShiftId] });
+    }
+
+    const { data: empShifts, error: empShiftsError } = await supabase
+      .from('employee_shifts')
+      .select('id, employee_id, start_time_utc, end_time_utc, days_of_week')
+      .in('employee_id', availableEmployeeIds)
+      .eq('is_active', true);
+    if (empShiftsError || !empShifts || empShifts.length === 0) {
+      return res.json({ shiftIds: [virtualShiftId] });
+    }
+    const shiftsForDay = (empShifts as any[]).filter((es: any) =>
+      Array.isArray(es.days_of_week) && es.days_of_week.includes(dayOfWeek)
+    );
+
+    const startTimeStr = (t: string) => (t || '').slice(0, 8);
+    const toMinutes = (t: string) => {
+      const parts = (t || '00:00').split(':').map(Number);
+      return (parts[0] || 0) * 60 + (parts[1] || 0);
+    };
+    const toTime = (mins: number) => {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+    };
+
+    for (const es of shiftsForDay) {
+      const startM = toMinutes(startTimeStr(es.start_time_utc));
+      const endM = toMinutes(startTimeStr(es.end_time_utc));
+      let slotStartM = startM;
+      while (slotStartM + durationMinutes <= endM) {
+        const slotEndM = slotStartM + durationMinutes;
+        const startTime = toTime(slotStartM);
+        const endTime = toTime(slotEndM);
+        const { data: overlappingSlots } = await supabase
+          .from('slots')
+          .select('id')
+          .eq('employee_id', es.employee_id)
+          .eq('slot_date', dateStr)
+          .lt('start_time', endTime)
+          .gt('end_time', startTime);
+        const overlappingSlotIds = (overlappingSlots || []).map((s: any) => s.id);
+        let overlapCount = 0;
+        if (overlappingSlotIds.length > 0) {
+          const { count } = await supabase
+            .from('bookings')
+            .select('id', { count: 'exact', head: true })
+            .in('slot_id', overlappingSlotIds);
+          overlapCount = count ?? 0;
+        }
+        const { data: existingSlot } = await supabase
+          .from('slots')
+          .select('id')
+          .eq('shift_id', virtualShiftId)
+          .eq('employee_id', es.employee_id)
+          .eq('slot_date', dateStr)
+          .eq('start_time', startTime)
+          .maybeSingle();
+        if (existingSlot) {
+          slotStartM += durationMinutes;
+          continue;
+        }
+        const availableCapacity = Math.max(0, 1 - overlapCount);
+        if (availableCapacity === 0) {
+          slotStartM += durationMinutes;
+          continue;
+        }
+        const startTs = `${dateStr}T${startTime}`;
+        const endTs = `${dateStr}T${endTime}`;
+        await supabase.from('slots').insert({
+          tenant_id: tenantId,
+          service_id: serviceId,
+          shift_id: virtualShiftId,
+          employee_id: es.employee_id,
+          slot_date: dateStr,
+          start_time: startTime,
+          end_time: endTime,
+          start_time_utc: startTs,
+          end_time_utc: endTs,
+          total_capacity: 1,
+          original_capacity: 1,
+          remaining_capacity: availableCapacity,
+          available_capacity: availableCapacity,
+          booked_count: overlapCount,
+          is_available: true,
+        });
+        slotStartM += durationMinutes;
+      }
+    }
+
+    return res.json({ shiftIds: [virtualShiftId] });
+  } catch (error: any) {
+    logger.error('ensure-employee-based-slots error', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ============================================================================
 // Acquire booking lock (called when user proceeds to checkout)
 // ============================================================================
 router.post('/lock', authenticate, async (req, res) => {
@@ -1507,6 +1695,16 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       }
       if (Object.keys(updatePayload).length > 1) {
         await supabase.from('bookings').update(updatePayload).eq('id', actualBooking.id);
+      }
+      // Update service_rotation_state for employee-based + auto_assign (fair rotation)
+      if (actualBooking.service_id && actualBooking.employee_id) {
+        const { data: svc } = await supabase.from('services').select('scheduling_type, assignment_mode').eq('id', actualBooking.service_id).single();
+        if ((svc as any)?.scheduling_type === 'employee_based' && (svc as any)?.assignment_mode === 'auto_assign') {
+          await supabase.from('service_rotation_state').upsert(
+            { service_id: actualBooking.service_id, last_assigned_employee_id: actualBooking.employee_id, updated_at: new Date().toISOString() },
+            { onConflict: 'service_id' }
+          );
+        }
       }
     }
 
