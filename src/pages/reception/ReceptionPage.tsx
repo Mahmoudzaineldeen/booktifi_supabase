@@ -204,6 +204,11 @@ export function ReceptionPage() {
   const [searchValidationError, setSearchValidationError] = useState<string>('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const [markPaidBookingId, setMarkPaidBookingId] = useState<string | null>(null);
+  const [markPaidMethod, setMarkPaidMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [markPaidReference, setMarkPaidReference] = useState('');
+  const [markPaidSubmitting, setMarkPaidSubmitting] = useState(false);
+
   const isCoordinator = userProfile?.role === 'coordinator';
 
   // Track if initial auth check has been completed
@@ -2090,6 +2095,12 @@ export function ReceptionPage() {
   }
 
   async function updatePaymentStatus(bookingId: string, paymentStatus: string) {
+    if (paymentStatus === 'paid_manual') {
+      setMarkPaidBookingId(bookingId);
+      setMarkPaidMethod('onsite');
+      setMarkPaidReference('');
+      return;
+    }
     try {
       const { error } = await db
         .from('bookings')
@@ -2101,6 +2112,42 @@ export function ReceptionPage() {
     } catch (err: any) {
       console.error('Error updating payment status:', err);
       alert(`Error: ${err.message}`);
+    }
+  }
+
+  async function confirmMarkPaid() {
+    if (!markPaidBookingId) return;
+    if (markPaidMethod === 'transfer' && !markPaidReference.trim()) {
+      alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+      return;
+    }
+    setMarkPaidSubmitting(true);
+    try {
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/bookings/${markPaidBookingId}/mark-paid`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify({
+          payment_method: markPaidMethod,
+          transaction_reference: markPaidMethod === 'transfer' ? markPaidReference.trim() : undefined,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to mark as paid');
+      fetchBookings();
+      setMarkPaidBookingId(null);
+      setMarkPaidReference('');
+      setSelectedBookingForDetails(null);
+      alert(t('reception.paymentStatusUpdatedSuccessfully') || 'Payment status updated. Invoice sent via WhatsApp when applicable.');
+    } catch (err: any) {
+      console.error('Mark paid error:', err);
+      alert(err.message || 'Failed to mark as paid');
+    } finally {
+      setMarkPaidSubmitting(false);
     }
   }
 
@@ -5387,7 +5434,7 @@ export function ReceptionPage() {
                 icon={<DollarSign className="w-4 h-4" />}
                 fullWidth
               >
-                Mark as Paid
+                {t('reception.markAsPaid')}
               </Button>
             )}
               </>
@@ -5404,6 +5451,82 @@ export function ReceptionPage() {
           </div>
         )}
       </Modal>
+
+      {/* Mark as paid modal: payment method + transaction reference */}
+      {markPaidBookingId && (
+        <Modal
+          isOpen={!!markPaidBookingId}
+          onClose={() => {
+            setMarkPaidBookingId(null);
+            setMarkPaidReference('');
+          }}
+          title={t('reception.markAsPaid') || 'Mark as Paid'}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              {t('reception.selectPaymentMethod') || 'Select payment method. Invoice will be sent via WhatsApp after confirmation.'}
+            </p>
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">{t('reception.paymentMethod') || 'Payment method'}</p>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="mark-paid-method"
+                    checked={markPaidMethod === 'onsite'}
+                    onChange={() => setMarkPaidMethod('onsite')}
+                    className="rounded-full border-gray-300 text-blue-600"
+                  />
+                  <span>مدفوع يدوياً</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="mark-paid-method"
+                    checked={markPaidMethod === 'transfer'}
+                    onChange={() => setMarkPaidMethod('transfer')}
+                    className="rounded-full border-gray-300 text-blue-600"
+                  />
+                  <span>حوالة</span>
+                </label>
+              </div>
+            </div>
+            {markPaidMethod === 'transfer' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('reception.transactionReferenceRequired') || 'Transaction Reference Number (required)'}
+                </label>
+                <input
+                  type="text"
+                  value={markPaidReference}
+                  onChange={(e) => setMarkPaidReference(e.target.value)}
+                  placeholder={t('reception.enterReferenceNumber') || 'Enter reference number'}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
+            <div className="flex gap-2 justify-end pt-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setMarkPaidBookingId(null);
+                  setMarkPaidReference('');
+                }}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                variant="primary"
+                onClick={confirmMarkPaid}
+                disabled={markPaidSubmitting || (markPaidMethod === 'transfer' && !markPaidReference.trim())}
+                icon={<DollarSign className="w-4 h-4" />}
+              >
+                {markPaidSubmitting ? (t('common.updating') || 'Updating...') : (t('reception.confirmMarkAsPaid') || 'Confirm & Mark as Paid')}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Edit Booking Modal - Same as tenant provider */}
       {editingBooking && (

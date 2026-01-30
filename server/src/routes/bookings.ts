@@ -829,7 +829,8 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       session_id,
       offer_id, // Optional: ID of selected service offer
       language = 'en', // Customer preferred language ('en' or 'ar')
-      booking_group_id // Optional: for grouping related bookings (will be ignored if not provided)
+      booking_group_id, // Optional: for grouping related bookings (will be ignored if not provided)
+      payment_method: reqPaymentMethod, // Optional: 'onsite' (مدفوع يدوياً) or 'transfer' (حوالة)
     } = req.body;
     
     // Ensure booking_group_id is either a valid UUID string or null (not undefined)
@@ -1465,6 +1466,16 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       // Direct booking object
       actualBooking = bookingData;
       console.log(`[Booking Creation] Found direct booking object`);
+    }
+
+    // ============================================================================
+    // Store payment_method (onsite / transfer) when provided (Admin/Receptionist)
+    // ============================================================================
+    if (actualBooking?.id && (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer')) {
+      await supabase
+        .from('bookings')
+        .update({ payment_method: reqPaymentMethod, updated_at: new Date().toISOString() })
+        .eq('id', actualBooking.id);
     }
 
     // ============================================================================
@@ -4667,7 +4678,7 @@ router.delete('/:id', authenticateTenantAdminOnly, async (req, res) => {
 router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res) => {
   try {
     const bookingId = req.params.id;
-    const { payment_status } = req.body;
+    const { payment_status, payment_method, transaction_reference } = req.body;
     const userId = req.user!.id;
     const tenantId = req.user!.tenant_id!;
 
@@ -4710,13 +4721,26 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
       });
     }
 
-    // Update payment status in database
+    const isBecomingPaid = (payment_status === 'paid' || payment_status === 'paid_manual') && oldStatus !== 'paid' && oldStatus !== 'paid_manual';
+    const payMethod = payment_method === 'transfer' ? 'transfer' : (payment_method === 'onsite' ? 'onsite' : (currentBooking as any).payment_method || 'onsite'));
+    const refNum = (transaction_reference && String(transaction_reference).trim()) || '';
+
+    if (isBecomingPaid && payMethod === 'transfer' && !refNum) {
+      return res.status(400).json({ error: 'transaction_reference is required when payment method is transfer (حوالة)' });
+    }
+
+    const updatePayload: Record<string, any> = {
+      payment_status,
+      updated_at: new Date().toISOString(),
+    };
+    if (isBecomingPaid) {
+      updatePayload.payment_method = payMethod;
+      updatePayload.transaction_reference = payMethod === 'transfer' ? refNum : null;
+    }
+
     const { data: updatedBooking, error: updateError } = await supabase
       .from('bookings')
-      .update({
-        payment_status: payment_status,
-        updated_at: new Date().toISOString()
-      })
+      .update(updatePayload)
       .eq('id', bookingId)
       .select()
       .single();
@@ -4725,55 +4749,90 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
       throw updateError;
     }
 
-    // Log audit trail
     await logBookingChange(
       'payment_status_update',
       bookingId,
       tenantId,
       userId,
       { payment_status: oldStatus },
-      { payment_status: payment_status },
+      { payment_status, payment_method: payMethod, transaction_reference: refNum || undefined },
       req.ip,
       req.get('user-agent')
     );
 
-    // CRITICAL: Sync with Zoho Invoice if invoice exists
-    let zohoSyncResult: { success: boolean; error?: string } | null = null;
-    if (currentBooking.zoho_invoice_id) {
-      try {
-        console.log(`[Booking Payment Status] Syncing with Zoho invoice ${currentBooking.zoho_invoice_id}...`);
-        const { zohoService } = await import('../services/zohoService.js');
-        zohoSyncResult = await zohoService.updateInvoiceStatus(
-          tenantId,
-          currentBooking.zoho_invoice_id,
-          payment_status
-        );
+    let zohoSyncResult: { success: boolean; error?: string; paymentId?: string } | null = null;
+    let invoiceSendWarning: string | undefined;
+    const invoiceId = currentBooking.zoho_invoice_id;
+    const totalPrice = Number((updatedBooking || currentBooking).total_price) || 0;
+    const phone = (updatedBooking || currentBooking).customer_phone || '';
 
-        if (zohoSyncResult.success) {
-          console.log(`[Booking Payment Status] ✅ Zoho invoice status synced successfully`);
-        } else {
-          console.error(`[Booking Payment Status] ⚠️  Zoho invoice sync failed: ${zohoSyncResult.error}`);
-          // Hint is already provided by zohoService for authorization errors
-          // Don't fail the booking update - log the error but continue
+    if (isBecomingPaid && invoiceId && totalPrice > 0) {
+      const { zohoService } = await import('../services/zohoService.js');
+      const paymentMode = payMethod === 'transfer' ? 'banktransfer' as const : 'cash' as const;
+      const referenceNumber = payMethod === 'transfer' ? refNum : 'Paid On Site';
+
+      try {
+        const recordResult = await zohoService.recordCustomerPayment(
+          tenantId,
+          invoiceId,
+          totalPrice,
+          paymentMode,
+          referenceNumber
+        );
+        zohoSyncResult = { success: recordResult.success, error: recordResult.error, paymentId: recordResult.paymentId };
+
+        await supabase
+          .from('bookings')
+          .update({
+            zoho_payment_id: recordResult.paymentId || null,
+            zoho_sync_status: recordResult.success ? 'synced' : 'pending',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', bookingId);
+
+        if (!recordResult.success) {
+          logger.error('Zoho record payment failed (non-blocking)', { bookingId, error: recordResult.error });
         }
-      } catch (zohoError: any) {
-        console.error(`[Booking Payment Status] ⚠️  Zoho sync error:`, zohoError.message);
-        zohoSyncResult = { success: false, error: zohoError.message };
-        // Don't fail the booking update - Zoho sync failure shouldn't block payment status update
+      } catch (e: any) {
+        zohoSyncResult = { success: false, error: e?.message || 'Zoho payment record failed' };
+        await supabase
+          .from('bookings')
+          .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
+          .eq('id', bookingId);
       }
-    } else {
-      console.log(`[Booking Payment Status] No Zoho invoice ID found - skipping sync`);
+
+      if (phone && phone.trim()) {
+        try {
+          const invoiceMessage = payMethod === 'transfer'
+            ? `Your booking invoice is attached. Transfer Reference: ${refNum}. Thank you for your booking!`
+            : 'Your booking invoice is attached. Payment Method: Paid On Site. Thank you for your booking!';
+          await zohoService.sendInvoiceViaWhatsApp(tenantId, invoiceId, phone.trim(), invoiceMessage);
+        } catch (waErr: any) {
+          logger.error('Send invoice via WhatsApp failed (non-blocking)', { bookingId, error: waErr?.message });
+          if (waErr?.message?.includes('payment has not been completed')) {
+            invoiceSendWarning = 'Invoice cannot be sent because payment has not been completed.';
+          }
+        }
+      }
+    } else if (invoiceId && !isBecomingPaid && (payment_status === 'paid' || payment_status === 'paid_manual')) {
+      try {
+        const { zohoService } = await import('../services/zohoService.js');
+        zohoSyncResult = await zohoService.updateInvoiceStatus(tenantId, invoiceId, payment_status);
+      } catch (zohoError: any) {
+        zohoSyncResult = { success: false, error: zohoError.message };
+      }
     }
 
-    // Return response with sync status
-    res.json({
+    const responsePayload: Record<string, unknown> = {
       success: true,
       booking: updatedBooking,
-      zoho_sync: zohoSyncResult || { success: false, error: 'No invoice to sync' },
-      message: payment_status === 'paid'
-        ? 'Payment status updated. Zoho invoice synced.'
+      zoho_sync: zohoSyncResult || { success: false, error: invoiceId ? undefined : 'No invoice to sync' },
+      message: payment_status === 'paid' || payment_status === 'paid_manual'
+        ? 'Payment status updated. Invoice sent via WhatsApp when applicable.'
         : 'Payment status updated',
-    });
+    };
+    if (invoiceSendWarning) responsePayload.invoice_send_warning = invoiceSendWarning;
+    res.json(responsePayload);
   } catch (error: any) {
     const context = logger.extractContext(req);
     logger.error('Update payment status error', error, context, {
@@ -4784,14 +4843,14 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
   }
 });
 
-// Cashier-only endpoint: Mark booking as paid (only if currently unpaid)
+// Cashier/Receptionist: Mark booking as paid (only if currently unpaid). Records Zoho payment and sends invoice via WhatsApp.
 router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
   try {
     const bookingId = req.params.id;
+    const { payment_method, transaction_reference } = req.body;
     const userId = req.user!.id;
     const tenantId = req.user!.tenant_id!;
 
-    // Get current booking to verify ownership and current status
     const { data: currentBooking, error: fetchError } = await supabase
       .from('bookings')
       .select('*')
@@ -4802,68 +4861,109 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    // Verify tenant ownership
     if (currentBooking.tenant_id !== tenantId) {
-      return res.status(403).json({ 
-        error: 'Access denied. This booking belongs to a different tenant.' 
-      });
+      return res.status(403).json({ error: 'Access denied. This booking belongs to a different tenant.' });
     }
 
-    // STRICT: Cashier can only mark as paid if currently unpaid or awaiting_payment
     if (currentBooking.payment_status !== 'unpaid' && currentBooking.payment_status !== 'awaiting_payment') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: `Cannot mark as paid. Current payment status is: ${currentBooking.payment_status}. Cashiers can only mark unpaid bookings as paid.`
       });
     }
 
-    // Update payment status to paid_manual
+    const payMethod = payment_method === 'transfer' ? 'transfer' : (payment_method === 'onsite' ? 'onsite' : 'onsite');
+    const refNum = (transaction_reference && String(transaction_reference).trim()) || '';
+    if (payMethod === 'transfer' && !refNum) {
+      return res.status(400).json({ error: 'transaction_reference is required when payment method is transfer (حوالة)' });
+    }
+
+    const updatePayload: Record<string, any> = {
+      payment_status: 'paid_manual',
+      payment_method: payMethod,
+      transaction_reference: payMethod === 'transfer' ? refNum : null,
+      updated_at: new Date().toISOString(),
+    };
+
     const { data: updatedBooking, error: updateError } = await supabase
       .from('bookings')
-      .update({
-        payment_status: 'paid_manual',
-        updated_at: new Date().toISOString()
-      })
+      .update(updatePayload)
       .eq('id', bookingId)
       .select()
       .single();
 
-    if (updateError) {
-      throw updateError;
-    }
+    if (updateError) throw updateError;
 
-    // Log audit trail
     await logBookingChange(
       'payment_status_update',
       bookingId,
       tenantId,
       userId,
       { payment_status: currentBooking.payment_status },
-      { payment_status: 'paid_manual' },
+      { payment_status: 'paid_manual', payment_method: payMethod, transaction_reference: refNum || undefined },
       req.ip,
       req.get('user-agent')
     );
 
-    // Sync with Zoho if invoice exists (non-blocking)
-    if (currentBooking.zoho_invoice_id) {
+    let invoiceSendWarning: string | undefined;
+    const invoiceId = currentBooking.zoho_invoice_id;
+    const totalPrice = Number(updatedBooking?.total_price || currentBooking.total_price) || 0;
+    const phone = (updatedBooking?.customer_phone || currentBooking.customer_phone || '').trim();
+
+    if (invoiceId && totalPrice > 0) {
+      const { zohoService } = await import('../services/zohoService.js');
+      const paymentMode = payMethod === 'transfer' ? 'banktransfer' as const : 'cash' as const;
+      const referenceNumber = payMethod === 'transfer' ? refNum : 'Paid On Site';
+
       try {
-        const { zohoService } = await import('../services/zohoService.js');
-        await zohoService.updateInvoiceStatus(
+        const recordResult = await zohoService.recordCustomerPayment(
           tenantId,
-          currentBooking.zoho_invoice_id,
-          'paid_manual'
-        ).catch(err => {
-          console.error('[Cashier Mark Paid] Zoho sync failed (non-blocking):', err.message);
-        });
-      } catch (zohoError: any) {
-        console.error('[Cashier Mark Paid] Zoho sync error (non-blocking):', zohoError.message);
+          invoiceId,
+          totalPrice,
+          paymentMode,
+          referenceNumber
+        );
+        await supabase
+          .from('bookings')
+          .update({
+            zoho_payment_id: recordResult.paymentId || null,
+            zoho_sync_status: recordResult.success ? 'synced' : 'pending',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', bookingId);
+
+        if (!recordResult.success) {
+          logger.error('[Mark Paid] Zoho record payment failed (non-blocking)', { bookingId, error: recordResult.error });
+        }
+      } catch (e: any) {
+        await supabase
+          .from('bookings')
+          .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
+          .eq('id', bookingId);
+        logger.error('[Mark Paid] Zoho payment error (non-blocking):', e?.message);
+      }
+
+      if (phone) {
+        try {
+          const invoiceMessage = payMethod === 'transfer'
+            ? `Your booking invoice is attached. Transfer Reference: ${refNum}. Thank you for your booking!`
+            : 'Your booking invoice is attached. Payment Method: Paid On Site. Thank you for your booking!';
+          await zohoService.sendInvoiceViaWhatsApp(tenantId, invoiceId, phone, invoiceMessage);
+        } catch (waErr: any) {
+          logger.error('[Mark Paid] Send invoice via WhatsApp failed (non-blocking):', waErr?.message);
+          if (waErr?.message?.includes('payment has not been completed')) {
+            invoiceSendWarning = 'Invoice cannot be sent because payment has not been completed.';
+          }
+        }
       }
     }
 
-    res.json({
+    const markPaidPayload: Record<string, unknown> = {
       success: true,
-      message: 'Booking marked as paid successfully',
-      booking: updatedBooking
-    });
+      message: 'Booking marked as paid. Invoice sent via WhatsApp when applicable.',
+      booking: updatedBooking,
+    };
+    if (invoiceSendWarning) markPaidPayload.invoice_send_warning = invoiceSendWarning;
+    res.json(markPaidPayload);
   } catch (error: any) {
     logger.error('Mark paid error:', error);
     res.status(500).json({ error: error.message || 'Failed to mark booking as paid' });

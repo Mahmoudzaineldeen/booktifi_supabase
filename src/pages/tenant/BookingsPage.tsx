@@ -125,7 +125,11 @@ export function BookingsPage() {
   const [deletingBooking, setDeletingBooking] = useState<string | null>(null);
   const [updatingPaymentStatus, setUpdatingPaymentStatus] = useState<string | null>(null);
   const [zohoSyncStatus, setZohoSyncStatus] = useState<Record<string, { success: boolean; error?: string }>>({});
-  
+  const [paymentStatusModal, setPaymentStatusModal] = useState<{ bookingId: string; value: string } | null>(null);
+  const [paymentStatusModalMethod, setPaymentStatusModalMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [paymentStatusModalReference, setPaymentStatusModalReference] = useState('');
+  const [paymentStatusModalSubmitting, setPaymentStatusModalSubmitting] = useState(false);
+
   // Search state
   const [searchType, setSearchType] = useState<SearchType>('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -776,11 +780,23 @@ export function BookingsPage() {
     }
   }
 
-  async function updatePaymentStatus(bookingId: string, paymentStatus: string) {
+  async function updatePaymentStatus(
+    bookingId: string,
+    paymentStatus: string,
+    paymentMethod?: 'onsite' | 'transfer',
+    transactionReference?: string
+  ) {
     try {
       setUpdatingPaymentStatus(bookingId);
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
+
+      const body: Record<string, string> = { payment_status: paymentStatus };
+      if (paymentStatus === 'paid' || paymentStatus === 'paid_manual') {
+        if (paymentMethod) body.payment_method = paymentMethod;
+        if (paymentMethod === 'transfer' && transactionReference?.trim())
+          body.transaction_reference = transactionReference.trim();
+      }
 
       const response = await fetch(`${API_URL}/bookings/${bookingId}/payment-status`, {
         method: 'PATCH',
@@ -788,7 +804,7 @@ export function BookingsPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ payment_status: paymentStatus }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -1685,7 +1701,16 @@ export function BookingsPage() {
                           <DollarSign className="w-4 h-4 text-gray-500" />
                           <select
                             value={booking.payment_status || 'unpaid'}
-                            onChange={(e) => updatePaymentStatus(booking.id, e.target.value)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === 'paid' || val === 'paid_manual') {
+                                setPaymentStatusModal({ bookingId: booking.id, value: val });
+                                setPaymentStatusModalMethod('onsite');
+                                setPaymentStatusModalReference('');
+                              } else {
+                                updatePaymentStatus(booking.id, val);
+                              }
+                            }}
                             disabled={updatingPaymentStatus === booking.id}
                             className="px-3 py-1 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
@@ -1905,6 +1930,100 @@ export function BookingsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Payment status modal: when setting to paid, collect payment method + transaction reference */}
+      {paymentStatusModal && (
+        <Modal
+          isOpen={!!paymentStatusModal}
+          onClose={() => {
+            setPaymentStatusModal(null);
+            setPaymentStatusModalReference('');
+          }}
+          title={t('bookings.setPaymentStatus', 'Set Payment Status')}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              {t('bookings.selectPaymentMethodForPaid', 'Select payment method. Invoice will be sent via WhatsApp after confirmation.')}
+            </p>
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">{t('bookings.paymentMethod', 'Payment method')}</p>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="payment-status-method"
+                    checked={paymentStatusModalMethod === 'onsite'}
+                    onChange={() => setPaymentStatusModalMethod('onsite')}
+                    className="rounded-full border-gray-300 text-blue-600"
+                  />
+                  <span>مدفوع يدوياً</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="payment-status-method"
+                    checked={paymentStatusModalMethod === 'transfer'}
+                    onChange={() => setPaymentStatusModalMethod('transfer')}
+                    className="rounded-full border-gray-300 text-blue-600"
+                  />
+                  <span>حوالة</span>
+                </label>
+              </div>
+            </div>
+            {paymentStatusModalMethod === 'transfer' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('bookings.transactionReferenceRequired', 'Transaction Reference Number (required)')}
+                </label>
+                <input
+                  type="text"
+                  value={paymentStatusModalReference}
+                  onChange={(e) => setPaymentStatusModalReference(e.target.value)}
+                  placeholder={t('bookings.enterReferenceNumber', 'Enter reference number')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
+            <div className="flex gap-2 justify-end pt-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setPaymentStatusModal(null);
+                  setPaymentStatusModalReference('');
+                }}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                variant="primary"
+                onClick={async () => {
+                  if (paymentStatusModalMethod === 'transfer' && !paymentStatusModalReference.trim()) {
+                    alert(t('bookings.transactionReferenceRequired') || 'Transaction reference is required for transfer.');
+                    return;
+                  }
+                  setPaymentStatusModalSubmitting(true);
+                  try {
+                    await updatePaymentStatus(
+                      paymentStatusModal.bookingId,
+                      paymentStatusModal.value,
+                      paymentStatusModalMethod,
+                      paymentStatusModalReference.trim() || undefined
+                    );
+                    setPaymentStatusModal(null);
+                    setPaymentStatusModalReference('');
+                  } finally {
+                    setPaymentStatusModalSubmitting(false);
+                  }
+                }}
+                disabled={paymentStatusModalSubmitting || (paymentStatusModalMethod === 'transfer' && !paymentStatusModalReference.trim())}
+                icon={<DollarSign className="w-4 h-4" />}
+              >
+                {paymentStatusModalSubmitting ? t('bookings.updating') : t('common.confirm')}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Admin Create Booking Modal — same layout, field order, validation and preview as Receptionist (ReceptionPage) */}

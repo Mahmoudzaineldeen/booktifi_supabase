@@ -1457,6 +1457,8 @@ export async function generateVisitorsReportPdf(options: {
   totalPackageBookings: number;
   totalPaidBookings: number;
   totalSpent: number;
+  totalPaidOnSite?: number;
+  totalPaidByTransfer?: number;
   rows: Array<{
     customer_name: string;
     phone: string;
@@ -1526,6 +1528,8 @@ export async function generateVisitorsReportPdf(options: {
     doc.text(`Package Bookings: ${options.totalPackageBookings}`);
     doc.text(`Paid Bookings: ${options.totalPaidBookings}`);
     doc.text(`Total Spent: ${formatNum(options.totalSpent)}`);
+    if (options.totalPaidOnSite != null) doc.text(`Total Paid On Site: ${formatNum(options.totalPaidOnSite)}`);
+    if (options.totalPaidByTransfer != null) doc.text(`Total Paid by Transfer: ${formatNum(options.totalPaidByTransfer)}`);
     doc.moveDown();
   }
 
@@ -1745,7 +1749,7 @@ export type VisitorStructuredReportPdf = {
   summary: { totalVisitors: number; totalBookings: number; packageBookings: number; paidBookings: number; totalSpent: number };
   profile: { name: string; phone: string; email: string; status: string };
   activePackages: Array<{ packageName: string; serviceName: string; remainingSlots: number }>;
-  bookingHistory: Array<{ bookingId: string; serviceName: string; date: string; time: string; visitorsCount: number; type: string; amountPaid: number; status: string; createdBy: string }>;
+  bookingHistory: Array<{ bookingId: string; serviceName: string; date: string; time: string; visitorsCount: number; type: string; amountPaid: number; status: string; createdBy: string; paymentMethod?: string; transactionReference?: string | null }>;
 };
 
 export async function generateVisitorDetailStructuredPdf(reports: VisitorStructuredReportPdf[]): Promise<Buffer> {
@@ -1870,8 +1874,8 @@ export async function generateVisitorDetailStructuredPdf(reports: VisitorStructu
     doc.font('Helvetica').fontSize(12).text('4. Booking History', { align: 'left', width: lineWidth }).fontSize(10);
     doc.moveDown(0.3);
     const colGap = 4;
-    const colW = [100, 78, 72, 58, 42, 58, 58, 68, 68];
-    const headers = ['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Type', 'Amount', 'Status', 'Created By'];
+    const colW = [90, 70, 64, 52, 38, 52, 52, 58, 58, 62, 70];
+    const headers = ['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Type', 'Amount', 'Status', 'Created By', 'Payment Method', 'Transaction Ref'];
     const tableFontSize = 9;
     const headerRowHeight = 20;
     const minRowHeight = 18;
@@ -1902,6 +1906,8 @@ export async function generateVisitorDetailStructuredPdf(reports: VisitorStructu
         formatNum(Number(b.amountPaid ?? 0)),
         b.status ?? '',
         b.createdBy ?? '',
+        (b as any).paymentMethod ?? '',
+        (b as any).transactionReference ?? '',
       ];
       let maxRowH = 0;
       for (let i = 0; i < cells.length; i++) {

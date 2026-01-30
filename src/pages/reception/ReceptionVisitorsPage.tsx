@@ -44,6 +44,8 @@ interface VisitorRow {
   email: string | null;
   total_bookings: number;
   total_spent: number;
+  total_paid_on_site?: number;
+  total_paid_by_transfer?: number;
   package_bookings_count: number;
   paid_bookings_count: number;
   last_booking_date: string | null;
@@ -60,6 +62,8 @@ interface VisitorDetailBooking {
   amount_paid: number;
   status: string;
   created_by: string;
+  payment_method?: string | null;
+  transaction_reference?: string | null;
 }
 
 interface VisitorDetail {
@@ -100,6 +104,8 @@ export function ReceptionVisitorsPage() {
     totalPackageBookings: 0,
     totalPaidBookings: 0,
     totalSpent: 0,
+    totalPaidOnSite: 0,
+    totalPaidByTransfer: 0,
   });
 
   const [nameFilter, setNameFilter] = useState('');
@@ -158,6 +164,8 @@ export function ReceptionVisitorsPage() {
         totalPackageBookings: data.summary?.totalPackageBookings ?? 0,
         totalPaidBookings: data.summary?.totalPaidBookings ?? 0,
         totalSpent: data.summary?.totalSpent ?? 0,
+        totalPaidOnSite: data.summary?.totalPaidOnSite ?? 0,
+        totalPaidByTransfer: data.summary?.totalPaidByTransfer ?? 0,
       });
     } catch (e: any) {
       console.error('Fetch visitors error', e);
@@ -612,6 +620,18 @@ export function ReceptionVisitorsPage() {
             <p className="text-xl font-bold text-blue-800">{formatPrice(summary.totalSpent)}</p>
           </CardContent>
         </Card>
+        <Card className="bg-white border border-slate-200 bg-slate-50/50">
+          <CardContent className="p-3">
+            <p className="text-xs text-gray-600">{t('visitors.totalPaidOnSite', 'Total Paid On Site')}</p>
+            <p className="text-xl font-bold text-slate-800">{formatPrice(summary.totalPaidOnSite)}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-white border border-indigo-200 bg-indigo-50/50">
+          <CardContent className="p-3">
+            <p className="text-xs text-gray-600">{t('visitors.totalPaidByTransfer', 'Total Paid by Transfer')}</p>
+            <p className="text-xl font-bold text-indigo-800">{formatPrice(summary.totalPaidByTransfer)}</p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Visitors list - table inside card (reception style) */}
@@ -816,6 +836,8 @@ export function ReceptionVisitorsPage() {
                       <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.amountPaid', 'Amount')}</th>
                       <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.status', 'Status')}</th>
                       <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.createdBy', 'Created By')}</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.paymentMethod', 'Payment Method')}</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.transactionReference', 'Transaction Reference')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -834,6 +856,8 @@ export function ReceptionVisitorsPage() {
                         <td className="px-3 py-2">{formatPrice(b.amount_paid)}</td>
                         <td className="px-3 py-2">{safeTranslateStatus(t, b.status)}</td>
                         <td className="px-3 py-2">{b.created_by === 'staff' ? t('visitors.staff', 'Admin/Receptionist') : t('visitors.customer', 'Customer')}</td>
+                        <td className="px-3 py-2">{b.payment_method || '—'}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{b.transaction_reference || '—'}</td>
                       </tr>
                     ))}
                   </tbody>

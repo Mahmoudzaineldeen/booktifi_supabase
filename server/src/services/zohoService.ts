@@ -1,3 +1,19 @@
+/**
+ * Zoho Books / Zoho Invoice integration.
+ *
+ * Required Zoho OAuth scopes (ensure these are requested and granted):
+ * - Create invoices   (ZohoInvoice.invoices.CREATE / ZohoBooks.invoices.CREATE)
+ * - Fetch invoice details (ZohoInvoice.invoices.READ / ZohoBooks.invoices.READ)
+ * - Update invoice details (ZohoInvoice.invoices.UPDATE / ZohoBooks.invoices.UPDATE)
+ * - Create customers  (ZohoInvoice.contacts.CREATE / ZohoBooks.contacts.CREATE)
+ * - Fetch customer details (ZohoInvoice.contacts.READ / ZohoBooks.contacts.READ)
+ * - Customer payments (for recording payment so invoice becomes Paid)
+ *
+ * Critical business rule: Before sending an invoice via WhatsApp or Email, the system
+ * MUST fetch the current payment status from Zoho and send ONLY if the invoice status
+ * is "Paid". If not paid, do not send and surface: "Invoice cannot be sent because
+ * payment has not been completed."
+ */
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { supabase } from '../db';
 import dotenv from 'dotenv';
@@ -689,11 +705,19 @@ class ZohoService {
 
   /**
    * Send invoice via email through Zoho
-   * Ensures invoice is sent via email with retry logic
-   * Note: Invoice should be in 'sent' status, but we'll try even if it's draft
+   * Critical: Fetches latest payment status from Zoho; only sends if invoice is Paid.
+   * Ensures invoice is sent via email with retry logic.
    */
   async sendInvoiceEmail(tenantId: string, invoiceId: string, customerEmail: string, retryCount: number = 0): Promise<void> {
     const MAX_RETRIES = 2;
+    const paymentStatus = await this.getInvoicePaymentStatus(tenantId, invoiceId);
+    if (paymentStatus.error) {
+      throw new Error(paymentStatus.error);
+    }
+    if (!paymentStatus.isPaid) {
+      console.warn(`[ZohoService] ❌ Invoice ${invoiceId} not sent via Email: payment status in Zoho is "${paymentStatus.status || 'unknown'}" (not Paid)`);
+      throw new Error('Invoice cannot be sent because payment has not been completed.');
+    }
     const accessToken = await this.getAccessToken(tenantId);
 
     // Validate email format before sending
@@ -915,10 +939,19 @@ class ZohoService {
 
   /**
    * Send invoice via WhatsApp
-   * Flow: Download Invoice PDF (Zoho API) → Send PDF via WhatsApp (WhatsApp API)
+   * Flow: Fetch latest payment status from Zoho → Only if Paid: Download PDF → Send via WhatsApp
+   * Critical: Invoice must NOT be sent if Zoho status is not Paid.
    */
-  async sendInvoiceViaWhatsApp(tenantId: string, invoiceId: string, phoneNumber: string): Promise<void> {
+  async sendInvoiceViaWhatsApp(tenantId: string, invoiceId: string, phoneNumber: string, customMessage?: string): Promise<void> {
     try {
+      const paymentStatus = await this.getInvoicePaymentStatus(tenantId, invoiceId);
+      if (paymentStatus.error) {
+        throw new Error(paymentStatus.error);
+      }
+      if (!paymentStatus.isPaid) {
+        console.warn(`[ZohoService] ❌ Invoice ${invoiceId} not sent via WhatsApp: payment status in Zoho is "${paymentStatus.status || 'unknown'}" (not Paid)`);
+        throw new Error('Invoice cannot be sent because payment has not been completed.');
+      }
       // Step 2: Download Invoice PDF from Zoho API
       console.log(`[ZohoService] 📥 Step 2: Downloading invoice PDF from Zoho API (Invoice ID: ${invoiceId})...`);
       const pdfBuffer = await this.downloadInvoicePdf(tenantId, invoiceId);
@@ -950,12 +983,13 @@ class ZohoService {
         };
       }
       
-      // Send invoice PDF via WhatsApp API
+      // Send invoice PDF via WhatsApp API (customMessage can include Transfer Reference or Paid On Site)
+      const message = customMessage || 'Your booking invoice is attached. Thank you for your booking!';
       const result = await sendWhatsAppDocument(
         phoneNumber,
         pdfBuffer,
         `invoice_${invoiceId}.pdf`,
-        'Your booking invoice is attached. Thank you for your booking!',
+        message,
         whatsappConfig
       );
       
@@ -2509,6 +2543,102 @@ Note: The booking payment status was updated successfully in the database. Only 
         error: error.message || 'Unknown error updating invoice status' 
       };
     }
+  }
+
+  /**
+   * Record a customer payment in Zoho so the invoice is marked as PAID.
+   * Zoho marks invoice as paid only when a PAYMENT is recorded (not by updating status).
+   * paymentMode: 'cash' = مدفوع يدوياً (Paid On Site), 'banktransfer' = حوالة
+   */
+  async recordCustomerPayment(
+    tenantId: string,
+    invoiceId: string,
+    amount: number,
+    paymentMode: 'cash' | 'banktransfer',
+    referenceNumber: string,
+    date?: string
+  ): Promise<{ success: boolean; paymentId?: string; error?: string }> {
+    const accessToken = await this.getAccessToken(tenantId);
+    const apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
+    const paymentDate = date || new Date().toISOString().slice(0, 10);
+
+    const { invoice, error: invError } = await this.getInvoice(tenantId, invoiceId);
+    if (invError || !invoice) {
+      return { success: false, error: invError || 'Invoice not found' };
+    }
+    const customerId = invoice.customer_id;
+    if (!customerId) {
+      return { success: false, error: 'Invoice has no customer_id' };
+    }
+
+    let orgId: string | null = null;
+    try {
+      const orgRes = await axios.get(`${apiBaseUrl}/organizations`, {
+        headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+      });
+      const orgs = (orgRes.data as any)?.organizations;
+      if (orgs && orgs.length > 0) orgId = orgs[0].organization_id;
+    } catch (e) {
+      console.warn('[ZohoService] Could not fetch organization id:', (e as any)?.message);
+    }
+
+    const payload = {
+      customer_id: customerId,
+      payment_mode: paymentMode === 'cash' ? 'cash' : 'banktransfer',
+      amount: Number(amount),
+      date: paymentDate,
+      reference_number: referenceNumber || (paymentMode === 'cash' ? 'Paid On Site' : ''),
+      invoices: [{ invoice_id: invoiceId, amount_applied: Number(amount) }],
+    };
+
+    const headers: Record<string, string> = {
+      Authorization: `Zoho-oauthtoken ${accessToken}`,
+      'Content-Type': 'application/json',
+    };
+    if (orgId) headers['X-com-zoho-invoice-organizationid'] = orgId;
+
+    try {
+      const res = await axios.post(`${apiBaseUrl}/customerpayments`, payload, { headers });
+      const data = res.data as any;
+      if (data.code === 0 && data.payment?.payment_id) {
+        console.log(`[ZohoService] ✅ Customer payment recorded: ${data.payment.payment_id}`);
+        return { success: true, paymentId: data.payment.payment_id };
+      }
+      return { success: false, error: data.message || 'Unknown Zoho response' };
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message;
+      console.error('[ZohoService] recordCustomerPayment failed:', msg);
+      return { success: false, error: msg };
+    }
+  }
+
+  /**
+   * Fetch latest invoice payment status from Zoho and return whether it is fully paid.
+   * Required before sending invoice via WhatsApp or Email (critical business rule).
+   * Zoho invoice status: sent, draft, overdue, paid, void, unpaid, partially_paid, viewed.
+   * Balance = unpaid amount; when paid, balance is 0 and status is "paid".
+   */
+  async getInvoicePaymentStatus(tenantId: string, invoiceId: string): Promise<{
+    isPaid: boolean;
+    status?: string;
+    balance?: number;
+    error?: string;
+  }> {
+    const result = await this.getInvoice(tenantId, invoiceId);
+    if (result.error) {
+      return { isPaid: false, error: result.error };
+    }
+    const inv = result.invoice;
+    if (!inv) {
+      return { isPaid: false, error: 'Invoice not found' };
+    }
+    const status = (inv.status || '').toLowerCase();
+    const balanceRaw = inv.balance;
+    const balance = balanceRaw !== undefined && balanceRaw !== null && balanceRaw !== ''
+      ? Number(balanceRaw)
+      : undefined;
+    const isPaid = status === 'paid' || (balance !== undefined && Number.isFinite(balance) && balance <= 0);
+    return { isPaid: !!isPaid, status: inv.status, balance };
   }
 
   /**

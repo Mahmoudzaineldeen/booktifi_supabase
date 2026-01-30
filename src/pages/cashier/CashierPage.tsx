@@ -50,6 +50,8 @@ export function CashierPage() {
   const [qrValidationResult, setQrValidationResult] = useState<{success: boolean; message: string; booking?: any} | null>(null);
   const [qrValidating, setQrValidating] = useState(false);
   const [updatingPayment, setUpdatingPayment] = useState(false);
+  const [markPaidMethod, setMarkPaidMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [markPaidReference, setMarkPaidReference] = useState('');
 
   // Track if initial auth check has been completed
   const [initialAuthDone, setInitialAuthDone] = useState(false);
@@ -227,19 +229,26 @@ export function CashierPage() {
   // Update payment status (Cashier can only mark as paid if unpaid)
   async function updatePaymentStatus(bookingId: string) {
     if (!userProfile?.tenant_id) return;
+    if (markPaidMethod === 'transfer' && !markPaidReference.trim()) {
+      alert(i18n.language === 'ar' ? 'رقم المرجع مطلوب عند الدفع بالحوالة' : 'Transaction reference number is required for transfer payment.');
+      return;
+    }
 
     setUpdatingPayment(true);
     try {
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
 
-      // Use cashier-specific endpoint
       const response = await fetch(`${API_URL}/bookings/${bookingId}/mark-paid`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
+        body: JSON.stringify({
+          payment_method: markPaidMethod,
+          transaction_reference: markPaidMethod === 'transfer' ? markPaidReference.trim() : undefined,
+        }),
       });
 
       if (!response.ok) {
@@ -247,10 +256,10 @@ export function CashierPage() {
         throw new Error(error.error || t('cashier.failedToMarkAsPaid'));
       }
 
-      // Refresh booking details
       if (scannedBooking) {
         await fetchBookingDetails(bookingId);
       }
+      setMarkPaidReference('');
 
       alert(i18n.language === 'ar' 
         ? 'تم تحديث حالة الدفع بنجاح' 
@@ -492,12 +501,51 @@ export function CashierPage() {
                   <p className="text-2xl font-bold text-gray-900">{formatPrice(scannedBooking.total_price)}</p>
                 </div>
 
-                {/* Payment Action - Cashier can only mark as paid if unpaid */}
-                {(scannedBooking.payment_status === 'unpaid' || scannedBooking.payment_status === 'awaiting_payment') && (
-                  <div className="border-t pt-4">
+                {/* Payment Action - Cashier: payment method + mark as paid */}
+                {(scannedBooking.payment_status === 'unpaid' || scannedBooking.payment_status === 'awaiting_payment') && Number(scannedBooking.total_price) > 0 && (
+                  <div className="border-t pt-4 space-y-3">
+                    <p className="text-sm font-medium text-gray-700">
+                      {i18n.language === 'ar' ? 'طريقة الدفع' : 'Payment method'}
+                    </p>
+                    <div className="flex flex-wrap gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="payment-method"
+                          checked={markPaidMethod === 'onsite'}
+                          onChange={() => setMarkPaidMethod('onsite')}
+                          className="rounded-full border-gray-300 text-blue-600"
+                        />
+                        <span>مدفوع يدوياً</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="payment-method"
+                          checked={markPaidMethod === 'transfer'}
+                          onChange={() => setMarkPaidMethod('transfer')}
+                          className="rounded-full border-gray-300 text-blue-600"
+                        />
+                        <span>حوالة</span>
+                      </label>
+                    </div>
+                    {markPaidMethod === 'transfer' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          {i18n.language === 'ar' ? 'رقم المرجع (مطلوب)' : 'Transaction Reference Number (required)'}
+                        </label>
+                        <input
+                          type="text"
+                          value={markPaidReference}
+                          onChange={(e) => setMarkPaidReference(e.target.value)}
+                          placeholder={i18n.language === 'ar' ? 'أدخل رقم المرجع' : 'Enter reference number'}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    )}
                     <Button
                       onClick={() => updatePaymentStatus(scannedBooking.id)}
-                      disabled={updatingPayment}
+                      disabled={updatingPayment || (markPaidMethod === 'transfer' && !markPaidReference.trim())}
                       icon={<DollarSign className="w-4 h-4" />}
                       variant="primary"
                       className="w-full"

@@ -168,6 +168,9 @@ async function fetchAllBookings(
         customer_email,
         total_price,
         status,
+        payment_status,
+        payment_method,
+        transaction_reference,
         slot_id,
         service_id,
         package_covered_quantity,
@@ -267,31 +270,35 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
 
     const filteredBookings = bookings.filter((b) => applyDateFilter(b) && applyBookingTypeFilter(b));
 
-    const SPENT_STATUSES = new Set(['confirmed', 'completed', 'checked_in']);
-    const isCountedForSpent = (status: string) => status && SPENT_STATUSES.has(String(status).toLowerCase());
+    const PAYMENT_PAID_STATUSES = new Set(['paid', 'paid_manual']);
+    const isPaymentPaid = (ps: string) => ps && PAYMENT_PAID_STATUSES.has(String(ps).toLowerCase());
 
     // Package purchase spend (total spent = bookings + package purchases)
     const packageSpendByCustomer = await fetchPackageSpendByCustomer(tenantId);
 
     // Aggregate by customer_id (and by guest phone for customer_id null)
-    const byCustomerId: Record<string, { total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
-    const byGuestPhone: Record<string, { name: string; email: string | null; total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
+    const byCustomerId: Record<string, { total: number; spent: number; spentOnSite: number; spentTransfer: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
+    const byGuestPhone: Record<string, { name: string; email: string | null; total: number; spent: number; spentOnSite: number; spentTransfer: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
 
     for (const b of filteredBookings) {
       const slotDate = b.slots?.slot_date || slotDates[b.slot_id]?.slot_date || null;
       const pc = b.package_covered_quantity ?? 0;
       const isPackage = pc > 0;
       const amount = parsePrice(b.total_price);
-      // Total Spent = paid only; only confirmed/completed/checked_in
-      const addToSpent = !isPackage && isCountedForSpent(b.status) ? amount : 0;
+      const paid = !isPackage && isPaymentPaid(b.payment_status);
+      const addToSpent = paid ? amount : 0;
+      const addOnSite = paid && b.payment_method === 'onsite' ? amount : 0;
+      const addTransfer = paid && b.payment_method === 'transfer' ? amount : 0;
 
       if (b.customer_id) {
         if (!byCustomerId[b.customer_id]) {
-          byCustomerId[b.customer_id] = { total: 0, spent: 0, packageCount: 0, paidCount: 0, lastDate: null };
+          byCustomerId[b.customer_id] = { total: 0, spent: 0, spentOnSite: 0, spentTransfer: 0, packageCount: 0, paidCount: 0, lastDate: null };
         }
         const agg = byCustomerId[b.customer_id];
         agg.total += 1;
         agg.spent += addToSpent;
+        agg.spentOnSite += addOnSite;
+        agg.spentTransfer += addTransfer;
         if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       } else {
@@ -303,6 +310,8 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
             email: b.customer_email || null,
             total: 0,
             spent: 0,
+            spentOnSite: 0,
+            spentTransfer: 0,
             packageCount: 0,
             paidCount: 0,
             lastDate: null,
@@ -311,6 +320,8 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
         const agg = byGuestPhone[phone];
         agg.total += 1;
         agg.spent += addToSpent;
+        agg.spentOnSite += addOnSite;
+        agg.spentTransfer += addTransfer;
         if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       }
@@ -343,6 +354,8 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
         email: c.email || null,
         total_bookings: totalBookings,
         total_spent: totalSpent,
+        total_paid_on_site: (agg?.spentOnSite ?? 0) + (guest?.spentOnSite ?? 0),
+        total_paid_by_transfer: (agg?.spentTransfer ?? 0) + (guest?.spentTransfer ?? 0),
         package_bookings_count: packageCount,
         paid_bookings_count: paidCount,
         last_booking_date: lastDate ?? agg?.lastDate ?? guest?.lastDate ?? null,
@@ -364,6 +377,8 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
         email: agg.email,
         total_bookings: agg.total,
         total_spent: agg.spent,
+        total_paid_on_site: agg.spentOnSite ?? 0,
+        total_paid_by_transfer: agg.spentTransfer ?? 0,
         package_bookings_count: agg.packageCount,
         paid_bookings_count: agg.paidCount,
         last_booking_date: agg.lastDate,
@@ -380,6 +395,8 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     const totalPackageBookings = filteredBookings.filter((b: any) => (b.package_covered_quantity ?? 0) > 0).length;
     const totalPaidBookings = filteredBookings.filter((b: any) => (b.package_covered_quantity ?? 0) === 0).length;
     const totalSpent = visitorRows.reduce((s: number, r: any) => s + parsePrice(r.total_spent), 0);
+    const totalPaidOnSite = visitorRows.reduce((s: number, r: any) => s + parsePrice((r as any).total_paid_on_site ?? 0), 0);
+    const totalPaidByTransfer = visitorRows.reduce((s: number, r: any) => s + parsePrice((r as any).total_paid_by_transfer ?? 0), 0);
     const totalCustomers = visitorRows.filter((r: any) => r.type === 'customer').length;
 
     const summary = {
@@ -387,6 +404,8 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       totalPackageBookings,
       totalPaidBookings,
       totalSpent,
+      totalPaidOnSite,
+      totalPaidByTransfer,
       totalCustomers,
     };
 
@@ -498,29 +517,37 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     const filteredBookings = bookings.filter((b) => applyDateFilter(b) && applyTypeFilter(b));
 
     const packageSpendByCustomerExport = await fetchPackageSpendByCustomer(tenantId);
-    const isCountedForSpentExport = (status: string) => status && ['confirmed', 'completed', 'checked_in'].includes(String(status).toLowerCase());
-    const byCustomerId: Record<string, { total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
-    const byGuestPhone: Record<string, { name: string; email: string | null; total: number; spent: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
+    const PAYMENT_PAID_STATUSES = new Set(['paid', 'paid_manual']);
+    const isPaymentPaidExport = (ps: string) => ps && PAYMENT_PAID_STATUSES.has(String(ps).toLowerCase());
+    const byCustomerId: Record<string, { total: number; spent: number; spentOnSite: number; spentTransfer: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
+    const byGuestPhone: Record<string, { name: string; email: string | null; total: number; spent: number; spentOnSite: number; spentTransfer: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
     for (const b of filteredBookings) {
       const slotDate = b.slots?.slot_date ?? slotDates[b.slot_id] ?? null;
       const pc = b.package_covered_quantity ?? 0;
       const isPackage = pc > 0;
       const amount = parsePrice(b.total_price);
-      const addToSpent = !isPackage && isCountedForSpentExport(b.status) ? amount : 0;
+      const paid = !isPackage && isPaymentPaidExport(b.payment_status);
+      const addToSpent = paid ? amount : 0;
+      const addOnSite = paid && b.payment_method === 'onsite' ? amount : 0;
+      const addTransfer = paid && b.payment_method === 'transfer' ? amount : 0;
       if (b.customer_id) {
-        if (!byCustomerId[b.customer_id]) byCustomerId[b.customer_id] = { total: 0, spent: 0, packageCount: 0, paidCount: 0, lastDate: null };
+        if (!byCustomerId[b.customer_id]) byCustomerId[b.customer_id] = { total: 0, spent: 0, spentOnSite: 0, spentTransfer: 0, packageCount: 0, paidCount: 0, lastDate: null };
         const agg = byCustomerId[b.customer_id];
         agg.total += 1;
         agg.spent += addToSpent;
+        agg.spentOnSite += addOnSite;
+        agg.spentTransfer += addTransfer;
         if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       } else {
         const phone = (b.customer_phone || '').trim();
         if (!phone) continue;
-        if (!byGuestPhone[phone]) byGuestPhone[phone] = { name: b.customer_name || '', email: b.customer_email || null, total: 0, spent: 0, packageCount: 0, paidCount: 0, lastDate: null };
+        if (!byGuestPhone[phone]) byGuestPhone[phone] = { name: b.customer_name || '', email: b.customer_email || null, total: 0, spent: 0, spentOnSite: 0, spentTransfer: 0, packageCount: 0, paidCount: 0, lastDate: null };
         const agg = byGuestPhone[phone];
         agg.total += 1;
         agg.spent += addToSpent;
+        agg.spentOnSite += addOnSite;
+        agg.spentTransfer += addTransfer;
         if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       }
@@ -537,6 +564,8 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       const guest = guestEntry ? guestEntry[1] : null;
       const totalBookings = (agg?.total ?? 0) + (guest?.total ?? 0);
       const totalSpent = (agg?.spent ?? 0) + (guest?.spent ?? 0);
+      const totalPaidOnSite = (agg?.spentOnSite ?? 0) + (guest?.spentOnSite ?? 0);
+      const totalPaidByTransfer = (agg?.spentTransfer ?? 0) + (guest?.spentTransfer ?? 0);
       const packageCount = (agg?.packageCount ?? 0) + (guest?.packageCount ?? 0);
       const paidCount = (agg?.paidCount ?? 0) + (guest?.paidCount ?? 0);
       const lastDate = [agg?.lastDate, guest?.lastDate].filter(Boolean).sort().pop() as string | null;
@@ -550,6 +579,8 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         email: c.email || null,
         total_bookings: totalBookings,
         total_spent: totalSpent,
+        total_paid_on_site: totalPaidOnSite,
+        total_paid_by_transfer: totalPaidByTransfer,
         package_bookings_count: packageCount,
         paid_bookings_count: paidCount,
         last_booking_date: lastDate ?? agg?.lastDate ?? guest?.lastDate ?? null,
@@ -568,6 +599,8 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         email: agg.email,
         total_bookings: agg.total,
         total_spent: agg.spent,
+        total_paid_on_site: agg.spentOnSite ?? 0,
+        total_paid_by_transfer: agg.spentTransfer ?? 0,
         package_bookings_count: agg.packageCount,
         paid_bookings_count: agg.paidCount,
         last_booking_date: agg.lastDate,
@@ -593,6 +626,8 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     const totalPackageBookings = filteredRows.reduce((s: number, r: any) => s + (Number(r.package_bookings_count) || 0), 0);
     const totalPaidBookings = filteredRows.reduce((s: number, r: any) => s + (Number(r.paid_bookings_count) || 0), 0);
     const totalSpent = filteredRows.reduce((s: number, r: any) => s + parsePrice(r.total_spent), 0);
+    const totalPaidOnSite = filteredRows.reduce((s: number, r: any) => s + parsePrice((r as any).total_paid_on_site ?? 0), 0);
+    const totalPaidByTransfer = filteredRows.reduce((s: number, r: any) => s + parsePrice((r as any).total_paid_by_transfer ?? 0), 0);
 
     // Detail export: 4 separate sections (Summary, Profile, Active Packages, Booking History)
     if (detailMode && filteredRows.length > 0) {
@@ -644,12 +679,12 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           );
           zip.append('\uFEFF' + packagesHeader + '\r\n' + packageRows.join('\r\n'), { name: 'active_packages.csv' });
 
-          const historyHeader = multi ? 'Name,Booking ID,Service,Date,Time,Visitors,Type,Amount Paid,Status,Created By' : 'Booking ID,Service,Date,Time,Visitors,Type,Amount Paid,Status,Created By';
+          const historyHeader = multi ? 'Name,Booking ID,Service,Date,Time,Visitors,Type,Amount Paid,Status,Created By,Payment Method,Transaction Reference' : 'Booking ID,Service,Date,Time,Visitors,Type,Amount Paid,Status,Created By,Payment Method,Transaction Reference';
           const historyRows = reports.flatMap((rep) =>
             rep.bookingHistory.map((b) =>
               multi
-                ? [rep.profile.name, b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy].map(csvCell).join(',')
-                : [b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy].map(csvCell).join(',')
+                ? [rep.profile.name, b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy, b.paymentMethod ?? '', b.transactionReference ?? ''].map(csvCell).join(',')
+                : [b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy, b.paymentMethod ?? '', b.transactionReference ?? ''].map(csvCell).join(',')
             )
           );
           zip.append('\uFEFF' + historyHeader + '\r\n' + historyRows.join('\r\n'), { name: 'booking_history.csv' });
@@ -667,7 +702,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           const XLSX = await import('xlsx');
           const wb = XLSX.utils.book_new();
           const SEP = ['——— Visitor ———'];
-          const historyHeader = ['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Type', 'Amount Paid', 'Status', 'Created By'];
+          const historyHeader = ['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Type', 'Amount Paid', 'Status', 'Created By', 'Payment Method', 'Transaction Reference'];
 
           // Single "Visitor Details Report" sheet — full data like PDF: all 4 sections stacked per visitor
           const fullReportRows: any[][] = [['Visitor Details Report'], []];
@@ -702,13 +737,13 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
               fullReportRows.push(historyHeader.map(() => ''));
             } else {
               for (const b of rep.bookingHistory) {
-                fullReportRows.push([b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy]);
+                fullReportRows.push([b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy, b.paymentMethod ?? '', b.transactionReference ?? '']);
               }
             }
             fullReportRows.push([]);
           }
           const wsFull = XLSX.utils.aoa_to_sheet(fullReportRows);
-          wsFull['!cols'] = [{ wch: 38 }, { wch: 24 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+          wsFull['!cols'] = [{ wch: 38 }, { wch: 24 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 22 }];
           XLSX.utils.book_append_sheet(wb, wsFull, 'Visitor Details Report');
 
           // Summary-only sheet (for quick totals)
@@ -771,13 +806,13 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
               historyRows.push(historyHeader.map(() => ''));
             } else {
               for (const b of rep.bookingHistory) {
-                historyRows.push([b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy]);
+                historyRows.push([b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy, b.paymentMethod ?? '', b.transactionReference ?? '']);
               }
             }
             historyRows.push([]);
           }
           const wsHistory = XLSX.utils.aoa_to_sheet(historyRows.length ? historyRows : [['4. Booking History'], historyHeader]);
-          wsHistory['!cols'] = [{ wch: 38 }, { wch: 22 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+          wsHistory['!cols'] = [{ wch: 38 }, { wch: 22 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 22 }];
           XLSX.utils.book_append_sheet(wb, wsHistory, 'Booking History');
 
           const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
@@ -812,12 +847,14 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         lines.push(`"Package Bookings",${totalPackageBookings}`);
         lines.push(`"Paid Bookings",${totalPaidBookings}`);
         lines.push(`"Total Spent",${totalSpent}`);
+        lines.push(`"Total Paid On Site",${totalPaidOnSite}`);
+        lines.push(`"Total Paid by Transfer",${totalPaidByTransfer}`);
         lines.push('');
       }
       if (includeVisitorDetails) {
-        const header = 'Customer Name,Phone,Email,Total Bookings,Total Spent,Package Bookings,Paid Bookings,Last Booking Date,Status';
+        const header = 'Customer Name,Phone,Email,Total Bookings,Total Spent,Total Paid On Site,Total Paid by Transfer,Package Bookings,Paid Bookings,Last Booking Date,Status';
         const csvRows = filteredRows.map((r) =>
-          [r.customer_name, r.phone, r.email, r.total_bookings, r.total_spent, r.package_bookings_count, r.paid_bookings_count, r.last_booking_date || '', r.status].map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')
+          [r.customer_name, r.phone, r.email, r.total_bookings, r.total_spent, (r as any).total_paid_on_site ?? '', (r as any).total_paid_by_transfer ?? '', r.package_bookings_count, r.paid_bookings_count, r.last_booking_date || '', r.status].map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')
         );
         lines.push(header);
         lines.push(...csvRows);
@@ -832,7 +869,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         const XLSX = await import('xlsx');
         const wb = XLSX.utils.book_new();
         // Single sheet: totals above, then customer data (main report always includes visitor details)
-        const colHeaders = ['Customer Name', 'Phone', 'Email', 'Total Bookings', 'Total Spent', 'Package Bookings', 'Paid Bookings', 'Last Booking Date', 'Status'];
+        const colHeaders = ['Customer Name', 'Phone', 'Email', 'Total Bookings', 'Total Spent', 'Total Paid On Site', 'Total Paid by Transfer', 'Package Bookings', 'Paid Bookings', 'Last Booking Date', 'Status'];
         const rows: any[][] = [];
         // Totals block at top when "Include summary totals" is checked
         if (includeTotals) {
@@ -842,6 +879,8 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           rows.push(['Package Bookings', totalPackageBookings]);
           rows.push(['Paid Bookings', totalPaidBookings]);
           rows.push(['Total Spent', totalSpent]);
+          rows.push(['Total Paid On Site', totalPaidOnSite]);
+          rows.push(['Total Paid by Transfer', totalPaidByTransfer]);
           rows.push([]);
         }
         // Customer table: headers then data
@@ -854,6 +893,8 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
               r.email ?? '',
               r.total_bookings ?? 0,
               typeof r.total_spent === 'number' ? r.total_spent : (parsePrice(r.total_spent) ?? 0),
+              (r as any).total_paid_on_site ?? 0,
+              (r as any).total_paid_by_transfer ?? 0,
               r.package_bookings_count ?? 0,
               r.paid_bookings_count ?? 0,
               r.last_booking_date ?? '',
@@ -862,7 +903,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           }
         }
         const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 38 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 10 }];
+        ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 38 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 10 }];
         XLSX.utils.book_append_sheet(wb, ws, 'Visitors');
         const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -882,6 +923,8 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           totalPackageBookings,
           totalPaidBookings,
           totalSpent,
+          totalPaidOnSite,
+          totalPaidByTransfer,
           rows: filteredRows,
           includeTotals,
           includeVisitorDetails,
@@ -907,7 +950,7 @@ export interface VisitorStructuredReport {
   summary: { totalVisitors: number; totalBookings: number; packageBookings: number; paidBookings: number; totalSpent: number };
   profile: { name: string; phone: string; email: string; status: string };
   activePackages: Array<{ packageName: string; serviceName: string; remainingSlots: number }>;
-  bookingHistory: Array<{ bookingId: string; serviceName: string; date: string; time: string; visitorsCount: number; type: 'PACKAGE' | 'PAID'; amountPaid: number; status: string; createdBy: string }>;
+  bookingHistory: Array<{ bookingId: string; serviceName: string; date: string; time: string; visitorsCount: number; type: 'PACKAGE' | 'PAID'; amountPaid: number; status: string; createdBy: string; paymentMethod?: string; transactionReference?: string | null }>;
 }
 
 async function getVisitorDetailStructured(
@@ -940,6 +983,7 @@ async function getVisitorDetailStructured(
       .select(`
         id, customer_name, customer_phone, customer_email, total_price, status, visitor_count,
         package_covered_quantity, created_by_user_id, service_id, slot_id,
+        payment_method, transaction_reference,
         services:service_id(name), slots:slot_id(slot_date, start_time, end_time)
       `)
       .eq('tenant_id', tenantId)
@@ -967,6 +1011,8 @@ async function getVisitorDetailStructured(
         amountPaid: (b.package_covered_quantity ?? 0) > 0 ? 0 : parsePrice(b.total_price),
         status: b.status ?? '',
         createdBy: b.created_by_user_id ? 'staff' : 'customer',
+        paymentMethod: b.payment_method ? (b.payment_method === 'transfer' ? 'Transfer' : 'On Site') : undefined,
+        transactionReference: b.transaction_reference ?? null,
       })),
     };
   }
@@ -1010,6 +1056,7 @@ async function getVisitorDetailStructured(
     .from('bookings')
     .select(`
       id, total_price, status, visitor_count, package_covered_quantity, created_by_user_id,
+      payment_method, transaction_reference,
       service_id, slot_id, services:service_id(name), slots:slot_id(slot_date, start_time, end_time)
     `)
     .eq('tenant_id', tenantId)
@@ -1036,6 +1083,8 @@ async function getVisitorDetailStructured(
       amountPaid: (b.package_covered_quantity ?? 0) > 0 ? 0 : parsePrice(b.total_price),
       status: b.status ?? '',
       createdBy: b.created_by_user_id ? 'staff' : 'customer',
+      paymentMethod: b.payment_method ? (b.payment_method === 'transfer' ? 'Transfer' : 'On Site') : undefined,
+      transactionReference: b.transaction_reference ?? null,
     })),
   };
 }
@@ -1052,6 +1101,7 @@ async function getVisitorDetail(
       .select(`
         id, customer_name, customer_phone, customer_email, total_price, status, visitor_count,
         package_covered_quantity, paid_quantity, package_subscription_id, created_at, created_by_user_id,
+        payment_method, transaction_reference,
         service_id, slot_id,
         services:service_id(name, name_ar),
         slots:slot_id(slot_date, start_time, end_time)
@@ -1098,6 +1148,8 @@ async function getVisitorDetail(
         amount_paid: b.total_price,
         status: b.status,
         created_by: b.created_by_user_id ? 'staff' : 'customer',
+        payment_method: b.payment_method ? (b.payment_method === 'transfer' ? 'Transfer' : 'On Site') : null,
+        transaction_reference: b.transaction_reference ?? null,
       })),
     };
   }
@@ -1115,6 +1167,7 @@ async function getVisitorDetail(
     .select(`
       id, customer_name, total_price, status, visitor_count,
       package_covered_quantity, paid_quantity, package_subscription_id, created_at, created_by_user_id,
+      payment_method, transaction_reference,
       service_id, slot_id,
       services:service_id(name, name_ar),
       slots:slot_id(slot_date, start_time, end_time)
@@ -1183,6 +1236,8 @@ async function getVisitorDetail(
       amount_paid: b.total_price,
       status: b.status,
       created_by: b.created_by_user_id ? 'staff' : 'customer',
+      payment_method: b.payment_method ? (b.payment_method === 'transfer' ? 'Transfer' : 'On Site') : null,
+      transaction_reference: b.transaction_reference ?? null,
     })),
   };
 }
