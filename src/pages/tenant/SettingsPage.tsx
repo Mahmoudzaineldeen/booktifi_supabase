@@ -1403,32 +1403,6 @@ export function SettingsPage() {
                         />
                         <span className="text-sm">{t('settings.manualAssign', 'Manual')}</span>
                       </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="employee_assignment_mode"
-                          value="both"
-                          checked={(tenantFeatures as any)?.employee_assignment_mode === 'both'}
-                          onChange={async () => {
-                            if (!userProfile?.tenant_id) return;
-                            setSchedulingModeMessage(null);
-                            setSchedulingModeSaving(true);
-                            try {
-                              const { error } = await db.from('tenant_features').update({ employee_assignment_mode: 'both' }).eq('tenant_id', userProfile.tenant_id);
-                              if (error) throw error;
-                              setSchedulingModeMessage({ type: 'success', text: t('settings.assignmentModeSavedBoth', 'Assignment mode set to Both.') });
-                              await reloadTenantFeatures();
-                            } catch (err: any) {
-                              setSchedulingModeMessage({ type: 'error', text: err.message || t('common.error') });
-                            } finally {
-                              setSchedulingModeSaving(false);
-                            }
-                          }}
-                          disabled={schedulingModeSaving}
-                          className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                        />
-                        <span className="text-sm">{t('settings.bothAssign', 'Both')}</span>
-                      </label>
                     </div>
                   </div>
                 )}

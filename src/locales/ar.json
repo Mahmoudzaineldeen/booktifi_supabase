@@ -1181,10 +1181,8 @@
     "assignmentModeHelp": "من يعين الموظف للحجز.",
     "autoAssign": "تعيين تلقائي",
     "manualAssign": "يدوي",
-    "bothAssign": "كلاهما",
     "assignmentModeSaved": "تم ضبط وضع التعيين على تعيين تلقائي.",
     "assignmentModeSavedManual": "تم ضبط وضع التعيين على يدوي.",
-    "assignmentModeSavedBoth": "تم ضبط وضع التعيين على كلاهما.",
     "currency": {
       "title": "إعدادات العملة",
       "description": "اختر العملة لجميع العروض المالية والفواتير والتذاكر. يؤثر هذا على النظام بالكامل.",

@@ -929,10 +929,8 @@
     "assignmentModeHelp": "Who assigns the employee to the booking.",
     "autoAssign": "Auto assign",
     "manualAssign": "Manual",
-    "bothAssign": "Both",
     "assignmentModeSaved": "Assignment mode set to Auto assign.",
     "assignmentModeSavedManual": "Assignment mode set to Manual.",
-    "assignmentModeSavedBoth": "Assignment mode set to Both.",
     "security": {
       "title": "Security Settings",
       "accountEmail": "Account Email",

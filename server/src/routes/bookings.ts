@@ -651,7 +651,17 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     if (serviceError || !service) {
       return res.status(404).json({ error: 'Service not found' });
     }
-    if ((service as any).scheduling_type !== 'employee_based') {
+
+    // Use employee shifts when: global scheduling_mode is employee_based OR service.scheduling_type is employee_based
+    const { data: tenantFeatures } = await supabase
+      .from('tenant_features')
+      .select('scheduling_mode')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    const globalSchedulingMode = (tenantFeatures as any)?.scheduling_mode ?? 'service_slot_based';
+    const serviceSchedulingType = (service as any).scheduling_type;
+    const useEmployeeBased = globalSchedulingMode === 'employee_based' || serviceSchedulingType === 'employee_based';
+    if (!useEmployeeBased) {
       return res.json({ shiftIds: [] });
     }
 
