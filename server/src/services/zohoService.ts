@@ -2568,6 +2568,59 @@ Note: The booking payment status was updated successfully in the database. Only 
   }
 
   /**
+   * Try to mark an invoice as paid via Zoho's mark-as-paid endpoint (no org id or payments scope needed).
+   * Used for package subscription invoices when we consider the subscription paid locally.
+   */
+  async tryMarkInvoicePaid(tenantId: string, invoiceId: string): Promise<boolean> {
+    try {
+      const accessToken = await this.getAccessToken(tenantId);
+      const apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
+      const res = await axios.post(
+        `${apiBaseUrl}/invoices/${invoiceId}/mark-as-paid`,
+        {},
+        {
+          headers: {
+            'Authorization': `Zoho-oauthtoken ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      const data = res.data as any;
+      return !!(data?.code === 0 || data?.invoice);
+    } catch (e: any) {
+      console.warn('[ZohoService] tryMarkInvoicePaid failed:', e?.response?.data?.message || e?.message);
+      return false;
+    }
+  }
+
+  /**
+   * Ensure a package subscription invoice is marked as PAID in Zoho so email/WhatsApp can be sent.
+   * Tries (1) mark-as-paid endpoint, (2) then recordCustomerPayment if still not paid.
+   * Use this when the subscription was created as paid (onsite/transfer).
+   */
+  async ensurePackageInvoicePaid(
+    tenantId: string,
+    invoiceId: string,
+    amount: number,
+    paymentMode: 'cash' | 'banktransfer',
+    referenceNumber: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const status = await this.getInvoicePaymentStatus(tenantId, invoiceId);
+    if (status.isPaid) {
+      return { success: true };
+    }
+    if (await this.tryMarkInvoicePaid(tenantId, invoiceId)) {
+      const after = await this.getInvoicePaymentStatus(tenantId, invoiceId);
+      if (after.isPaid) {
+        console.log(`[ZohoService] ✅ Invoice ${invoiceId} marked as paid via mark-as-paid`);
+        return { success: true };
+      }
+    }
+    const record = await this.recordCustomerPayment(tenantId, invoiceId, amount, paymentMode, referenceNumber);
+    return record.success ? { success: true } : { success: false, error: record.error };
+  }
+
+  /**
    * Record a customer payment in Zoho so the invoice is marked as PAID.
    * Zoho marks invoice as paid only when a PAYMENT is recorded (not by updating status).
    * paymentMode: 'cash' = مدفوع يدوياً (Paid On Site), 'banktransfer' = حوالة
@@ -2595,14 +2648,19 @@ Note: The booking payment status was updated successfully in the database. Only 
 
     // Organization ID is required for customerpayments. Use tenant-stored ID first (avoids GET /organizations which often 401s).
     let orgId: string | null = null;
-    const { data: configRow } = await supabase
+    const { data: configRow, error: configError } = await supabase
       .from('tenant_zoho_configs')
       .select('zoho_organization_id')
       .eq('tenant_id', tenantId)
       .single();
-    const storedOrgId = (configRow as any)?.zoho_organization_id;
-    if (storedOrgId && String(storedOrgId).trim()) {
-      orgId = String(storedOrgId).trim();
+    if (configError?.message?.includes('column') && configError?.message?.includes('zoho_organization_id')) {
+      console.warn('[ZohoService] zoho_organization_id column missing. Run migration 20260202000004_add_zoho_organization_id_to_tenant_zoho_configs.sql');
+    } else if (configRow) {
+      const storedOrgId = (configRow as any)?.zoho_organization_id;
+      if (storedOrgId && String(storedOrgId).trim()) {
+        orgId = String(storedOrgId).trim();
+        console.log('[ZohoService] Using tenant-stored Zoho Organization ID for customer payment');
+      }
     }
     if (!orgId) {
       orgId = (invoice as any).organization_id ?? null;
@@ -2619,7 +2677,7 @@ Note: The booking payment status was updated successfully in the database. Only 
       }
     }
     if (!orgId) {
-      console.warn('[ZohoService] No organization id. Add Zoho Organization ID in Settings → Zoho, or reconnect with scope ZohoInvoice.fullaccess.all.');
+      console.warn('[ZohoService] No organization id. Add Zoho Organization ID in Settings → Zoho (Organization Profile in Zoho Invoice), or reconnect with scope ZohoInvoice.fullaccess.all.');
     }
 
     const payload = {

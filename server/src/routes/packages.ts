@@ -285,29 +285,28 @@ async function createInvoiceForPackageSubscription(
       if (isVerboseLogging()) {
         logger.info('Package subscription invoice: created', {}, {}, { subscriptionId: subscription.id, zohoInvoiceId });
       }
-      // If subscription was created as paid (onsite/transfer), record payment in Zoho so invoice becomes Paid before sending email/WhatsApp
+      // If subscription was created as paid (onsite/transfer), mark invoice as Paid in Zoho so email/WhatsApp can be sent
       if (options?.payment && total_price > 0) {
         try {
           const paymentMode = options.payment.payment_method === 'transfer' ? 'banktransfer' : 'cash';
           const referenceNumber = options.payment.transaction_reference?.trim() || (paymentMode === 'cash' ? 'Paid On Site' : '');
-          const recordResult = await zohoService.recordCustomerPayment(
+          const paidResult = await zohoService.ensurePackageInvoicePaid(
             tenant_id,
             zohoInvoiceId,
             total_price,
             paymentMode,
             referenceNumber
           );
-          if (recordResult.success && isVerboseLogging()) {
-            logger.info('Package subscription invoice: payment recorded in Zoho', {}, {}, { subscriptionId: subscription.id, zohoInvoiceId });
+          if (paidResult.success && isVerboseLogging()) {
+            logger.info('Package subscription invoice: invoice marked paid in Zoho', {}, {}, { subscriptionId: subscription.id, zohoInvoiceId });
           }
-          if (!recordResult.success && isVerboseLogging()) {
-            logger.warn('Package subscription invoice: Zoho record payment failed (email/WhatsApp may be skipped)', undefined, {}, { subscriptionId: subscription.id, error: recordResult.error });
+          if (!paidResult.success && isVerboseLogging()) {
+            logger.warn('Package subscription invoice: Zoho mark paid failed (email/WhatsApp may be skipped)', undefined, {}, { subscriptionId: subscription.id, error: paidResult.error });
           }
-        } catch (recordErr: any) {
+        } catch (err: any) {
           if (isVerboseLogging()) {
-            logger.warn('Package subscription invoice: Zoho record payment exception', recordErr, {}, { subscriptionId: subscription.id });
+            logger.warn('Package subscription invoice: Zoho mark paid exception', err, {}, { subscriptionId: subscription.id });
           }
-          // Continue — send attempts may still fail due to unpaid status
         }
       }
       if (invoiceData.customer_email) {
