@@ -310,7 +310,19 @@ class ZohoService {
   }
 
   /**
-   * Get API base URL for a tenant based on their region
+   * Ensure base URL is a valid absolute URL (axios rejects relative or empty URLs).
+   */
+  private normalizeApiBaseUrl(baseUrl: string | undefined): string {
+    const url = (baseUrl || this.apiBaseUrl || '').trim();
+    if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+      return 'https://invoice.zoho.com/api/v3';
+    }
+    return url.replace(/\/+$/, ''); // strip trailing slashes
+  }
+
+  /**
+   * Get API base URL for a tenant based on their region.
+   * Always returns a valid absolute URL (no relative or empty).
    */
   private async getApiBaseUrlForTenant(tenantId: string): Promise<string> {
     try {
@@ -323,12 +335,13 @@ class ZohoService {
         'au': 'https://invoice.zoho.com.au/api/v3',
         'jp': 'https://invoice.zoho.jp/api/v3',
         'cn': 'https://invoice.zoho.com.cn/api/v3',
+        'com': 'https://invoice.zoho.com/api/v3',
       };
       
-      return regionMap[region] || 'https://invoice.zoho.com/api/v3';
+      const base = regionMap[region] || regionMap['com'] || 'https://invoice.zoho.com/api/v3';
+      return this.normalizeApiBaseUrl(base);
     } catch (error) {
-      // Fall back to default
-      return this.apiBaseUrl;
+      return this.normalizeApiBaseUrl(this.apiBaseUrl);
     }
   }
 
@@ -2574,9 +2587,11 @@ Note: The booking payment status was updated successfully in the database. Only 
   async tryMarkInvoicePaid(tenantId: string, invoiceId: string): Promise<boolean> {
     try {
       const accessToken = await this.getAccessToken(tenantId);
-      const apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
+      let apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
+      apiBaseUrl = this.normalizeApiBaseUrl(apiBaseUrl);
+      const url = `${apiBaseUrl}/invoices/${invoiceId}/mark-as-paid`;
       const res = await axios.post(
-        `${apiBaseUrl}/invoices/${invoiceId}/mark-as-paid`,
+        url,
         {},
         {
           headers: {
