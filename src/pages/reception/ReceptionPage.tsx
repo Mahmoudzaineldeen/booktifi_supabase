@@ -25,6 +25,7 @@ import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { extractBookingIdFromQR } from '../../lib/qrUtils';
 import { fetchAvailableSlots as fetchAvailableSlotsUtil, Slot as AvailabilitySlot } from '../../lib/bookingAvailability';
 import { BookingConfirmationModal } from '../../components/shared/BookingConfirmationModal';
+import { SubscriptionConfirmationModal, type SubscriptionConfirmationData } from '../../components/shared/SubscriptionConfirmationModal';
 
 interface Booking {
   id: string;
@@ -176,6 +177,8 @@ export function ReceptionPage() {
   });
   const [subscriptionPaymentMethod, setSubscriptionPaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
   const [subscriptionTransactionReference, setSubscriptionTransactionReference] = useState('');
+  const [isSubscribing, setIsSubscribing] = useState(false);
+  const [subscriptionConfirmationData, setSubscriptionConfirmationData] = useState<SubscriptionConfirmationData | null>(null);
 
   const [bookingForm, setBookingForm] = useState({
     customer_phone: '',
@@ -687,6 +690,7 @@ export function ReceptionPage() {
     }
 
     try {
+      setIsSubscribing(true);
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
       const body: Record<string, string | undefined> = {
@@ -712,15 +716,26 @@ export function ReceptionPage() {
       if (!response.ok) {
         throw new Error(data.error || 'Failed to subscribe customer');
       }
-      const successMsg = data.invoice_error
-        ? `${t('packages.subscriptionSuccess')}\n\n${t('packages.invoiceNotCreated') || 'Invoice was not created or sent'}: ${data.invoice_error}`
-        : (t('packages.subscriptionSuccess') as string);
-      alert(successMsg);
+      const pkg = packages.find((p: any) => p.id === subscriptionForm.package_id);
+      const confirmationData: SubscriptionConfirmationData = {
+        subscriptionId: data.subscription?.id ?? '',
+        customerName: subscriptionForm.customer_name.trim(),
+        customerPhone: fullPhone.trim() || undefined,
+        packageName: data.subscription?.package?.name ?? pkg?.name ?? '',
+        packageNameAr: data.subscription?.package?.name_ar ?? pkg?.name_ar,
+        subscribedAt: data.subscription?.subscribed_at ?? new Date().toISOString(),
+        totalPrice: pkg?.total_price ?? data.subscription?.package?.total_price,
+        invoiceCreated: !!data.invoice?.id,
+        invoiceError: data.invoice_error,
+      };
       setIsSubscriptionModalOpen(false);
       resetSubscriptionForm();
+      setSubscriptionConfirmationData(confirmationData);
     } catch (err: any) {
       console.error('Error creating subscription:', err);
       alert(`Error: ${err.message}`);
+    } finally {
+      setIsSubscribing(false);
     }
   }
 
@@ -6050,23 +6065,44 @@ export function ReceptionPage() {
           </div>
 
           <div className="flex gap-2 pt-4">
-            <Button type="submit" className="flex-1">
-              {t('packages.subscribe')}
+            <Button type="submit" className="flex-1" disabled={isSubscribing}>
+              {isSubscribing ? (
+                <>
+                  <span className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2 align-middle" />
+                  {i18n.language === 'ar' ? 'جاري الاشتراك...' : 'Subscribing...'}
+                </>
+              ) : (
+                t('packages.subscribe')
+              )}
             </Button>
             <Button
               type="button"
               variant="outline"
               onClick={() => {
-                setIsSubscriptionModalOpen(false);
-                resetSubscriptionForm();
+                if (!isSubscribing) {
+                  setIsSubscriptionModalOpen(false);
+                  resetSubscriptionForm();
+                }
               }}
               className="flex-1"
+              disabled={isSubscribing}
             >
               {t('common.cancel')}
             </Button>
           </div>
         </form>
       </Modal>
+
+      {/* Subscription success confirmation — same style as booking confirmation */}
+      <SubscriptionConfirmationModal
+        isOpen={!!subscriptionConfirmationData}
+        onClose={() => setSubscriptionConfirmationData(null)}
+        data={subscriptionConfirmationData}
+        onAddAnother={() => {
+          setSubscriptionConfirmationData(null);
+          setIsSubscriptionModalOpen(true);
+        }}
+      />
 
       {/* QR Code Scanner Modal with Camera - only when tickets are enabled */}
       {isQRScannerOpen && tenant?.tickets_enabled !== false && (

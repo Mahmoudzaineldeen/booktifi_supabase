@@ -17,6 +17,7 @@ import { PhoneInput } from '../ui/PhoneInput';
 import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { CheckCircle } from 'lucide-react';
+import type { SubscriptionConfirmationData } from '../shared/SubscriptionConfirmationModal';
 
 interface PackageItem {
   id: string;
@@ -28,7 +29,8 @@ interface PackageItem {
 export interface ReceptionSubscribeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  /** Called with subscription data on success so parent can show confirmation modal */
+  onSuccess?: (data: SubscriptionConfirmationData) => void;
   /** When opening from a package row, pre-select this package id */
   initialPackageId?: string | null;
 }
@@ -201,22 +203,20 @@ export function ReceptionSubscribeModal({
       if (!response.ok) {
         throw new Error(data.error || 'Failed to subscribe customer');
       }
-      const pkgName = packages.find((p) => p.id === selectedPackageId)?.name_ar || packages.find((p) => p.id === selectedPackageId)?.name || '';
-      const successMsg =
-        i18n.language === 'ar'
-          ? `تم الاشتراك بنجاح: ${customerName} → ${pkgName}`
-          : `Successfully subscribed: ${customerName} → ${pkgName}`;
-      if (data.invoice_error) {
-        const invoiceNote =
-          i18n.language === 'ar'
-            ? `\n\nلم يتم إنشاء الفاتورة أو إرسالها: ${data.invoice_error}`
-            : `\n\nInvoice was not created or sent: ${data.invoice_error}`;
-        alert(successMsg + invoiceNote);
-      } else {
-        alert(successMsg);
-      }
+      const pkg = packages.find((p) => p.id === selectedPackageId);
+      const confirmationData: SubscriptionConfirmationData = {
+        subscriptionId: data.subscription?.id ?? '',
+        customerName: customerName,
+        customerPhone: customerPhoneFull.trim() || undefined,
+        packageName: data.subscription?.package?.name ?? pkg?.name ?? '',
+        packageNameAr: data.subscription?.package?.name_ar ?? pkg?.name_ar,
+        subscribedAt: data.subscription?.subscribed_at ?? new Date().toISOString(),
+        totalPrice: pkg?.total_price ?? data.subscription?.package?.total_price,
+        invoiceCreated: !!data.invoice?.id,
+        invoiceError: data.invoice_error,
+      };
       handleClose();
-      onSuccess?.();
+      onSuccess?.(confirmationData);
     } catch (error: any) {
       console.error('Error subscribing customer:', error);
       alert(
@@ -364,7 +364,7 @@ export function ReceptionSubscribeModal({
 
         {/* Actions */}
         <div className="flex gap-3 pt-4">
-          <Button fullWidth onClick={handleSubscribe} disabled={!canSubmit}>
+          <Button fullWidth onClick={handleSubscribe} disabled={!canSubmit || subscribing}>
             {subscribing ? (
               <>
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
@@ -377,7 +377,7 @@ export function ReceptionSubscribeModal({
               </>
             )}
           </Button>
-          <Button variant="secondary" fullWidth onClick={handleClose}>
+          <Button variant="secondary" fullWidth onClick={handleClose} disabled={subscribing}>
             {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
           </Button>
         </div>

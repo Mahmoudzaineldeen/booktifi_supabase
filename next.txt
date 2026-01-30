@@ -13,7 +13,7 @@
 
 .done admin has the ability to make bookings as subscriptions 
 
-.in both (admin and receptionist )invoice is not sent if the stats is unpaid it is created but not being sent through WhatsApp (default unpaid the payment can be cash on site so that the reception has radio buttons to define if the payment is on site or inline transaction! make this in Arabic (حواله ومدفوع يدوياً) if on site the receptionist can change the status to payed else if payed through 
+.done in both (admin and receptionist )invoice is not sent if the stats is unpaid it is created but not being sent through WhatsApp (default unpaid the payment can be cash on site so that the reception has radio buttons to define if the payment is on site or inline transaction! make this in Arabic (حواله ومدفوع يدوياً) if on site the receptionist can change the status to payed else if payed through 
 online transaction the receptionist has a field of transaction reference so the payment is not confirmed until receptionist enters the reference number)  and add in the visitors page for both admin and receptionist a beside the Total Spent  total paid and total and paid and add total paid on site and total paid by transfer and in the visitor details there should if paid by transfer the refence number should be added ,and in the produced invoices we should add the reference transfer number
 
 .done add new role coordinator -  view and confirmation only(receptionist page)
@@ -26,7 +26,5 @@ online transaction the receptionist has a field of transaction reference so the 
 check date make separate visitors details button
 
 .ensure that the dashboard metrics includes also packages data and all the displayed data are accurate
-
-.visitor name in Arabic visitors
 
 organization id=910540679

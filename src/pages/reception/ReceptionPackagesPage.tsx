@@ -30,6 +30,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Modal } from '../../components/ui/Modal';
 import { Package, Users, Search, X, CheckCircle, AlertCircle, Phone, Mail, XCircle, Edit2, Download } from 'lucide-react';
 import { ReceptionSubscribeModal } from '../../components/reception/ReceptionSubscribeModal';
+import { SubscriptionConfirmationModal, type SubscriptionConfirmationData } from '../../components/shared/SubscriptionConfirmationModal';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
@@ -110,6 +111,7 @@ export function ReceptionPackagesPage() {
   // Subscribe Customer Modal — uses shared ReceptionSubscribeModal (same UI + logic as admin)
   const [isSubscribeModalOpen, setIsSubscribeModalOpen] = useState(false);
   const [selectedPackageForSubscribe, setSelectedPackageForSubscribe] = useState<string | null>(null);
+  const [subscriptionConfirmationData, setSubscriptionConfirmationData] = useState<SubscriptionConfirmationData | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [editingPaymentSubscription, setEditingPaymentSubscription] = useState<PackageSubscriber | null>(null);
   const [editPaymentStatus, setEditPaymentStatus] = useState<string>('paid');
@@ -867,10 +869,28 @@ export function ReceptionPackagesPage() {
           setIsSubscribeModalOpen(false);
           setSelectedPackageForSubscribe(null);
         }}
-        onSuccess={() => {
+        onSuccess={(data) => {
+          setSubscriptionConfirmationData(data);
           if (activeTab === 'subscribers') fetchSubscribers();
         }}
         initialPackageId={selectedPackageForSubscribe}
+      />
+
+      {/* Subscription success confirmation — same style as booking confirmation */}
+      <SubscriptionConfirmationModal
+        isOpen={!!subscriptionConfirmationData}
+        onClose={() => setSubscriptionConfirmationData(null)}
+        data={subscriptionConfirmationData}
+        onAddAnother={() => {
+          setSubscriptionConfirmationData(null);
+          setSelectedPackageForSubscribe(null);
+          setIsSubscribeModalOpen(true);
+        }}
+        onViewSubscribers={() => {
+          setSubscriptionConfirmationData(null);
+          setActiveTab('subscribers');
+          fetchSubscribers();
+        }}
       />
     </div>
   );

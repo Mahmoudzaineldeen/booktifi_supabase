@@ -11,6 +11,7 @@ import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
 import { ReceptionSubscribeModal } from '../../components/reception/ReceptionSubscribeModal';
+import { SubscriptionConfirmationModal, type SubscriptionConfirmationData } from '../../components/shared/SubscriptionConfirmationModal';
 
 interface PackageSubscriber {
   id: string;
@@ -54,6 +55,7 @@ export function PackageSubscribersPage() {
 
   // Admin add subscription — exact clone: reuse ReceptionSubscribeModal (same UI + logic as reception)
   const [isAddSubscriptionModalOpen, setIsAddSubscriptionModalOpen] = useState(false);
+  const [subscriptionConfirmationData, setSubscriptionConfirmationData] = useState<SubscriptionConfirmationData | null>(null);
 
   // Search state
   const [searchType, setSearchType] = useState<SearchType>('');
@@ -750,7 +752,21 @@ export function PackageSubscribersPage() {
       <ReceptionSubscribeModal
         isOpen={isAddSubscriptionModalOpen}
         onClose={() => setIsAddSubscriptionModalOpen(false)}
-        onSuccess={() => fetchSubscribers()}
+        onSuccess={(data) => {
+          setSubscriptionConfirmationData(data);
+          fetchSubscribers();
+        }}
+      />
+
+      {/* Subscription success confirmation — same style as booking confirmation */}
+      <SubscriptionConfirmationModal
+        isOpen={!!subscriptionConfirmationData}
+        onClose={() => setSubscriptionConfirmationData(null)}
+        data={subscriptionConfirmationData}
+        onAddAnother={() => {
+          setSubscriptionConfirmationData(null);
+          setIsAddSubscriptionModalOpen(true);
+        }}
       />
     </div>
   );
