@@ -33,7 +33,11 @@ export function useTenantFeatures(tenantId: string | undefined) {
       if (error) throw error;
 
       // Default to all features enabled if no data
-      setFeatures(data ? { ...data, scheduling_mode: (data as any).scheduling_mode ?? 'service_slot_based' } : {
+      setFeatures(data ? {
+        ...data,
+        scheduling_mode: (data as any).scheduling_mode ?? 'service_slot_based',
+        employee_assignment_mode: (data as any).employee_assignment_mode ?? 'both',
+      } : {
         employees_enabled: true,
         employee_assignment_mode: 'both',
         packages_enabled: true,
