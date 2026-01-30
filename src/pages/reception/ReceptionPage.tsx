@@ -3620,7 +3620,7 @@ export function ReceptionPage() {
                 onClick={() => tenantSlugForNav && navigate(`/${tenantSlugForNav}/reception/visitors`)}
               >
                 <Users className="w-4 h-4 mr-2" />
-                <span className="hidden sm:inline">{i18n.language === 'ar' ? 'الزوار' : 'Visitors'}</span>
+                <span className="hidden sm:inline">{t('navigation.visitors', 'Visitors')}</span>
               </Button>
               <Button
                 variant="outline"

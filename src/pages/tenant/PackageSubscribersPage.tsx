@@ -64,12 +64,12 @@ export function PackageSubscribersPage() {
     fetchSubscribers();
   }, [userProfile]);
 
-  async function fetchSubscribers() {
+  async function fetchSubscribers(opts?: { silent?: boolean }) {
     if (!userProfile?.tenant_id) return;
 
     try {
-      setLoading(true);
-      
+      if (!opts?.silent) setLoading(true);
+
       // Fetch all active package subscriptions with related data
       const { data, error } = await db
         .from('package_subscriptions')
@@ -269,14 +269,15 @@ export function PackageSubscribersPage() {
       }
 
       const result = await response.json();
+      // Remove from UI immediately so the row disappears without refresh
+      setSubscribers((prev) => prev.filter((s) => s.id !== subscriptionId));
+      setSearchResults((prev) => prev.filter((s) => s.id !== subscriptionId));
       alert(
         i18n.language === 'ar' 
           ? 'تم إلغاء الاشتراك بنجاح'
           : 'Subscription cancelled successfully'
       );
-
-      // Refresh the list
-      await fetchSubscribers();
+      await fetchSubscribers({ silent: true });
     } catch (error: any) {
       console.error('Error cancelling subscription:', error);
       alert(

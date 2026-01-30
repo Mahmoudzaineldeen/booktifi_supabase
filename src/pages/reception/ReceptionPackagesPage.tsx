@@ -27,7 +27,7 @@ import { getApiUrl } from '../../lib/apiUrl';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
-import { Package, Users, Search, X, CheckCircle, AlertCircle, Phone, Mail } from 'lucide-react';
+import { Package, Users, Search, X, CheckCircle, AlertCircle, Phone, Mail, XCircle } from 'lucide-react';
 import { ReceptionSubscribeModal } from '../../components/reception/ReceptionSubscribeModal';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -105,6 +105,7 @@ export function ReceptionPackagesPage() {
   // Subscribe Customer Modal — uses shared ReceptionSubscribeModal (same UI + logic as admin)
   const [isSubscribeModalOpen, setIsSubscribeModalOpen] = useState(false);
   const [selectedPackageForSubscribe, setSelectedPackageForSubscribe] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   // Fetch services for search filter
   useEffect(() => {
@@ -231,6 +232,45 @@ export function ReceptionPackagesPage() {
   function openSubscribeModal(packageId?: string) {
     setSelectedPackageForSubscribe(packageId || null);
     setIsSubscribeModalOpen(true);
+  }
+
+  async function handleCancelSubscription(subscriptionId: string) {
+    if (
+      !window.confirm(
+        i18n.language === 'ar'
+          ? 'هل أنت متأكد من إلغاء هذه الاشتراك؟ لا يمكن التراجع عن هذا الإجراء.'
+          : 'Are you sure you want to cancel this subscription? This action cannot be undone.'
+      )
+    ) {
+      return;
+    }
+    try {
+      setCancellingId(subscriptionId);
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${getApiUrl()}/packages/subscriptions/${subscriptionId}/cancel`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.details || `Failed to cancel (${response.status})`);
+      }
+      setSubscribers((prev) => prev.filter((s) => s.id !== subscriptionId));
+      if (i18n.language === 'ar') {
+        alert('تم إلغاء الاشتراك بنجاح');
+      } else {
+        alert('Subscription cancelled successfully');
+      }
+      await fetchSubscribers();
+    } catch (err: any) {
+      console.error('Error cancelling subscription:', err);
+      alert(i18n.language === 'ar' ? `خطأ في إلغاء الاشتراك: ${err.message}` : `Error cancelling subscription: ${err.message}`);
+    } finally {
+      setCancellingId(null);
+    }
   }
 
   return (
@@ -508,6 +548,9 @@ export function ReceptionPackagesPage() {
                       <th className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
                         {i18n.language === 'ar' ? 'تاريخ الاشتراك' : 'Subscription Date'}
                       </th>
+                      <th className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
+                        {i18n.language === 'ar' ? 'إجراءات' : 'Actions'}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
@@ -560,6 +603,24 @@ export function ReceptionPackagesPage() {
                         </td>
                         <td className={`px-4 py-4 whitespace-nowrap text-sm text-gray-500 ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
                           {format(new Date(subscriber.subscribed_at), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}
+                        </td>
+                        <td className={`px-4 py-4 whitespace-nowrap ${i18n.language === 'ar' ? 'text-right' : 'text-left'}`}>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handleCancelSubscription(subscriber.id)}
+                            disabled={cancellingId === subscriber.id}
+                          >
+                            {cancellingId === subscriber.id ? (
+                              i18n.language === 'ar' ? 'جاري الإلغاء...' : 'Cancelling...'
+                            ) : (
+                              <>
+                                <XCircle className="w-4 h-4 mr-1" />
+                                {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
+                              </>
+                            )}
+                          </Button>
                         </td>
                       </tr>
                     ))}
