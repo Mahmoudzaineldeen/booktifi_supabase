@@ -90,7 +90,10 @@ export async function createTestService(
       name,
       base_price: price,
       duration_minutes: duration,
+      service_duration_minutes: duration,
+      capacity_mode: 'service_based',
       capacity_per_slot: 1,
+      service_capacity_per_slot: 1,
       is_active: true,
       is_public: true,
     })

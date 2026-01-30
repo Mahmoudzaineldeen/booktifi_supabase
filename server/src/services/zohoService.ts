@@ -2801,7 +2801,7 @@ Note: The booking payment status was updated successfully in the database. Only 
         throw new Error(`No Zoho access token found for tenant ${tenantId}`);
       }
 
-      const apiBaseUrl = await this.getApiBaseUrl(tenantId);
+      const apiBaseUrl = await this.getApiBaseUrlForTenant(tenantId);
       console.log(`[ZohoService] Updating invoice ${invoiceId} amount to ${newAmount}`);
 
       // Get current invoice to preserve line items structure
