@@ -103,13 +103,11 @@ export function ReceptionPackagesPage() {
   const [packageSearchService, setPackageSearchService] = useState('');
   const [services, setServices] = useState<Array<{ id: string; name: string; name_ar?: string }>>([]);
   
-  // Subscribers state
+  // Subscribers state (same data source as admin PackageSubscribersPage: direct Supabase query)
   const [subscribers, setSubscribers] = useState<PackageSubscriber[]>([]);
   const [subscribersLoading, setSubscribersLoading] = useState(true);
   const [subscriberSearchQuery, setSubscriberSearchQuery] = useState('');
   const [subscriberSearchType, setSubscriberSearchType] = useState<'customer_name' | 'customer_phone' | 'package_name' | 'service_name' | ''>('');
-  const [subscriberPage, setSubscriberPage] = useState(1);
-  const [subscriberTotalPages, setSubscriberTotalPages] = useState(1);
   
   // Subscribe Customer Modal — uses shared ReceptionSubscribeModal (same UI + logic as admin)
   const [isSubscribeModalOpen, setIsSubscribeModalOpen] = useState(false);
@@ -156,12 +154,12 @@ export function ReceptionPackagesPage() {
     }
   }, [activeTab, userProfile, packageSearchQuery, packageSearchService]);
 
-  // Fetch subscribers
+  // Fetch subscribers (same data source as admin)
   useEffect(() => {
     if (activeTab === 'subscribers') {
       fetchSubscribers();
     }
-  }, [activeTab, userProfile, subscriberSearchQuery, subscriberSearchType, subscriberPage]);
+  }, [activeTab, userProfile, subscriberSearchQuery, subscriberSearchType]);
 
   async function fetchPackages() {
     if (!userProfile?.tenant_id) {
@@ -212,30 +210,129 @@ export function ReceptionPackagesPage() {
 
     try {
       setSubscribersLoading(true);
-      const token = localStorage.getItem('auth_token');
-      
-      const params = new URLSearchParams();
-      params.append('page', subscriberPage.toString());
-      params.append('limit', '50');
+
+      // Same query as admin PackageSubscribersPage so reception sees the same fresh data
+      const { data, error } = await db
+        .from('package_subscriptions')
+        .select(`
+          id,
+          customer_id,
+          package_id,
+          status,
+          subscribed_at,
+          zoho_invoice_id,
+          payment_status,
+          payment_method,
+          transaction_reference,
+          customers (
+            id,
+            name,
+            phone,
+            email
+          ),
+          service_packages (
+            id,
+            name,
+            name_ar
+          )
+        `)
+        .eq('tenant_id', userProfile.tenant_id)
+        .eq('status', 'active')
+        .eq('is_active', true)
+        .order('subscribed_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching subscribers:', error);
+        setSubscribers([]);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        setSubscribers([]);
+        return;
+      }
+
+      const subscribersWithUsage = await Promise.all(
+        data.map(async (sub) => {
+          const { data: usageData, error: usageError } = await db
+            .from('package_subscription_usage')
+            .select(`
+              service_id,
+              original_quantity,
+              remaining_quantity,
+              used_quantity,
+              services (
+                name,
+                name_ar
+              )
+            `)
+            .eq('subscription_id', sub.id);
+
+          if (usageError) {
+            console.error(`Error fetching usage for subscription ${sub.id}:`, usageError);
+            return null;
+          }
+
+          const usage = (usageData || []).map((u: any) => ({
+            service_id: u.service_id,
+            service_name: u.services?.name || '',
+            service_name_ar: u.services?.name_ar || '',
+            original_quantity: u.original_quantity,
+            remaining_quantity: u.remaining_quantity,
+            used_quantity: u.used_quantity
+          }));
+
+          const subAny = sub as any;
+          return {
+            id: sub.id,
+            customer_id: sub.customer_id,
+            package_id: sub.package_id,
+            zoho_invoice_id: subAny.zoho_invoice_id ?? null,
+            payment_status: subAny.payment_status ?? null,
+            payment_method: subAny.payment_method ?? null,
+            transaction_reference: subAny.transaction_reference ?? null,
+            customer: sub.customers,
+            package: sub.service_packages,
+            usage,
+            subscribed_at: sub.subscribed_at,
+            status: sub.status
+          };
+        })
+      );
+
+      let list = subscribersWithUsage.filter((s): s is PackageSubscriber => s !== null);
+
+      // Client-side search (same filters as admin)
       if (subscriberSearchQuery.trim() && subscriberSearchType) {
-        params.append('search', subscriberSearchQuery.trim());
-        params.append('search_type', subscriberSearchType);
+        const term = subscriberSearchQuery.trim().toLowerCase();
+        list = list.filter((sub) => {
+          if (!sub.customer || !sub.package) return false;
+          switch (subscriberSearchType) {
+            case 'customer_name':
+              return sub.customer.name?.toLowerCase().includes(term);
+            case 'customer_phone':
+              return sub.customer.phone?.toLowerCase().includes(term);
+            case 'package_name':
+              return sub.package.name?.toLowerCase().includes(term) || sub.package.name_ar?.toLowerCase().includes(term);
+            case 'service_name':
+              return sub.usage.some(u =>
+                u.service_name?.toLowerCase().includes(term) || u.service_name_ar?.toLowerCase().includes(term)
+              );
+            default:
+              return (
+                sub.customer.name?.toLowerCase().includes(term) ||
+                sub.customer.phone?.toLowerCase().includes(term) ||
+                sub.package.name?.toLowerCase().includes(term) ||
+                sub.package.name_ar?.toLowerCase().includes(term) ||
+                sub.usage.some(u =>
+                  u.service_name?.toLowerCase().includes(term) || u.service_name_ar?.toLowerCase().includes(term)
+                )
+              );
+          }
+        });
       }
 
-      const response = await fetch(`${getApiUrl()}/packages/receptionist/subscribers?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch subscribers: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      setSubscribers(data.subscribers || []);
-      setSubscriberTotalPages(data.pagination?.total_pages || 1);
+      setSubscribers(list);
     } catch (error) {
       console.error('Error fetching subscribers:', error);
       setSubscribers([]);
@@ -761,36 +858,6 @@ export function ReceptionPackagesPage() {
                   </tbody>
                 </table>
               </div>
-
-              {/* Pagination */}
-              {subscriberTotalPages > 1 && (
-                <div className="flex items-center justify-between mt-4">
-                  <p className="text-sm text-gray-600">
-                    {i18n.language === 'ar' 
-                      ? `الصفحة ${subscriberPage} من ${subscriberTotalPages}`
-                      : `Page ${subscriberPage} of ${subscriberTotalPages}`
-                    }
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setSubscriberPage(p => Math.max(1, p - 1))}
-                      disabled={subscriberPage === 1}
-                    >
-                      {i18n.language === 'ar' ? 'السابق' : 'Previous'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setSubscriberPage(p => Math.min(subscriberTotalPages, p + 1))}
-                      disabled={subscriberPage === subscriberTotalPages}
-                    >
-                      {i18n.language === 'ar' ? 'التالي' : 'Next'}
-                    </Button>
-                  </div>
-                </div>
-              )}
             </>
           )}
         </div>

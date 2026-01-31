@@ -1233,6 +1233,47 @@ router.patch('/subscriptions/:subscriptionId/payment-status', authenticateSubscr
       }
     }
 
+    // When marking as paid and invoice already exists (e.g. created at subscribe time), record payment in Zoho and resend invoice (same flow as bookings)
+    if (payment_status === 'paid' && (subscription as any).zoho_invoice_id) {
+      const invoiceId = String((subscription as any).zoho_invoice_id);
+      const { data: pkg } = await supabase.from('service_packages').select('id, total_price').eq('id', (subscription as any).package_id).single();
+      const { data: cust } = await supabase.from('customers').select('id, phone, email').eq('id', (subscription as any).customer_id).single();
+      const totalPrice = Number((pkg as any)?.total_price) || 0;
+      if (totalPrice > 0) {
+        try {
+          const { zohoService } = await import('../services/zohoService.js');
+          const paymentMode = payMethod === 'transfer' ? 'banktransfer' as const : 'cash' as const;
+          const referenceNumber = payMethod === 'transfer' && transaction_reference != null ? String(transaction_reference).trim() : 'Paid On Site';
+          const paidResult = await zohoService.ensurePackageInvoicePaid(tenantId, invoiceId, totalPrice, paymentMode, referenceNumber);
+          if (!paidResult.success && isVerboseLogging()) {
+            logger.warn('Package subscription payment-status: Zoho mark paid failed (resend may be skipped)', undefined, {}, { subscriptionId, error: paidResult.error });
+            if (!invoiceWarning) invoiceWarning = paidResult.error || 'Could not record payment in Zoho.';
+          }
+          const customerEmail = (cust as any)?.email?.trim() || undefined;
+          const customerPhone = (cust as any)?.phone?.trim() || undefined;
+          if (customerEmail) {
+            try {
+              await zohoService.sendInvoiceEmail(tenantId, invoiceId, customerEmail);
+            } catch (_e) { /* non-blocking */ }
+          }
+          if (customerPhone) {
+            const normalizedPhone = normalizePhoneNumber(customerPhone);
+            if (normalizedPhone) {
+              try {
+                const invoiceMessage = payMethod === 'transfer'
+                  ? `Your package subscription invoice is attached. Transfer Reference: ${referenceNumber}. Thank you!`
+                  : 'Your package subscription invoice is attached. Payment: Paid On Site. Thank you!';
+                await zohoService.sendInvoiceViaWhatsApp(tenantId, invoiceId, normalizedPhone, invoiceMessage);
+              } catch (_e) { /* non-blocking */ }
+            }
+          }
+        } catch (err: any) {
+          logger.warn('Package subscription payment-status: resend invoice failed', err, {}, { subscriptionId });
+          if (!invoiceWarning) invoiceWarning = err?.message || 'Failed to resend invoice.';
+        }
+      }
+    }
+
     const updatePayload: Record<string, unknown> = {};
     if (payment_status != null) updatePayload.payment_status = payment_status;
     if (payMethod !== undefined) updatePayload.payment_method = payMethod;
@@ -1258,8 +1299,9 @@ router.patch('/subscriptions/:subscriptionId/payment-status', authenticateSubscr
       return res.status(500).json({ error: 'Failed to update payment status', details: updateError.message });
     }
 
-    const response: { success: true; subscription: typeof updated; invoiceWarning?: string } = { success: true, subscription: updated };
+    const response: { success: true; subscription: typeof updated; invoiceWarning?: string; message?: string } = { success: true, subscription: updated };
     if (invoiceWarning) response.invoiceWarning = invoiceWarning;
+    if (payment_status === 'paid') response.message = 'Payment status updated. Invoice sent via email/WhatsApp when applicable.';
     res.json(response);
   } catch (error: any) {
     const context = logger.extractContext(req);
