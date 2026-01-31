@@ -400,7 +400,8 @@ export function BookingsPage() {
     return Array.from({ length: 8 }, (_, i) => addDays(new Date(), i));
   }
 
-  // Same backend as Reception: POST /bookings/create or create-bulk — slot checks, package resolution, invoice & ticket logic run server-side.
+  // Same backend as Reception: POST /bookings/create or create-bulk. Backend returns immediately (invoice/WhatsApp queued in background).
+  // UX: close create modal and show full-screen "Creating booking..." then "Creating invoice..." before opening confirmation modal.
   async function handleCreateBooking(e?: React.FormEvent) {
     e?.preventDefault();
     if (!userProfile?.tenant_id || !createServiceId || !createDate) return;
@@ -1467,11 +1468,6 @@ export function BookingsPage() {
 
   return (
     <div className="p-4 md:p-8">
-      {tenant?.tickets_enabled === false && (
-        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-center text-sm text-amber-800">
-          {t('reception.ticketsDisabledBySettings')}
-        </div>
-      )}
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -2005,7 +2001,7 @@ export function BookingsPage() {
         </div>
       )}
 
-      {/* Full-screen loading overlay when creating booking (modal already closed) */}
+      {/* Full-screen loading overlay when creating booking (same UX as Reception: modal closed, then "Creating booking..." → "Creating invoice...") */}
       {createBookingLoadingStep && (
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white/90 backdrop-blur-sm" dir={isAr ? 'rtl' : 'ltr'}>
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent mb-4" />

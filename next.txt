@@ -25,13 +25,14 @@ online transaction the receptionist has a field of transaction reference so the 
 .done when a booking is created by admin or receptionst dont show alert show a page like this page that popus for the customer after finished booking 
 check date make separate visitors details button
 
-.ensure that the dashboard metrics includes also packages data and all the displayed data are accurate
+.done ensure that the dashboard metrics includes also packages data and all the displayed data are accurate
 
 organization id=910540679
 
 
-10 or least
-Arabic
-performance is sucks
-remove all alerts
+done 10 or least
+done Arabic
+done  performance is sucks
+done done remove all alerts
+done full disable the the fully customer if the 
 
