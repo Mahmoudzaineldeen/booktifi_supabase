@@ -1164,16 +1164,16 @@ export function ReceptionPage() {
     if (!userProfile?.tenant_id || !selectedService) return;
 
     try {
-      // Get all employees assigned to this service (any shift_id) so the dropdown is never empty when there are assigned employees.
-      // Slots are filtered by the API; employees without shifts on the date will show "no slots" when selected.
+      // Query only employee_id so we don't depend on backend nested-relation support; then fetch names from users.
       const { data: employeeServices, error: empServError } = await db
         .from('employee_services')
-        .select('employee_id, users:employee_id(id, full_name, full_name_ar, is_active)')
+        .select('employee_id')
         .eq('tenant_id', userProfile!.tenant_id)
         .eq('service_id', selectedService);
 
       if (empServError) {
         console.error('Error fetching employee services:', empServError);
+        setAvailableEmployees([]);
         return;
       }
 
@@ -1184,38 +1184,26 @@ export function ReceptionPage() {
 
       const employeeIdsFromServices = [...new Set(employeeServices.map((es: { employee_id: string }) => es.employee_id))] as string[];
 
-      // Build map from embedded users relation when present
       const employeeMap = new Map<string, {id: string, name: string, name_ar: string}>();
-      employeeServices.forEach((es: { employee_id: string; users?: { id: string; full_name: string; full_name_ar: string; is_active?: boolean } }) => {
-        if (es.users && (es.users.is_active !== false)) {
-          employeeMap.set(es.employee_id, {
-            id: es.users.id,
-            name: es.users.full_name ?? '',
-            name_ar: es.users.full_name_ar ?? ''
-          });
-        }
-      });
-
-      // Fallback: if users relation was null (e.g. RLS) but we have employee_services, fetch names from users
-      if (employeeMap.size === 0 && employeeIdsFromServices.length > 0) {
-        const { data: usersData } = await db
-          .from('users')
-          .select('id, full_name, full_name_ar')
-          .in('id', employeeIdsFromServices)
-          .eq('tenant_id', userProfile!.tenant_id);
-        (usersData || []).forEach((u: { id: string; full_name?: string; full_name_ar?: string }) => {
+      const { data: usersData } = await db
+        .from('users')
+        .select('id, full_name, full_name_ar, is_active')
+        .in('id', employeeIdsFromServices)
+        .eq('tenant_id', userProfile!.tenant_id);
+      (usersData || []).forEach((u: { id: string; full_name?: string; full_name_ar?: string; is_active?: boolean }) => {
+        if (u.is_active !== false) {
           employeeMap.set(u.id, {
             id: u.id,
             name: u.full_name ?? '',
             name_ar: u.full_name_ar ?? ''
           });
-        });
-        // If still no names (e.g. RLS blocks users read), still show employees by id so dropdown isn't empty
-        if (employeeMap.size === 0) {
-          employeeIdsFromServices.forEach((id: string) => {
-            employeeMap.set(id, { id, name: 'Employee', name_ar: 'موظف' });
-          });
         }
+      });
+      // If no names (e.g. RLS), still show employees so dropdown isn't empty
+      if (employeeMap.size === 0) {
+        employeeIdsFromServices.forEach((id: string) => {
+          employeeMap.set(id, { id, name: 'Employee', name_ar: 'موظف' });
+        });
       }
 
       const employeeIds = Array.from(employeeMap.keys());
