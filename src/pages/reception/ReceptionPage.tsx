@@ -330,6 +330,16 @@ export function ReceptionPage() {
     }
   }, [selectedService, selectedDate]);
 
+  // Populate employee dropdown as soon as a service is selected (so "Select employee" has options before date is picked)
+  useEffect(() => {
+    if (userProfile?.tenant_id && selectedService) {
+      const dateStr = format(selectedDate || new Date(), 'yyyy-MM-dd');
+      fetchEmployeeBookingCounts(dateStr, []);
+    } else {
+      setAvailableEmployees([]);
+    }
+  }, [selectedService, userProfile?.tenant_id]);
+
   // Mode separation: in employee-based mode use tenant assignment mode; in service-based mode always automatic (no employee selection)
   useEffect(() => {
     if (isEmployeeBasedMode) {
