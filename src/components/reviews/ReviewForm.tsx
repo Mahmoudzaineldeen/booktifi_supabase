@@ -396,15 +396,15 @@ export function ReviewForm({
               onClick={onClose}
               disabled={loading}
             >
-              {t('common.cancel') || 'Cancel'}
+              {t('common.cancel')}
             </Button>
             <Button
               type="submit"
               disabled={loading || rating === 0 || !review.trim()}
             >
               {loading
-                ? (t('common.submitting') || 'Submitting...')
-                : (t('testimonials.submit') || 'Submit Review')}
+                ? t('common.submitting')
+                : t('testimonials.submit')}
             </Button>
           </div>
         </form>

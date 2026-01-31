@@ -520,7 +520,7 @@ export function TestimonialForm({
               onClick={onClose}
               disabled={loading}
             >
-              {t('common.cancel') || 'Cancel'}
+              {t('common.cancel')}
             </Button>
           </div>
         </form>

@@ -509,11 +509,11 @@ export function PackagesPage() {
 
   async function handleDeletePackage(packageId: string) {
     const ok = await showConfirm({
-      title: t('common.confirm') || 'Confirm',
+      title: t('common.confirm'),
       description: t('packages.confirmDelete'),
       destructive: true,
-      confirmText: t('common.delete') || 'Delete',
-      cancelText: t('common.cancel') || 'Cancel',
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
     });
     if (!ok) return;
 

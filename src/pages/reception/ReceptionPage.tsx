@@ -29,6 +29,8 @@ import { BookingConfirmationModal } from '../../components/shared/BookingConfirm
 import { SubscriptionConfirmationModal, type SubscriptionConfirmationData } from '../../components/shared/SubscriptionConfirmationModal';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
+import { useCustomerPhoneSearch, type CustomerSuggestion } from '../../hooks/useCustomerPhoneSearch';
+import { CustomerPhoneSuggestionsDropdown } from '../../components/reception/CustomerPhoneSuggestionsDropdown';
 
 interface Booking {
   id: string;
@@ -184,10 +186,12 @@ export function ReceptionPage() {
   const [customerPhoneFull, setCustomerPhoneFull] = useState(''); // Full phone number with country code
   const [customerPackages, setCustomerPackages] = useState<CustomerPackage[]>([]);
   const [customerIsBlocked, setCustomerIsBlocked] = useState(false);
+  const [bookingSelectedCustomer, setBookingSelectedCustomer] = useState<CustomerSuggestion | null>(null);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [packages, setPackages] = useState<any[]>([]);
   const [loadingPackages, setLoadingPackages] = useState(false);
   const [subscriptionCustomerLookup, setSubscriptionCustomerLookup] = useState<any>(null);
+  const [subscriptionSelectedCustomer, setSubscriptionSelectedCustomer] = useState<CustomerSuggestion | null>(null);
   const [subscriptionPhoneFull, setSubscriptionPhoneFull] = useState(''); // Full phone number with country code
   const [isLookingUpSubscriptionCustomer, setIsLookingUpSubscriptionCustomer] = useState(false);
   const [subscriptionForm, setSubscriptionForm] = useState({
@@ -231,6 +235,10 @@ export function ReceptionPage() {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchValidationError, setSearchValidationError] = useState<string>('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const bookingPhoneWrapperRef = useRef<HTMLDivElement>(null);
+  const subscriptionPhoneWrapperRef = useRef<HTMLDivElement>(null);
+  const { suggestions: bookingPhoneSuggestions, loading: bookingPhoneSearchLoading, clearSuggestions: clearBookingPhoneSuggestions } = useCustomerPhoneSearch(userProfile?.tenant_id, customerPhoneFull);
+  const { suggestions: subscriptionPhoneSuggestions, loading: subscriptionPhoneSearchLoading, clearSuggestions: clearSubscriptionPhoneSuggestions } = useCustomerPhoneSearch(userProfile?.tenant_id, subscriptionPhoneFull);
 
   const [markPaidBookingId, setMarkPaidBookingId] = useState<string | null>(null);
   const [markPaidMethod, setMarkPaidMethod] = useState<'onsite' | 'transfer'>('onsite');
@@ -736,8 +744,8 @@ export function ReceptionPage() {
         customer_name: subscriptionForm.customer_name.trim(),
         customer_email: subscriptionForm.customer_email?.trim() || undefined
       };
-      if (subscriptionCustomerLookup?.id) {
-        body.customer_id = subscriptionCustomerLookup.id;
+      if (subscriptionSelectedCustomer?.id || subscriptionCustomerLookup?.id) {
+        body.customer_id = subscriptionSelectedCustomer?.id || subscriptionCustomerLookup.id;
       }
       if (subscriptionPaymentMethod === 'unpaid') {
         body.payment_status = 'pending';
@@ -789,6 +797,7 @@ export function ReceptionPage() {
       package_id: ''
     });
     setSubscriptionCustomerLookup(null);
+    setSubscriptionSelectedCustomer(null);
     setSubscriptionPhoneFull('');
     setIsLookingUpSubscriptionCustomer(false);
     setSubscriptionPaymentMethod('onsite');
@@ -1276,6 +1285,7 @@ export function ReceptionPage() {
     slot_ids: string[];
     service_id: string;
     tenant_id: string;
+    customer_id?: string;
     customer_name: string;
     customer_phone: string;
     customer_email?: string | null;
@@ -1491,6 +1501,7 @@ export function ReceptionPage() {
             slot_id: slotWithEnoughCapacity.id,
             employee_id: slotWithEnoughCapacity.employee_id || null,
             offer_id: selectedOffer || null,
+            ...(bookingSelectedCustomer?.id && { customer_id: bookingSelectedCustomer.id }),
             customer_name: bookingForm.customer_name,
             customer_phone: fullPhoneNumber,
             customer_email: bookingForm.customer_email || null,
@@ -1641,6 +1652,7 @@ export function ReceptionPage() {
         slot_ids: slotsToUse.map(s => s.id),
         service_id: serviceId,
         tenant_id: tenantId,
+        ...(bookingSelectedCustomer?.id && { customer_id: bookingSelectedCustomer.id }),
         customer_name: bookingForm.customer_name,
         customer_phone: fullPhoneNumber,
         customer_email: bookingForm.customer_email || null,
@@ -1714,6 +1726,7 @@ export function ReceptionPage() {
         slot_ids: slotsToUse.map(s => s.id),
         service_id: serviceIdConsec,
         tenant_id: tenantIdConsec,
+        ...(bookingSelectedCustomer?.id && { customer_id: bookingSelectedCustomer.id }),
         customer_name: bookingForm.customer_name,
         customer_phone: fullPhoneNumber,
         customer_email: bookingForm.customer_email || null,
@@ -1846,6 +1859,7 @@ export function ReceptionPage() {
               slot_id: item.slot.id,
               employee_id: item.employeeId || null,
               offer_id: selectedOffer || null,
+              ...(bookingSelectedCustomer?.id && { customer_id: bookingSelectedCustomer.id }),
               customer_name: bookingForm.customer_name,
               customer_phone: fullPhoneNumber,
               customer_email: bookingForm.customer_email || null,
@@ -2207,6 +2221,7 @@ export function ReceptionPage() {
           slot_id: slotId,
           employee_id: employeeId || null,
           offer_id: selectedOffer || null,
+          ...(bookingSelectedCustomer?.id && { customer_id: bookingSelectedCustomer.id }),
           customer_name: bookingForm.customer_name,
           customer_phone: fullPhoneNumber,
           customer_email: bookingForm.customer_email || null,
@@ -2512,11 +2527,11 @@ export function ReceptionPage() {
     }
 
     const ok = await showConfirm({
-      title: t('common.confirm') || 'Confirm',
+      title: t('common.confirm'),
       description: t('bookings.confirmChangeBookingTime') || 'Are you sure you want to change the booking time? Old tickets will be invalidated.',
       destructive: false,
-      confirmText: t('common.confirm') || 'Confirm',
-      cancelText: t('common.cancel') || 'Cancel',
+      confirmText: t('common.confirm'),
+      cancelText: t('common.cancel'),
     });
     if (!ok) return;
 
@@ -3224,6 +3239,7 @@ export function ReceptionPage() {
     setSelectedSlots([]);
     setCountryCode(tenantDefaultCountry);
     setCustomerPhoneFull(''); // Clear full phone number
+    setBookingSelectedCustomer(null);
     setSelectedService('');
     setSelectedOffer(''); // Clear selected offer
     setSelectedSlot('');
@@ -3642,7 +3658,7 @@ export function ReceptionPage() {
                     icon={<Edit className="w-3 h-3" />}
                     className="w-full"
                   >
-                    {t('reception.editBooking') || 'Edit Booking'}
+                    {t('reception.editBooking')}
                   </Button>
                   {booking.status !== 'cancelled' && booking.status !== 'completed' && (
                     <Button
@@ -3652,7 +3668,7 @@ export function ReceptionPage() {
                       icon={<CalendarClock className="w-3 h-3" />}
                       className="w-full"
                     >
-                      {t('bookings.changeTime') || 'Change Time'}
+                      {t('bookings.changeTime')}
                     </Button>
                   )}
                   </>
@@ -4394,14 +4410,14 @@ export function ReceptionPage() {
           // Show preview instead of directly submitting
           setShowPreview(true);
         }} className="space-y-4">
-          {/* 1. Customer Mobile */}
-          <div className="relative">
+          {/* 1. Customer Mobile + suggestions dropdown */}
+          <div className="relative" ref={bookingPhoneWrapperRef}>
             <PhoneInput
               label={t('booking.customerPhone')}
               value={customerPhoneFull}
               onChange={(value) => {
+                if (bookingSelectedCustomer && value !== bookingSelectedCustomer.phone) setBookingSelectedCustomer(null);
                 setCustomerPhoneFull(value);
-                // Extract phone number without country code for backward compatibility
                 let phoneNumber = value;
                 let code = '+966';
                 for (const country of countryCodes) {
@@ -4413,18 +4429,45 @@ export function ReceptionPage() {
                 }
                 setCountryCode(code);
                 setBookingForm({ ...bookingForm, customer_phone: phoneNumber });
-                // Lookup customer when phone number is long enough
-                if (phoneNumber.length >= 8) {
-                  lookupCustomerByPhone(value);
-                }
+                if (phoneNumber.length >= 8) lookupCustomerByPhone(value);
               }}
               defaultCountry={tenantDefaultCountry}
               required
             />
-            {isLookingUpCustomer && (
+            {(isLookingUpCustomer || bookingPhoneSearchLoading) && (
               <div className="absolute right-3 top-[38px] flex items-center gap-2">
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent" />
                 <span className="text-xs text-gray-500">{t('reception.checkingCustomerAndPackages') || 'Checking customer & packages...'}</span>
+              </div>
+            )}
+            {!bookingSelectedCustomer && bookingPhoneSuggestions.length >= 1 && (
+              <CustomerPhoneSuggestionsDropdown
+                suggestions={bookingPhoneSuggestions}
+                onSelect={(c) => {
+                  setBookingSelectedCustomer(c);
+                  setCustomerPhoneFull(c.phone);
+                  let localPhone = c.phone;
+                  let code = tenantDefaultCountry;
+                  for (const country of countryCodes) {
+                    if (c.phone.startsWith(country.code)) {
+                      code = country.code;
+                      localPhone = c.phone.replace(country.code, '').trim();
+                      break;
+                    }
+                  }
+                  setCountryCode(code);
+                  setBookingForm(prev => ({ ...prev, customer_name: c.name || '', customer_email: c.email || '', customer_phone: localPhone }));
+                  clearBookingPhoneSuggestions();
+                  lookupCustomerByPhone(c.phone);
+                }}
+                onClose={clearBookingPhoneSuggestions}
+                containerRef={bookingPhoneWrapperRef}
+              />
+            )}
+            {bookingSelectedCustomer && (
+              <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+                <CheckCircle className="h-4 w-4 shrink-0" />
+                <span>{t('reception.existingCustomerSelected')}</span>
               </div>
             )}
           </div>
@@ -4447,6 +4490,7 @@ export function ReceptionPage() {
             onChange={(e) => setBookingForm({ ...bookingForm, customer_name: e.target.value })}
             required
             placeholder={t('booking.customerName')}
+            disabled={!!bookingSelectedCustomer}
           />
 
           {/* 3. Customer Email */}
@@ -4456,6 +4500,7 @@ export function ReceptionPage() {
             value={bookingForm.customer_email}
             onChange={(e) => setBookingForm({ ...bookingForm, customer_email: e.target.value })}
             placeholder={t('booking.customerEmail')}
+            disabled={!!bookingSelectedCustomer}
           />
 
           {/* Package Information Display — scrollable, ~2 cards visible; show loading skeleton while looking up customer */}
@@ -5530,7 +5575,7 @@ export function ReceptionPage() {
                 return selectedSlots.length < required || !validation.valid;
               })()}
             >
-              Proceed
+              {t('common.proceed')}
             </Button>
             <Button
               type="button"
@@ -5718,7 +5763,7 @@ export function ReceptionPage() {
                   icon={<Edit className="w-4 h-4" />}
                   fullWidth
                 >
-                  {t('reception.editBooking') || 'Edit Booking'}
+                  {t('reception.editBooking')}
                 </Button>
                 {selectedBookingForDetails.status !== 'cancelled' && selectedBookingForDetails.status !== 'completed' && (
                   <Button
@@ -5730,7 +5775,7 @@ export function ReceptionPage() {
                     icon={<CalendarClock className="w-4 h-4" />}
                     fullWidth
                   >
-                    {t('bookings.changeTime') || 'Change Time'}
+                    {t('bookings.changeTime')}
                   </Button>
                 )}
               </div>
@@ -5748,7 +5793,7 @@ export function ReceptionPage() {
                       icon={<CheckCircle className="w-4 h-4" />}
                       fullWidth
                     >
-                      Mark Complete
+                      {t('bookings.markComplete')}
                     </Button>
                   )}
                   <Button
@@ -5760,7 +5805,7 @@ export function ReceptionPage() {
                     icon={<XCircle className="w-4 h-4" />}
                     fullWidth
                   >
-                    Cancel Booking
+                    {t('bookings.cancelBooking')}
                   </Button>
                 </div>
               )}
@@ -5862,7 +5907,7 @@ export function ReceptionPage() {
                 disabled={markPaidSubmitting || (markPaidMethod === 'transfer' && !markPaidReference.trim())}
                 icon={<DollarSign className="w-4 h-4" />}
               >
-                {markPaidSubmitting ? (t('common.updating') || 'Updating...') : (t('reception.confirmMarkAsPaid') || 'Confirm & Mark as Paid')}
+                {markPaidSubmitting ? t('common.updating') : t('reception.confirmMarkAsPaid')}
               </Button>
             </div>
           </div>
@@ -5983,12 +6028,12 @@ export function ReceptionPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <CardContent className="p-6">
-              <h2 className="text-xl font-bold mb-4">{t('bookings.changeBookingTime') || 'Change Booking Time'}</h2>
+              <h2 className="text-xl font-bold mb-4">{t('bookings.changeBookingTime')}</h2>
               
               <div className="space-y-4">
                 {/* Current Booking Info */}
                 <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <h3 className="text-sm font-semibold mb-2">{t('bookings.currentTime') || 'Current Time'}</h3>
+                  <h3 className="text-sm font-semibold mb-2">{t('bookings.currentTime')}</h3>
                   <div className="text-sm text-gray-600">
                     <div className="flex items-center gap-2 mb-1">
                       <CalendarDays className="w-4 h-4" />
@@ -6011,7 +6056,7 @@ export function ReceptionPage() {
 
                 {/* New Date Selection */}
                 <div>
-                  <label className="block text-sm font-medium mb-1">{t('bookings.newDate') || 'New Date'}</label>
+                  <label className="block text-sm font-medium mb-1">{t('bookings.newDate')}</label>
                   <input
                     type="date"
                     value={format(editingTimeDate, 'yyyy-MM-dd')}
@@ -6115,14 +6160,14 @@ export function ReceptionPage() {
         title={t('packages.addSubscription')}
       >
         <form onSubmit={handleSubscriptionSubmit} className="space-y-4">
-          {/* Customer Phone with Auto-fill */}
-          <div className="relative">
+          {/* Customer Phone with Auto-fill + suggestions dropdown */}
+          <div className="relative" ref={subscriptionPhoneWrapperRef}>
             <PhoneInput
               label={`${t('packages.customerPhone')} *`}
               value={subscriptionPhoneFull}
               onChange={(value) => {
+                if (subscriptionSelectedCustomer && value !== subscriptionSelectedCustomer.phone) setSubscriptionSelectedCustomer(null);
                 setSubscriptionPhoneFull(value);
-                // Extract phone number without country code for backward compatibility
                 let phoneNumber = value;
                 let code = tenantDefaultCountry;
                 for (const country of countryCodes) {
@@ -6133,43 +6178,51 @@ export function ReceptionPage() {
                   }
                 }
                 setSubscriptionForm({ ...subscriptionForm, customer_phone: phoneNumber });
-                // Clear lookup when phone changes
-                if (subscriptionCustomerLookup) {
-                  setSubscriptionCustomerLookup(null);
-                }
-                // Lookup customer when phone number is long enough
+                if (subscriptionCustomerLookup) setSubscriptionCustomerLookup(null);
                 if (value.length >= 10) {
                   lookupSubscriptionCustomer(value);
                 } else {
-                  // Clear form if phone is too short
-                  setSubscriptionForm(prev => ({
-                    ...prev,
-                    customer_name: '',
-                    customer_email: ''
-                  }));
+                  setSubscriptionForm(prev => ({ ...prev, customer_name: '', customer_email: '' }));
                 }
               }}
               defaultCountry={tenantDefaultCountry}
               required
             />
-            {isLookingUpSubscriptionCustomer && (
+            {(isLookingUpSubscriptionCustomer || subscriptionPhoneSearchLoading) && (
               <div className="absolute right-3 top-[38px]">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
               </div>
             )}
+            {!subscriptionSelectedCustomer && !subscriptionCustomerLookup && subscriptionPhoneSuggestions.length >= 1 && (
+              <CustomerPhoneSuggestionsDropdown
+                suggestions={subscriptionPhoneSuggestions}
+                onSelect={(c) => {
+                  setSubscriptionSelectedCustomer(c);
+                  setSubscriptionPhoneFull(c.phone);
+                  let localPhone = c.phone;
+                  for (const country of countryCodes) {
+                    if (c.phone.startsWith(country.code)) {
+                      localPhone = c.phone.replace(country.code, '').trim();
+                      break;
+                    }
+                  }
+                  setSubscriptionForm(prev => ({ ...prev, customer_name: c.name || '', customer_email: c.email || '', customer_phone: localPhone }));
+                  setSubscriptionCustomerLookup(c);
+                  clearSubscriptionPhoneSuggestions();
+                  lookupSubscriptionCustomer(c.phone);
+                }}
+                onClose={clearSubscriptionPhoneSuggestions}
+                containerRef={subscriptionPhoneWrapperRef}
+              />
+            )}
+            {(subscriptionSelectedCustomer || subscriptionCustomerLookup) && (
+              <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+                <CheckCircle className="h-4 w-4 shrink-0" />
+                <span>{t('reception.existingCustomerSelected')}</span>
+              </div>
+            )}
           </div>
-          {subscriptionCustomerLookup && (
-            <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-sm text-green-700 flex items-center gap-1">
-                <CheckCircle className="w-4 h-4" />
-                <span>
-                  {t('packages.existingCustomer')}: <strong>{subscriptionCustomerLookup.name}</strong>
-                  {subscriptionCustomerLookup.email && ` (${subscriptionCustomerLookup.email})`}
-                </span>
-              </p>
-            </div>
-          )}
-          {subscriptionPhoneFull.length >= 10 && !subscriptionCustomerLookup && !isLookingUpSubscriptionCustomer && (
+          {subscriptionPhoneFull.length >= 10 && !subscriptionCustomerLookup && !subscriptionSelectedCustomer && !isLookingUpSubscriptionCustomer && !subscriptionPhoneSearchLoading && (
             <p className="text-sm text-blue-600">
               {t('packages.newCustomer')}
             </p>
@@ -6180,6 +6233,7 @@ export function ReceptionPage() {
             onChange={(e) => setSubscriptionForm({ ...subscriptionForm, customer_name: e.target.value })}
             required
             placeholder={t('packages.customerName')}
+            disabled={!!(subscriptionSelectedCustomer || subscriptionCustomerLookup)}
           />
           <Input
             label={t('packages.customerEmail')}
@@ -6187,6 +6241,7 @@ export function ReceptionPage() {
             value={subscriptionForm.customer_email}
             onChange={(e) => setSubscriptionForm({ ...subscriptionForm, customer_email: e.target.value })}
             placeholder={t('packages.customerEmail')}
+            disabled={!!(subscriptionSelectedCustomer || subscriptionCustomerLookup)}
           />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -6440,7 +6495,7 @@ export function ReceptionPage() {
                   setQrValidationResult(null);
                 }}
               >
-                {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
+                {t('common.cancel')}
               </Button>
             </div>
           </form>

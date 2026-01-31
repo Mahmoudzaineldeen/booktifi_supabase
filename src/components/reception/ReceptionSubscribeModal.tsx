@@ -10,6 +10,8 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
+import { useCustomerPhoneSearch, type CustomerSuggestion } from '../../hooks/useCustomerPhoneSearch';
+import { CustomerPhoneSuggestionsDropdown } from './CustomerPhoneSuggestionsDropdown';
 import { getApiUrl } from '../../lib/apiUrl';
 import { db } from '../../lib/db';
 import { Button } from '../ui/Button';
@@ -54,11 +56,14 @@ export function ReceptionSubscribeModal({
   const [customerName, setCustomerName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerLookup, setCustomerLookup] = useState<{ id: string; name: string; email?: string; phone: string } | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerSuggestion | null>(null);
   const [isLookingUpCustomer, setIsLookingUpCustomer] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'unpaid' | 'onsite' | 'transfer'>('onsite');
   const [transactionReference, setTransactionReference] = useState('');
   const lookupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const phoneWrapperRef = useRef<HTMLDivElement>(null);
+  const { suggestions: phoneSuggestions, loading: phoneSearchLoading, clearSuggestions: clearPhoneSuggestions } = useCustomerPhoneSearch(userProfile?.tenant_id, customerPhoneFull);
 
   // Pre-select package when opening with initialPackageId
   useEffect(() => {
@@ -139,6 +144,7 @@ export function ReceptionSubscribeModal({
   );
 
   function handlePhoneChange(value: string) {
+    if (selectedCustomer && value !== selectedCustomer.phone) setSelectedCustomer(null);
     setCustomerPhoneFull(value);
     if (customerLookup) setCustomerLookup(null);
     if (lookupTimeoutRef.current) {
@@ -163,6 +169,7 @@ export function ReceptionSubscribeModal({
     setCustomerName('');
     setCustomerEmail('');
     setCustomerLookup(null);
+    setSelectedCustomer(null);
     setPaymentMethod('onsite' as const);
     setTransactionReference('');
     onClose();
@@ -186,6 +193,9 @@ export function ReceptionSubscribeModal({
         customer_name: customerName.trim(),
         customer_email: customerEmail.trim() || undefined,
       };
+      if (selectedCustomer?.id || customerLookup?.id) {
+        body.customer_id = selectedCustomer?.id || customerLookup!.id;
+      }
       if (paymentMethod === 'unpaid') {
         body.payment_status = 'pending';
       } else {
@@ -236,8 +246,8 @@ export function ReceptionSubscribeModal({
       title={i18n.language === 'ar' ? 'إضافة اشتراك' : 'Add Subscription'}
     >
       <div className="space-y-4">
-        {/* Customer Phone with auto-fill (same as receptionist Add Subscription) */}
-        <div className="relative">
+        {/* Customer Phone with auto-fill + suggestions dropdown */}
+        <div className="relative" ref={phoneWrapperRef}>
           <PhoneInput
             label={i18n.language === 'ar' ? 'هاتف العميل' : 'Customer Phone'}
             value={customerPhoneFull}
@@ -246,24 +256,34 @@ export function ReceptionSubscribeModal({
             required
             language={i18n.language === 'ar' ? 'ar' : 'en'}
           />
-          {isLookingUpCustomer && (
+          {(isLookingUpCustomer || phoneSearchLoading) && (
             <div className="absolute right-3 top-[38px]">
               <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent" />
             </div>
           )}
+          {!selectedCustomer && !customerLookup && phoneSuggestions.length >= 1 && (
+            <CustomerPhoneSuggestionsDropdown
+              suggestions={phoneSuggestions}
+              onSelect={(c) => {
+                setSelectedCustomer(c);
+                setCustomerPhoneFull(c.phone);
+                setCustomerName(c.name || '');
+                setCustomerEmail(c.email || '');
+                setCustomerLookup(c);
+                clearPhoneSuggestions();
+              }}
+              onClose={clearPhoneSuggestions}
+              containerRef={phoneWrapperRef}
+            />
+          )}
+          {(selectedCustomer || customerLookup) && (
+            <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+              <CheckCircle className="h-4 w-4 shrink-0" />
+              <span>{t('reception.existingCustomerSelected')}</span>
+            </div>
+          )}
         </div>
-        {customerLookup && (
-          <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-sm text-green-700 flex items-center gap-1">
-              <CheckCircle className="w-4 h-4 shrink-0" />
-              <span>
-                {i18n.language === 'ar' ? 'عميل موجود' : 'Existing customer'}: <strong>{customerLookup.name}</strong>
-                {customerLookup.email && ` (${customerLookup.email})`}
-              </span>
-            </p>
-          </div>
-        )}
-        {customerPhoneFull.length >= 10 && !customerLookup && !isLookingUpCustomer && (
+        {customerPhoneFull.length >= 10 && !customerLookup && !selectedCustomer && !isLookingUpCustomer && !phoneSearchLoading && (
           <p className="text-sm text-blue-600">
             {i18n.language === 'ar' ? 'عميل جديد' : 'New customer'}
           </p>
@@ -279,6 +299,7 @@ export function ReceptionSubscribeModal({
             value={customerName}
             onChange={(e) => setCustomerName(e.target.value)}
             placeholder={i18n.language === 'ar' ? 'اسم العميل' : 'Customer Name'}
+            disabled={!!(selectedCustomer || customerLookup)}
           />
         </div>
 
@@ -292,6 +313,7 @@ export function ReceptionSubscribeModal({
             value={customerEmail}
             onChange={(e) => setCustomerEmail(e.target.value)}
             placeholder={i18n.language === 'ar' ? 'البريد الإلكتروني للعميل' : 'Customer Email'}
+            disabled={!!(selectedCustomer || customerLookup)}
           />
         </div>
 
@@ -388,7 +410,7 @@ export function ReceptionSubscribeModal({
             )}
           </Button>
           <Button variant="secondary" fullWidth onClick={handleClose} disabled={subscribing}>
-            {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
+            {t('common.cancel')}
           </Button>
         </div>
       </div>

@@ -22,7 +22,7 @@ import { SettingsPageWrapper } from './pages/tenant/SettingsPageWrapper';
 import { ReceptionPage } from './pages/reception/ReceptionPage';
 import { CashierPage } from './pages/cashier/CashierPage';
 // ARCHIVED: import { EmployeePage } from './pages/employee/EmployeePage';
-import { PublicBookingPage } from './pages/public/PublicBookingPage';
+import PublicBookingPage from './pages/public/PublicBookingPage';
 import { ServiceBookingFlow } from './pages/public/ServiceBookingFlow';
 import { PackageSchedulePage } from './pages/public/PackageSchedulePage';
 import { CheckoutPage } from './pages/public/CheckoutPage';

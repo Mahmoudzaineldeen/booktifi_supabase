@@ -61,7 +61,10 @@
     "notEnoughCapacity": "Not enough capacity. Available: {{available}}, Requested: {{requested}}",
     "failedToDownloadInvoice": "Failed to download invoice: {{message}}",
     "navigationError": "Navigation error",
-    "saving": "Saving..."
+    "saving": "Saving...",
+    "updating": "Updating...",
+    "submitting": "Submitting...",
+    "proceed": "Proceed"
   },
   "auth": {
     "login": "Login",
@@ -232,7 +235,9 @@
     "operationalSettings": "Operational Settings",
     "maintenanceMode": "Maintenance Mode",
     "disablePublicBookings": "Disable public bookings temporarily",
-    "saveSettings": "Save Settings"
+    "saveSettings": "Save Settings",
+    "enableTickets": "Enable Tickets",
+    "ticketsDisabledDescription": "When disabled, ticket generation and functionality will be completely inactive across the entire system"
   },
   "service": {
     "name": "Service Name",
@@ -289,7 +294,9 @@
     "failedToVerifyServiceDeletion": "Failed to verify service deletion. Please check server logs.",
     "serviceAndPackagesDeletedSuccessfully": "Service and {{count}} package(s) deleted successfully",
     "categoryNotFoundOrAlreadyDeleted": "Category not found or already deleted",
-    "shiftNotFoundOrAlreadyDeleted": "Shift not found or already deleted"
+    "shiftNotFoundOrAlreadyDeleted": "Shift not found or already deleted",
+    "deleteShiftConfirm": "Delete this shift?",
+    "regenerateSlotsConfirm": "This will regenerate all slots for the next 30 days. Existing bookings will be preserved. Continue?"
   },
   "booking": {
     "booking": "Booking",
@@ -353,7 +360,9 @@
     "today": "Today",
     "time": "Time",
     "pleaseSelectDateAndTime": "Please select a date and time slot",
-    "pleaseSelectOptionFromOffers": "Please select an option from the available offers"
+    "pleaseSelectOptionFromOffers": "Please select an option from the available offers",
+    "editDateAndTime": "Edit date and time",
+    "edit": "Edit"
   },
   "dashboard": {
     "dashboard": "Dashboard",
@@ -544,7 +553,11 @@
       "parking": "Parking",
       "venue": "Venue",
       "other": "Other"
-    }
+    },
+    "editTenant": "Edit tenant",
+    "deleteTenant": "Delete tenant",
+    "tenantToDelete": "Tenant to delete:",
+    "noContactInfo": "No contact info"
   },
   "reception": {
     "title": "Reception Desk",
@@ -593,6 +606,7 @@
     "loadingSlots": "Loading available times...",
     "loadingCustomerPackages": "Loading customer packages...",
     "checkingCustomerAndPackages": "Checking customer & packages...",
+    "existingCustomerSelected": "Existing Customer Selected",
     "loadingPackagesList": "Loading packages...",
     "slotNoLongerAvailable": "Selected slot is no longer available. Please choose another time.",
     "yourSelection": "Your selection",
@@ -800,6 +814,10 @@
       "packageName": "Package Name"
     },
     "cancel": "Cancel",
+    "yesCancel": "Yes, cancel",
+    "cancelling": "Cancelling...",
+    "editPayment": "Edit payment",
+    "cancelSubscription": "Cancel Subscription",
     "confirmCancelSubscription": "Are you sure you want to cancel this subscription?",
     "activePackage": "Active Package",
     "packageService": "Package",
@@ -1137,6 +1155,8 @@
     "time": "Time",
     "edit": "Edit",
     "changeTime": "Change Time",
+    "cancelBooking": "Cancel Booking",
+    "markComplete": "Mark Complete",
     "updating": "Updating...",
     "zohoSynced": "Zoho synced",
     "zohoFailed": "Zoho failed",
@@ -1267,6 +1287,7 @@
   },
   "settings": {
     "loading": "Loading settings...",
+    "saveChanges": "Save Changes",
     "manageSettings": "Manage your business settings and preferences",
     "settingsSavedSuccessfully": "Settings saved successfully!",
     "errorSavingSettings": "Error saving settings. Please try again.",
@@ -1457,5 +1478,11 @@
       "organizationIdLabel": "Zoho Organization ID",
       "organizationIdHint": "Required for recording payments (package/booking invoices). Find it in Zoho Invoice → Settings → Organization Profile."
     }
+  },
+  "reviews": {
+    "noReviewsYet": "No reviews yet",
+    "noReviewsYetBeFirst": "No reviews yet. Be the first to write a review!",
+    "editReview": "Edit review",
+    "deleteReview": "Delete review"
   }
 }

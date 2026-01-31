@@ -811,11 +811,11 @@ export function SettingsPage() {
     }
 
     const ok = await showConfirm({
-      title: t('common.confirm') || 'Confirm',
+      title: t('common.confirm'),
       description: t('settings.zoho.disconnectConfirm') || 'Are you sure you want to disconnect Zoho integration? This will remove all stored tokens.',
       destructive: true,
-      confirmText: t('common.confirm') || 'Confirm',
-      cancelText: t('common.cancel') || 'Cancel',
+      confirmText: t('common.confirm'),
+      cancelText: t('common.cancel'),
     });
     if (!ok) return;
 
@@ -1270,11 +1270,11 @@ export function SettingsPage() {
                   disabled={formData.tickets_enabled === undefined} // Disable until loaded
                 />
                 <div>
-                  <span className="text-sm font-medium text-gray-700">Enable Tickets</span>
+                  <span className="text-sm font-medium text-gray-700">{t('settings.enableTickets')}</span>
                   <p className="text-xs text-gray-500">
                     {formData.tickets_enabled === undefined 
-                      ? 'Loading...' 
-                      : 'When disabled, ticket generation and functionality will be completely inactive across the entire system'}
+                      ? t('common.loading') 
+                      : t('settings.ticketsDisabledDescription')}
                   </p>
                 </div>
               </label>

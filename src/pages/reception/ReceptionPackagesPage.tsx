@@ -348,13 +348,11 @@ export function ReceptionPackagesPage() {
 
   async function handleCancelSubscription(subscriptionId: string) {
     const ok = await showConfirm({
-      title: i18n.language === 'ar' ? 'تأكيد' : 'Confirm',
-      description: i18n.language === 'ar'
-        ? 'هل أنت متأكد من إلغاء هذه الاشتراك؟ لا يمكن التراجع عن هذا الإجراء.'
-        : 'Are you sure you want to cancel this subscription? This action cannot be undone.',
+      title: t('common.confirm'),
+      description: t('packages.confirmCancelSubscription'),
       destructive: true,
-      confirmText: i18n.language === 'ar' ? 'نعم، إلغاء' : 'Yes, cancel',
-      cancelText: i18n.language === 'ar' ? 'إلغاء' : 'Cancel',
+      confirmText: t('packages.yesCancel'),
+      cancelText: t('common.cancel'),
     });
     if (!ok) return;
 
@@ -817,7 +815,7 @@ export function ReceptionPackagesPage() {
                               disabled={savingPaymentEdit}
                             >
                               <Edit2 className="w-4 h-4 mr-1" />
-                              {i18n.language === 'ar' ? 'تعديل الدفع' : 'Edit payment'}
+                              {t('packages.editPayment')}
                             </Button>
                             {subscriber.zoho_invoice_id && (
                               <Button
@@ -843,11 +841,11 @@ export function ReceptionPackagesPage() {
                               disabled={cancellingId === subscriber.id}
                             >
                               {cancellingId === subscriber.id ? (
-                                i18n.language === 'ar' ? 'جاري الإلغاء...' : 'Cancelling...'
+                                t('packages.cancelling')
                               ) : (
                                 <>
                                   <XCircle className="w-4 h-4 mr-1" />
-                                  {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
+                                  {t('common.cancel')}
                                 </>
                               )}
                             </Button>

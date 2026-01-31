@@ -5312,6 +5312,42 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
 });
 
 // ============================================================================
+// Customer search by phone (for Add Booking / Add Subscription dropdown)
+// ============================================================================
+// Used when Admin/Receptionist types phone: show matching customers (1–10 only).
+// Query: LIKE '%digits%' LIMIT 11; if results.length > 10 we do not show dropdown.
+router.get('/customer-search', authenticateReceptionistOrTenantAdmin, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'No tenant associated' });
+    }
+    const phoneParam = (req.query.phone as string) || '';
+    const digits = phoneParam.replace(/\D/g, '');
+    if (digits.length < 5) {
+      return res.status(400).json({
+        error: 'Phone fragment too short',
+        hint: 'Provide at least 5 digits to search customers',
+      });
+    }
+    const pattern = `%${digits}%`;
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, name, phone, email')
+      .eq('tenant_id', tenantId)
+      .ilike('phone', pattern)
+      .limit(11);
+
+    if (error) {
+      return res.status(500).json({ error: 'Failed to search customers', details: error.message });
+    }
+    return res.json({ customers: data || [] });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Customer search failed' });
+  }
+});
+
+// ============================================================================
 // Search bookings (Receptionist, Coordinator, and Tenant Admin)
 // ============================================================================
 // CRITICAL: Only accepts ONE search parameter at a time

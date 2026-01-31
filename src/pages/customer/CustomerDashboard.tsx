@@ -385,7 +385,7 @@ export function CustomerDashboard() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto mb-4" style={{ borderColor: primaryColor }}></div>
           <p className="text-gray-600" style={{ color: primaryColor }}>
-            {authLoading ? 'Authenticating...' : 'Loading...'}
+            {authLoading ? t('common.authenticating') : t('common.loading')}
           </p>
         </div>
       </div>

@@ -143,7 +143,7 @@ export function SubscriptionConfirmationModal({
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Button variant="secondary" onClick={onClose}>
-                {i18n.language === 'ar' ? 'إغلاق' : 'Close'}
+                {t('common.close')}
               </Button>
               {onViewSubscribers && (
                 <Button variant="outline" onClick={onViewSubscribers}>

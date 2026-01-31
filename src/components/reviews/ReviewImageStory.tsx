@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { StarRating } from '../ui/StarRating';
 import { format } from 'date-fns';
@@ -28,6 +29,7 @@ export function ReviewImageStory({
   language,
   autoPlayInterval = 5000, // 5 seconds default
 }: ReviewImageStoryProps) {
+  const { t } = useTranslation();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
 
@@ -111,7 +113,7 @@ export function ReviewImageStory({
       <button
         onClick={onClose}
         className="absolute top-4 right-4 z-10 text-white hover:text-gray-300 transition-colors p-2"
-        aria-label="Close"
+        aria-label={t('common.close')}
       >
         <X className="w-6 h-6" />
       </button>

@@ -134,7 +134,7 @@ function formatPackageName(
   }
 }
 
-export function PublicBookingPage() {
+function PublicBookingPage() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -1742,7 +1742,7 @@ export function PublicBookingPage() {
                                     </span>
                                   </>
                                 ) : (
-                                  <span className="text-sm text-gray-500">No reviews yet</span>
+                                  <span className="text-sm text-gray-500">{t('reviews.noReviewsYet')}</span>
                                 )}
                               </div>
                               {isOffer && offerBadge && (
@@ -2187,11 +2187,11 @@ export function PublicBookingPage() {
                       ? t('booking.areYouSureDeleteReviewAsProvider')
                       : t('booking.areYouSureDeleteReview');
                     const ok = await showConfirm({
-                      title: t('common.confirm') || 'Confirm',
+                      title: t('common.confirm'),
                       description: confirmMessage,
                       destructive: true,
-                      confirmText: t('common.delete') || 'Delete',
-                      cancelText: t('common.cancel') || 'Cancel',
+                      confirmText: t('common.delete'),
+                      cancelText: t('common.cancel'),
                     });
                     if (!ok) return;
                     try {
@@ -2892,11 +2892,11 @@ export function PublicBookingPage() {
                             ? (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟ (أنت تحذف كـ service provider)' : 'Are you sure you want to delete this review? (You are deleting as service provider)')
                             : (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟' : 'Are you sure you want to delete this review?');
                           const ok = await showConfirm({
-                            title: i18n.language === 'ar' ? 'تأكيد' : 'Confirm',
+                            title: t('common.confirm'),
                             description: confirmMessage,
                             destructive: true,
-                            confirmText: i18n.language === 'ar' ? 'حذف' : 'Delete',
-                            cancelText: i18n.language === 'ar' ? 'إلغاء' : 'Cancel',
+                            confirmText: t('common.delete'),
+                            cancelText: t('common.cancel'),
                           });
                           if (!ok) return;
                           try {
@@ -2975,3 +2975,5 @@ export function PublicBookingPage() {
     </div>
   );
 }
+
+export default PublicBookingPage;

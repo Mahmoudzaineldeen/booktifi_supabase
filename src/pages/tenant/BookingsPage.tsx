@@ -20,6 +20,8 @@ import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { countryCodes } from '../../lib/countryCodes';
 import { BookingConfirmationModal } from '../../components/shared/BookingConfirmationModal';
+import { useCustomerPhoneSearch, type CustomerSuggestion } from '../../hooks/useCustomerPhoneSearch';
+import { CustomerPhoneSuggestionsDropdown } from '../../components/reception/CustomerPhoneSuggestionsDropdown';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 
@@ -119,6 +121,7 @@ export function BookingsPage() {
   const [createSelectedSlots, setCreateSelectedSlots] = useState<Array<{ slot_id: string; start_time: string; end_time: string; employee_id: string; slot_date: string }>>([]);
   const [createSelectedTimeSlot, setCreateSelectedTimeSlot] = useState<{ start_time: string; end_time: string; slot_date: string } | null>(null);
   const [createShowPreview, setCreateShowPreview] = useState(false);
+  const [createSelectedCustomer, setCreateSelectedCustomer] = useState<CustomerSuggestion | null>(null);
   const [createPaymentMethod, setCreatePaymentMethod] = useState<'unpaid' | 'onsite' | 'transfer'>('onsite');
   const [createTransactionReference, setCreateTransactionReference] = useState('');
   const [createSelectedServices, setCreateSelectedServices] = useState<Array<{ service: AdminService; slot: Slot; employeeId: string }>>([]);
@@ -289,6 +292,9 @@ export function BookingsPage() {
     }
   }
 
+  const createPhoneWrapperRef = useRef<HTMLDivElement>(null);
+  const { suggestions: createPhoneSuggestions, loading: createPhoneSearchLoading, clearSuggestions: clearCreatePhoneSuggestions } = useCustomerPhoneSearch(userProfile?.tenant_id, createCustomerPhoneFull);
+
   function checkServiceInPackage(serviceId: string): { available: boolean; remaining: number } {
     if (!createCustomerPackages.length) return { available: false, remaining: 0 };
     let total = 0;
@@ -383,6 +389,7 @@ export function BookingsPage() {
     setCreateSelectedTimeSlot(null);
     setCreateShowPreview(false);
     setCreateSelectedServices([]);
+    setCreateSelectedCustomer(null);
     setCreatePaymentMethod('onsite');
     setCreateTransactionReference('');
   }
@@ -444,6 +451,7 @@ export function BookingsPage() {
             slot_id: slotIds[0],
             employee_id: slot?.employee_id || null,
             offer_id: createOfferId || null,
+            ...(createSelectedCustomer?.id && { customer_id: createSelectedCustomer.id }),
             customer_name: createForm.customer_name.trim(),
             customer_phone: fullPhone,
             customer_email: createForm.customer_email?.trim() || null,
@@ -471,6 +479,7 @@ export function BookingsPage() {
             tenant_id: userProfile.tenant_id,
             service_id: createServiceId,
             slot_ids: slotIds,
+            ...(createSelectedCustomer?.id && { customer_id: createSelectedCustomer.id }),
             customer_name: createForm.customer_name.trim(),
             customer_phone: fullPhone,
             customer_email: createForm.customer_email?.trim() || null,
@@ -783,11 +792,11 @@ export function BookingsPage() {
     }
 
     const ok = await showConfirm({
-      title: t('common.confirm') || 'Confirm',
+      title: t('common.confirm'),
       description: confirmMessage,
       destructive: true,
-      confirmText: t('common.delete') || 'Delete',
-      cancelText: t('common.cancel') || 'Cancel',
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
     });
     if (!ok) return;
 
@@ -1019,11 +1028,11 @@ export function BookingsPage() {
     }
 
     const ok = await showConfirm({
-      title: t('common.confirm') || 'Confirm',
+      title: t('common.confirm'),
       description: safeTranslate(t, 'bookings.confirmChangeBookingTime', 'Are you sure you want to change the booking time? Old tickets will be cancelled and new tickets will be created.'),
       destructive: false,
-      confirmText: t('common.confirm') || 'Confirm',
-      cancelText: t('common.cancel') || 'Cancel',
+      confirmText: t('common.confirm'),
+      cancelText: t('common.cancel'),
     });
     if (!ok) return;
 
@@ -1800,7 +1809,7 @@ export function BookingsPage() {
                           className="flex items-center gap-1 text-sm"
                         >
                           <Edit className="w-4 h-4" />
-                          {safeTranslate(t, 'bookings.edit', 'Edit')}
+                          {t('common.edit')}
                         </Button>
 
                         {/* Change Time Button */}
@@ -1811,7 +1820,7 @@ export function BookingsPage() {
                           className="flex items-center gap-1 text-sm"
                         >
                           <Clock className="w-4 h-4" />
-                          {safeTranslate(t, 'bookings.changeTime', 'Change Time')}
+                          {t('bookings.changeTime')}
                         </Button>
 
                         {/* Delete Button */}
@@ -2233,12 +2242,13 @@ export function BookingsPage() {
           </div>
         ) : (
         <form onSubmit={(e) => { e.preventDefault(); setCreateShowPreview(true); }} className="space-y-4">
-          {/* 1. Customer Phone */}
-          <div className="relative">
+          {/* 1. Customer Phone + suggestions dropdown */}
+          <div className="relative" ref={createPhoneWrapperRef}>
             <PhoneInput
               label={t('booking.customerPhone')}
               value={createCustomerPhoneFull}
               onChange={(value) => {
+                if (createSelectedCustomer && value !== createSelectedCustomer.phone) setCreateSelectedCustomer(null);
                 setCreateCustomerPhoneFull(value);
                 let phoneNumber = value;
                 let code = tenantDefaultCountry;
@@ -2256,10 +2266,40 @@ export function BookingsPage() {
               defaultCountry={tenantDefaultCountry}
               required
             />
-            {isLookingUpCustomer && (
+            {(isLookingUpCustomer || createPhoneSearchLoading) && (
               <div className="absolute right-3 top-[38px] flex items-center gap-2">
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent" />
                 <span className="text-xs text-gray-500">{t('reception.checkingCustomerAndPackages') || 'Checking customer & packages...'}</span>
+              </div>
+            )}
+            {!createSelectedCustomer && createPhoneSuggestions.length >= 1 && (
+              <CustomerPhoneSuggestionsDropdown
+                suggestions={createPhoneSuggestions}
+                onSelect={(c) => {
+                  setCreateSelectedCustomer(c);
+                  setCreateCustomerPhoneFull(c.phone);
+                  let localPhone = c.phone;
+                  let code = tenantDefaultCountry;
+                  for (const country of countryCodes) {
+                    if (c.phone.startsWith(country.code)) {
+                      code = country.code;
+                      localPhone = c.phone.replace(country.code, '').trim();
+                      break;
+                    }
+                  }
+                  setCreateCountryCode(code);
+                  setCreateForm(prev => ({ ...prev, customer_name: c.name || '', customer_email: c.email || '', customer_phone: localPhone }));
+                  clearCreatePhoneSuggestions();
+                  lookupCustomerByPhone(c.phone);
+                }}
+                onClose={clearCreatePhoneSuggestions}
+                containerRef={createPhoneWrapperRef}
+              />
+            )}
+            {createSelectedCustomer && (
+              <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+                <CheckCircle className="h-4 w-4 shrink-0" />
+                <span>{t('reception.existingCustomerSelected')}</span>
               </div>
             )}
           </div>
@@ -2270,6 +2310,7 @@ export function BookingsPage() {
             onChange={(e) => setCreateForm(f => ({ ...f, customer_name: e.target.value }))}
             required
             placeholder={t('booking.customerName')}
+            disabled={!!createSelectedCustomer}
           />
           {/* 3. Customer Email */}
           <Input
@@ -2278,6 +2319,7 @@ export function BookingsPage() {
             value={createForm.customer_email}
             onChange={(e) => setCreateForm(f => ({ ...f, customer_email: e.target.value }))}
             placeholder={t('booking.customerEmail')}
+            disabled={!!createSelectedCustomer}
           />
           {/* Package Information Display — scrollable; show loading skeleton while looking up customer (same as Reception) */}
           {isLookingUpCustomer && (

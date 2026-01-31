@@ -875,7 +875,7 @@ export function ReceptionVisitorsPage() {
           <div className="space-y-4">
             <p className="text-gray-600">{t('visitors.confirmBlockMessage', 'Blocking this visitor will prevent them from creating new bookings from the customer side. Past bookings will remain visible. Continue?')}</p>
             <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setConfirmBlock(null)}>{t('common.cancel', 'Cancel')}</Button>
+              <Button variant="secondary" onClick={() => setConfirmBlock(null)}>{t('common.cancel')}</Button>
               <Button variant="primary" onClick={confirmBlockYes} disabled={blockingId !== null}>{t('visitors.block', 'Block Visitor')}</Button>
             </div>
           </div>

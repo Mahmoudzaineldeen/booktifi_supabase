@@ -905,7 +905,7 @@ export function VisitorsPage() {
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setConfirmBlock(null)}>
-                {t('common.cancel', 'Cancel')}
+                {t('common.cancel')}
               </Button>
               <Button variant="primary" onClick={confirmBlockYes} disabled={blockingId !== null}>
                 {t('visitors.block', 'Block Visitor')}

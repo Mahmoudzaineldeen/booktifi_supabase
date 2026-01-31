@@ -253,13 +253,11 @@ export function PackageSubscribersPage() {
 
   async function handleCancelSubscription(subscriptionId: string) {
     const ok = await showConfirm({
-      title: i18n.language === 'ar' ? 'تأكيد' : 'Confirm',
-      description: i18n.language === 'ar' 
-        ? 'هل أنت متأكد من إلغاء هذه الاشتراك؟ لا يمكن التراجع عن هذا الإجراء.'
-        : 'Are you sure you want to cancel this subscription? This action cannot be undone.',
+title: t('common.confirm'),
+      description: t('packages.confirmCancelSubscription'),
       destructive: true,
-      confirmText: i18n.language === 'ar' ? 'نعم، إلغاء' : 'Yes, cancel',
-      cancelText: i18n.language === 'ar' ? 'إلغاء' : 'Cancel',
+      confirmText: t('packages.yesCancel'),
+      cancelText: t('common.cancel'),
     });
     if (!ok) return;
 
@@ -569,7 +567,7 @@ export function PackageSubscribersPage() {
                         title={t('reception.editPaymentStatusTitle')}
                       >
                         <Edit2 className="w-3 h-3" />
-                        {i18n.language === 'ar' ? 'تعديل الدفع' : 'Edit payment'}
+                        {t('packages.editPayment')}
                       </button>
                       {subscriber.zoho_invoice_id && (
                         <button
@@ -591,17 +589,17 @@ export function PackageSubscribersPage() {
                         onClick={() => handleCancelSubscription(subscriber.id)}
                         disabled={cancellingId === subscriber.id}
                         className="inline-flex items-center gap-1 px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        title={i18n.language === 'ar' ? 'إلغاء الاشتراك' : 'Cancel Subscription'}
+                        title={t('packages.cancelSubscription')}
                       >
                         {cancellingId === subscriber.id ? (
                           <>
                             <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-red-800"></div>
-                            {i18n.language === 'ar' ? 'جاري الإلغاء...' : 'Cancelling...'}
+                            {t('packages.cancelling')}
                           </>
                         ) : (
                           <>
                             <XCircle className="w-3 h-3" />
-                            {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
+                            {t('common.cancel')}
                           </>
                         )}
                       </button>

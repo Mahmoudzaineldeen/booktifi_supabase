@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, X } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 
@@ -30,6 +31,7 @@ export function showConfirm(options: ConfirmOptions): Promise<boolean> {
 }
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const [state, setState] = useState<ConfirmState | null>(null);
   const showConfirmRef = useRef<(options: ConfirmOptions) => Promise<boolean>>();
 
@@ -91,7 +93,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                 type="button"
                 onClick={handleCancel}
                 className="flex-shrink-0 p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                aria-label="Close"
+                aria-label={t('common.close')}
               >
                 <X className="w-5 h-5" />
               </button>
@@ -106,10 +108,10 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                     : undefined
                 }
               >
-                {state.confirmText ?? 'Confirm'}
+                {state.confirmText ?? t('common.confirm')}
               </Button>
               <Button variant="secondary" onClick={handleCancel}>
-                {state.cancelText ?? 'Cancel'}
+                {state.cancelText ?? t('common.cancel')}
               </Button>
             </div>
           </div>

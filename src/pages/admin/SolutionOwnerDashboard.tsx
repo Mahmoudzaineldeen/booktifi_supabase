@@ -540,7 +540,7 @@ export function SolutionOwnerDashboard() {
                               size="sm"
                               variant="ghost"
                               onClick={() => openEditModal(tenant)}
-                              title="Edit tenant"
+                              title={t('admin.editTenant')}
                             >
                               <Edit className="w-4 h-4" />
                             </Button>
@@ -556,7 +556,7 @@ export function SolutionOwnerDashboard() {
                               variant="ghost"
                               onClick={() => openDeleteModal(tenant)}
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              title="Delete tenant"
+                              title={t('admin.deleteTenant')}
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
@@ -679,7 +679,7 @@ export function SolutionOwnerDashboard() {
           setEditingTenant(null);
           setError('');
         }}
-        title={t('admin.editTenant') || 'Edit Tenant'}
+        title={t('admin.editTenant')}
         size="lg"
       >
         <form onSubmit={handleEditTenant} className="space-y-4">
@@ -751,7 +751,7 @@ export function SolutionOwnerDashboard() {
 
           <div className="flex gap-3 pt-4">
             <Button type="submit" fullWidth loading={updating}>
-              {t('common.save') || 'Save Changes'}
+              {t('settings.saveChanges')}
             </Button>
             <Button
               type="button"
@@ -777,7 +777,7 @@ export function SolutionOwnerDashboard() {
           setDeletingTenant(null);
           setError('');
         }}
-        title={t('admin.deleteTenant') || 'Delete Tenant'}
+        title={t('admin.deleteTenant')}
         size="md"
       >
         <div className="space-y-4">
@@ -803,12 +803,12 @@ export function SolutionOwnerDashboard() {
 
           {deletingTenant && (
             <div className="bg-gray-50 rounded-lg p-4">
-              <p className="text-sm font-medium text-gray-900 mb-1">Tenant to delete:</p>
+              <p className="text-sm font-medium text-gray-900 mb-1">{t('admin.tenantToDelete')}</p>
               <p className="text-lg font-semibold text-gray-900">
                 {i18n.language === 'ar' && deletingTenant.name_ar ? deletingTenant.name_ar : deletingTenant.name}
               </p>
               <p className="text-sm text-gray-600 mt-1">
-                {deletingTenant.contact_email || deletingTenant.contact_phone || 'No contact info'}
+                {deletingTenant.contact_email || deletingTenant.contact_phone || t('admin.noContactInfo')}
               </p>
             </div>
           )}
@@ -833,7 +833,7 @@ export function SolutionOwnerDashboard() {
               className="bg-red-600 hover:bg-red-700 text-white"
             >
               <Trash2 className="w-4 h-4 mr-2" />
-              {t('common.delete') || 'Delete Tenant'}
+              {t('admin.deleteTenant')}
             </Button>
           </div>
         </div>

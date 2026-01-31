@@ -61,7 +61,10 @@
     "notEnoughCapacity": "لا توجد سعة كافية. المتاح: {{available}}، المطلوب: {{requested}}",
     "failedToDownloadInvoice": "فشل تنزيل الفاتورة: {{message}}",
     "navigationError": "خطأ في التنقل",
-    "saving": "جاري الحفظ..."
+    "saving": "جاري الحفظ...",
+    "updating": "جاري التحديث...",
+    "submitting": "جاري الإرسال...",
+    "proceed": "متابعة"
   },
   "auth": {
     "login": "تسجيل الدخول",
@@ -389,7 +392,9 @@
     "primaryColor": "اللون الأساسي",
     "operationalSettings": "إعدادات التشغيل",
     "disablePublicBookings": "تعطيل الحجوزات العامة مؤقتاً",
-    "saveSettings": "حفظ الإعدادات"
+    "saveSettings": "حفظ الإعدادات",
+    "enableTickets": "تفعيل التذاكر",
+    "ticketsDisabledDescription": "عند التعطيل، سيتم إيقاف إنشاء التذاكر ووظائفها بالكامل في جميع أنحاء النظام"
   },
   "service": {
     "name": "اسم الخدمة",
@@ -446,7 +451,9 @@
     "failedToVerifyServiceDeletion": "فشل التحقق من حذف الخدمة. يرجى التحقق من السجلات.",
     "serviceAndPackagesDeletedSuccessfully": "تم حذف الخدمة و {{count}} حزمة(ات) بنجاح",
     "categoryNotFoundOrAlreadyDeleted": "لم يتم العثور على الفئة أو تم حذفها بالفعل",
-    "shiftNotFoundOrAlreadyDeleted": "لم يتم العثور على الوردية أو تم حذفها بالفعل"
+    "shiftNotFoundOrAlreadyDeleted": "لم يتم العثور على الوردية أو تم حذفها بالفعل",
+    "deleteShiftConfirm": "هل تريد حذف هذه الوردية؟",
+    "regenerateSlotsConfirm": "سيتم إعادة إنشاء جميع الفترات للـ 30 يوماً القادمة. الحجوزات الحالية ستبقى. متابعة؟"
   },
   "booking": {
     "booking": "حجز",
@@ -512,6 +519,8 @@
     "time": "الوقت",
     "pleaseSelectDateAndTime": "يرجى اختيار التاريخ والوقت",
     "pleaseSelectOptionFromOffers": "يرجى اختيار خيار من الخيارات المتاحة",
+    "editDateAndTime": "تعديل التاريخ والوقت",
+    "edit": "تعديل",
     "reservedFor": "محجوز لمدة",
     "completeBooking": "أكمل الحجز خلال",
     "latestReviews": "آخر {{count}} مراجعات",
@@ -793,7 +802,11 @@
       "parking": "موقف سيارات",
       "venue": "مكان",
       "other": "أخرى"
-    }
+    },
+    "editTenant": "تعديل المستأجر",
+    "deleteTenant": "حذف المستأجر",
+    "tenantToDelete": "المستأجر المراد حذفه:",
+    "noContactInfo": "لا توجد معلومات اتصال"
   },
   "reception": {
     "title": "مكتب الاستقبال",
@@ -841,6 +854,7 @@
     "loadingSlots": "جاري تحميل الأوقات المتاحة...",
     "loadingCustomerPackages": "جاري تحميل باقات العميل...",
     "checkingCustomerAndPackages": "جاري التحقق من العميل والباقات...",
+    "existingCustomerSelected": "تم اختيار عميل موجود",
     "loadingPackagesList": "جاري تحميل الباقات...",
     "slotNoLongerAvailable": "الفترة المختارة لم تعد متاحة. يرجى اختيار وقت آخر.",
     "yourSelection": "اختيارك",
@@ -1068,6 +1082,10 @@
       "packageName": "اسم الباقة"
     },
     "cancel": "إلغاء",
+    "yesCancel": "نعم، إلغاء",
+    "cancelling": "جاري الإلغاء...",
+    "editPayment": "تعديل الدفع",
+    "cancelSubscription": "إلغاء الاشتراك",
     "confirmCancelSubscription": "هل أنت متأكد من إلغاء هذا الاشتراك؟",
     "activePackage": "باقة نشطة",
     "packageService": "من الباقة",
@@ -1325,6 +1343,7 @@
     "amountPaid": "المبلغ"
   },
   "settings": {
+    "saveChanges": "حفظ التغييرات",
     "schedulingConfiguration": "إعداد الجدولة",
     "schedulingModeDescription": "يحدد هذا الإعداد كيفية عمل نظام الحجز بالكامل. تغيير الوضع يحدّث مصدر التوفر والواجهة في لوحة الإدارة والاستقبال.",
     "serviceSlotBased": "حسب فترات الخدمة",
@@ -1642,6 +1661,8 @@
     "time": "الوقت",
     "edit": "تعديل",
     "changeTime": "تغيير الوقت",
+    "cancelBooking": "إلغاء الحجز",
+    "markComplete": "تحديد كمكتمل",
     "updating": "جاري التحديث...",
     "zohoSynced": "Zoho متزامن",
     "zohoFailed": "فشل Zoho",
@@ -1998,5 +2019,11 @@
     "84": "فيتنام",
     "967": "اليمن",
     "20": "مصر"
+  },
+  "reviews": {
+    "noReviewsYet": "لا توجد مراجعات بعد",
+    "noReviewsYetBeFirst": "لا توجد مراجعات بعد. كن أول من يكتب مراجعة!",
+    "editReview": "تعديل المراجعة",
+    "deleteReview": "حذف المراجعة"
   }
 }

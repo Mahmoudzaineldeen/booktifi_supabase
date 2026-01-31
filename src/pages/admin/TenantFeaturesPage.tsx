@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Settings, Save, AlertCircle, Check, ArrowLeft } from 'lucide-react';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
@@ -22,6 +23,7 @@ interface Tenant {
 }
 
 export function TenantFeaturesPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [selectedTenantId, setSelectedTenantId] = useState<string>('');
@@ -391,7 +393,7 @@ export function TenantFeaturesPage() {
                     className="flex items-center gap-2"
                   >
                     <Save className="w-4 h-4" />
-                    {saving ? 'Saving...' : 'Save Changes'}
+                    {saving ? t('common.saving') : t('settings.saveChanges')}
                   </Button>
                 </div>
               </div>

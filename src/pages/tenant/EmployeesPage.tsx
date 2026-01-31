@@ -485,11 +485,11 @@ export function EmployeesPage() {
       : t('employee.confirmActivate');
 
     const ok = await showConfirm({
-      title: t('common.confirm') || 'Confirm',
+      title: t('common.confirm'),
       description: confirmMessage,
       destructive: currentStatus,
-      confirmText: t('common.confirm') || 'Confirm',
-      cancelText: t('common.cancel') || 'Cancel',
+      confirmText: t('common.confirm'),
+      cancelText: t('common.cancel'),
     });
     if (!ok) return;
 

@@ -86,7 +86,7 @@ export function CustomerLandingPage() {
             className="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto mb-4"
             style={{ borderColor: primaryColor }}
           ></div>
-          <p className="text-gray-600" style={{ color: primaryColor }}>Loading...</p>
+          <p className="text-gray-600" style={{ color: primaryColor }}>{t('common.loading')}</p>
         </div>
       </div>
     );

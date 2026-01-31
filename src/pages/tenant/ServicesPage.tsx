@@ -575,20 +575,20 @@ export function ServicesPage() {
           : `This service is included in ${affectedPackages.length} package(s): ${packageNames}\n\nThese packages will also be deleted. Are you sure you want to delete?`;
         
         const ok = await showConfirm({
-          title: t('common.confirm') || 'Confirm',
+          title: t('common.confirm'),
           description: confirmMessage,
           destructive: true,
-          confirmText: t('common.delete') || 'Delete',
-          cancelText: t('common.cancel') || 'Cancel',
+          confirmText: t('common.delete'),
+          cancelText: t('common.cancel'),
         });
         if (!ok) return;
       } else {
         const ok = await showConfirm({
-          title: t('common.confirm') || 'Confirm',
+          title: t('common.confirm'),
           description: t('service.deleteService'),
           destructive: true,
-          confirmText: t('common.delete') || 'Delete',
-          cancelText: t('common.cancel') || 'Cancel',
+          confirmText: t('common.delete'),
+          cancelText: t('common.cancel'),
         });
         if (!ok) return;
       }
@@ -707,11 +707,11 @@ export function ServicesPage() {
 
   async function deleteCategory(id: string) {
     const ok = await showConfirm({
-      title: t('common.confirm') || 'Confirm',
+      title: t('common.confirm'),
       description: t('service.deleteCategory'),
       destructive: true,
-      confirmText: t('common.delete') || 'Delete',
-      cancelText: t('common.cancel') || 'Cancel',
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
     });
     if (!ok) return;
 
@@ -903,11 +903,11 @@ export function ServicesPage() {
 
   async function deleteShift(id: string) {
     const ok = await showConfirm({
-      title: t('common.confirm') || 'Confirm',
-      description: 'Delete this shift?',
+      title: t('common.confirm'),
+      description: t('service.deleteShiftConfirm'),
       destructive: true,
-      confirmText: t('common.delete') || 'Delete',
-      cancelText: t('common.cancel') || 'Cancel',
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
     });
     if (!ok) return;
 
@@ -942,11 +942,11 @@ export function ServicesPage() {
   async function regenerateSlots(shiftId: string, silent = false) {
     if (!silent) {
       const ok = await showConfirm({
-        title: t('common.confirm') || 'Confirm',
-        description: 'This will regenerate all slots for the next 30 days. Existing bookings will be preserved. Continue?',
+        title: t('common.confirm'),
+        description: t('service.regenerateSlotsConfirm'),
         destructive: false,
-        confirmText: t('common.confirm') || 'Confirm',
-        cancelText: t('common.cancel') || 'Cancel',
+        confirmText: t('common.confirm'),
+        cancelText: t('common.cancel'),
       });
       if (!ok) return;
     }

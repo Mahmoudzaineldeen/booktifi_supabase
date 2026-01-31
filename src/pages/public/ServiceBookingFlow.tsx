@@ -1067,7 +1067,7 @@ export function ServiceBookingFlow() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto mb-4" style={{ borderColor: primaryColor }}></div>
-          <p className="text-gray-600">{debugInfo || 'Loading...'}</p>
+          <p className="text-gray-600">{debugInfo || t('common.loading')}</p>
         </div>
       </div>
     );
@@ -1254,11 +1254,11 @@ export function ServiceBookingFlow() {
                       setShowTimeSelection(false);
                     }}
                     className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 ml-4 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
-                    title={i18n.language === 'ar' ? 'تعديل التاريخ والوقت' : 'Edit date and time'}
+                    title={t('booking.editDateAndTime')}
                   >
                     <Edit2 className="w-4 h-4" />
                     <span className="hidden sm:inline">
-                      {i18n.language === 'ar' ? 'تعديل' : 'Edit'}
+                      {t('common.edit')}
                     </span>
                   </button>
                 )}
@@ -2342,9 +2342,7 @@ export function ServiceBookingFlow() {
                 ) : reviews.length === 0 ? (
                   <div className="text-center py-8">
                     <p className="text-gray-500">
-                      {i18n.language === 'ar' 
-                        ? 'لا توجد مراجعات بعد. كن أول من يكتب مراجعة!' 
-                        : 'No reviews yet. Be the first to write a review!'}
+                      {t('reviews.noReviewsYetBeFirst')}
                     </p>
                   </div>
                 ) : (
@@ -2468,11 +2466,11 @@ export function ServiceBookingFlow() {
                                           ? (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟ (أنت تحذف كـ service provider)' : 'Are you sure you want to delete this review? (You are deleting as service provider)')
                                           : (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟' : 'Are you sure you want to delete this review?');
                                         const ok = await showConfirm({
-                                          title: i18n.language === 'ar' ? 'تأكيد' : 'Confirm',
+                                          title: t('common.confirm'),
                                           description: confirmMessage,
                                           destructive: true,
-                                          confirmText: i18n.language === 'ar' ? 'حذف' : 'Delete',
-                                          cancelText: i18n.language === 'ar' ? 'إلغاء' : 'Cancel',
+                                          confirmText: t('common.delete'),
+                                          cancelText: t('common.cancel'),
                                         });
                                         if (!ok) return;
                                         try {
@@ -2497,7 +2495,7 @@ export function ServiceBookingFlow() {
                                         }
                                       }}
                                       className="text-gray-500 hover:text-red-600 transition-colors p-1"
-                                      aria-label="Delete review"
+                                      aria-label={t('reviews.deleteReview')}
                                     >
                                       <Trash2 className="w-4 h-4" />
                                     </button>

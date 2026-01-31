@@ -286,11 +286,11 @@ export function OffersPage() {
   async function deleteOffer(id: string) {
     const confirmMessage = t('offers.deleteOffer') || 'Are you sure you want to delete this offer?';
     const ok = await showConfirm({
-      title: t('common.confirm') || 'Confirm',
+      title: t('common.confirm'),
       description: confirmMessage,
       destructive: true,
-      confirmText: t('common.delete') || 'Delete',
-      cancelText: t('common.cancel') || 'Cancel',
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
     });
     if (!ok) return;
 

@@ -431,10 +431,10 @@ export function PackageSchedulePage() {
                 <button
                   onClick={() => navigate(`/${tenantSlug}/book`)}
                   className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 ml-4 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
-                  title={i18n.language === 'ar' ? 'تعديل' : 'Edit'}
+                  title={t('common.edit')}
                 >
                   <Calendar className="w-4 h-4" />
-                  {i18n.language === 'ar' ? 'تعديل' : 'Edit'}
+                  {t('common.edit')}
                 </button>
               </div>
             </div>

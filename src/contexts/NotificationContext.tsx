@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 
 export type NotificationType = 'success' | 'error' | 'warning' | 'info';
@@ -88,7 +89,7 @@ function ToastItem({
         type="button"
         onClick={handleClose}
         className="flex-shrink-0 p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-black/5 transition-colors"
-        aria-label="Close"
+        aria-label={t('common.close')}
       >
         <X className="w-4 h-4" />
       </button>
