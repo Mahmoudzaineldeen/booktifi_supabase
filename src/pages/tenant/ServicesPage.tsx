@@ -4,6 +4,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { db } from '../../lib/db';
+import { showNotification } from '../../contexts/NotificationContext';
+import { showConfirm } from '../../contexts/ConfirmContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
@@ -186,7 +188,7 @@ export function ServicesPage() {
       // Check for duplicate service name (case-insensitive, trimmed)
       const serviceName = serviceForm.name.trim();
       if (!serviceName) {
-        alert(t('service.pleaseEnterServiceName'));
+        showNotification('warning', t('service.pleaseEnterServiceName'));
         return;
       }
 
@@ -207,9 +209,7 @@ export function ServicesPage() {
           );
           
           if (exactMatch) {
-            alert(i18n.language === 'ar' 
-              ? `خدمة بنفس الاسم موجودة بالفعل: "${exactMatch.name}"` 
-              : `A service with this name already exists: "${exactMatch.name}"`);
+            showNotification('warning', t('service.serviceWithSameNameExists', { name: exactMatch.name }));
             return;
           }
         }
@@ -229,9 +229,7 @@ export function ServicesPage() {
           );
           
           if (exactMatch) {
-            alert(i18n.language === 'ar' 
-              ? `خدمة بنفس الاسم موجودة بالفعل: "${exactMatch.name}"` 
-              : `A service with this name already exists: "${exactMatch.name}"`);
+            showNotification('warning', t('service.serviceWithSameNameExists', { name: exactMatch.name }));
             return;
           }
         }
@@ -434,7 +432,7 @@ export function ServicesPage() {
         if (result.error) {
           const errorMessage = result.error?.message || result.error?.error || JSON.stringify(result.error) || 'Unknown error';
           console.error('Error updating service:', result.error);
-          alert(`Error updating service: ${errorMessage}`);
+          showNotification('error', `Error updating service: ${errorMessage}`);
           return;
         }
       } else {
@@ -442,7 +440,7 @@ export function ServicesPage() {
         if (result.error) {
           const errorMessage = result.error?.message || result.error?.error || JSON.stringify(result.error) || 'Unknown error';
           console.error('Error creating service:', result.error);
-          alert(`Error creating service: ${errorMessage}`);
+          showNotification('error', `Error creating service: ${errorMessage}`);
           return;
         }
         
@@ -502,7 +500,7 @@ export function ServicesPage() {
       await fetchServices();
     } catch (error: any) {
       console.error('Service submit error:', error);
-      alert(`Error: ${error.message || 'Failed to save service'}`);
+      showNotification('error', `Error: ${error.message || 'Failed to save service'}`);
     }
   }
 
@@ -516,13 +514,13 @@ export function ServicesPage() {
       if (editingCategory) {
         const result = await db.from('service_categories').update(payload).eq('id', editingCategory.id).then();
         if (result.error) {
-          alert(`Error updating category: ${result.error.message}`);
+          showNotification('error', `Error updating category: ${result.error.message}`);
           return;
         }
       } else {
         const result = await db.from('service_categories').insert(payload).then();
         if (result.error) {
-          alert(`Error creating category: ${result.error.message}`);
+          showNotification('error', `Error creating category: ${result.error.message}`);
           return;
         }
       }
@@ -533,7 +531,7 @@ export function ServicesPage() {
       await fetchCategories();
     } catch (error: any) {
       console.error('Category submit error:', error);
-      alert(t('service.errorSavingCategory', { message: error.message || t('common.error') }));
+      showNotification('error', t('service.errorSavingCategory', { message: error.message || t('common.error') }));
     }
   }
 
@@ -576,9 +574,23 @@ export function ServicesPage() {
           ? `هذه الخدمة موجودة في ${affectedPackages.length} حزمة(ات): ${packageNames}\n\nسيتم حذف هذه الحزم أيضاً. هل أنت متأكد من الحذف؟`
           : `This service is included in ${affectedPackages.length} package(s): ${packageNames}\n\nThese packages will also be deleted. Are you sure you want to delete?`;
         
-        if (!confirm(confirmMessage)) return;
+        const ok = await showConfirm({
+          title: t('common.confirm') || 'Confirm',
+          description: confirmMessage,
+          destructive: true,
+          confirmText: t('common.delete') || 'Delete',
+          cancelText: t('common.cancel') || 'Cancel',
+        });
+        if (!ok) return;
       } else {
-        if (!confirm(t('service.deleteService'))) return;
+        const ok = await showConfirm({
+          title: t('common.confirm') || 'Confirm',
+          description: t('service.deleteService'),
+          destructive: true,
+          confirmText: t('common.delete') || 'Delete',
+          cancelText: t('common.cancel') || 'Cancel',
+        });
+        if (!ok) return;
       }
 
       // Delete all packages that contain this service
@@ -642,7 +654,7 @@ export function ServicesPage() {
         // Check if error has a user-friendly message from backend
         const errorMessage = deleteError.message || deleteError.error || t('service.errorDeletingService');
         console.error('[Delete Service] Database error:', deleteError);
-        alert(`Error deleting service: ${errorMessage}`);
+        showNotification('error', `Error deleting service: ${errorMessage}`);
         return;
       }
 
@@ -659,9 +671,7 @@ export function ServicesPage() {
 
         if (!checkError && stillExists) {
           console.error('[Delete Service] ❌ Service still exists after delete attempt!', stillExists);
-          alert(i18n.language === 'ar' 
-            ? 'فشل حذف الخدمة. لا تزال موجودة في قاعدة البيانات. يرجى التحقق من السجلات.'
-            : 'Failed to delete service. It still exists in the database. Please check server logs.');
+          showNotification('error', t('service.failedToDeleteServiceStillExists'));
           await fetchServices();
           return;
         } else if (checkError && checkError.code === 'PGRST116') {
@@ -670,9 +680,7 @@ export function ServicesPage() {
           // Continue to show success message (idempotent operation)
         } else {
           console.error('[Delete Service] ❌ Unexpected error checking service existence:', checkError);
-          alert(i18n.language === 'ar' 
-            ? 'فشل التحقق من حذف الخدمة. يرجى التحقق من السجلات.'
-            : 'Failed to verify service deletion. Please check server logs.');
+          showNotification('error', t('service.failedToVerifyServiceDeletion'));
           await fetchServices();
           return;
         }
@@ -682,9 +690,7 @@ export function ServicesPage() {
 
       // Show success message
       if (affectedPackages.length > 0) {
-        alert(i18n.language === 'ar'
-          ? `تم حذف الخدمة و ${affectedPackages.length} حزمة(ات) بنجاح`
-          : `Service and ${affectedPackages.length} package(s) deleted successfully`);
+        showNotification('success', t('service.serviceAndPackagesDeletedSuccessfully', { count: affectedPackages.length }));
       }
 
       await fetchServices();
@@ -692,16 +698,23 @@ export function ServicesPage() {
       console.error('Delete service error:', error);
       // Check if error has structured response
       if (error.message) {
-        alert(`Error: ${error.message}`);
+        showNotification('error', error.message || t('common.failedToDeleteService'));
       } else {
-        alert('Failed to delete service. Please try again.');
+        showNotification('error', t('common.failedToDeleteService'));
       }
     }
   }
 
   async function deleteCategory(id: string) {
-    if (!confirm(t('service.deleteCategory'))) return;
-    
+    const ok = await showConfirm({
+      title: t('common.confirm') || 'Confirm',
+      description: t('service.deleteCategory'),
+      destructive: true,
+      confirmText: t('common.delete') || 'Delete',
+      cancelText: t('common.cancel') || 'Cancel',
+    });
+    if (!ok) return;
+
     try {
       const { data: deletedCategory, error: deleteError } = await db
         .from('service_categories')
@@ -710,14 +723,12 @@ export function ServicesPage() {
         .select();
 
       if (deleteError) {
-        alert(t('service.errorDeletingCategory', { message: deleteError.message || deleteError.error || t('common.error') }));
+        showNotification('error', t('service.errorDeletingCategory', { message: deleteError.message || deleteError.error || t('common.error') }));
         return;
       }
 
       if (!deletedCategory || deletedCategory.length === 0) {
-        alert(i18n.language === 'ar' 
-          ? 'لم يتم العثور على الفئة أو تم حذفها بالفعل'
-          : t('service.categoryNotFound'));
+        showNotification('warning', t('service.categoryNotFoundOrAlreadyDeleted'));
         await fetchCategories();
         return;
       }
@@ -725,7 +736,7 @@ export function ServicesPage() {
       await fetchServices();
     } catch (error: any) {
       console.error('Delete category error:', error);
-      alert(t('service.errorDeletingCategory', { message: error.message || t('common.error') }));
+      showNotification('error', t('service.errorDeletingCategory', { message: error.message || t('common.error') }));
     }
   }
 
@@ -840,7 +851,7 @@ export function ServicesPage() {
     if (!selectedServiceForSchedule || !userProfile?.tenant_id) return;
 
     if (shiftForm.days_of_week.length === 0) {
-      alert(t('service.pleaseSelectDayOfWeek'));
+      showNotification('warning', t('service.pleaseSelectDayOfWeek'));
       return;
     }
 
@@ -859,18 +870,18 @@ export function ServicesPage() {
       if (editingShift) {
         const result = await db.from('shifts').update(payload).eq('id', editingShift.id).then();
         if (result.error) {
-          alert(`Error updating shift: ${result.error.message}`);
+          showNotification('error', `Error updating shift: ${result.error.message}`);
           return;
         }
         shiftId = editingShift.id;
       } else {
         const result = await db.from('shifts').insert(payload).select().single();
         if (result.error) {
-          alert(`Error creating shift: ${result.error.message}`);
+          showNotification('error', `Error creating shift: ${result.error.message}`);
           return;
         }
         if (!result.data) {
-          alert(t('service.failedToCreateShift'));
+          showNotification('error', t('service.failedToCreateShift'));
           return;
         }
         shiftId = result.data.id;
@@ -886,13 +897,20 @@ export function ServicesPage() {
       }
     } catch (error: any) {
       console.error('Shift submit error:', error);
-      alert(t('service.errorSavingShift', { message: error.message || t('common.error') }));
+      showNotification('error', t('service.errorSavingShift', { message: error.message || t('common.error') }));
     }
   }
 
   async function deleteShift(id: string) {
-    if (!confirm('Delete this shift?')) return;
-    
+    const ok = await showConfirm({
+      title: t('common.confirm') || 'Confirm',
+      description: 'Delete this shift?',
+      destructive: true,
+      confirmText: t('common.delete') || 'Delete',
+      cancelText: t('common.cancel') || 'Cancel',
+    });
+    if (!ok) return;
+
     try {
       const { data: deletedShift, error: deleteError } = await db
         .from('shifts')
@@ -901,14 +919,12 @@ export function ServicesPage() {
         .select();
 
       if (deleteError) {
-        alert(t('service.errorDeletingShift', { message: deleteError.message || deleteError.error || t('common.error') }));
+        showNotification('error', t('service.errorDeletingShift', { message: deleteError.message || deleteError.error || t('common.error') }));
         return;
       }
 
       if (!deletedShift || deletedShift.length === 0) {
-        alert(i18n.language === 'ar' 
-          ? 'لم يتم العثور على الوردية أو تم حذفها بالفعل'
-          : t('service.shiftNotFound'));
+        showNotification('warning', t('service.shiftNotFoundOrAlreadyDeleted'));
         if (selectedServiceForSchedule?.id) {
           await fetchShifts(selectedServiceForSchedule.id);
         }
@@ -919,12 +935,21 @@ export function ServicesPage() {
       }
     } catch (error: any) {
       console.error('Delete shift error:', error);
-      alert(t('service.errorDeletingShift', { message: error.message || t('common.error') }));
+      showNotification('error', t('service.errorDeletingShift', { message: error.message || t('common.error') }));
     }
   }
 
   async function regenerateSlots(shiftId: string, silent = false) {
-    if (!silent && !confirm('This will regenerate all slots for the next 30 days. Existing bookings will be preserved. Continue?')) return;
+    if (!silent) {
+      const ok = await showConfirm({
+        title: t('common.confirm') || 'Confirm',
+        description: 'This will regenerate all slots for the next 30 days. Existing bookings will be preserved. Continue?',
+        destructive: false,
+        confirmText: t('common.confirm') || 'Confirm',
+        cancelText: t('common.cancel') || 'Cancel',
+      });
+      if (!ok) return;
+    }
 
     try {
       const today = new Date();
@@ -941,19 +966,19 @@ export function ServicesPage() {
       if (error) {
         console.error('Slot generation error:', error);
         if (!silent) {
-          alert(t('service.errorGeneratingSlots', { message: error.message || t('common.error') }));
+          showNotification('error', t('service.errorGeneratingSlots', { message: error.message || t('common.error') }));
         }
         return;
       }
 
       if (!silent) {
         const slotsGenerated = data?.[0]?.slots_generated || data?.slots_generated || 0;
-        alert(`Success! ${slotsGenerated} slots generated.`);
+        showNotification('success', `Success! ${slotsGenerated} slots generated.`);
       }
     } catch (error: any) {
       console.error('Slot generation error:', error);
       if (!silent) {
-        alert(t('service.errorGeneratingSlots', { message: error.message || t('common.error') }));
+        showNotification('error', t('service.errorGeneratingSlots', { message: error.message || t('common.error') }));
       }
     }
   }
@@ -1538,7 +1563,7 @@ export function ServicesPage() {
                   const maxSizePerFile = 200 * 1024 * 1024; // 200MB
                   const invalidFiles = files.filter(file => file.size > maxSizePerFile);
                   if (invalidFiles.length > 0) {
-                    alert(`One or more files exceed the 200MB limit. Please select smaller files.`);
+                    showNotification('warning', `One or more files exceed the 200MB limit. Please select smaller files.`);
                     return;
                   }
                   
@@ -1549,7 +1574,7 @@ export function ServicesPage() {
                     return !validImageExtensions.includes(fileExtension) && !file.type.startsWith('image/');
                   });
                   if (invalidExtensions.length > 0) {
-                    alert('Please select valid image files only (JPG, PNG, GIF, WEBP, SVG, BMP, ICO, HEIC, HEIF)');
+                    showNotification('warning', t('common.pleaseSelectValidImageFiles'));
                     return;
                   }
                   

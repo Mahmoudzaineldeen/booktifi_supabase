@@ -4,6 +4,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { getApiUrl } from '../../lib/apiUrl';
+import { showNotification } from '../../contexts/NotificationContext';
+import { showConfirm } from '../../contexts/ConfirmContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
@@ -144,9 +146,7 @@ export function PackagesPage() {
     
     if (error) {
       console.error('Error fetching packages:', error);
-      alert(i18n.language === 'ar' 
-        ? `خطأ في جلب الحزم: ${error.message}` 
-        : `Error fetching packages: ${error.message}`);
+      showNotification('error', t('packages.errorFetchingPackages', { message: error.message }));
     }
     
     console.log('Fetched packages:', data?.length || 0, data);
@@ -169,9 +169,7 @@ export function PackagesPage() {
     
     if (error) {
       console.error('Error fetching services:', error);
-      alert(i18n.language === 'ar' 
-        ? `خطأ في جلب الخدمات: ${error.message}` 
-        : `Error fetching services: ${error.message}`);
+      showNotification('error', t('packages.errorFetchingServices', { message: error.message }));
     }
     
     console.log('Fetched services:', data?.length || 0);
@@ -216,26 +214,24 @@ export function PackagesPage() {
   async function handlePackageSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!userProfile?.tenant_id) {
-      alert(i18n.language === 'ar' ? 'خطأ: لا يوجد معرف للمستأجر' : 'Error: No tenant ID found');
+      showNotification('error', t('packages.noTenantId'));
       return;
     }
 
     // Validate required fields
     if (!packageForm.name || !packageForm.name.trim()) {
-      alert(i18n.language === 'ar' ? 'يرجى إدخال اسم الحزمة' : 'Please enter package name');
+      showNotification('error', t('packages.pleaseEnterPackageName'));
       return;
     }
 
     if (!packageForm.name_ar || !packageForm.name_ar.trim()) {
-      alert(i18n.language === 'ar' ? 'يرجى إدخال اسم الحزمة بالعربية' : 'Please enter package name in Arabic');
+      showNotification('error', t('packages.pleaseEnterPackageNameArabic'));
       return;
     }
 
     // Require at least 1 service
     if (packageForm.selectedServices.length < 1) {
-      alert(i18n.language === 'ar' 
-        ? 'يرجى اختيار خدمة واحدة على الأقل للحزمة' 
-        : 'Please select at least 1 service for the package');
+      showNotification('error', t('packages.pleaseSelectAtLeastOneServiceForPackage'));
       return;
     }
 
@@ -244,9 +240,7 @@ export function PackagesPage() {
       s => !s.service_id || s.service_id.trim() === ''
     );
     if (invalidServices.length > 0) {
-      alert(i18n.language === 'ar' 
-        ? 'يرجى اختيار خدمة لكل عنصر في الحزمة' 
-        : 'Please select a service for each package item');
+      showNotification('error', t('packages.pleaseSelectServiceForEachItem'));
       return;
     }
 
@@ -256,9 +250,7 @@ export function PackagesPage() {
       return !service || !service.base_price || isNaN(service.base_price);
     });
     if (invalidServiceIds.length > 0) {
-      alert(i18n.language === 'ar' 
-        ? 'بعض الخدمات المحددة غير صالحة أو لا تحتوي على سعر' 
-        : 'Some selected services are invalid or missing prices');
+      showNotification('error', t('packages.someServicesInvalidOrMissingPrices'));
       return;
     }
 
@@ -266,9 +258,7 @@ export function PackagesPage() {
     const calculatedTotalPrice = calculateTotalPrice();
     
     if (calculatedTotalPrice <= 0) {
-      alert(i18n.language === 'ar' 
-        ? 'إجمالي سعر الخدمات المحددة يجب أن يكون أكبر من الصفر' 
-        : 'Total price of selected services must be greater than zero');
+      showNotification('error', t('packages.totalPriceMustBeGreaterThanZero'));
       return;
     }
     
@@ -281,9 +271,7 @@ export function PackagesPage() {
       : originalPrice;
     
     if (totalPrice <= 0) {
-      alert(i18n.language === 'ar' 
-        ? 'السعر الإجمالي يجب أن يكون أكبر من الصفر' 
-        : 'Total price must be greater than zero');
+      showNotification('error', t('packages.totalPriceMustBeGreaterThanZeroForm'));
       return;
     }
     
@@ -342,9 +330,7 @@ export function PackagesPage() {
 
         if (updateError) {
           console.error('Error updating package:', updateError);
-          alert(i18n.language === 'ar' 
-            ? `خطأ في تحديث الحزمة: ${updateError.message}` 
-            : `Error updating package: ${updateError.message}`);
+          showNotification('error', t('packages.errorUpdatingPackage', { message: updateError.message }));
           return;
         }
 
@@ -356,9 +342,7 @@ export function PackagesPage() {
 
         if (deleteError) {
           console.error('Error deleting existing package services:', deleteError);
-          alert(i18n.language === 'ar' 
-            ? `خطأ في حذف خدمات الحزمة القديمة: ${deleteError.message}` 
-            : `Error deleting existing package services: ${deleteError.message}`);
+          showNotification('error', t('packages.errorDeletingExistingPackageServices', { message: deleteError.message }));
           return;
         }
 
@@ -381,9 +365,7 @@ export function PackagesPage() {
 
         if (validationError) {
           console.error('Error validating services:', validationError);
-          alert(i18n.language === 'ar' 
-            ? `فشل في التحقق من الخدمات: ${validationError.message || 'خطأ غير معروف'}` 
-            : `Failed to validate services: ${validationError.message || 'Unknown error'}`);
+          showNotification('error', t('packages.failedToValidateServices', { message: validationError.message || t('common.error') }));
           fetchPackages();
           return;
         }
@@ -393,9 +375,7 @@ export function PackagesPage() {
         
         if (invalidServices.length > 0) {
           console.error('Invalid service IDs:', invalidServices);
-          alert(i18n.language === 'ar' 
-            ? `بعض الخدمات المحددة غير موجودة أو لا تنتمي إلى المستأجر` 
-            : `Some selected services do not exist or do not belong to your tenant`);
+          showNotification('error', t('packages.someServicesNotExistOrBelongToTenant'));
           fetchPackages();
           return;
         }
@@ -408,9 +388,7 @@ export function PackagesPage() {
         if (servicesError) {
           console.error('Error inserting package services:', servicesError);
           const errorMessage = servicesError.message || servicesError.error || servicesError.code || 'Unknown error';
-          alert(i18n.language === 'ar' 
-            ? `تم تحديث الحزمة لكن حدث خطأ في إضافة الخدمات: ${errorMessage}` 
-            : `Package updated but error adding services: ${errorMessage}`);
+          showNotification('error', t('packages.packageUpdatedButErrorAddingServices', { message: errorMessage }));
           // Refresh to show current state
           fetchPackages();
           return;
@@ -418,9 +396,7 @@ export function PackagesPage() {
 
         if (!insertedServices || insertedServices.length === 0) {
           console.error('CRITICAL: No services were inserted despite no error!');
-          alert(i18n.language === 'ar' 
-            ? `تم تحديث الحزمة لكن فشل إضافة الخدمات` 
-            : `Package updated but failed to add services`);
+          showNotification('error', t('packages.packageUpdatedButFailedToAddServices'));
           fetchPackages();
           return;
         }
@@ -454,9 +430,7 @@ export function PackagesPage() {
         console.log('Package payload:', packagePayload);
         
         if (serviceData.length === 0) {
-          alert(i18n.language === 'ar' 
-            ? 'يرجى اختيار خدمة واحدة على الأقل' 
-            : 'Please select at least 1 service');
+          showNotification('error', t('packages.selectAtLeastOneService'));
           return;
         }
         
@@ -491,9 +465,7 @@ export function PackagesPage() {
               fullErrorMessage += `\n\nValid service IDs: ${errorData.valid_service_ids.join(', ')}`;
             }
             
-            alert(i18n.language === 'ar' 
-              ? `خطأ في إنشاء الحزمة: ${errorMessage}` 
-              : `Error creating package: ${errorMessage}`);
+            showNotification('error', t('packages.errorCreatingPackage', { message: errorMessage }));
             return;
           }
 
@@ -502,18 +474,14 @@ export function PackagesPage() {
           
           if (!result.success || !result.package) {
             console.error('API returned success=false or missing package data:', result);
-            alert(i18n.language === 'ar' 
-              ? 'حدث خطأ في إنشاء الحزمة' 
-              : 'Error creating package');
+            showNotification('error', t('packages.errorCreatingPackageShort'));
             return;
           }
 
           console.log(`✅ Package created with ${result.services_count || 0} service(s)`);
         } catch (fetchError: any) {
           console.error('Network error creating package:', fetchError);
-          alert(i18n.language === 'ar' 
-            ? `خطأ في الاتصال: ${fetchError.message || 'خطأ غير معروف'}` 
-            : `Connection error: ${fetchError.message || 'Unknown error'}`);
+          showNotification('error', t('packages.connectionError', { message: fetchError.message || t('common.error') }));
           return;
         }
       }
@@ -525,15 +493,11 @@ export function PackagesPage() {
       await fetchPackages();
       
       // Show success message
-      alert(i18n.language === 'ar' 
-        ? (editingPackage ? 'تم تحديث الحزمة بنجاح' : 'تم إنشاء الحزمة بنجاح')
-        : (editingPackage ? 'Package updated successfully' : 'Package created successfully'));
+      showNotification('success', editingPackage ? t('packages.packageUpdatedSuccessfully') : t('packages.packageCreatedSuccessfully'));
 
     } catch (error: any) {
       console.error('Unexpected error in handlePackageSubmit:', error);
-      alert(i18n.language === 'ar' 
-        ? `حدث خطأ غير متوقع: ${error?.message || 'خطأ غير معروف'}` 
-        : `Unexpected error: ${error?.message || 'Unknown error'}`);
+      showNotification('error', t('packages.unexpectedError', { message: error?.message || t('common.error') }));
     }
 
     setIsPackageModalOpen(false);
@@ -544,8 +508,15 @@ export function PackagesPage() {
 
 
   async function handleDeletePackage(packageId: string) {
-    if (!confirm(t('packages.confirmDelete'))) return;
-    
+    const ok = await showConfirm({
+      title: t('common.confirm') || 'Confirm',
+      description: t('packages.confirmDelete'),
+      destructive: true,
+      confirmText: t('common.delete') || 'Delete',
+      cancelText: t('common.cancel') || 'Cancel',
+    });
+    if (!ok) return;
+
     try {
       // First, delete all related package subscription usage records
       // Get subscription IDs first
@@ -581,9 +552,7 @@ export function PackagesPage() {
         console.error('Error deleting package subscriptions:', subscriptionsError);
         // If there are subscriptions, we need to delete them first
         if (subscriptionsError.message?.includes('Cannot delete')) {
-          alert(i18n.language === 'ar' 
-            ? 'لا يمكن حذف الحزمة لأنها مرتبطة باشتراكات. يرجى حذف الاشتراكات أولاً.' 
-            : 'Cannot delete package because it has active subscriptions. Please delete subscriptions first.');
+          showNotification('error', t('packages.cannotDeletePackageHasSubscriptions'));
           return;
         }
       }
@@ -596,9 +565,7 @@ export function PackagesPage() {
 
       if (servicesError) {
         console.error('Error deleting package services:', servicesError);
-        alert(i18n.language === 'ar' 
-          ? `خطأ في حذف خدمات الحزمة: ${servicesError.message}` 
-          : `Error deleting package services: ${servicesError.message}`);
+        showNotification('error', t('packages.errorDeletingPackageServices', { message: servicesError.message }));
       return;
     }
 
@@ -610,9 +577,7 @@ export function PackagesPage() {
 
       if (packageError) {
         console.error('Error deleting package:', packageError);
-        alert(i18n.language === 'ar' 
-          ? `خطأ في حذف الحزمة: ${packageError.message}` 
-          : `Error deleting package: ${packageError.message}`);
+        showNotification('error', t('packages.errorDeletingPackage', { message: packageError.message }));
         return;
       }
 
@@ -620,9 +585,7 @@ export function PackagesPage() {
     fetchPackages();
     } catch (error: any) {
       console.error('Error in handleDeletePackage:', error);
-      alert(i18n.language === 'ar' 
-        ? `حدث خطأ أثناء حذف الحزمة: ${error?.message || 'خطأ غير معروف'}` 
-        : `Error deleting package: ${error?.message || 'Unknown error'}`);
+      showNotification('error', t('packages.errorDeletingPackageUnexpected', { message: error?.message || t('common.error') }));
     }
   }
 
@@ -643,9 +606,7 @@ export function PackagesPage() {
 
       if (servicesError) {
         console.error('Error fetching package services:', servicesError);
-        alert(i18n.language === 'ar' 
-          ? `خطأ في جلب خدمات الحزمة: ${servicesError.message}` 
-          : `Error fetching package services: ${servicesError.message}`);
+        showNotification('error', t('packages.errorFetchingPackageServices', { message: servicesError.message }));
         return;
       }
 
@@ -739,9 +700,7 @@ export function PackagesPage() {
     setIsPackageModalOpen(true);
     } catch (error: any) {
       console.error('Error in handleEditPackage:', error);
-      alert(i18n.language === 'ar' 
-        ? `خطأ في تحميل الحزمة للتحرير: ${error?.message || 'خطأ غير معروف'}` 
-        : `Error loading package for editing: ${error?.message || 'Unknown error'}`);
+      showNotification('error', t('packages.errorLoadingPackageForEditing', { message: error?.message || t('common.error') }));
     }
   }
 
@@ -1081,7 +1040,7 @@ export function PackagesPage() {
                   const maxSizePerFile = 200 * 1024 * 1024; // 200MB
                   const invalidFiles = files.filter(file => file.size > maxSizePerFile);
                   if (invalidFiles.length > 0) {
-                    alert(`One or more files exceed the 200MB limit. Please select smaller files.`);
+                    showNotification('error',`One or more files exceed the 200MB limit. Please select smaller files.`);
                     return;
                   }
                   
@@ -1092,7 +1051,7 @@ export function PackagesPage() {
                     return !validImageExtensions.includes(fileExtension) && !file.type.startsWith('image/');
                   });
                   if (invalidExtensions.length > 0) {
-                    alert('Please select valid image files only (JPG, PNG, GIF, WEBP, SVG, BMP, ICO, HEIC, HEIF)');
+                    showNotification('error', t('common.pleaseSelectValidImageFiles'));
                     return;
                   }
                   

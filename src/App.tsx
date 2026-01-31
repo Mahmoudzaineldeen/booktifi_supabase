@@ -3,6 +3,8 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AuthProvider } from './contexts/AuthContext';
 import { CurrencyProvider } from './contexts/CurrencyContext';
+import { NotificationProvider } from './contexts/NotificationContext';
+import { ConfirmProvider } from './contexts/ConfirmContext';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/auth/LoginPage';
 import { SignupPage } from './pages/auth/SignupPage';
@@ -107,7 +109,11 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <CurrencyProvider>
-          <AppContent />
+          <NotificationProvider>
+            <ConfirmProvider>
+              <AppContent />
+            </ConfirmProvider>
+          </NotificationProvider>
         </CurrencyProvider>
       </AuthProvider>
     </BrowserRouter>

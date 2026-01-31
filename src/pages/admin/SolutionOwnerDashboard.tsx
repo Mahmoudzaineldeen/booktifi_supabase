@@ -13,6 +13,7 @@ import { Building2, Users, Calendar, LogOut, Plus, Settings, Edit, Trash2, UserP
 import { Tenant } from '../../types';
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
+import { showNotification } from '../../contexts/NotificationContext';
 
 export function SolutionOwnerDashboard() {
   const { userProfile, signOut, hasRole, loading: authLoading } = useAuth();
@@ -351,7 +352,7 @@ export function SolutionOwnerDashboard() {
       });
       
       // Show success message (you could add a toast notification here)
-      alert('Solution Owner created successfully!');
+      showNotification('success', t('common.solutionOwnerCreatedSuccessfully'));
     } catch (err: any) {
       setError(err.message || 'Failed to create Solution Owner');
     } finally {

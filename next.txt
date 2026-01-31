@@ -28,3 +28,10 @@ check date make separate visitors details button
 .ensure that the dashboard metrics includes also packages data and all the displayed data are accurate
 
 organization id=910540679
+
+
+10 or least
+Arabic
+performance is sucks
+remove all alerts
+

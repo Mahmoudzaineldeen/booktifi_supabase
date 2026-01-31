@@ -15,6 +15,7 @@ import { format, parseISO } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../../lib/apiUrl';
 import { extractBookingIdFromQR } from '../../lib/qrUtils';
+import { showNotification } from '../../contexts/NotificationContext';
 
 interface Booking {
   id: string;
@@ -233,7 +234,7 @@ export function CashierPage() {
   async function updatePaymentStatus(bookingId: string) {
     if (!userProfile?.tenant_id) return;
     if (markPaidMethod === 'transfer' && !markPaidReference.trim()) {
-      alert(i18n.language === 'ar' ? 'رقم المرجع مطلوب عند الدفع بالحوالة' : 'Transaction reference number is required for transfer payment.');
+      showNotification('warning', t('reception.transactionReferenceRequired'));
       return;
     }
 
@@ -264,14 +265,10 @@ export function CashierPage() {
       }
       setMarkPaidReference('');
 
-      alert(i18n.language === 'ar' 
-        ? 'تم تحديث حالة الدفع بنجاح' 
-        : t('cashier.paymentStatusUpdatedSuccessfully'));
+      showNotification('success', t('cashier.paymentStatusUpdatedSuccessfully'));
     } catch (err: any) {
       console.error('Error updating payment status:', err);
-      alert(i18n.language === 'ar' 
-        ? `خطأ: ${err.message}` 
-        : `Error: ${err.message}`);
+      showNotification('error', err.message || t('common.error'));
     } finally {
       setUpdatingPayment(false);
     }

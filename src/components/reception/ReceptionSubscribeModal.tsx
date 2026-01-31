@@ -17,6 +17,7 @@ import { PhoneInput } from '../ui/PhoneInput';
 import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { CheckCircle } from 'lucide-react';
+import { showNotification } from '../../contexts/NotificationContext';
 import type { SubscriptionConfirmationData } from '../shared/SubscriptionConfirmationModal';
 
 interface PackageItem {
@@ -169,15 +170,11 @@ export function ReceptionSubscribeModal({
 
   async function handleSubscribe() {
     if (!customerPhoneFull.trim() || !customerName.trim() || !selectedPackageId) {
-      alert(
-        i18n.language === 'ar'
-          ? 'يرجى إدخال رقم الهاتف واسم العميل واختيار الباقة.'
-          : 'Please enter customer phone, name, and select a package.'
-      );
+      showNotification('warning', t('packages.pleaseEnterPhoneNameAndPackage'));
       return;
     }
     if (paymentMethod === 'transfer' && !transactionReference.trim()) {
-      alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+      showNotification('warning', t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
       return;
     }
     try {
@@ -224,9 +221,7 @@ export function ReceptionSubscribeModal({
       onSuccess?.(confirmationData);
     } catch (error: any) {
       console.error('Error subscribing customer:', error);
-      alert(
-        i18n.language === 'ar' ? `خطأ في الاشتراك: ${error.message}` : `Error subscribing customer: ${error.message}`
-      );
+      showNotification('error', t('packages.errorSubscribingCustomer', { message: error.message }));
     } finally {
       setSubscribing(false);
     }

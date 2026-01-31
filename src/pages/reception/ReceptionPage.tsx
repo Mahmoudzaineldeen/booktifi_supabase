@@ -27,6 +27,8 @@ import { extractBookingIdFromQR } from '../../lib/qrUtils';
 import { fetchAvailableSlots as fetchAvailableSlotsUtil, Slot as AvailabilitySlot } from '../../lib/bookingAvailability';
 import { BookingConfirmationModal } from '../../components/shared/BookingConfirmationModal';
 import { SubscriptionConfirmationModal, type SubscriptionConfirmationData } from '../../components/shared/SubscriptionConfirmationModal';
+import { showNotification } from '../../contexts/NotificationContext';
+import { showConfirm } from '../../contexts/ConfirmContext';
 
 interface Booking {
   id: string;
@@ -472,13 +474,13 @@ export function ReceptionPage() {
       const slotCapacity = slot.available_capacity || 0;
       
       if (sameSlotCount >= slotCapacity) {
-        alert(`Maximum capacity reached for this slot. Available: ${slotCapacity}`);
+        showNotification('warning', t('common.maximumCapacityReached', { available: slotCapacity }));
         return;
       }
       
       // If we've reached max but this is a different slot, show message
       if (sameSlotCount === 0) {
-        alert(`You can select up to ${maxSlots} slot(s). Remove a slot first to select a different one, or click the same slot multiple times.`);
+        showNotification('warning', t('common.selectUpToSlots', { max: maxSlots }));
         return;
       }
     }
@@ -708,19 +710,19 @@ export function ReceptionPage() {
     // Use the full phone number from subscriptionPhoneFull
     const fullPhone = subscriptionPhoneFull || (subscriptionForm.customer_phone ? `${tenantDefaultCountry}${subscriptionForm.customer_phone}` : '');
     if (!fullPhone) {
-      alert(t('packages.customerPhoneRequired') || 'Customer phone is required');
+      showNotification('warning', t('packages.customerPhoneRequired') || 'Customer phone is required');
       return;
     }
     if (!subscriptionForm.customer_name?.trim()) {
-      alert(t('packages.customerNameRequired') || 'Customer name is required');
+      showNotification('warning', t('packages.customerNameRequired') || 'Customer name is required');
       return;
     }
     if (!subscriptionForm.package_id) {
-      alert(t('packages.selectPackage') || 'Please select a package');
+      showNotification('warning', t('packages.selectPackage') || 'Please select a package');
       return;
     }
     if (subscriptionPaymentMethod === 'transfer' && !subscriptionTransactionReference.trim()) {
-      alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+      showNotification('warning', t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
       return;
     }
 
@@ -773,7 +775,7 @@ export function ReceptionPage() {
       setSubscriptionConfirmationData(confirmationData);
     } catch (err: any) {
       console.error('Error creating subscription:', err);
-      alert(`Error: ${err.message}`);
+      showNotification('error', t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
     } finally {
       setIsSubscribing(false);
     }
@@ -1434,7 +1436,7 @@ export function ReceptionPage() {
     const fullPhoneNumber = `${countryCode}${bookingForm.customer_phone}`;
 
     if (!selectedTimeSlot) {
-      alert(t('reception.slotNotSelected'));
+      showNotification('warning', t('reception.slotNotSelected'));
       return;
     }
 
@@ -1445,7 +1447,7 @@ export function ReceptionPage() {
     );
 
     if (slotsAtTime.length === 0) {
-      alert(t('reception.noSlotsAvailable'));
+      showNotification('warning', t('reception.noSlotsAvailable'));
       return;
     }
 
@@ -1467,7 +1469,7 @@ export function ReceptionPage() {
       const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
       
       if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
-        alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+        showNotification('warning', t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
         return;
       }
       
@@ -1521,7 +1523,7 @@ export function ReceptionPage() {
         return;
       } catch (error: any) {
         console.error('Error creating booking:', error);
-        alert(`Error: ${error.message}`);
+        showNotification('error', t('reception.errorCreatingBooking', { message: error.message || t('common.error') }));
         return;
       }
     }
@@ -1530,7 +1532,7 @@ export function ReceptionPage() {
     const totalCapacity = slotsAtTime.reduce((sum, s) => sum + s.available_capacity, 0);
     
     if (totalCapacity < quantity) {
-      alert(`Not enough capacity. Available: ${totalCapacity}, Requested: ${quantity}`);
+      showNotification('warning', t('common.notEnoughCapacity', { available: totalCapacity, requested: quantity }));
       return;
     }
 
@@ -1739,7 +1741,7 @@ export function ReceptionPage() {
   async function handleMultiServiceBookingWithList(servicesToBook: Array<{service: Service, slot: Slot, employeeId: string}>) {
     if (!userProfile?.tenant_id) return;
     if (servicesToBook.length === 0) {
-      alert(t('reception.noServicesSelected'));
+      showNotification('warning', t('reception.noServicesSelected'));
       return;
     }
 
@@ -1830,7 +1832,7 @@ export function ReceptionPage() {
           const bookingPrice = usePackage ? 0 : (priceForBooking * bookingVisitorCount);
 
           if (bookingPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
-            alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+            showNotification('warning', t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
             throw new Error('transaction_reference required');
           }
 
@@ -1895,7 +1897,7 @@ export function ReceptionPage() {
     } catch (err: any) {
       console.error('Error creating multi-service bookings:', err);
       console.error('Error stack:', err.stack);
-      alert(`Error: ${err.message}`);
+      showNotification('error', t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
     }
   }
 
@@ -2037,10 +2039,10 @@ export function ReceptionPage() {
     // User selected a service and slot(s) but slot wasn't found in list (e.g. stale slots) – show slot-specific error
     const hadSlotSelection = selectedTimeSlot || selectedSlot || selectedSlots.length > 0;
     if (selectedService && hadSlotSelection) {
-      alert(t('reception.slotNoLongerAvailable') || 'Selected slot is no longer available. Please choose another time.');
+      showNotification('warning', t('reception.slotNoLongerAvailable') || 'Selected slot is no longer available. Please choose another time.');
       return;
     }
-    alert(t('reception.noServicesSelected'));
+    showNotification('warning', t('reception.noServicesSelected'));
     return;
 
     if (!userProfile?.tenant_id || !selectedService) return;
@@ -2054,12 +2056,12 @@ export function ReceptionPage() {
     // }
 
     if (assignmentMode === 'automatic' && !selectedTimeSlot) {
-      alert('Please select a time slot');
+      showNotification('warning', t('common.pleaseSelectTimeSlot'));
       return;
     }
 
     if (assignmentMode === 'manual' && !selectedSlot) {
-      alert('Please select a time slot');
+      showNotification('warning', t('common.pleaseSelectTimeSlot'));
       return;
     }
 
@@ -2077,7 +2079,7 @@ export function ReceptionPage() {
       if (assignmentMode === 'automatic') {
         // Use the selected time slot info
         if (!selectedTimeSlot) {
-          alert(t('reception.slotNotSelected'));
+          showNotification('warning', t('reception.slotNotSelected'));
           return;
         }
 
@@ -2100,7 +2102,7 @@ export function ReceptionPage() {
         console.log('Slots matching time filter:', slotsAtSelectedTime);
 
         if (slotsAtSelectedTime.length === 0) {
-          alert(t('reception.noSlotsAvailable'));
+          showNotification('warning', t('reception.noSlotsAvailable'));
           return;
         }
 
@@ -2114,7 +2116,7 @@ export function ReceptionPage() {
         // Manual mode
         const manualSlot = slots.find(s => s.id === selectedSlot);
         if (!manualSlot) {
-          alert(t('reception.selectedSlotNotFound'));
+          showNotification('warning', t('reception.selectedSlotNotFound'));
           return;
         }
 
@@ -2142,7 +2144,7 @@ export function ReceptionPage() {
 
       const slot = slots.find(s => s.id === slotId);
       if (!slot) {
-        alert(t('reception.slotNotSelected'));
+        showNotification('warning', t('reception.slotNotSelected'));
         return;
       }
 
@@ -2194,7 +2196,7 @@ export function ReceptionPage() {
       const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
 
       if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
-        alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+        showNotification('warning', t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
         return;
       }
 
@@ -2227,11 +2229,11 @@ export function ReceptionPage() {
         setConfirmationBookingId(result?.id ?? null);
       } catch (err: any) {
         console.error('Error creating booking:', err);
-        alert(`Error: ${err.message}`);
+        showNotification('error', t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
       }
     } catch (err: any) {
       console.error('Error in handleSubmit:', err);
-      alert(t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
+      showNotification('error', t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
     }
   }
 
@@ -2255,7 +2257,7 @@ export function ReceptionPage() {
       fetchBookings();
     } catch (err: any) {
       console.error('Error updating booking:', err);
-      alert(`Error: ${err.message}`);
+      showNotification('error', t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
     }
   }
 
@@ -2276,14 +2278,14 @@ export function ReceptionPage() {
       fetchBookings();
     } catch (err: any) {
       console.error('Error updating payment status:', err);
-      alert(`Error: ${err.message}`);
+      showNotification('error', t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
     }
   }
 
   async function confirmMarkPaid() {
     if (!markPaidBookingId) return;
     if (markPaidMethod === 'transfer' && !markPaidReference.trim()) {
-      alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+      showNotification('warning', t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
       return;
     }
     setMarkPaidSubmitting(true);
@@ -2307,10 +2309,10 @@ export function ReceptionPage() {
       setMarkPaidBookingId(null);
       setMarkPaidReference('');
       setSelectedBookingForDetails(null);
-      alert(t('reception.paymentStatusUpdatedSuccessfully') || 'Payment status updated. Invoice sent via WhatsApp when applicable.');
+      showNotification('success', t('reception.paymentStatusUpdatedSuccessfully'));
     } catch (err: any) {
       console.error('Mark paid error:', err);
-      alert(err.message || 'Failed to mark as paid');
+      showNotification('error', err.message || t('common.failedToMarkAsPaid'));
     } finally {
       setMarkPaidSubmitting(false);
     }
@@ -2362,10 +2364,10 @@ export function ReceptionPage() {
       await fetchBookings();
       setIsEditBookingModalOpen(false);
       setEditingBooking(null);
-      alert(t('bookings.bookingUpdatedSuccessfully') || 'Booking updated successfully!');
+      showNotification('success', t('bookings.bookingUpdatedSuccessfully') || 'Booking updated successfully!');
     } catch (err: any) {
       console.error('Error updating booking:', err);
-      alert(t('bookings.failedToUpdateBooking', { message: err.message }) || `Error: ${err.message}`);
+      showNotification('error', t('bookings.failedToUpdateBooking', { message: err.message }));
     }
   }
 
@@ -2381,7 +2383,7 @@ export function ReceptionPage() {
     console.log('[ReceptionPage] ========================================');
     
     if (!userProfile?.tenant_id || !(booking as any).service_id) {
-      alert(t('bookings.cannotEditBookingTime') || 'Cannot edit booking time');
+      showNotification('warning', t('bookings.cannotEditBookingTime') || 'Cannot edit booking time');
       return;
     }
 
@@ -2485,7 +2487,7 @@ export function ReceptionPage() {
       setAvailableTimeSlots(result.slots as Slot[]);
     } catch (error: any) {
       console.error('Error fetching time slots:', error);
-      alert(t('bookings.failedToFetchTimeSlots', { message: error.message }) || 'Failed to fetch time slots');
+      showNotification('error', t('bookings.failedToFetchTimeSlots', { message: error.message }));
       setAvailableTimeSlots([]);
     } finally {
       setLoadingTimeSlots(false);
@@ -2505,13 +2507,18 @@ export function ReceptionPage() {
   // Update booking time (same as tenant provider - uses atomic endpoint)
   async function updateBookingTime() {
     if (!editingBookingTime || !selectedNewSlotId || !userProfile?.tenant_id) {
-      alert(t('bookings.pleaseSelectNewTimeSlot') || 'Please select a new time slot');
+      showNotification('warning', t('bookings.pleaseSelectNewTimeSlot') || 'Please select a new time slot');
       return;
     }
 
-    if (!confirm(t('bookings.confirmChangeBookingTime') || 'Are you sure you want to change the booking time? Old tickets will be invalidated.')) {
-      return;
-    }
+    const ok = await showConfirm({
+      title: t('common.confirm') || 'Confirm',
+      description: t('bookings.confirmChangeBookingTime') || 'Are you sure you want to change the booking time? Old tickets will be invalidated.',
+      destructive: false,
+      confirmText: t('common.confirm') || 'Confirm',
+      cancelText: t('common.cancel') || 'Cancel',
+    });
+    if (!ok) return;
 
     setUpdatingBookingTime(true);
     try {
@@ -2811,10 +2818,10 @@ export function ReceptionPage() {
         }
       }
       
-      alert(successMessage);
+      showNotification('success', successMessage);
     } catch (error: any) {
       console.error('[ReceptionPage] ❌ Error updating booking time:', error);
-      alert(t('bookings.failedToUpdateBookingTime', { message: error.message }) || `Error: ${error.message}`);
+      showNotification('error', t('bookings.failedToUpdateBookingTime', { message: error.message }));
     } finally {
       setUpdatingBookingTime(false);
     }
@@ -2906,10 +2913,8 @@ export function ReceptionPage() {
       
     } catch (error: any) {
       console.error('[ReceptionPage] Error downloading invoice:', error);
-      const errorMessage = error.message || 'Unknown error occurred';
-      alert(i18n.language === 'ar' 
-        ? `فشل تنزيل الفاتورة: ${errorMessage}. يرجى المحاولة مرة أخرى.` 
-        : `Failed to download invoice: ${errorMessage}. Please try again.`);
+      const errorMessage = error.message || t('common.error');
+      showNotification('error', t('common.failedToDownloadInvoice', { message: errorMessage }));
       setDownloadingInvoice(null);
     }
   }
@@ -3394,21 +3399,21 @@ export function ReceptionPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                 <div>
-                  <span className="text-gray-500">Service:</span>
+                  <span className="text-gray-500">{t('reception.serviceLabel')}</span>
                   <div className="font-medium">
                     {i18n.language === 'ar' ? booking.services?.name_ar : booking.services?.name}
                   </div>
                 </div>
                 <div>
-                  <span className="text-gray-500">Date & Time:</span>
+                  <span className="text-gray-500">{t('reception.dateAndTimeLabel')}</span>
                   <div className="font-medium">
-                    {format(parseISO(booking.slots?.slot_date), 'MMM dd, yyyy')}
+                    {format(parseISO(booking.slots?.slot_date), 'MMM dd, yyyy', { locale: i18n.language?.startsWith('ar') ? ar : undefined })}
                     <br />
                     {booking.slots?.start_time} - {booking.slots?.end_time}
                   </div>
                 </div>
                 <div>
-                  <span className="text-gray-500">Employee{getBookingEmployees(booking).length > 1 ? 's' : ''}:</span>
+                  <span className="text-gray-500">{getBookingEmployees(booking).length > 1 ? t('reception.employeesLabel') : t('reception.employeeLabel')}</span>
                   <div className="font-medium">
                     {getBookingEmployees(booking).length > 0
                       ? getBookingEmployees(booking).map((emp, idx) => (
@@ -3427,7 +3432,7 @@ export function ReceptionPage() {
                     {/* Show only paid amount if package is used */}
                     {booking.package_covered_quantity !== undefined && booking.package_covered_quantity > 0 && booking.paid_quantity !== undefined && booking.paid_quantity > 0 && (
                       <span className="text-xs text-gray-500 ml-2">
-                        ({i18n.language === 'ar' ? 'مدفوع فقط' : 'paid only'})
+                        ({t('reception.paidOnly')})
                       </span>
                     )}
                   </div>
@@ -3437,14 +3442,12 @@ export function ReceptionPage() {
                       {booking.package_covered_quantity === booking.visitor_count ? (
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-300">
                           <Package className="w-3 h-3" />
-                          {i18n.language === 'ar' ? 'مغطى بالباقة' : 'Covered by Package'}
+                          {t('reception.coveredByPackage')}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300">
                           <Package className="w-3 h-3" />
-                          {i18n.language === 'ar' 
-                            ? `الباقة: ${booking.package_covered_quantity} | مدفوع: ${booking.paid_quantity || 0}`
-                            : `Package: ${booking.package_covered_quantity} | Paid: ${booking.paid_quantity || 0}`}
+                          {t('reception.packagePaidFormat', { package: booking.package_covered_quantity, paid: booking.paid_quantity || 0 })}
                         </span>
                       )}
                     </div>
@@ -3453,7 +3456,7 @@ export function ReceptionPage() {
               </div>
               {booking.notes && (
                 <div className="mt-3 text-sm text-gray-600 bg-gray-50 p-2 rounded">
-                  <strong>Notes:</strong> {booking.notes}
+                  <strong>{t('reception.notesLabelWithColon')}</strong> {booking.notes}
                 </div>
               )}
               
@@ -3944,7 +3947,7 @@ export function ReceptionPage() {
                 onClick={() => setViewMode('list')}
                 icon={<List className="w-4 h-4" />}
               >
-                <span className="hidden sm:inline">List</span>
+                <span className="hidden sm:inline">{i18n.language?.startsWith('ar') ? 'عرض القائمة' : (t('bookings.listView') || 'List')}</span>
               </Button>
               <Button
                 variant={viewMode === 'calendar' ? 'primary' : 'secondary'}
@@ -3952,7 +3955,7 @@ export function ReceptionPage() {
                 onClick={() => setViewMode('calendar')}
                 icon={<Grid className="w-4 h-4" />}
               >
-                <span className="hidden sm:inline">Calendar</span>
+                <span className="hidden sm:inline">{i18n.language?.startsWith('ar') ? 'عرض التقويم' : (t('bookings.calendarView') || 'Calendar')}</span>
               </Button>
             </div>
             {!isCoordinator && (
@@ -4789,13 +4792,13 @@ export function ReceptionPage() {
                   }
 
                   if (!slotToAdd) {
-                    alert(t('reception.slotNotSelected'));
+                    showNotification('warning', t('reception.slotNotSelected'));
                     return;
                   }
 
                   // Check if service already added
                   if (selectedServices.some(s => s.service.id === service.id)) {
-                    alert('Service already added');
+                    showNotification('info', t('common.serviceAlreadyAdded'));
                     return;
                   }
 
@@ -4806,7 +4809,7 @@ export function ReceptionPage() {
                   );
 
                   if (hasConflict) {
-                    alert(t('reception.timeConflict'));
+                    showNotification('warning', t('reception.timeConflict'));
                     return;
                   }
 
@@ -5594,13 +5597,13 @@ export function ReceptionPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-500">Service</label>
+                <label className="text-sm font-medium text-gray-500">{t('reception.serviceLabel')}</label>
                 <div className="mt-1 font-medium">
                   {i18n.language === 'ar' ? selectedBookingForDetails.services?.name_ar : selectedBookingForDetails.services?.name}
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Employee{getBookingEmployees(selectedBookingForDetails).length > 1 ? 's' : ''}</label>
+                <label className="text-sm font-medium text-gray-500">{getBookingEmployees(selectedBookingForDetails).length > 1 ? t('reception.employeesLabel') : t('reception.employeeLabel')}</label>
                 <div className="mt-1 font-medium">
                   {getBookingEmployees(selectedBookingForDetails).length > 0
                     ? getBookingEmployees(selectedBookingForDetails).map((emp, idx) => (
@@ -5615,16 +5618,16 @@ export function ReceptionPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-500">Date</label>
+                <label className="text-sm font-medium text-gray-500">{t('reception.date')}</label>
                 <div className="mt-1 flex items-center gap-2">
                   <CalendarDays className="w-4 h-4 text-gray-400" />
                   <span className="font-medium">
-                    {format(parseISO(selectedBookingForDetails.slots?.slot_date), 'MMM dd, yyyy')}
+                    {format(parseISO(selectedBookingForDetails.slots?.slot_date), 'MMM dd, yyyy', { locale: i18n.language?.startsWith('ar') ? ar : undefined })}
                   </span>
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Time</label>
+                <label className="text-sm font-medium text-gray-500">{t('reception.time')}</label>
                 <div className="mt-1 flex items-center gap-2">
                   <Clock className="w-4 h-4 text-gray-400" />
                   <span className="font-medium">
@@ -5640,7 +5643,7 @@ export function ReceptionPage() {
                 <div className="mt-1 font-medium">{(selectedBookingForDetails as any).groupCount || selectedBookingForDetails.visitor_count}</div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Total Price</label>
+                <label className="text-sm font-medium text-gray-500">{t('reception.totalPrice')}</label>
                 <div className="mt-1 flex items-center gap-2">
                   <DollarSign className="w-4 h-4 text-gray-400" />
                   <span className="font-medium">{formatPrice(selectedBookingForDetails.total_price)}</span>

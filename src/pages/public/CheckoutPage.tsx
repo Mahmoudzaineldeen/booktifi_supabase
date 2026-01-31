@@ -16,6 +16,7 @@ import { AnimatedRating } from '../../components/ui/AnimatedRating';
 import { countryCodes, validatePhoneNumberByCountry } from '../../lib/countryCodes';
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
+import { showNotification } from '../../contexts/NotificationContext';
 
 interface BookingData {
   serviceId: string;
@@ -287,7 +288,7 @@ export function CheckoutPage() {
         .maybeSingle();
 
       if (!tenantData || !tenantData.is_active) {
-        alert('Tenant not found or inactive');
+        showNotification('error', t('common.tenantNotFoundOrInactive'));
         navigate(`/${tenantSlug}/book`);
         return;
       }
@@ -298,7 +299,7 @@ export function CheckoutPage() {
       if (isPackagePurchase) {
         const packageId = locationState?.packageId;
         if (!packageId) {
-          alert('Package ID is required');
+          showNotification('error','Package ID is required');
           navigate(`/${tenantSlug}/book`);
           return;
         }
@@ -313,7 +314,7 @@ export function CheckoutPage() {
           .maybeSingle();
 
         if (!packageData) {
-          alert('Package not found or inactive');
+          showNotification('error', t('common.packageNotFoundOrInactive'));
           navigate(`/${tenantSlug}/book`);
           return;
         }
@@ -326,9 +327,7 @@ export function CheckoutPage() {
 
         if (packageServicesError) {
           console.error('Error fetching package services:', packageServicesError);
-          alert(i18n.language === 'ar' 
-            ? 'خطأ في جلب خدمات الحزمة' 
-            : 'Error fetching package services');
+          showNotification('error', t('checkout.errorFetchingPackageServices'));
           navigate(`/${tenantSlug}/book`);
           return;
         }
@@ -343,9 +342,7 @@ export function CheckoutPage() {
         // Validate that package has services
         if (!services || services.length === 0) {
           console.error('Package has no services:', { packageId, tenantId: tenantData.id });
-          alert(i18n.language === 'ar' 
-            ? 'هذه الحزمة لا تحتوي على خدمات. يرجى الاتصال بالمسؤول.' 
-            : 'This package has no services configured. Please contact the administrator.');
+          showNotification('error', t('checkout.packageHasNoServices'));
           navigate(`/${tenantSlug}/book`);
           return;
         }
@@ -376,7 +373,7 @@ export function CheckoutPage() {
         .maybeSingle();
 
       if (!serviceData) {
-        alert(t('checkout.serviceNotFound'));
+        showNotification('error',t('checkout.serviceNotFound'));
         navigate(`/${tenantSlug}/book`);
         return;
       }
@@ -693,7 +690,7 @@ export function CheckoutPage() {
       }
     } catch (error) {
       console.error('Error fetching checkout data:', error);
-      alert(t('checkout.failedToLoadCheckoutPage'));
+          showNotification('error',t('checkout.failedToLoadCheckoutPage'));
       navigate(`/${tenantSlug}/book`);
     } finally {
       setLoading(false);
@@ -806,35 +803,32 @@ export function CheckoutPage() {
     
     // Block customers during maintenance mode
     if (isBlockedByMaintenance) {
-      alert(i18n.language === 'ar' 
-        ? 'الحجوزات معطلة مؤقتاً. يرجى زيارة موقعنا شخصياً لإجراء الحجز.'
-        : 'Bookings are temporarily disabled. Please visit us in person to make a reservation.'
-      );
+      showNotification('error', t('checkout.bookingsDisabledMaintenance'));
       return;
     }
     
     if (!customerInfo.name || !customerInfo.phone) {
-      alert(t('checkout.pleaseFillAllRequiredFields'));
+          showNotification('error',t('checkout.pleaseFillAllRequiredFields'));
       return;
     }
 
     // For package purchase, skip service/slot validation
     if (!isPackagePurchase) {
       if (!service || !slot) {
-        alert(t('checkout.pleaseFillAllRequiredFields'));
+        showNotification('error',t('checkout.pleaseFillAllRequiredFields'));
         return;
       }
 
       // Ensure at least one ticket
       if (visitorCount === 0 || visitorCount < 1) {
-        alert(t('checkout.pleaseSelectAtLeastOneTicket'));
+        showNotification('error',t('checkout.pleaseSelectAtLeastOneTicket'));
         return;
       }
     }
 
     // For guest bookings, require OTP verification
     if (!isLoggedIn && otpStep !== 'verified') {
-      alert(i18n.language === 'ar' ? 'يرجى التحقق من رقم الهاتف أولاً' : 'Please verify your phone number first');
+          showNotification('error', t('checkout.pleaseVerifyPhoneFirst'));
       return;
     }
 
@@ -842,7 +836,7 @@ export function CheckoutPage() {
     const phoneValidation = validatePhoneNumber(customerInfo.phone, countryCode);
     if (!phoneValidation.valid) {
       setPhoneError(phoneValidation.error || null);
-      alert(phoneValidation.error || t('checkout.invalidPhoneNumber'));
+          showNotification('error',phoneValidation.error || t('checkout.invalidPhoneNumber'));
       return;
     }
 
@@ -899,7 +893,7 @@ export function CheckoutPage() {
 
         if (packagePaymentMethod === 'transfer' && !packageTransactionReference.trim()) {
           setSubmitting(false);
-          alert(i18n.language === 'ar' ? 'رقم المرجع مطلوب عند الدفع بالحوالة.' : 'Transaction reference number is required for transfer payment.');
+          showNotification('error', t('reception.transactionReferenceRequired'));
           return;
         }
 
@@ -1039,17 +1033,11 @@ export function CheckoutPage() {
       
       // Check if error is due to maintenance mode
       if (error.message && error.message.includes('temporarily disabled')) {
-        alert(i18n.language === 'ar' 
-          ? 'الحجوزات معطلة مؤقتاً. يرجى زيارة موقعنا شخصياً لإجراء الحجز.'
-          : 'Bookings are temporarily disabled. Please visit us in person to make a reservation.'
-        );
+        showNotification('error', t('checkout.bookingsDisabledMaintenance'));
       } else if (error.code === 'BOOKING_DISABLED_MAINTENANCE') {
-        alert(i18n.language === 'ar' 
-          ? 'الحجوزات معطلة مؤقتاً. يرجى زيارة موقعنا شخصياً لإجراء الحجز.'
-          : 'Bookings are temporarily disabled. Please visit us in person to make a reservation.'
-        );
+        showNotification('error', t('checkout.bookingsDisabledMaintenance'));
       } else {
-        alert(error.message || 'Failed to complete purchase. Please try again.');
+        showNotification('error', error.message || t('common.failedToCompletePurchase'));
       }
     } finally {
       setSubmitting(false);

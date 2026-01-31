@@ -24,6 +24,8 @@ import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
 import { TestimonialForm } from '../../components/reviews/TestimonialForm';
 import { ReviewsCarousel } from '../../components/reviews/ReviewsCarousel';
 import { fetchAvailableSlots as fetchAvailableSlotsUtil } from '../../lib/bookingAvailability';
+import { showNotification } from '../../contexts/NotificationContext';
+import { showConfirm } from '../../contexts/ConfirmContext';
 
 interface Tenant {
   id: string;
@@ -350,7 +352,7 @@ export function PublicBookingPage() {
       }
       if (!tenantData) {
         console.error('Tenant not found:', tenantSlug);
-        alert(`Tenant "${tenantSlug}" not found. Please check the URL.`);
+        showNotification('error', t('common.tenantNotFoundCheckUrl', { slug: tenantSlug }));
         setLoading(false);
         return;
       }
@@ -358,7 +360,7 @@ export function PublicBookingPage() {
       // Check if tenant account is active
       if (tenantData.is_active === false) {
         console.error('Tenant account is deactivated:', tenantSlug);
-        alert('This service provider account has been deactivated. Please contact support.');
+        showNotification('warning', t('common.serviceProviderDeactivated'));
         setLoading(false);
         navigate('/');
         return;
@@ -594,11 +596,11 @@ export function PublicBookingPage() {
       
       // Show more specific error message
       if (errorMessage.includes('column') || errorMessage.includes('does not exist')) {
-        alert('Database schema mismatch. Please run the migration: database/migrations/add_modern_landing_page_features.sql');
+        showNotification('error', t('common.databaseSchemaMismatch'));
       } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-        alert('Network error. Please check if the Railway backend is accessible.');
+        showNotification('error', t('common.networkErrorCheckBackend'));
       } else {
-        alert(`Failed to load page: ${errorMessage}. Please check the console for details.`);
+        showNotification('error', t('common.failedToLoadBookingPage', { message: errorMessage }));
       }
     } finally {
       setLoading(false);
@@ -675,10 +677,7 @@ export function PublicBookingPage() {
     
     // Check maintenance mode for customers
     if (isBlockedByMaintenance) {
-      alert(i18n.language === 'ar' 
-        ? 'الحجوزات معطلة مؤقتاً. يرجى زيارة موقعنا شخصياً لإجراء الحجز.'
-        : 'Bookings are temporarily disabled. Please visit us in person to make a reservation.'
-      );
+      showNotification('warning', t('checkout.bookingsDisabledMaintenance'));
       return;
     }
     
@@ -701,7 +700,7 @@ export function PublicBookingPage() {
 
         if (!validationResponse.ok) {
           const error = await validationResponse.json();
-          alert(error.error || 'These tickets are no longer available. Please choose another option.');
+          showNotification('warning', error.error || t('common.ticketsNoLongerAvailable'));
           setIsModalOpen(false);
           setBookingLock(null);
           if (lockValidationInterval) {
@@ -713,7 +712,7 @@ export function PublicBookingPage() {
         }
       } catch (err) {
         console.error('Lock validation error:', err);
-        alert('Failed to validate reservation. Please try again.');
+        showNotification('error', t('common.failedToValidateReservation'));
         return;
       }
     }
@@ -776,7 +775,7 @@ export function PublicBookingPage() {
         setLockValidationInterval(null);
       }
       
-      alert(`Error: ${err.message}`);
+      showNotification('error', err.message || t('common.error'));
     }
   }
 
@@ -872,7 +871,7 @@ export function PublicBookingPage() {
             clearInterval(interval);
             setLockValidationInterval(null);
             setBookingLock(null);
-            alert(error.error || 'These tickets are no longer available. Please choose another option.');
+            showNotification('warning', error.error || t('common.ticketsNoLongerAvailable'));
             setIsModalOpen(false);
             await fetchAvailableSlots();
             return;
@@ -889,7 +888,7 @@ export function PublicBookingPage() {
           clearInterval(interval);
           setLockValidationInterval(null);
           setBookingLock(null);
-          alert('These tickets are no longer available. Please choose another option.');
+          showNotification('warning', t('common.ticketsNoLongerAvailable'));
           setIsModalOpen(false);
           await fetchAvailableSlots();
         }
@@ -1483,10 +1482,7 @@ export function PublicBookingPage() {
           <button
             onClick={() => {
               if (isBlockedByMaintenance) {
-                alert(i18n.language === 'ar' 
-                  ? 'الحجوزات معطلة مؤقتاً. يرجى زيارة موقعنا شخصياً لإجراء الحجز.'
-                  : 'Bookings are temporarily disabled. Please visit us in person to make a reservation.'
-                );
+                showNotification('warning', t('checkout.bookingsDisabledMaintenance'));
                 return;
               }
               document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' });
@@ -2032,9 +2028,7 @@ export function PublicBookingPage() {
                         navigate(url);
                       } else {
                         console.error('Missing tenantSlug or packageId');
-                        alert(i18n.language === 'ar' 
-                          ? 'خطأ في التنقل' 
-                          : 'Navigation error');
+                        showNotification('error', t('common.navigationError'));
                       }
                     }}
                   >
@@ -2192,26 +2186,31 @@ export function PublicBookingPage() {
                     const confirmMessage = isServiceProvider
                       ? t('booking.areYouSureDeleteReviewAsProvider')
                       : t('booking.areYouSureDeleteReview');
-                    if (window.confirm(confirmMessage)) {
-                      try {
-                        // Use centralized API URL utility - import at top of file
-  const API_URL = getApiUrl();
-                        const token = localStorage.getItem('auth_token');
-                        const response = await fetch(`${API_URL}/reviews/${reviewId}`, {
-                          method: 'DELETE',
-                          headers: {
-                            'Authorization': `Bearer ${token}`,
-                          },
-                        });
-                        if (response.ok) {
-                          fetchAllReviews();
-                        } else {
-                          const data = await response.json();
-                          alert(data.error || 'Failed to delete review');
-                        }
-                      } catch (error: any) {
-                        alert('Failed to delete review: ' + error.message);
+                    const ok = await showConfirm({
+                      title: t('common.confirm') || 'Confirm',
+                      description: confirmMessage,
+                      destructive: true,
+                      confirmText: t('common.delete') || 'Delete',
+                      cancelText: t('common.cancel') || 'Cancel',
+                    });
+                    if (!ok) return;
+                    try {
+                      const API_URL = getApiUrl();
+                      const token = localStorage.getItem('auth_token');
+                      const response = await fetch(`${API_URL}/reviews/${reviewId}`, {
+                        method: 'DELETE',
+                        headers: {
+                          'Authorization': `Bearer ${token}`,
+                        },
+                      });
+                      if (response.ok) {
+                        fetchAllReviews();
+                      } else {
+                        const data = await response.json();
+                        showNotification('error', data.error || t('common.failedToDeleteReview'));
                       }
+                    } catch (error: any) {
+                      showNotification('error', 'Failed to delete review: ' + error.message);
                     }
                   }}
                   canEdit={isLoggedIn}
@@ -2568,7 +2567,7 @@ export function PublicBookingPage() {
                         setSelectedAggregatedSlot(aggSlot);
                       } catch (err: any) {
                         console.error('Failed to acquire lock:', err);
-                        alert(err.message || 'Failed to reserve this time slot. Please try another time.');
+                        showNotification('error', err.message || t('common.failedToReserveTimeSlot'));
                         setSelectedAggregatedSlot(null);
                         // Refresh slots to show updated availability
                         await fetchAvailableSlots();
@@ -2892,26 +2891,31 @@ export function PublicBookingPage() {
                           const confirmMessage = isServiceProvider
                             ? (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟ (أنت تحذف كـ service provider)' : 'Are you sure you want to delete this review? (You are deleting as service provider)')
                             : (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟' : 'Are you sure you want to delete this review?');
-                          if (window.confirm(confirmMessage)) {
-                            try {
-                              // Use centralized API URL utility - import at top of file
-  const API_URL = getApiUrl();
-                              const token = localStorage.getItem('auth_token');
-                              const response = await fetch(`${API_URL}/reviews/${reviewId}`, {
-                                method: 'DELETE',
-                                headers: {
-                                  'Authorization': `Bearer ${token}`,
-                                },
-                              });
-                              if (response.ok) {
-                                fetchAllReviews();
-                              } else {
-                                const data = await response.json();
-                                alert(data.error || 'Failed to delete review');
-                              }
-                            } catch (error: any) {
-                              alert('Failed to delete review: ' + error.message);
+                          const ok = await showConfirm({
+                            title: i18n.language === 'ar' ? 'تأكيد' : 'Confirm',
+                            description: confirmMessage,
+                            destructive: true,
+                            confirmText: i18n.language === 'ar' ? 'حذف' : 'Delete',
+                            cancelText: i18n.language === 'ar' ? 'إلغاء' : 'Cancel',
+                          });
+                          if (!ok) return;
+                          try {
+                            const API_URL = getApiUrl();
+                            const token = localStorage.getItem('auth_token');
+                            const response = await fetch(`${API_URL}/reviews/${reviewId}`, {
+                              method: 'DELETE',
+                              headers: {
+                                'Authorization': `Bearer ${token}`,
+                              },
+                            });
+                            if (response.ok) {
+                              fetchAllReviews();
+                            } else {
+                              const data = await response.json();
+                              showNotification('error', data.error || t('common.failedToDeleteReview'));
                             }
+                          } catch (error: any) {
+                            showNotification('error', 'Failed to delete review: ' + error.message);
                           }
                         }}
                         canEdit={isLoggedIn}

@@ -26,14 +26,14 @@ export function WarningModal({
   cancelText,
   requiresExplicitConfirmation = false,
 }: WarningModalProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [confirmationText, setConfirmationText] = React.useState('');
   const [understood, setUnderstood] = React.useState(false);
+  const confirmKeyword = i18n.language === 'ar' ? 'تأكيد' : 'confirm';
 
   if (!isOpen) return null;
 
   const handleConfirm = () => {
-    const confirmKeyword = i18n.language === 'ar' ? 'تأكيد' : 'confirm';
     if (requiresExplicitConfirmation && (!understood || confirmationText.toLowerCase() !== confirmKeyword)) {
       return;
     }
@@ -119,7 +119,7 @@ export function WarningModal({
             variant="secondary"
             onClick={handleClose}
           >
-            {defaultCancelText}
+            {cancelText ?? t('common.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -130,7 +130,7 @@ export function WarningModal({
             }
             className="bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-300"
           >
-            {defaultConfirmText}
+            {confirmText ?? t('common.confirm')}
           </Button>
         </div>
       </div>

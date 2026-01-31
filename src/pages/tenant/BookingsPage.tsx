@@ -20,6 +20,8 @@ import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { countryCodes } from '../../lib/countryCodes';
 import { BookingConfirmationModal } from '../../components/shared/BookingConfirmationModal';
+import { showNotification } from '../../contexts/NotificationContext';
+import { showConfirm } from '../../contexts/ConfirmContext';
 
 interface AdminService {
   id: string;
@@ -80,6 +82,7 @@ type SearchType = 'phone' | 'customer_name' | 'date' | 'service_name' | 'booking
 
 export function BookingsPage() {
   const { t, i18n } = useTranslation();
+  const isAr = i18n.language?.startsWith('ar') ?? false;
   const { userProfile, tenant } = useAuth();
   const { formatPrice, formatPriceString } = useCurrency();
   const tenantDefaultCountry = useTenantDefaultCountry();
@@ -349,11 +352,11 @@ export function BookingsPage() {
       const sameCount = createSelectedSlots.filter(s => s.slot_id === slot.id).length;
       const cap = slot.available_capacity || 0;
       if (sameCount >= cap) {
-        alert(t('reception.maxCapacityReached', { cap }) || `Maximum capacity reached. Available: ${cap}`);
+        showNotification('warning', t('reception.maxCapacityReached', { cap }) || `Maximum capacity reached. Available: ${cap}`);
         return;
       }
       if (sameCount === 0) {
-        alert(t('reception.selectUpToSlots', { n: maxSlots }) || `You can select up to ${maxSlots} slot(s). Remove a slot first or click the same slot multiple times.`);
+        showNotification('warning', t('reception.selectUpToSlots', { n: maxSlots }) || `You can select up to ${maxSlots} slot(s). Remove a slot first or click the same slot multiple times.`);
         return;
       }
     }
@@ -412,7 +415,7 @@ export function BookingsPage() {
     if (slotIds.length === 0) return;
 
     if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
-      alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
+      showNotification('warning', t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
       return;
     }
     const paymentPayload = totalPrice > 0
@@ -490,7 +493,7 @@ export function BookingsPage() {
         setConfirmationBookingId(firstId);
       }
     } catch (err: any) {
-      alert(err.message || t('reception.errorCreatingBooking', { message: err.message }));
+      showNotification('error', err.message || t('reception.errorCreatingBooking', { message: err.message }));
     } finally {
       setCreatingBooking(false);
     }
@@ -731,7 +734,7 @@ export function BookingsPage() {
     } catch (error: any) {
       console.error('[BookingsPage] Error downloading invoice:', error);
       const errorMessage = error.message || t('common.error');
-      alert(t('bookings.failedToDownloadInvoice', { message: errorMessage }));
+      showNotification('error', t('bookings.failedToDownloadInvoice', { message: errorMessage }));
       setDownloadingInvoice(null);
     }
   }
@@ -759,10 +762,10 @@ export function BookingsPage() {
       await fetchBookings(); // Refresh list
       setEditingBooking(null);
       
-      alert(t('bookings.bookingUpdatedSuccessfully'));
+      showNotification('success', t('bookings.bookingUpdatedSuccessfully'));
     } catch (error: any) {
       console.error('Error updating booking:', error);
-      alert(t('bookings.failedToUpdateBooking', { message: error.message }));
+      showNotification('error', t('bookings.failedToUpdateBooking', { message: error.message }));
     }
   }
 
@@ -779,9 +782,14 @@ export function BookingsPage() {
       confirmMessage = t('bookings.confirmDelete');
     }
 
-    if (!confirm(confirmMessage)) {
-      return;
-    }
+    const ok = await showConfirm({
+      title: t('common.confirm') || 'Confirm',
+      description: confirmMessage,
+      destructive: true,
+      confirmText: t('common.delete') || 'Delete',
+      cancelText: t('common.cancel') || 'Cancel',
+    });
+    if (!ok) return;
 
     try {
       setDeletingBooking(bookingId);
@@ -808,10 +816,10 @@ export function BookingsPage() {
       await fetchBookings(); // Refresh list
       setDeletingBooking(null);
       
-      alert(t('bookings.bookingDeletedSuccessfully'));
+      showNotification('success', t('bookings.bookingDeletedSuccessfully'));
     } catch (error: any) {
       console.error('Error deleting booking:', error);
-      alert(t('bookings.failedToDeleteBooking', { message: error.message }));
+      showNotification('error', t('bookings.failedToDeleteBooking', { message: error.message }));
       setDeletingBooking(null);
     }
   }
@@ -863,13 +871,13 @@ export function BookingsPage() {
       
       // Show sync status if available
       if (result.zoho_sync && !result.zoho_sync.success) {
-        alert(t('bookings.paymentStatusUpdatedButZohoFailed', { error: result.zoho_sync.error }));
+        showNotification('warning', t('bookings.paymentStatusUpdatedButZohoFailed', { error: result.zoho_sync.error }));
       } else {
-        alert(t('bookings.paymentStatusUpdatedSuccessfully'));
+        showNotification('success', t('bookings.paymentStatusUpdatedSuccessfully'));
       }
     } catch (error: any) {
       console.error('Error updating payment status:', error);
-      alert(t('bookings.failedToUpdatePaymentStatus', { message: error.message }));
+      showNotification('error', t('bookings.failedToUpdatePaymentStatus', { message: error.message }));
       setUpdatingPaymentStatus(null);
     }
   }
@@ -885,7 +893,7 @@ export function BookingsPage() {
     console.log('[BookingsPage] ========================================');
     
     if (!userProfile?.tenant_id || !booking.service_id) {
-      alert(t('bookings.cannotEditBookingTime'));
+      showNotification('warning', t('bookings.cannotEditBookingTime'));
       return;
     }
 
@@ -988,7 +996,7 @@ export function BookingsPage() {
       setAvailableTimeSlots(result.slots);
     } catch (error: any) {
       console.error('Error fetching time slots:', error);
-      alert(t('bookings.failedToFetchTimeSlots', { message: error.message }));
+      showNotification('error', t('bookings.failedToFetchTimeSlots', { message: error.message }));
       setAvailableTimeSlots([]);
     } finally {
       setLoadingTimeSlots(false);
@@ -1006,13 +1014,18 @@ export function BookingsPage() {
 
   async function updateBookingTime() {
     if (!editingBookingTime || !selectedNewSlotId || !userProfile?.tenant_id) {
-      alert(safeTranslate(t, 'bookings.pleaseSelectNewTimeSlot', 'Please select a new time slot'));
+      showNotification('warning', safeTranslate(t, 'bookings.pleaseSelectNewTimeSlot', 'Please select a new time slot'));
       return;
     }
 
-    if (!confirm(safeTranslate(t, 'bookings.confirmChangeBookingTime', 'Are you sure you want to change the booking time? Old tickets will be cancelled and new tickets will be created.'))) {
-      return;
-    }
+    const ok = await showConfirm({
+      title: t('common.confirm') || 'Confirm',
+      description: safeTranslate(t, 'bookings.confirmChangeBookingTime', 'Are you sure you want to change the booking time? Old tickets will be cancelled and new tickets will be created.'),
+      destructive: false,
+      confirmText: t('common.confirm') || 'Confirm',
+      cancelText: t('common.cancel') || 'Cancel',
+    });
+    if (!ok) return;
 
     setUpdatingBookingTime(true);
     try {
@@ -1238,10 +1251,10 @@ export function BookingsPage() {
         }
       }, 1500);
       
-      alert(t('bookings.bookingTimeUpdatedSuccessfully'));
+      showNotification('success', t('bookings.bookingTimeUpdatedSuccessfully'));
     } catch (error: any) {
       console.error('Error updating booking time:', error);
-      alert(t('bookings.failedToUpdateBookingTime', { message: error.message }));
+      showNotification('error', t('bookings.failedToUpdateBookingTime', { message: error.message }));
     } finally {
       setUpdatingBookingTime(false);
     }
@@ -1250,39 +1263,39 @@ export function BookingsPage() {
   // Validate search input based on search type
   function validateSearchInput(type: SearchType, value: string): { valid: boolean; error?: string } {
     if (!type) {
-      return { valid: false, error: t('reception.selectSearchType') || 'Please select a search type first' };
+      return { valid: false, error: isAr ? 'اختر نوع البحث أولاً...' : (t('reception.selectSearchTypeFirst') || 'Please select a search type first') };
     }
 
     if (!value || value.trim().length === 0) {
-      return { valid: false, error: t('reception.enterSearchValue') || 'Please enter a search value' };
+      return { valid: false, error: isAr ? 'يرجى إدخال قيمة البحث' : (t('reception.enterSearchValue') || 'Please enter a search value') };
     }
 
     switch (type) {
       case 'phone':
         const phoneDigits = value.replace(/\D/g, '');
         if (phoneDigits.length < 5) {
-          return { valid: false, error: t('reception.phoneMinLength') || 'Phone number must be at least 5 digits' };
+          return { valid: false, error: isAr ? 'يجب أن يكون رقم الهاتف 5 أرقام على الأقل' : (t('reception.phoneMinLength') || 'Phone number must be at least 5 digits') };
         }
         break;
       case 'booking_id':
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         if (!uuidRegex.test(value.trim())) {
-          return { valid: false, error: t('reception.invalidBookingId') || 'Invalid booking ID format' };
+          return { valid: false, error: isAr ? 'تنسيق رقم الحجز غير صحيح' : (t('reception.invalidBookingId') || 'Invalid booking ID format') };
         }
         break;
       case 'customer_name':
         if (value.trim().length < 2) {
-          return { valid: false, error: t('reception.nameMinLength') || 'Name must be at least 2 characters' };
+          return { valid: false, error: isAr ? 'يجب أن يكون الاسم حرفين على الأقل' : (t('reception.nameMinLength') || 'Name must be at least 2 characters') };
         }
         break;
       case 'service_name':
         if (value.trim().length < 2) {
-          return { valid: false, error: t('reception.serviceMinLength') || 'Service name must be at least 2 characters' };
+          return { valid: false, error: isAr ? 'يجب أن يكون اسم الخدمة حرفين على الأقل' : (t('reception.serviceMinLength') || 'Service name must be at least 2 characters') };
         }
         break;
       case 'date':
         if (!value) {
-          return { valid: false, error: t('reception.selectDate') || 'Please select a date' };
+          return { valid: false, error: isAr ? 'اختر التاريخ' : (t('reception.selectDate') || 'Please select a date') };
         }
         break;
     }
@@ -1481,7 +1494,7 @@ export function BookingsPage() {
             disabled={showSearchResults && viewMode === 'list'}
           >
             <List className="w-4 h-4 inline-block mr-2" />
-            List View
+            {isAr ? 'عرض القائمة' : t('bookings.listView')}
           </button>
           <button
             onClick={() => {
@@ -1502,10 +1515,10 @@ export function BookingsPage() {
                 : 'text-gray-600 hover:text-gray-900'
             } ${showSearchResults ? 'opacity-50 cursor-not-allowed' : ''}`}
             disabled={showSearchResults}
-            title={showSearchResults ? 'Clear search to use calendar view' : ''}
+            title={showSearchResults ? (isAr ? 'امسح البحث لاستخدام عرض التقويم' : (t('bookings.clearSearchToUseCalendar') || 'Clear search to use calendar view')) : ''}
           >
             <Calendar className="w-4 h-4 inline-block mr-2" />
-            Calendar View
+            {isAr ? 'عرض التقويم' : t('bookings.calendarView')}
           </button>
         </div>
         </div>
@@ -1518,28 +1531,28 @@ export function BookingsPage() {
           {/* Search Type Selector */}
           <div className="w-full sm:w-64">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('reception.searchType') || 'Search By'}
+              {isAr ? 'البحث حسب' : (t('reception.searchType') || 'Search By')}
             </label>
             <select
               value={searchType}
               onChange={(e) => handleSearchTypeChange(e.target.value as SearchType)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
             >
-              <option value="">{t('reception.selectSearchType') || 'Select search type...'}</option>
-              <option value="phone">{t('reception.searchByPhone') || 'Customer Phone Number'}</option>
-              <option value="customer_name">{t('reception.searchByName') || 'Customer Name'}</option>
-              <option value="date">{t('reception.searchByDate') || 'Booking Date'}</option>
-              <option value="service_name">{t('reception.searchByService') || 'Service Name'}</option>
-              <option value="booking_id">{t('reception.searchByBookingId') || 'Booking ID'}</option>
+              <option value="">{isAr ? 'اختر نوع البحث...' : (t('reception.selectSearchType') || 'Select search type...')}</option>
+              <option value="phone">{isAr ? 'رقم هاتف العميل' : (t('reception.searchByPhone') || 'Customer Phone Number')}</option>
+              <option value="customer_name">{isAr ? 'اسم العميل' : (t('reception.searchByName') || 'Customer Name')}</option>
+              <option value="date">{isAr ? 'تاريخ الحجز' : (t('reception.searchByDate') || 'Booking Date')}</option>
+              <option value="service_name">{isAr ? 'اسم الخدمة' : (t('reception.searchByService') || 'Service Name')}</option>
+              <option value="booking_id">{isAr ? 'رقم الحجز' : (t('reception.searchByBookingId') || 'Booking ID')}</option>
             </select>
           </div>
 
           {/* Search Input (conditional based on type) */}
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {searchType === 'date' 
-                ? (t('reception.selectDate') || 'Select Date')
-                : (t('reception.searchValue') || 'Search Value')}
+              {searchType === 'date'
+                ? (isAr ? 'اختر التاريخ' : (t('reception.selectDate') || 'Select Date'))
+                : (isAr ? 'قيمة البحث' : (t('reception.searchValue') || 'Search Value'))}
             </label>
             {searchType === 'date' ? (
               <Input
@@ -1557,15 +1570,15 @@ export function BookingsPage() {
                   value={searchQuery}
                   onChange={(e) => handleSearchInputChange(e.target.value)}
                   placeholder={
-                    searchType === 'phone' 
-                      ? (t('reception.phonePlaceholder') || 'Enter phone number...')
+                    searchType === 'phone'
+                      ? (isAr ? 'أدخل رقم الهاتف...' : (t('reception.phonePlaceholder') || 'Enter phone number...'))
                       : searchType === 'booking_id'
-                      ? (t('reception.bookingIdPlaceholder') || 'Enter booking ID (UUID)...')
+                      ? (isAr ? 'أدخل رقم الحجز (UUID)...' : (t('reception.bookingIdPlaceholder') || 'Enter booking ID (UUID)...'))
                       : searchType === 'customer_name'
-                      ? (t('reception.namePlaceholder') || 'Enter customer name...')
+                      ? (isAr ? 'أدخل اسم العميل...' : (t('reception.namePlaceholder') || 'Enter customer name...'))
                       : searchType === 'service_name'
-                      ? (t('reception.servicePlaceholder') || 'Enter service name...')
-                      : (t('reception.selectSearchTypeFirst') || 'Select search type first...')
+                      ? (isAr ? 'أدخل اسم الخدمة...' : (t('reception.servicePlaceholder') || 'Enter service name...'))
+                      : (isAr ? 'اختر نوع البحث أولاً...' : (t('reception.selectSearchTypeFirst') || 'Select search type first...'))
                   }
                   className={`pl-10 pr-10 ${!searchType ? 'opacity-50 cursor-not-allowed' : ''}`}
                   disabled={!searchType}
@@ -1605,19 +1618,19 @@ export function BookingsPage() {
         {showSearchResults && !isSearching && searchType && (
           <div className="flex items-center justify-between text-sm">
             <p className="text-gray-600">
-              <span className="font-medium">{t('reception.searchingBy') || 'Searching by'}: </span>
+              <span className="font-medium">{isAr ? 'البحث حسب' : (t('reception.searchingBy') || 'Searching by')}: </span>
               <span>
-                {searchType === 'phone' && (t('reception.searchByPhone') || 'Phone Number')}
-                {searchType === 'customer_name' && (t('reception.searchByName') || 'Customer Name')}
-                {searchType === 'date' && (t('reception.searchByDate') || 'Booking Date')}
-                {searchType === 'service_name' && (t('reception.searchByService') || 'Service Name')}
-                {searchType === 'booking_id' && (t('reception.searchByBookingId') || 'Booking ID')}
+                {searchType === 'phone' && (isAr ? 'رقم هاتف العميل' : (t('reception.searchByPhone') || 'Phone Number'))}
+                {searchType === 'customer_name' && (isAr ? 'اسم العميل' : (t('reception.searchByName') || 'Customer Name'))}
+                {searchType === 'date' && (isAr ? 'تاريخ الحجز' : (t('reception.searchByDate') || 'Booking Date'))}
+                {searchType === 'service_name' && (isAr ? 'اسم الخدمة' : (t('reception.searchByService') || 'Service Name'))}
+                {searchType === 'booking_id' && (isAr ? 'رقم الحجز' : (t('reception.searchByBookingId') || 'Booking ID'))}
               </span>
             </p>
             <p className="text-gray-600">
-              {searchResults.length > 0 
-                ? `${searchResults.length} ${t('reception.searchResults') || 'results found'}`
-                : t('reception.noSearchResults') || 'No results found'}
+              {searchResults.length > 0
+                ? (isAr ? `${searchResults.length} نتيجة` : `${searchResults.length} ${t('reception.searchResults') || 'results found'}`)
+                : (isAr ? 'لم يتم العثور على نتائج' : (t('reception.noSearchResults') || 'No results found'))}
             </p>
           </div>
         )}
@@ -1656,14 +1669,14 @@ export function BookingsPage() {
                           <Clock className="w-4 h-4 text-gray-500" />
                           <span className="text-sm text-gray-600">
                             {booking.slots ?
-                              `${format(new Date(booking.slots.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })} ${booking.slots.start_time}` :
-                              format(new Date(booking.created_at), 'MMM dd, yyyy HH:mm', { locale: i18n.language === 'ar' ? ar : undefined })
+                              `${format(new Date(booking.slots.slot_date), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })} ${booking.slots.start_time}` :
+                              format(new Date(booking.created_at), 'MMM dd, yyyy HH:mm', { locale: isAr ? ar : undefined })
                             }
                           </span>
                         </div>
                       </div>
                       <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
-                        <span>{i18n.language === 'ar' ? booking.services?.name_ar : booking.services?.name}</span>
+                        <span>{isAr ? booking.services?.name_ar : booking.services?.name}</span>
                         <span>•</span>
                         <span>{booking.visitor_count} {t('booking.visitorCount')}</span>
                         <span>•</span>
@@ -1706,7 +1719,7 @@ export function BookingsPage() {
                           {booking.zoho_invoice_created_at && (
                             <p className="text-xs text-blue-600 mb-3">
                               {t('billing.created')}{' '}
-                              {format(new Date(booking.zoho_invoice_created_at), 'MMM dd, yyyy HH:mm', { locale: i18n.language === 'ar' ? ar : undefined })}
+                              {format(new Date(booking.zoho_invoice_created_at), 'MMM dd, yyyy HH:mm', { locale: isAr ? ar : undefined })}
                             </p>
                           )}
                           <Button
@@ -1854,7 +1867,7 @@ export function BookingsPage() {
               </button>
             </div>
             <h2 className="text-lg font-semibold text-gray-900">
-              {format(startOfWeek(calendarDate, { weekStartsOn: 0 }), 'MMM d', { locale: i18n.language === 'ar' ? ar : undefined })} - {format(addDays(startOfWeek(calendarDate, { weekStartsOn: 0 }), 6), 'MMM d, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}
+              {format(startOfWeek(calendarDate, { weekStartsOn: 0 }), 'MMM d', { locale: isAr ? ar : undefined })} - {format(addDays(startOfWeek(calendarDate, { weekStartsOn: 0 }), 6), 'MMM d, yyyy', { locale: isAr ? ar : undefined })}
             </h2>
           </div>
 
@@ -1873,7 +1886,7 @@ export function BookingsPage() {
                       isToday ? 'bg-blue-100' : ''
                     }`}>
                       <div className="text-xs font-medium text-gray-500">
-                        {format(day, 'EEE', { locale: i18n.language === 'ar' ? ar : undefined })}
+                        {format(day, 'EEE', { locale: isAr ? ar : undefined })}
                       </div>
                       <div className={`text-lg font-semibold ${
                         isToday ? 'text-blue-600' : 'text-gray-900'
@@ -1948,7 +1961,7 @@ export function BookingsPage() {
                                   {booking.customer_name}
                                 </div>
                                 <div className="text-xs text-gray-600 truncate flex items-center gap-1">
-                                  {i18n.language === 'ar' ? booking.services?.name_ar : booking.services?.name}
+                                  {isAr ? booking.services?.name_ar : booking.services?.name}
                                   {((booking.package_covered_quantity ?? 0) > 0 || booking.package_subscription_id) && (
                                     <span title={t('bookings.coveredByPackage', 'Covered by Package')}>
                                       <Package className="w-3 h-3 text-emerald-600 shrink-0" />
@@ -2011,7 +2024,7 @@ export function BookingsPage() {
                 variant="primary"
                 onClick={async () => {
                   if (!paymentStatusModalReference.trim()) {
-                    alert(t('bookings.transactionReferenceRequired') || 'Transaction reference is required for transfer.');
+                    showNotification('warning', t('bookings.transactionReferenceRequired') || 'Transaction reference is required for transfer.');
                     return;
                   }
                   setPaymentStatusModalSubmitting(true);
@@ -2046,7 +2059,7 @@ export function BookingsPage() {
         size="md"
       >
         {createShowPreview ? (
-          <div className="space-y-6" dir={i18n.language === 'ar' ? 'rtl' : 'ltr'}>
+          <div className="space-y-6" dir={isAr ? 'rtl' : 'ltr'}>
             <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-6 shadow-lg">
               <div className="text-center mb-6">
                 <h3 className="text-2xl font-bold text-gray-900">{t('reception.bookingSummary')}</h3>
@@ -2084,7 +2097,7 @@ export function BookingsPage() {
                     <div className="space-y-2">
                       <div className="flex justify-between items-start">
                         <div>
-                          <div className="font-medium text-gray-900">{i18n.language === 'ar' ? svc.name_ar : svc.name}</div>
+                          <div className="font-medium text-gray-900">{isAr ? svc.name_ar : svc.name}</div>
                           <div className="text-sm text-gray-600">{t('reception.quantityCount', { count: createForm.visitor_count })}</div>
                         </div>
                         <div className="text-right">
@@ -2112,7 +2125,7 @@ export function BookingsPage() {
                     createSelectedSlots.map((s, idx) => (
                       <div key={idx} className="flex justify-between items-center py-2 border-b last:border-b-0">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{format(parseISO(s.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}</div>
+                          <div className="text-sm font-medium text-gray-900">{format(parseISO(s.slot_date), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })}</div>
                           <div className="text-xs text-gray-600">{s.start_time} - {s.end_time}</div>
                         </div>
                       </div>
@@ -2122,7 +2135,7 @@ export function BookingsPage() {
                     return slot ? (
                       <div className="flex justify-between items-center py-2">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{format(parseISO(createDate), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}</div>
+                          <div className="text-sm font-medium text-gray-900">{format(parseISO(createDate), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })}</div>
                           <div className="text-xs text-gray-600">{slot.start_time} - {slot.end_time}</div>
                         </div>
                       </div>
@@ -2285,7 +2298,7 @@ export function BookingsPage() {
             <div className="rounded-lg border-2 border-green-200 bg-green-50/50 p-2">
               <p className="mb-2 flex items-center gap-2 text-sm font-medium text-green-800">
                 <Package className="h-4 w-4" />
-                {t('packages.activePackage')} ({createCustomerPackages.length}) — {i18n.language === 'ar' ? 'مرر للأسفل للمزيد' : 'scroll for more'}
+                {t('packages.activePackage')} ({createCustomerPackages.length}) — {isAr ? 'مرر للأسفل للمزيد' : 'scroll for more'}
               </p>
               <div
                 className="space-y-3 overflow-y-auto pr-1"
@@ -2296,14 +2309,14 @@ export function BookingsPage() {
                     <div className="flex items-center gap-2 mb-3">
                       <Package className="w-5 h-5 text-green-600 shrink-0" />
                       <h4 className="font-semibold text-green-900 truncate">
-                        {i18n.language === 'ar' ? pkg.service_packages.name_ar : pkg.service_packages.name}
+                        {isAr ? pkg.service_packages.name_ar : pkg.service_packages.name}
                       </h4>
                     </div>
                     <div className="space-y-2 text-sm">
                       {pkg.usage.map((usage) => (
                         <div key={`${pkg.id}-${usage.service_id}`} className="flex justify-between items-center py-1 gap-2">
                           <span className={`min-w-0 truncate ${usage.remaining_quantity === 0 ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
-                            {i18n.language === 'ar' ? usage.services?.name_ar : usage.services?.name}
+                            {isAr ? usage.services?.name_ar : usage.services?.name}
                           </span>
                           <span className={`shrink-0 font-medium ${usage.remaining_quantity > 5 ? 'text-green-600' : usage.remaining_quantity > 0 ? 'text-amber-600' : 'text-red-600'}`}>
                             {usage.remaining_quantity} / {usage.original_quantity} {t('packages.remaining')}
@@ -2334,7 +2347,7 @@ export function BookingsPage() {
                 const pkgCheck = checkServiceInPackage(s.id);
                 return (
                   <option key={s.id} value={s.id}>
-                    {i18n.language === 'ar' ? s.name_ar : s.name} - {formatPrice(s.base_price)}
+                    {isAr ? s.name_ar : s.name} - {formatPrice(s.base_price)}
                     {pkgCheck.available && ` 🎁 (${pkgCheck.remaining} ${t('packages.remaining')})`}
                   </option>
                 );
@@ -2350,7 +2363,7 @@ export function BookingsPage() {
           {/* 4b. Select Offer (if service has offers) */}
           {createServiceId && createServices.find(s => s.id === createServiceId)?.offers?.length ? (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{i18n.language === 'ar' ? 'اختر العرض (اختياري)' : 'Select Offer (Optional)'}</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{isAr ? 'اختر العرض (اختياري)' : 'Select Offer (Optional)'}</label>
               <select
                 value={createOfferId}
                 onChange={(e) => setCreateOfferId(e.target.value)}
@@ -2358,7 +2371,7 @@ export function BookingsPage() {
               >
                 <option value="">{t('reception.basePrice')} ({formatPrice(createServices.find(s => s.id === createServiceId)?.base_price ?? 0)})</option>
                 {createServices.find(s => s.id === createServiceId)!.offers!.map((o) => (
-                  <option key={o.id} value={o.id}>{i18n.language === 'ar' ? o.name_ar : o.name} - {formatPrice(o.price)}</option>
+                  <option key={o.id} value={o.id}>{isAr ? o.name_ar : o.name} - {formatPrice(o.price)}</option>
                 ))}
               </select>
             </div>
@@ -2388,9 +2401,9 @@ export function BookingsPage() {
                       <div className="flex items-start gap-2">
                         <Package className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
                         <div className="flex-1">
-                          <p className="text-sm font-semibold text-yellow-800 mb-1">{i18n.language === 'ar' ? 'تنبيه التغطية الجزئية' : 'Partial Package Coverage'}</p>
+                          <p className="text-sm font-semibold text-yellow-800 mb-1">{isAr ? 'تنبيه التغطية الجزئية' : 'Partial Package Coverage'}</p>
                           <p className="text-sm text-yellow-700">
-                            {i18n.language === 'ar'
+                            {isAr
                               ? `حزمة العميل تغطي ${pkgCheck.remaining} حجز. سيتم دفع ${paidQty} حجز بشكل طبيعي.`
                               : `Customer's package covers ${pkgCheck.remaining} booking${pkgCheck.remaining !== 1 ? 's' : ''}. The remaining ${paidQty} booking${paidQty !== 1 ? 's will' : ' will'} be charged normally.`}
                           </p>
@@ -2405,8 +2418,8 @@ export function BookingsPage() {
                       <div className="flex items-start gap-2">
                         <Package className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
                         <div className="flex-1">
-                          <p className="text-sm font-semibold text-blue-800 mb-1">{i18n.language === 'ar' ? 'تنبيه الحزمة' : 'Package Notice'}</p>
-                          <p className="text-sm text-blue-700">{i18n.language === 'ar' ? 'حزمة العميل لهذه الخدمة مستخدمة بالكامل. سيتم دفع هذا الحجز بشكل طبيعي.' : "Customer's package for this service is fully used. This booking will be charged normally."}</p>
+                          <p className="text-sm font-semibold text-blue-800 mb-1">{isAr ? 'تنبيه الحزمة' : 'Package Notice'}</p>
+                          <p className="text-sm text-blue-700">{isAr ? 'حزمة العميل لهذه الخدمة مستخدمة بالكامل. سيتم دفع هذا الحجز بشكل طبيعي.' : "Customer's package for this service is fully used. This booking will be charged normally."}</p>
                         </div>
                       </div>
                     </div>
@@ -2455,9 +2468,9 @@ export function BookingsPage() {
                         onClick={() => setCreateDate(dayStr)}
                         className={`p-2 text-center rounded-lg border ${createDate === dayStr ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'} ${isToday ? 'ring-2 ring-blue-300' : ''}`}
                       >
-                        <div className="text-xs font-medium">{isToday ? t('dashboard.today') : format(day, 'EEE', { locale: i18n.language === 'ar' ? ar : undefined })}</div>
+                        <div className="text-xs font-medium">{isToday ? t('dashboard.today') : format(day, 'EEE', { locale: isAr ? ar : undefined })}</div>
                         <div className="text-lg font-bold">{format(day, 'd')}</div>
-                        <div className="text-xs text-gray-500">{format(day, 'MMM', { locale: i18n.language === 'ar' ? ar : undefined })}</div>
+                        <div className="text-xs text-gray-500">{format(day, 'MMM', { locale: isAr ? ar : undefined })}</div>
                       </button>
                     );
                   })}
@@ -2526,7 +2539,7 @@ export function BookingsPage() {
                       });
                       return Array.from(empMap.values()).map(emp => (
                         <option key={emp.id} value={emp.id}>
-                          {i18n.language === 'ar' ? (emp.name_ar || emp.name) : emp.name}
+                          {isAr ? (emp.name_ar || emp.name) : emp.name}
                         </option>
                       ));
                     })()}
@@ -2862,7 +2875,7 @@ export function BookingsPage() {
                       <Calendar className="w-4 h-4" />
                       <span>
                         {editingBookingTime.slots?.slot_date 
-                          ? format(parseISO(editingBookingTime.slots.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })
+                          ? format(parseISO(editingBookingTime.slots.slot_date), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })
                           : 'N/A'}
                       </span>
                     </div>

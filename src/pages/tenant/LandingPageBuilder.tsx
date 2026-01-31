@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
+import { showNotification } from '../../contexts/NotificationContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
@@ -348,10 +349,10 @@ export function LandingPageBuilder() {
 
       if (error) throw error;
 
-      alert(t('landingPage.savedSuccessfully'));
+      showNotification('success', t('landingPage.savedSuccessfully'));
     } catch (err: any) {
       console.error('Error saving landing page settings:', err);
-      alert(t('landingPage.saveError', { message: err.message || t('common.error') }));
+      showNotification('error', t('landingPage.saveError', { message: err.message || t('common.error') }));
     } finally {
       setSaving(false);
     }
@@ -361,7 +362,7 @@ export function LandingPageBuilder() {
     if (tenant?.slug) {
       window.open(`/${tenant.slug}/book`, '_blank');
     } else {
-      alert(t('landingPage.tenantSlugNotAvailable'));
+      showNotification('warning', t('landingPage.tenantSlugNotAvailable'));
     }
   }
 
@@ -475,7 +476,7 @@ export function LandingPageBuilder() {
                       // Validate file size (200MB limit)
                       const maxSize = 200 * 1024 * 1024;
                       if (file.size > maxSize) {
-                        alert(t('landingPage.fileSizeExceeds'));
+                        showNotification('warning', t('landingPage.fileSizeExceeds'));
                         return;
                       }
                       
@@ -484,7 +485,7 @@ export function LandingPageBuilder() {
                         setSettings({ ...settings, hero_image_url: base64 });
                       } catch (error) {
                         console.error('Error processing image:', error);
-                        alert(t('landingPage.errorProcessingImage'));
+                        showNotification('error', t('landingPage.errorProcessingImage'));
                       }
                     }}
                     className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
@@ -552,7 +553,7 @@ export function LandingPageBuilder() {
                       // Validate file size (200MB limit)
                       const maxSize = 200 * 1024 * 1024;
                       if (file.size > maxSize) {
-                        alert(t('landingPage.fileSizeExceeds'));
+                        showNotification('warning', t('landingPage.fileSizeExceeds'));
                         return;
                       }
                       
@@ -561,7 +562,7 @@ export function LandingPageBuilder() {
                         setSettings({ ...settings, hero_video_url: base64 });
                       } catch (error) {
                         console.error('Error processing video:', error);
-                        alert(t('landingPage.errorProcessingVideo'));
+                        showNotification('error', t('landingPage.errorProcessingVideo'));
                       }
                     }}
                     className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
@@ -598,7 +599,7 @@ export function LandingPageBuilder() {
                     const maxSize = 200 * 1024 * 1024;
                     const invalidFiles = files.filter(file => file.size > maxSize);
                     if (invalidFiles.length > 0) {
-                      alert(t('landingPage.oneOrMoreFilesExceed'));
+                      showNotification('warning', t('landingPage.oneOrMoreFilesExceed'));
                       return;
                     }
                     
@@ -746,7 +747,7 @@ export function LandingPageBuilder() {
                       // Validate file size (200MB limit)
                       const maxSize = 200 * 1024 * 1024;
                       if (file.size > maxSize) {
-                        alert(t('landingPage.fileSizeExceeds'));
+                        showNotification('warning', t('landingPage.fileSizeExceeds'));
                         return;
                       }
                       
@@ -755,7 +756,7 @@ export function LandingPageBuilder() {
                         setSettings({ ...settings, video_url: base64 });
                       } catch (error) {
                         console.error('Error processing video:', error);
-                        alert(t('landingPage.errorProcessingVideo'));
+                        showNotification('error', t('landingPage.errorProcessingVideo'));
                       }
                     }}
                     className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"

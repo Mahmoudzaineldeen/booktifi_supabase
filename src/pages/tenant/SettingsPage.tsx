@@ -12,11 +12,14 @@ import { getApiUrl } from '../../lib/apiUrl';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { useCurrency } from '../../contexts/CurrencyContext';
+import { showNotification } from '../../contexts/NotificationContext';
+import { showConfirm } from '../../contexts/ConfirmContext';
 import { getAvailableCurrencies } from '../../lib/currency';
 
 export function SettingsPage() {
   const navigate = useNavigate();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const isRtl = i18n.language === 'ar';
   const { userProfile, tenant, user, signOut, loading: authLoading } = useAuth();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { features: tenantFeatures, reload: reloadTenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
@@ -807,9 +810,14 @@ export function SettingsPage() {
       return;
     }
 
-    if (!confirm(t('settings.zoho.disconnectConfirm') || 'Are you sure you want to disconnect Zoho integration? This will remove all stored tokens.')) {
-      return;
-    }
+    const ok = await showConfirm({
+      title: t('common.confirm') || 'Confirm',
+      description: t('settings.zoho.disconnectConfirm') || 'Are you sure you want to disconnect Zoho integration? This will remove all stored tokens.',
+      destructive: true,
+      confirmText: t('common.confirm') || 'Confirm',
+      cancelText: t('common.cancel') || 'Cancel',
+    });
+    if (!ok) return;
 
     setZohoLoading(true);
     setZohoMessage(null);
@@ -1092,11 +1100,11 @@ export function SettingsPage() {
         }));
       }
 
-      alert(t('settings.settingsSavedSuccessfully'));
+      showNotification('success', t('settings.settingsSavedSuccessfully'));
     } catch (err: any) {
       console.error('Error saving settings:', err);
       const errorMessage = err.message || t('settings.errorSavingSettings');
-      alert(errorMessage);
+      showNotification('error', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -1192,7 +1200,7 @@ export function SettingsPage() {
                 value={formData.name || ''}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 required
-                placeholder={t('tenant.businessNameEnglish')}
+                placeholder={t('tenant.businessNameEnglishPlaceholder')}
               />
 
               <Input
@@ -1200,7 +1208,7 @@ export function SettingsPage() {
                 value={formData.name_ar || ''}
                 onChange={(e) => setFormData({ ...formData, name_ar: e.target.value })}
                 dir="rtl"
-                placeholder="أدخل اسم العمل بالعربية"
+                placeholder={t('tenant.businessNameArabicPlaceholder')}
               />
 
               <Input
@@ -1471,11 +1479,12 @@ export function SettingsPage() {
                       onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                       placeholder={t('settings.security.enterCurrentPassword')}
                       required
+                      className={isRtl ? 'pl-10' : 'pr-10'}
                     />
                     <button
                       type="button"
                       onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                      className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
                     >
                       {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -1494,11 +1503,12 @@ export function SettingsPage() {
                       placeholder={t('settings.security.enterNewPassword')}
                       required
                       minLength={6}
+                      className={isRtl ? 'pl-10' : 'pr-10'}
                     />
                     <button
                       type="button"
                       onClick={() => setShowNewPassword(!showNewPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                      className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
                     >
                       {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -1517,11 +1527,12 @@ export function SettingsPage() {
                       placeholder={t('settings.security.confirmNewPassword')}
                       required
                       minLength={6}
+                      className={isRtl ? 'pl-10' : 'pr-10'}
                     />
                     <button
                       type="button"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                      className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
                     >
                       {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -1746,11 +1757,12 @@ export function SettingsPage() {
                       onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_password: e.target.value })}
                       placeholder={t('settings.smtp.appPasswordPlaceholder')}
                       required
+                      className={isRtl ? 'pl-10' : 'pr-10'}
                     />
                     <button
                       type="button"
                       onClick={() => setShowSmtpPassword(!showSmtpPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                      className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
                     >
                       {showSmtpPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -1866,11 +1878,12 @@ export function SettingsPage() {
                           onChange={(e) => setWhatsappSettings({ ...whatsappSettings, access_token: e.target.value })}
                           placeholder={t('settings.whatsapp.accessTokenPlaceholder')}
                           required
+                          className={isRtl ? 'pl-10' : 'pr-10'}
                         />
                         <button
                           type="button"
                           onClick={() => setShowWhatsappToken(!showWhatsappToken)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                          className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
                         >
                           {showWhatsappToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
@@ -1907,11 +1920,12 @@ export function SettingsPage() {
                           onChange={(e) => setWhatsappSettings({ ...whatsappSettings, auth_token: e.target.value })}
                           placeholder={t('settings.whatsapp.authTokenPlaceholder')}
                           required
+                          className={isRtl ? 'pl-10' : 'pr-10'}
                         />
                         <button
                           type="button"
                           onClick={() => setShowWhatsappToken(!showWhatsappToken)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                          className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
                         >
                           {showWhatsappToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
@@ -1960,11 +1974,12 @@ export function SettingsPage() {
                           onChange={(e) => setWhatsappSettings({ ...whatsappSettings, api_key: e.target.value })}
                           placeholder={t('settings.whatsapp.apiKeyPlaceholder')}
                           required
+                          className={isRtl ? 'pl-10' : 'pr-10'}
                         />
                         <button
                           type="button"
                           onClick={() => setShowWhatsappToken(!showWhatsappToken)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                          className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
                         >
                           {showWhatsappToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
@@ -2115,11 +2130,12 @@ export function SettingsPage() {
                       onChange={(e) => setZohoSettings({ ...zohoSettings, client_secret: e.target.value })}
                       placeholder={t('settings.zoho.clientSecretPlaceholder')}
                       required
+                      className={isRtl ? 'pl-10' : 'pr-10'}
                     />
                     <button
                       type="button"
                       onClick={() => setShowZohoSecret(!showZohoSecret)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                      className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
                     >
                       {showZohoSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>

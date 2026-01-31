@@ -10,6 +10,7 @@ import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { ArrowLeft, FileText, Download, Calendar, CheckCircle, XCircle, Clock, Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { getApiUrl } from '../../lib/apiUrl';
+import { showNotification } from '../../contexts/NotificationContext';
 
 interface Invoice {
   id: string;
@@ -340,9 +341,7 @@ export function CustomerBillingPage() {
     } catch (error: any) {
       console.error('[CustomerBillingPage] Error downloading invoice:', error);
         const errorMessage = error.message || t('common.error');
-      alert(i18n.language === 'ar' 
-        ? `فشل تنزيل الفاتورة: ${errorMessage}. يرجى المحاولة مرة أخرى.` 
-        : `Failed to download invoice: ${errorMessage}. Please try again.`);
+      showNotification('error', t('common.failedToDownloadInvoice', { message: errorMessage }));
       setDownloadingInvoice(null);
     }
   }

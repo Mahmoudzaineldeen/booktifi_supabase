@@ -263,9 +263,9 @@ export function SignupPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-center">Start Your Free Trial</CardTitle>
+            <CardTitle className="text-center">{t('auth.startYourFreeTrial')}</CardTitle>
             <p className="text-sm text-gray-600 text-center mt-2">
-              Sign up to create your booking management system
+              {t('auth.signupToCreateBookingSystem')}
             </p>
           </CardHeader>
           <CardContent>
@@ -309,7 +309,7 @@ export function SignupPage() {
                   onChange={(e) => setBusinessNameAr(e.target.value)}
                   required
                   dir="rtl"
-                  placeholder="مثال: صالون بريميوم"
+                  placeholder={t('auth.businessNameArabicPlaceholder')}
                 />
 
                 <div>

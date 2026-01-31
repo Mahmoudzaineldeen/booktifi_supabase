@@ -12,6 +12,7 @@ import { Package, ArrowLeft, LogIn, Mail, Lock, UserPlus, User, Eye, EyeOff } fr
 export function CustomerLoginPage() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { t, i18n } = useTranslation();
+  const isRtl = i18n.language === 'ar';
   const navigate = useNavigate();
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
@@ -238,7 +239,7 @@ export function CustomerLoginPage() {
               </div>
 
               <div className="relative">
-                <Lock className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
+                <Lock className={`absolute top-[38px] w-5 h-5 text-gray-400 ${isRtl ? 'right-3' : 'left-3'}`} />
                 <Input
                   type={showPassword ? 'text' : 'password'}
                   label={t('auth.passwordLabel')}
@@ -251,7 +252,7 @@ export function CustomerLoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-[38px] text-gray-500 hover:text-gray-700 focus:outline-none focus:text-gray-700 transition-colors z-10"
+                  className={`absolute top-[38px] text-gray-500 hover:text-gray-700 focus:outline-none focus:text-gray-700 transition-colors z-10 ${isRtl ? 'left-3' : 'right-3'}`}
                   aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
                   tabIndex={-1}
                 >

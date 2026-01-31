@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
+import { showNotification } from '../../contexts/NotificationContext';
 import { Button } from '../../components/ui/Button';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { AnimatedRating } from '../../components/ui/AnimatedRating';
@@ -108,7 +109,7 @@ export function PackageSchedulePage() {
 
       if (!packageId) {
         console.error('Package ID is missing from URL');
-        alert(i18n.language === 'ar' ? 'معرف الحزمة مفقود' : 'Package ID is missing');
+        showNotification('warning', t('packages.packageIdMissing'));
         navigate(`/${tenantSlug}/book`);
         return;
       }
@@ -125,7 +126,7 @@ export function PackageSchedulePage() {
 
       if (tenantError || !tenantData) {
         console.error('Error fetching tenant:', tenantError);
-        alert(i18n.language === 'ar' ? 'لم يتم العثور على مزود الخدمة' : 'Service provider not found');
+        showNotification('error', t('packages.serviceProviderNotFound'));
         navigate(`/${tenantSlug}/book`);
         return;
       }
@@ -152,7 +153,7 @@ export function PackageSchedulePage() {
 
       if (pkgError) {
         console.error('Error fetching package:', pkgError);
-        alert(i18n.language === 'ar' ? `خطأ في جلب الحزمة: ${pkgError.message}` : `Error fetching package: ${pkgError.message}`);
+        showNotification('error', t('packages.errorFetchingPackage', { message: pkgError.message }));
         navigate(`/${tenantSlug}/book`);
         return;
       }
@@ -166,9 +167,7 @@ export function PackageSchedulePage() {
           .eq('tenant_id', tenantData.id)
           .limit(10);
         console.log('Available packages for this tenant:', allPackages);
-        alert(i18n.language === 'ar' 
-          ? 'لم يتم العثور على الحزمة. قد تكون غير نشطة أو غير موجودة.' 
-          : 'Package not found. It may be inactive or does not exist.');
+        showNotification('error', t('packages.packageNotFound'));
         navigate(`/${tenantSlug}/book`);
         return;
       }
@@ -206,9 +205,7 @@ export function PackageSchedulePage() {
       // Validate that package has services
       if (!services || services.length === 0) {
         console.error('Package has no services:', { packageId, tenantId: tenantData.id });
-        alert(i18n.language === 'ar' 
-          ? 'هذه الحزمة لا تحتوي على خدمات. يرجى الاتصال بالمسؤول.' 
-          : 'This package has no services. Please contact the administrator.');
+        showNotification('warning', t('packages.packageHasNoServicesConfigured'));
         navigate(`/${tenantSlug}/book`);
         return;
       }
@@ -266,7 +263,7 @@ export function PackageSchedulePage() {
         return;
       }
       
-      alert(errorMessage);
+      showNotification('error', errorMessage);
     } finally {
       setLoading(false);
     }

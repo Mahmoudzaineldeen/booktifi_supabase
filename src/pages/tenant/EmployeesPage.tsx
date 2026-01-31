@@ -12,6 +12,8 @@ import { countryCodes } from '../../lib/countryCodes';
 import { Plus, Edit, Users, Mail, Phone, Briefcase, UserX, UserCheck, Search, Trash2, Clock } from 'lucide-react';
 import { getApiUrl } from '../../lib/apiUrl';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
+import { showNotification } from '../../contexts/NotificationContext';
+import { showConfirm } from '../../contexts/ConfirmContext';
 
 interface Employee {
   id: string;
@@ -219,7 +221,7 @@ export function EmployeesPage() {
       if (editingEmployee) {
         const { data: { session } } = await db.auth.getSession();
         if (!session) {
-          alert(t('employee.sessionExpired'));
+          showNotification('warning', t('employee.sessionExpired'));
           return;
         }
 
@@ -257,7 +259,7 @@ export function EmployeesPage() {
         if (!contentType || !contentType.includes('application/json')) {
           const text = await response.text();
           console.error('Non-JSON response:', text.substring(0, 200));
-          alert(t('employee.errorUpdatingEmployeeServer', { status: response.status, statusText: response.statusText }));
+          showNotification('error', t('employee.errorUpdatingEmployeeServer', { status: response.status, statusText: response.statusText }));
           return;
         }
 
@@ -265,7 +267,7 @@ export function EmployeesPage() {
 
         if (!response.ok) {
           console.error('Update error:', result.error);
-          alert(t('employee.errorUpdatingEmployee', { error: result.error || t('common.error') }));
+          showNotification('error', t('employee.errorUpdatingEmployee', { error: result.error || t('common.error') }));
           return;
         }
 
@@ -307,7 +309,7 @@ export function EmployeesPage() {
               const { error: insertError } = await db.from('employee_services').insert(assignments);
               if (insertError) {
                 console.error('Error inserting employee_services:', insertError);
-                alert(t('employee.errorSavingServiceAssignments', { message: insertError.message }));
+                showNotification('error', t('employee.errorSavingServiceAssignments', { message: insertError.message }));
                 return;
               }
             }
@@ -324,27 +326,27 @@ export function EmployeesPage() {
           for (const sh of employeeShifts) {
             const payload = normalizeEmployeeShiftForInsert(sh, userProfile.tenant_id, editingEmployee.id);
             if (!payload) {
-              alert(t('employee.invalidShiftData', 'Each shift must have at least one day and end time after start time.'));
+              showNotification('warning', t('employee.invalidShiftData', 'Each shift must have at least one day and end time after start time.'));
               return;
             }
             const { error } = await db.from('employee_shifts').insert(payload);
             if (error) {
               console.error('Error saving employee shift:', error);
-              alert(t('employee.errorSavingShift', { message: error.message || 'Failed to save shift' }));
+              showNotification('error', t('employee.errorSavingShift', { message: error.message || t('common.failedToSaveShift') }));
               return;
             }
           }
         }
 
         if (formData.password) {
-          alert(t('employee.employeeUpdatedWithCredentials', { username: formData.username, password: formData.password }));
+          showNotification('success', t('employee.employeeUpdatedWithCredentials', { username: formData.username, password: formData.password }));
         } else {
-          alert(t('employee.employeeUpdatedSuccessfully'));
+          showNotification('success', t('employee.employeeUpdatedSuccessfully'));
         }
       } else {
         const { data: { session } } = await db.auth.getSession();
         if (!session) {
-          alert(t('employee.sessionExpired'));
+          showNotification('warning', t('employee.sessionExpired'));
           return;
         }
 
@@ -383,7 +385,7 @@ export function EmployeesPage() {
         if (!contentType || !contentType.includes('application/json')) {
           const text = await response.text();
           console.error('Non-JSON response:', text);
-          alert(t('employee.errorCreatingEmployeeServer', { status: response.status, statusText: response.statusText }));
+          showNotification('error', t('employee.errorCreatingEmployeeServer', { status: response.status, statusText: response.statusText }));
           return;
         }
 
@@ -391,11 +393,11 @@ export function EmployeesPage() {
 
         if (!response.ok) {
           console.error('Creation error:', result.error);
-          alert(t('employee.errorCreatingEmployee', { error: result.error || t('common.error') }));
+          showNotification('error', t('employee.errorCreatingEmployee', { error: result.error || t('common.error') }));
           return;
         }
 
-        alert(t('employee.employeeCreatedSuccessfully', { username: formData.username, password: formData.password }));
+        showNotification('success', t('employee.employeeCreatedSuccessfully', { username: formData.username, password: formData.password }));
       }
 
       setIsModalOpen(false);
@@ -404,7 +406,7 @@ export function EmployeesPage() {
       await fetchEmployees();
     } catch (err: any) {
       console.error('Error saving employee:', err);
-      alert(t('employee.errorOccurred', { message: err.message || t('common.error') }));
+      showNotification('error', t('employee.errorOccurred', { message: err.message || t('common.error') }));
     }
   }
 
@@ -482,12 +484,19 @@ export function EmployeesPage() {
       ? t('employee.confirmDeactivate')
       : t('employee.confirmActivate');
 
-    if (!confirm(confirmMessage)) return;
+    const ok = await showConfirm({
+      title: t('common.confirm') || 'Confirm',
+      description: confirmMessage,
+      destructive: currentStatus,
+      confirmText: t('common.confirm') || 'Confirm',
+      cancelText: t('common.cancel') || 'Cancel',
+    });
+    if (!ok) return;
 
     try {
       const { data: { session } } = await db.auth.getSession();
       if (!session) {
-        alert('Session expired. Please login again.');
+        showNotification('warning', t('common.sessionExpiredPleaseLogin'));
         return;
       }
 
@@ -512,7 +521,7 @@ export function EmployeesPage() {
       if (!contentType || !contentType.includes('application/json')) {
         const text = await response.text();
         console.error('Non-JSON response:', text.substring(0, 200));
-        alert(t('employee.errorServerResponse', { status: response.status, statusText: response.statusText }));
+        showNotification('error', t('employee.errorServerResponse', { status: response.status, statusText: response.statusText }));
         return;
       }
 
@@ -520,15 +529,15 @@ export function EmployeesPage() {
 
       if (!response.ok) {
         console.error('Status update error:', result.error);
-        alert(t('employee.errorUnknown', { error: result.error || t('common.error') }));
+        showNotification('error', t('employee.errorUnknown', { error: result.error || t('common.error') }));
         return;
       }
 
       await fetchEmployees();
-      alert(currentStatus ? t('employee.employeeDeactivatedSuccessfully') : t('employee.employeeActivatedSuccessfully'));
+      showNotification('success', currentStatus ? t('employee.employeeDeactivatedSuccessfully') : t('employee.employeeActivatedSuccessfully'));
     } catch (err: any) {
       console.error('Error toggling employee status:', err);
-      alert(t('employee.errorOccurred', { message: err.message || t('common.error') }));
+      showNotification('error', t('employee.errorOccurred', { message: err.message || t('common.error') }));
     }
   }
 
@@ -592,7 +601,7 @@ export function EmployeesPage() {
   function addEmployeeShift(e: React.FormEvent) {
     e.preventDefault();
     if (employeeShiftForm.days_of_week.length === 0) {
-      alert(t('employee.selectAtLeastOneDay', 'Select at least one day'));
+      showNotification('warning', t('employee.selectAtLeastOneDay', 'Select at least one day'));
       return;
     }
     const start = employeeShiftForm.start_time.length === 5 ? `${employeeShiftForm.start_time}:00` : employeeShiftForm.start_time;

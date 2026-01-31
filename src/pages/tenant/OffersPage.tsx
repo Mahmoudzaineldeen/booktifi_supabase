@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
+import { showNotification } from '../../contexts/NotificationContext';
+import { showConfirm } from '../../contexts/ConfirmContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
@@ -217,7 +219,7 @@ export function OffersPage() {
   async function handleOfferSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!userProfile?.tenant_id || !offerForm.service_id) {
-      alert(t('offers.selectService') || 'Please select a service');
+      showNotification('warning', t('offers.selectService') || 'Please select a service');
       return;
     }
 
@@ -256,7 +258,7 @@ export function OffersPage() {
         if (result.error) {
           console.error('❌ Update error:', result.error);
           const errorMessage = result.error?.message || result.error?.error || JSON.stringify(result.error) || 'Unknown error';
-          alert(`Error updating offer: ${errorMessage}`);
+          showNotification('error', `Error updating offer: ${errorMessage}`);
           return;
         }
         console.log('✅ Offer updated successfully');
@@ -265,7 +267,7 @@ export function OffersPage() {
         if (result.error) {
           console.error('❌ Insert error:', result.error);
           const errorMessage = result.error?.message || result.error?.error || JSON.stringify(result.error) || 'Unknown error';
-          alert(`Error creating offer: ${errorMessage}`);
+          showNotification('error', `Error creating offer: ${errorMessage}`);
           return;
         }
         console.log('✅ Offer created successfully');
@@ -277,25 +279,32 @@ export function OffersPage() {
     } catch (error: any) {
       console.error('❌ Offer submit error:', error);
       const errorMessage = error?.message || error?.error || JSON.stringify(error) || 'Failed to save offer';
-      alert(`Error: ${errorMessage}`);
+      showNotification('error', `Error: ${errorMessage}`);
     }
   }
 
   async function deleteOffer(id: string) {
     const confirmMessage = t('offers.deleteOffer') || 'Are you sure you want to delete this offer?';
-    if (!confirm(confirmMessage)) return;
-    
+    const ok = await showConfirm({
+      title: t('common.confirm') || 'Confirm',
+      description: confirmMessage,
+      destructive: true,
+      confirmText: t('common.delete') || 'Delete',
+      cancelText: t('common.cancel') || 'Cancel',
+    });
+    if (!ok) return;
+
     try {
       const result = await db.from('service_offers').delete().eq('id', id);
       if (result.error) {
-        alert(`Error deleting offer: ${result.error.message}`);
+        showNotification('error', `Error deleting offer: ${result.error.message}`);
         return;
       }
       const serviceIdToFetch = filterServiceId !== 'all' ? filterServiceId : undefined;
       await fetchOffers(serviceIdToFetch);
     } catch (error: any) {
       console.error('Delete offer error:', error);
-      alert(`Error: ${error.message || 'Failed to delete offer'}`);
+      showNotification('error', error.message || t('common.failedToDeleteOffer'));
     }
   }
 

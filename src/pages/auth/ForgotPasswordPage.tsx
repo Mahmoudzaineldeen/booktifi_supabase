@@ -15,6 +15,7 @@ type Step = 'username' | 'confirm' | 'otp' | 'password' | 'success';
 
 export function ForgotPasswordPage() {
   const { t, i18n } = useTranslation();
+  const isRtl = i18n.language === 'ar';
   const navigate = useNavigate();
   const { signIn } = useAuth();
   const [step, setStep] = useState<Step>('username');
@@ -636,7 +637,7 @@ export function ForgotPasswordPage() {
                 </p>
                 <form onSubmit={handleResetPassword} className="space-y-4" noValidate>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
+                    <Lock className={`absolute top-[38px] w-5 h-5 text-gray-400 ${isRtl ? 'right-3' : 'left-3'}`} />
                     <Input
                       type={showPassword ? 'text' : 'password'}
                       label={t('auth.newPasswordOptional')}
@@ -648,7 +649,7 @@ export function ForgotPasswordPage() {
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-[38px] text-gray-500 hover:text-gray-700 focus:outline-none focus:text-gray-700 transition-colors z-10"
+                      className={`absolute top-[38px] text-gray-500 hover:text-gray-700 focus:outline-none focus:text-gray-700 transition-colors z-10 ${isRtl ? 'left-3' : 'right-3'}`}
                       aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
                       tabIndex={-1}
                     >
@@ -660,7 +661,7 @@ export function ForgotPasswordPage() {
                     </button>
                   </div>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-[38px] w-5 h-5 text-gray-400" />
+                    <Lock className={`absolute top-[38px] w-5 h-5 text-gray-400 ${isRtl ? 'right-3' : 'left-3'}`} />
                     <Input
                       type={showPassword ? 'text' : 'password'}
                       label={t('auth.confirmPasswordOptional')}
@@ -672,7 +673,7 @@ export function ForgotPasswordPage() {
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-[38px] text-gray-500 hover:text-gray-700 focus:outline-none focus:text-gray-700 transition-colors z-10"
+                      className={`absolute top-[38px] text-gray-500 hover:text-gray-700 focus:outline-none focus:text-gray-700 transition-colors z-10 ${isRtl ? 'left-3' : 'right-3'}`}
                       aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
                       tabIndex={-1}
                     >

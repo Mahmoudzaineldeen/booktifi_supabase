@@ -14,6 +14,8 @@ import { AnimatedRating } from '../../components/ui/AnimatedRating';
 import { TestimonialForm } from '../../components/reviews/TestimonialForm';
 import { ReviewImageStory } from '../../components/reviews/ReviewImageStory';
 import { getApiUrl } from '../../lib/apiUrl';
+import { showNotification } from '../../contexts/NotificationContext';
+import { showConfirm } from '../../contexts/ConfirmContext';
 
 interface Tenant {
   id: string;
@@ -244,14 +246,14 @@ export function ServiceBookingFlow() {
 
       if (tenantError) throw tenantError;
       if (!tenantData) {
-        alert('Tenant not found');
+        showNotification('error', t('common.tenantNotFound'));
         navigate(`/${tenantSlug}/book`);
         return;
       }
 
       // Check if tenant account is active
       if (tenantData.is_active === false) {
-        alert('This service provider account has been deactivated. Please contact support.');
+        showNotification('warning', t('common.serviceProviderDeactivated'));
         navigate(`/${tenantSlug}/book`);
         return;
       }
@@ -271,7 +273,7 @@ export function ServiceBookingFlow() {
 
       if (serviceError) throw serviceError;
       if (!serviceData) {
-        alert('Service not found');
+        showNotification('error', t('common.serviceNotFound'));
         navigate(`/${tenantSlug}/book`);
         return;
       }
@@ -455,7 +457,7 @@ export function ServiceBookingFlow() {
         console.warn('service_offers table may not exist yet. Please run the migration: 20251130000000_create_service_offers.sql');
         // Continue without offers - the page should still work
       } else {
-        alert(`Failed to load booking page: ${errorMessage}. Please check the console for details.`);
+        showNotification('error', t('common.failedToLoadBookingPage', { message: errorMessage }));
       }
     } finally {
       setLoading(false);
@@ -1024,13 +1026,13 @@ export function ServiceBookingFlow() {
   // Handle proceed to checkout
   const handleProceedToCheckout = () => {
     if (!selectedDate || !selectedSlot) {
-      alert(i18n.language === 'ar' ? 'يرجى اختيار التاريخ والوقت' : 'Please select a date and time slot');
+      showNotification('warning', t('booking.pleaseSelectDateAndTime'));
       return;
     }
 
     // Require selection of either basic service (null) or an offer
     if (offers.length > 0 && selectedOffer === undefined) {
-      alert(i18n.language === 'ar' ? 'يرجى اختيار خيار من الخيارات المتاحة' : 'Please select an option from the available offers');
+      showNotification('warning', t('booking.pleaseSelectOptionFromOffers'));
       return;
     }
 
@@ -1986,11 +1988,7 @@ export function ServiceBookingFlow() {
                         onClick={() => {
                           const newCount = visitorCount + 1;
                           if (selectedSlot && selectedSlot.available_capacity < newCount) {
-                            alert(
-                              i18n.language === 'ar'
-                                ? `لا توجد أماكن كافية. المتاح: ${selectedSlot.available_capacity}، المطلوب: ${newCount}`
-                                : `Not enough capacity available. Available: ${selectedSlot.available_capacity}, Requested: ${newCount}`
-                            );
+                            showNotification('warning', t('common.notEnoughCapacity', { available: selectedSlot.available_capacity, requested: newCount }));
                             return;
                           }
                           setVisitorCount(newCount);
@@ -2469,27 +2467,33 @@ export function ServiceBookingFlow() {
                                         const confirmMessage = isServiceProvider && userProfile?.id !== review.customer_id
                                           ? (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟ (أنت تحذف كـ service provider)' : 'Are you sure you want to delete this review? (You are deleting as service provider)')
                                           : (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟' : 'Are you sure you want to delete this review?');
-                                        if (window.confirm(confirmMessage)) {
-                                          try {
-                                            const token = localStorage.getItem('auth_token');
-                                            const response = await fetch(`${API_URL}/reviews/${review.id}`, {
-                                              method: 'DELETE',
-                                              headers: {
-                                                'Authorization': `Bearer ${token}`,
-                                              },
-                                            });
-                                            if (response.ok) {
-                                              fetchReviews(); // Refresh reviews
-                                              if (service) {
-                                                fetchData(); // Refresh service data to update average rating/total reviews
-                                              }
-                                            } else {
-                                              const data = await response.json();
-                                              alert(data.error || 'Failed to delete review');
+                                        const ok = await showConfirm({
+                                          title: i18n.language === 'ar' ? 'تأكيد' : 'Confirm',
+                                          description: confirmMessage,
+                                          destructive: true,
+                                          confirmText: i18n.language === 'ar' ? 'حذف' : 'Delete',
+                                          cancelText: i18n.language === 'ar' ? 'إلغاء' : 'Cancel',
+                                        });
+                                        if (!ok) return;
+                                        try {
+                                          const token = localStorage.getItem('auth_token');
+                                          const response = await fetch(`${API_URL}/reviews/${review.id}`, {
+                                            method: 'DELETE',
+                                            headers: {
+                                              'Authorization': `Bearer ${token}`,
+                                            },
+                                          });
+                                          if (response.ok) {
+                                            fetchReviews(); // Refresh reviews
+                                            if (service) {
+                                              fetchData(); // Refresh service data to update average rating/total reviews
                                             }
-                                          } catch (error: any) {
-                                            alert('Failed to delete review: ' + error.message);
+                                          } else {
+                                            const data = await response.json();
+                                            showNotification('error', data.error || t('common.failedToDeleteReview'));
                                           }
+                                        } catch (error: any) {
+                                          showNotification('error', t('common.failedToDeleteReviewWithMessage', { message: error.message }));
                                         }
                                       }}
                                       className="text-gray-500 hover:text-red-600 transition-colors p-1"

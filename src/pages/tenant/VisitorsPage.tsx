@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { getApiUrl } from '../../lib/apiUrl';
+import { showNotification } from '../../contexts/NotificationContext';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -251,7 +252,7 @@ export function VisitorsPage() {
       fetchVisitors();
     } catch (e: any) {
       console.error(e);
-      alert(e.message || 'Failed to block visitor');
+      showNotification('error', e.message || t('common.failedToBlockVisitor'));
     } finally {
       setBlockingId(null);
     }
@@ -275,7 +276,7 @@ export function VisitorsPage() {
       fetchVisitors();
     } catch (e: any) {
       console.error(e);
-      alert(e.message || 'Failed to unblock visitor');
+      showNotification('error', e.message || t('common.failedToUnblockVisitor'));
     } finally {
       setBlockingId(null);
     }
@@ -306,7 +307,7 @@ export function VisitorsPage() {
       window.URL.revokeObjectURL(downloadUrl);
     } catch (e: any) {
       console.error('Export error', e);
-      alert(e.message || 'Export failed');
+      showNotification('error', e.message || t('common.exportFailed'));
     } finally {
       setExportingFormat(null);
     }
@@ -339,7 +340,7 @@ export function VisitorsPage() {
       window.URL.revokeObjectURL(downloadUrl);
     } catch (e: any) {
       console.error('Export details error', e);
-      alert(e.message || 'Export failed');
+      showNotification('error', e.message || t('common.exportFailed'));
     } finally {
       setExportingFormat(null);
     }
