@@ -11,6 +11,27 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const arabicReshaperLib = require('arabic-reshaper');
 
+/** Normalize landing_page_settings: unwrap old nested { landingPage: { ... } } to flat. */
+function normalizeLandingPageSettings(raw: unknown): Record<string, unknown> {
+  if (raw == null) return {};
+  let obj: Record<string, unknown>;
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  } else if (typeof raw === 'object' && raw !== null) {
+    obj = raw as Record<string, unknown>;
+  } else {
+    return {};
+  }
+  if (obj && typeof obj.landingPage === 'object' && obj.landingPage !== null) {
+    return { ...(obj.landingPage as Record<string, unknown>) };
+  }
+  return { ...obj };
+}
+
 // Canvas is optional - only needed for barcode generation
 // If not available, barcodes will be skipped but tickets will still work
 let canvasAvailable = false;
@@ -408,9 +429,7 @@ export async function generateBookingTicketPDF(
     
     if (tenantSettings) {
       try {
-        const settings = typeof tenantSettings === 'string' 
-          ? JSON.parse(tenantSettings) 
-          : tenantSettings;
+        const settings = normalizeLandingPageSettings(tenantSettings) as Record<string, string | undefined>;
         primaryColor = settings.primary_color || primaryColor;
         secondaryColor = settings.secondary_color || secondaryColor;
         console.log(`🎨 Using tenant branding colors:`);

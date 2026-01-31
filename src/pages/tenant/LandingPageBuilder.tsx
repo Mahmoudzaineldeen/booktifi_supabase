@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
+import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
 import { showNotification } from '../../contexts/NotificationContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -161,10 +162,20 @@ export function LandingPageBuilder() {
     videoSection: 'url',
   });
 
-  /** Display section name without namespace prefix (e.g. landingPage.faqSection → faqSection) */
+  /** Display section name without namespace prefix (e.g. landingPage.faqSection → faqSection). Applied consistently for all Landing Page section headers in Admin. */
   const sectionTitle = (key: string): string => {
     return key.replace(/^landingPage\./, '').replace(/^tenant\./, '');
   };
+
+  /** Page header text: use friendly default if translation returns the key (avoids showing "landingPage.title" in UI) */
+  const pageHeaderTitle = (() => {
+    const text = t('landingPage.title', { defaultValue: 'Landing Page Builder' });
+    return text === 'landingPage.title' ? 'Landing Page Builder' : text;
+  })();
+  const pageHeaderSubtitle = (() => {
+    const text = t('landingPage.subtitle', { defaultValue: 'Customize your public booking page' });
+    return text === 'landingPage.subtitle' ? 'Customize your public booking page' : text;
+  })();
 
   // Helper function to convert file to base64 data URL
   const fileToBase64 = (file: File): Promise<string> => {
@@ -241,9 +252,9 @@ export function LandingPageBuilder() {
       if (error) throw error;
 
       if (data?.landing_page_settings) {
-        // Merge with defaults to ensure all fields are present
-        const savedSettings = data.landing_page_settings;
-        const savedFaqs = savedSettings.faq_items || [];
+        // Merge with defaults; normalize supports old nested landingPage format
+        const savedSettings = normalizeLandingPageSettings(data.landing_page_settings) as Record<string, any>;
+        const savedFaqs = (savedSettings.faq_items || []) as typeof settings.faq_items;
         
         // Define default FAQs with 10 items
         const defaultFaqs = [
@@ -383,8 +394,8 @@ export function LandingPageBuilder() {
     <div className="p-4 md:p-8 max-w-5xl mx-auto">
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('landingPage.title')}</h1>
-          <p className="text-sm md:text-base text-gray-600 mt-1">{t('landingPage.subtitle')}</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{pageHeaderTitle}</h1>
+          <p className="text-sm md:text-base text-gray-600 mt-1">{pageHeaderSubtitle}</p>
         </div>
         <div className="flex gap-3">
           <Button
@@ -1027,7 +1038,7 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>paymentMethods</CardTitle>
+            <CardTitle>{sectionTitle('landingPage.paymentMethods')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
+import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -40,21 +41,7 @@ export function CustomerLoginPage() {
       if (data) {
         setTenant(data);
         
-        // Parse landing_page_settings
-        const getSettings = () => {
-          if (!data?.landing_page_settings) return {};
-          const rawSettings = data.landing_page_settings;
-          if (typeof rawSettings === 'string') {
-            try {
-              return JSON.parse(rawSettings);
-            } catch {
-              return {};
-            }
-          }
-          return rawSettings || {};
-        };
-        
-        setSettings(getSettings());
+        setSettings(normalizeLandingPageSettings(data?.landing_page_settings));
       }
     } catch (err) {
       console.error('Error fetching tenant:', err);

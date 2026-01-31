@@ -26,6 +26,7 @@ import { ReviewsCarousel } from '../../components/reviews/ReviewsCarousel';
 import { fetchAvailableSlots as fetchAvailableSlotsUtil } from '../../lib/bookingAvailability';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
+import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
 
 interface Tenant {
   id: string;
@@ -1258,21 +1259,8 @@ function PublicBookingPage() {
     );
   }
 
-  // Parse landing_page_settings safely - only after tenant is loaded
-  const getSettings = () => {
-    if (!tenant?.landing_page_settings) return {};
-    const rawSettings = tenant.landing_page_settings;
-    if (typeof rawSettings === 'string') {
-      try {
-        return JSON.parse(rawSettings);
-      } catch {
-        return {};
-      }
-    }
-    return rawSettings || {};
-  };
-  
-  const settings = getSettings();
+  // Parse landing_page_settings safely (supports old nested landingPage format)
+  const settings = normalizeLandingPageSettings(tenant?.landing_page_settings) as Record<string, any>;
   const primaryColor = settings.primary_color || '#2563eb';
   const secondaryColor = settings.secondary_color || '#3b82f6';
   const heroVideoUrl = settings.hero_video_url || null;

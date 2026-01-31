@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
+import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
@@ -71,20 +72,7 @@ export function BookingSuccessPage() {
     }
   }
 
-  const getSettings = () => {
-    if (!tenant?.landing_page_settings) return {};
-    const rawSettings = tenant.landing_page_settings;
-    if (typeof rawSettings === 'string') {
-      try {
-        return JSON.parse(rawSettings);
-      } catch {
-        return {};
-      }
-    }
-    return rawSettings || {};
-  };
-
-  const settings = getSettings();
+  const settings = normalizeLandingPageSettings(tenant?.landing_page_settings) as Record<string, any>;
   const primaryColor = settings.primary_color || '#2563eb';
   const secondaryColor = settings.secondary_color || '#3b82f6';
 

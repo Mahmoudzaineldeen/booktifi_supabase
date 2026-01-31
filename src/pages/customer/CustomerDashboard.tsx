@@ -11,6 +11,7 @@ import { format } from 'date-fns';
 import { ReviewForm } from '../../components/reviews/ReviewForm';
 import { Modal } from '../../components/ui/Modal';
 import { getApiUrl } from '../../lib/apiUrl';
+import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
 
 interface Booking {
   id: string;
@@ -359,21 +360,7 @@ export function CustomerDashboard() {
     return booking.status === 'completed' && !booking.review_id;
   };
 
-  // Parse landing_page_settings
-  const getSettings = () => {
-    if (!tenant?.landing_page_settings) return {};
-    const rawSettings = tenant.landing_page_settings;
-    if (typeof rawSettings === 'string') {
-      try {
-        return JSON.parse(rawSettings);
-      } catch {
-        return {};
-      }
-    }
-    return rawSettings || {};
-  };
-  
-  const settings = getSettings();
+  const settings = normalizeLandingPageSettings(tenant?.landing_page_settings) as Record<string, any>;
   const primaryColor = settings.primary_color || '#2563eb';
   const secondaryColor = settings.secondary_color || '#3b82f6';
   const tenantName = tenant ? (i18n.language === 'ar' ? tenant.name_ar : tenant.name) : 'Bookati';

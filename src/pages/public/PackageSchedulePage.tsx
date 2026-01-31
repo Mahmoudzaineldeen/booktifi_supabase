@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
+import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
 import { showNotification } from '../../contexts/NotificationContext';
 import { Button } from '../../components/ui/Button';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
@@ -324,21 +325,7 @@ export function PackageSchedulePage() {
   const packageDisplayName = formatPackageName(packageData, i18n.language);
   const packageImage = packageData.image_url || (packageData.gallery_urls && packageData.gallery_urls.length > 0 ? packageData.gallery_urls[0] : null);
 
-  // Get settings for colors
-  const getSettings = () => {
-    if (!tenant?.landing_page_settings) return {};
-    const rawSettings = tenant.landing_page_settings;
-    if (typeof rawSettings === 'string') {
-      try {
-        return JSON.parse(rawSettings);
-      } catch {
-        return {};
-      }
-    }
-    return rawSettings || {};
-  };
-
-  const settings = getSettings();
+  const settings = normalizeLandingPageSettings(tenant?.landing_page_settings) as Record<string, any>;
   const primaryColor = settings.primary_color || '#2563eb';
   const secondaryColor = settings.secondary_color || '#3b82f6';
 

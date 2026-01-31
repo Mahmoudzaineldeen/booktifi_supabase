@@ -17,6 +17,7 @@ import { countryCodes, validatePhoneNumberByCountry } from '../../lib/countryCod
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { showNotification } from '../../contexts/NotificationContext';
+import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
 
 interface BookingData {
   serviceId: string;
@@ -697,21 +698,7 @@ export function CheckoutPage() {
     }
   }
 
-  // Get settings for colors
-  const getSettings = () => {
-    if (!tenant?.landing_page_settings) return {};
-    const rawSettings = tenant.landing_page_settings;
-    if (typeof rawSettings === 'string') {
-      try {
-        return JSON.parse(rawSettings);
-      } catch {
-        return {};
-      }
-    }
-    return rawSettings || {};
-  };
-
-  const settings = getSettings();
+  const settings = normalizeLandingPageSettings(tenant?.landing_page_settings) as Record<string, any>;
   const primaryColor = settings.primary_color || '#2563eb';
   const secondaryColor = settings.secondary_color || '#3b82f6';
 
