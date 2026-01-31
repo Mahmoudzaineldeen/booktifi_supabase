@@ -194,7 +194,7 @@ export function ReceptionPage() {
     customer_email: '',
     package_id: ''
   });
-  const [subscriptionPaymentMethod, setSubscriptionPaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [subscriptionPaymentMethod, setSubscriptionPaymentMethod] = useState<'unpaid' | 'onsite' | 'transfer'>('onsite');
   const [subscriptionTransactionReference, setSubscriptionTransactionReference] = useState('');
   const [isSubscribing, setIsSubscribing] = useState(false);
   const [subscriptionConfirmationData, setSubscriptionConfirmationData] = useState<SubscriptionConfirmationData | null>(null);
@@ -737,8 +737,13 @@ export function ReceptionPage() {
       if (subscriptionCustomerLookup?.id) {
         body.customer_id = subscriptionCustomerLookup.id;
       }
-      if (subscriptionPaymentMethod) body.payment_method = subscriptionPaymentMethod;
-      if (subscriptionPaymentMethod === 'transfer' && subscriptionTransactionReference.trim()) body.transaction_reference = subscriptionTransactionReference.trim();
+      if (subscriptionPaymentMethod === 'unpaid') {
+        body.payment_status = 'pending';
+      } else {
+        body.payment_status = 'paid';
+        body.payment_method = subscriptionPaymentMethod;
+        if (subscriptionPaymentMethod === 'transfer' && subscriptionTransactionReference.trim()) body.transaction_reference = subscriptionTransactionReference.trim();
+      }
       const response = await fetch(`${API_URL}/packages/receptionist/subscriptions`, {
         method: 'POST',
         headers: {
@@ -6206,10 +6211,20 @@ export function ReceptionPage() {
             )}
           </div>
 
-          {/* Payment method (same as bookings) */}
+          {/* Payment method (Unpaid | Paid On Site | Bank Transfer — same as bookings) */}
           <div>
             <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('reception.paymentMethod') || 'Payment method'}</h4>
-            <div className="flex gap-4">
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="subscriptionPaymentMethod"
+                  checked={subscriptionPaymentMethod === 'unpaid'}
+                  onChange={() => { setSubscriptionPaymentMethod('unpaid'); setSubscriptionTransactionReference(''); }}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>{t(PAYMENT_DISPLAY_KEYS.unpaid) || 'Unpaid'}</span>
+              </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="radio"
@@ -6218,7 +6233,7 @@ export function ReceptionPage() {
                   onChange={() => { setSubscriptionPaymentMethod('onsite'); setSubscriptionTransactionReference(''); }}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <span>{i18n.language === 'ar' ? 'مدفوع يدوياً' : 'Paid On Site'}</span>
+                <span>{t(PAYMENT_DISPLAY_KEYS.paid_onsite) || 'Paid On Site'}</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -6228,7 +6243,7 @@ export function ReceptionPage() {
                   onChange={() => setSubscriptionPaymentMethod('transfer')}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <span>{i18n.language === 'ar' ? 'حوالة بنكية' : 'Bank Transfer'}</span>
+                <span>{t(PAYMENT_DISPLAY_KEYS.bank_transfer) || 'Bank Transfer'}</span>
               </label>
             </div>
             {subscriptionPaymentMethod === 'transfer' && (
