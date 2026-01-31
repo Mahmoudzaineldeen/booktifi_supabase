@@ -161,6 +161,11 @@ export function LandingPageBuilder() {
     videoSection: 'url',
   });
 
+  /** Display section name without namespace prefix (e.g. landingPage.faqSection → faqSection) */
+  const sectionTitle = (key: string): string => {
+    return key.replace(/^landingPage\./, '').replace(/^tenant\./, '');
+  };
+
   // Helper function to convert file to base64 data URL
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -402,7 +407,7 @@ export function LandingPageBuilder() {
       <div className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>{t('landingPage.heroSection')}</CardTitle>
+            <CardTitle>{sectionTitle('landingPage.heroSection')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -666,14 +671,14 @@ export function LandingPageBuilder() {
               )}
             </div>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
-              <strong>Note:</strong> Video takes priority over images. If video is set, images will be ignored.
+              <strong>{t('common.info')}:</strong> {t('landingPage.heroVideoOverImagesNote')}
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>{t('landingPage.trustIndicators')}</CardTitle>
+            <CardTitle>{sectionTitle('landingPage.trustIndicators')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
@@ -698,7 +703,7 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>{t('landingPage.videoSection')}</CardTitle>
+            <CardTitle>{sectionTitle('landingPage.videoSection')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -781,7 +786,7 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>{t('landingPage.aboutSection')}</CardTitle>
+            <CardTitle>{sectionTitle('landingPage.aboutSection')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -825,7 +830,7 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>{t('tenant.appearance')}</CardTitle>
+            <CardTitle>{sectionTitle('tenant.appearance')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -882,7 +887,7 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>{t('landingPage.contactSection')}</CardTitle>
+            <CardTitle>{sectionTitle('landingPage.contactSection')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -905,7 +910,7 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>{t('landingPage.socialMediaLinks')}</CardTitle>
+            <CardTitle>{sectionTitle('landingPage.socialMediaLinks')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <Input
@@ -931,14 +936,14 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>{t('landingPage.faqSection')}</CardTitle>
+            <CardTitle>{sectionTitle('landingPage.faqSection')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-4">
               {(settings.faq_items || []).map((faq, index) => (
                 <div key={index} className="border border-gray-200 rounded-lg p-4 space-y-3">
                   <div className="flex justify-between items-center">
-                    <h4 className="font-medium">{t('landingPage.faqSection')} {index + 1}</h4>
+                    <h4 className="font-medium">{sectionTitle('landingPage.faqSection')} {index + 1}</h4>
                     <button
                       type="button"
                       onClick={() => {
@@ -1022,12 +1027,12 @@ export function LandingPageBuilder() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Payment Methods</CardTitle>
+            <CardTitle>paymentMethods</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Payment Methods (One per line)
+                {t('landingPage.paymentMethodsLabel')}
               </label>
               <textarea
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg"
@@ -1037,7 +1042,7 @@ export function LandingPageBuilder() {
                   const methods = e.target.value.split('\n').filter(m => m.trim());
                   setSettings({ ...settings, payment_methods: methods });
                 }}
-                placeholder="VISA&#10;Mastercard&#10;PayPal"
+                placeholder={t('landingPage.paymentMethodsPlaceholder')}
               />
             </div>
           </CardContent>
@@ -1046,9 +1051,9 @@ export function LandingPageBuilder() {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
           <Globe className="w-5 h-5 text-blue-600 mt-0.5" />
           <div>
-            <h3 className="font-medium text-blue-900">Your Public Booking Page</h3>
+            <h3 className="font-medium text-blue-900">{t('landingPage.publicBookingPageTitle')}</h3>
             <p className="text-sm text-blue-700 mt-1">
-              Your customers can book services at: <strong>/{tenant?.slug}/book</strong>
+              {t('landingPage.publicBookingPageDescription')} <strong>/{tenant?.slug}/book</strong>
             </p>
           </div>
         </div>

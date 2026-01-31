@@ -1030,7 +1030,12 @@
     "answerArabic": "Answer (Arabic)",
     "addFaq": "Add FAQ",
     "removeFaq": "Remove",
-    "previewAlt": "Preview"
+    "previewAlt": "Preview",
+    "heroVideoOverImagesNote": "Video takes priority over images. If video is set, images will be ignored.",
+    "paymentMethodsLabel": "Payment Methods (One per line)",
+    "paymentMethodsPlaceholder": "VISA\nMastercard\nPayPal",
+    "publicBookingPageTitle": "Your Public Booking Page",
+    "publicBookingPageDescription": "Your customers can book services at:"
   },
   "testimonials": {
     "writeReview": "Write a Review",

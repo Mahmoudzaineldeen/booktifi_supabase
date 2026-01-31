@@ -1876,7 +1876,12 @@
     "answerArabic": "الإجابة (بالعربية)",
     "addFaq": "إضافة سؤال",
     "removeFaq": "إزالة",
-    "previewAlt": "معاينة"
+    "previewAlt": "معاينة",
+    "heroVideoOverImagesNote": "الفيديو له الأولوية على الصور. إذا تم تعيين الفيديو، سيتم تجاهل الصور.",
+    "paymentMethodsLabel": "طرق الدفع (واحدة في كل سطر)",
+    "paymentMethodsPlaceholder": "فيزا\nماستركارد\nباي بال",
+    "publicBookingPageTitle": "صفحة الحجز العامة الخاصة بك",
+    "publicBookingPageDescription": "يمكن لعملائك حجز الخدمات على:"
   },
   "qrScanner": {
     "title": "مسح رمز الحجز",
