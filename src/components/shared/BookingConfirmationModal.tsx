@@ -34,6 +34,10 @@ interface FetchedBooking {
   total_price: number;
   services?: { name: string; name_ar?: string };
   slots?: { slot_date: string; start_time: string; end_time: string };
+  /** Background invoice job: pending | processing | completed | failed */
+  invoice_processing_status?: string | null;
+  invoice_last_error?: string | null;
+  zoho_invoice_id?: string | null;
 }
 
 export function BookingConfirmationModal({
@@ -95,6 +99,9 @@ export function BookingConfirmationModal({
             total_price: b.total_price ?? 0,
             services: b.services || { name: '', name_ar: '' },
             slots: b.slots || { slot_date: '', start_time: '', end_time: '' },
+            invoice_processing_status: b.invoice_processing_status ?? null,
+            invoice_last_error: b.invoice_last_error ?? null,
+            zoho_invoice_id: b.zoho_invoice_id ?? null,
           });
         } else {
           setError('Booking not found');
@@ -165,17 +172,27 @@ export function BookingConfirmationModal({
                   </div>
                 </div>
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                  {i18n.language === 'ar' ? 'تم تأكيد الحجز!' : 'Booking Confirmed!'}
+                  {t('reception.bookingConfirmedTitle', 'Booking Confirmed!')}
                 </h2>
-                <p className="text-gray-600 text-sm mb-6">
-                  {ticketsEnabled
-                    ? (i18n.language === 'ar'
-                        ? 'شكراً! تم تأكيد الحجز. سيتم إرسال تذكرة الحجز إلى رقم واتساب العميل.'
-                        : "Thank you! The booking has been confirmed. The booking ticket will be sent to the customer's WhatsApp number.")
-                    : (i18n.language === 'ar'
-                        ? 'شكراً! تم تأكيد الحجز.'
-                        : 'Thank you! The booking has been confirmed.')}
+                <p className={`text-gray-600 text-sm ${ticketsEnabled ? 'mb-2' : 'mb-6'}`}>
+                  {t('reception.bookingConfirmedThankYou', 'Thank you! The booking has been confirmed.')}
                 </p>
+                {ticketsEnabled && (
+                  <p className="text-gray-600 text-sm mb-6">
+                    {booking.invoice_processing_status === 'pending' || booking.invoice_processing_status === 'processing' ? (
+                      <span className="text-amber-700">
+                        {t('reception.invoiceBeingPrepared', 'Invoice is being prepared and will be sent shortly.')}
+                      </span>
+                    ) : booking.invoice_processing_status === 'failed' ? (
+                      <span className="text-red-600">
+                        {t('reception.invoiceSendFailed', 'Invoice could not be sent.')}
+                        {booking.invoice_last_error ? ` ${booking.invoice_last_error}` : ''}
+                      </span>
+                    ) : (
+                      t('reception.ticketWillBeSentWhatsApp', "The booking ticket will be sent to the customer's WhatsApp number.")
+                    )}
+                  </p>
+                )}
 
                 <div className="bg-gray-50 rounded-lg p-5 mb-6 text-left space-y-4">
                   <Row

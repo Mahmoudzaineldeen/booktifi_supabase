@@ -35,8 +35,13 @@ async function processReceiptJob(job: QueueJob): Promise<{ success: boolean; err
   console.log(`[ZohoReceiptWorker] Processing job ${job.id} for booking ${booking_id} (attempt ${attempt + 1}/${MAX_RETRIES})`);
 
   try {
+    // Set booking invoice_processing_status = processing (UI can show "Invoice is being prepared")
+    await supabase
+      .from('bookings')
+      .update({ invoice_processing_status: 'processing', invoice_last_error: null })
+      .eq('id', booking_id);
+
     // Check if booking exists and get invoice-related fields
-    // Use maybeSingle to avoid throwing error if booking doesn't exist
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
       .select('zoho_invoice_id, payment_status, paid_quantity, package_covered_quantity, total_price')
@@ -46,12 +51,10 @@ async function processReceiptJob(job: QueueJob): Promise<{ success: boolean; err
     // Handle missing booking gracefully (booking may have been deleted)
     if (bookingError || !booking) {
       console.warn(`[ZohoReceiptWorker] ⚠️ Booking ${booking_id} not found - marking job as failed (booking may have been deleted)`);
+      await supabase.from('bookings').update({ invoice_processing_status: 'failed', invoice_last_error: 'Booking not found' }).eq('id', booking_id);
       await supabase
         .from('queue_jobs')
-        .update({
-          status: 'failed',
-          completed_at: new Date().toISOString()
-        })
+        .update({ status: 'failed', completed_at: new Date().toISOString() })
         .eq('id', job.id);
       return { success: false, error: `Booking ${booking_id} not found (may have been deleted)` };
     }
@@ -59,12 +62,10 @@ async function processReceiptJob(job: QueueJob): Promise<{ success: boolean; err
     // Skip if invoice already created
     if (booking.zoho_invoice_id) {
       console.log(`[ZohoReceiptWorker] Invoice already exists for booking ${booking_id}, marking job as completed`);
+      await supabase.from('bookings').update({ invoice_processing_status: 'completed', invoice_last_error: null }).eq('id', booking_id);
       await supabase
         .from('queue_jobs')
-        .update({
-          status: 'completed',
-          completed_at: new Date().toISOString()
-        })
+        .update({ status: 'completed', completed_at: new Date().toISOString() })
         .eq('id', job.id);
       return { success: true };
     }
@@ -87,40 +88,33 @@ async function processReceiptJob(job: QueueJob): Promise<{ success: boolean; err
       console.log(`[ZohoReceiptWorker]    paid_quantity: ${paidQty} (must be > 0)`);
       console.log(`[ZohoReceiptWorker]    total_price: ${totalPrice} (must be > 0)`);
       console.log(`[ZohoReceiptWorker]    → Marking job as completed (no invoice needed)`);
+      await supabase.from('bookings').update({ invoice_processing_status: 'completed', invoice_last_error: null }).eq('id', booking_id);
       await supabase
         .from('queue_jobs')
-        .update({
-          status: 'completed',
-          completed_at: new Date().toISOString()
-        })
+        .update({ status: 'completed', completed_at: new Date().toISOString() })
         .eq('id', job.id);
       return { success: true, error: 'Booking fully covered by package - no invoice needed' };
     }
 
-    // Skip if payment status is not paid (for backward compatibility)
-    if (booking.payment_status !== 'paid' && booking.payment_status !== 'unpaid') {
+    // Allow paid, paid_manual, unpaid (invoice created for paid/paid_manual; unpaid gets invoice when marked paid later)
+    if (booking.payment_status !== 'paid' && booking.payment_status !== 'paid_manual' && booking.payment_status !== 'unpaid') {
       console.log(`[ZohoReceiptWorker] Booking ${booking_id} payment status is ${booking.payment_status}, skipping`);
+      await supabase.from('bookings').update({ invoice_processing_status: 'failed', invoice_last_error: `Payment status: ${booking.payment_status}` }).eq('id', booking_id);
       await supabase
         .from('queue_jobs')
-        .update({
-          status: 'failed',
-          completed_at: new Date().toISOString()
-        })
+        .update({ status: 'failed', completed_at: new Date().toISOString() })
         .eq('id', job.id);
-      return { success: false, error: `Payment status is ${booking.payment_status}, not paid` };
+      return { success: false, error: `Payment status is ${booking.payment_status}` };
     }
 
-    // Generate receipt
+    // Generate receipt (create Zoho invoice, record payment if paid, send email/WhatsApp)
     const result = await zohoService.generateReceipt(booking_id);
 
     if (result.success) {
-      // Mark job as completed
+      await supabase.from('bookings').update({ invoice_processing_status: 'completed', invoice_last_error: null }).eq('id', booking_id);
       await supabase
         .from('queue_jobs')
-        .update({
-          status: 'completed',
-          completed_at: new Date().toISOString()
-        })
+        .update({ status: 'completed', completed_at: new Date().toISOString() })
         .eq('id', job.id);
       console.log(`[ZohoReceiptWorker] ✅ Successfully generated receipt for booking ${booking_id}`);
       return { success: true };
@@ -133,12 +127,10 @@ async function processReceiptJob(job: QueueJob): Promise<{ success: boolean; err
     // Don't retry if booking doesn't exist (booking was deleted)
     if (error.message?.includes('not found') || error.message?.includes('Booking')) {
       console.warn(`[ZohoReceiptWorker] ⚠️ Booking not found - marking job as failed (no retry)`);
+      await supabase.from('bookings').update({ invoice_processing_status: 'failed', invoice_last_error: error.message }).eq('id', job.payload.booking_id);
       await supabase
         .from('queue_jobs')
-        .update({
-          status: 'failed',
-          completed_at: new Date().toISOString()
-        })
+        .update({ status: 'failed', completed_at: new Date().toISOString() })
         .eq('id', job.id);
       return { success: false, error: error.message };
     }
@@ -146,13 +138,10 @@ async function processReceiptJob(job: QueueJob): Promise<{ success: boolean; err
     const nextAttempt = attempt + 1;
 
     if (nextAttempt >= MAX_RETRIES) {
-      // Max retries reached, mark as failed
+      await supabase.from('bookings').update({ invoice_processing_status: 'failed', invoice_last_error: error.message }).eq('id', job.payload.booking_id);
       await supabase
         .from('queue_jobs')
-        .update({
-          status: 'failed',
-          completed_at: new Date().toISOString()
-        })
+        .update({ status: 'failed', completed_at: new Date().toISOString() })
         .eq('id', job.id);
       console.error(`[ZohoReceiptWorker] ❌ Job ${job.id} failed after ${MAX_RETRIES} attempts`);
       return { success: false, error: error.message };
