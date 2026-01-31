@@ -1002,6 +1002,62 @@ export function EmployeesPage() {
                   ))}
                 </div>
               )}
+              {/* Add shift form: days + time range; Add adds to list, Cancel resets form (keeps form visible) */}
+              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+                <div className="text-xs font-medium text-gray-700">
+                  {t('employee.addShift', 'Add shift')}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(i18n.language === 'ar' ? dayNamesAr : dayNames).map((name, day) => (
+                    <label key={day} className="flex items-center gap-1.5 cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        checked={employeeShiftForm.days_of_week.includes(day)}
+                        onChange={() => toggleEmployeeShiftDay(day)}
+                        className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                      <span className="text-gray-700">{name}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2 text-xs">
+                    <span className="text-gray-600">{t('employee.startTime', 'Start')}</span>
+                    <input
+                      type="time"
+                      value={employeeShiftForm.start_time.slice(0, 5)}
+                      onChange={(e) => setEmployeeShiftForm(prev => ({ ...prev, start_time: e.target.value || '09:00' }))}
+                      className="rounded border border-gray-300 px-2 py-1 text-sm"
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 text-xs">
+                    <span className="text-gray-600">{t('employee.endTime', 'End')}</span>
+                    <input
+                      type="time"
+                      value={employeeShiftForm.end_time.slice(0, 5)}
+                      onChange={(e) => setEmployeeShiftForm(prev => ({ ...prev, end_time: e.target.value || '18:00' }))}
+                      className="rounded border border-gray-300 px-2 py-1 text-sm"
+                    />
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={(e) => addEmployeeShift(e as unknown as React.FormEvent)}
+                  >
+                    {t('common.add')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setEmployeeShiftForm({ days_of_week: [], start_time: '09:00', end_time: '18:00', is_active: true })}
+                  >
+                    {t('common.cancel')}
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
 

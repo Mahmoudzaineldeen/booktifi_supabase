@@ -21,6 +21,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { countryCodes } from '../../lib/countryCodes';
 import { getApiUrl } from '../../lib/apiUrl';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
+import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { extractBookingIdFromQR } from '../../lib/qrUtils';
 import { fetchAvailableSlots as fetchAvailableSlotsUtil, Slot as AvailabilitySlot } from '../../lib/bookingAvailability';
@@ -140,6 +141,10 @@ export function ReceptionPage() {
   const tenantSlugForNav = routeTenantSlug || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : '');
   const isVisitorsPath = location.pathname.includes('/reception/visitors');
   const tenantDefaultCountry = useTenantDefaultCountry();
+  const { features: tenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
+  const schedulingMode = (tenantFeatures?.scheduling_mode ?? 'service_slot_based') as 'employee_based' | 'service_slot_based';
+  const isEmployeeBasedMode = schedulingMode === 'employee_based';
+  const tenantAssignmentMode = (tenantFeatures?.employee_assignment_mode ?? 'both') as 'automatic' | 'manual' | 'both';
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [todayBookings, setTodayBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -322,6 +327,18 @@ export function ReceptionPage() {
       fetchAvailableSlots();
     }
   }, [selectedService, selectedDate]);
+
+  // Mode separation: in employee-based mode use tenant assignment mode; in service-based mode always automatic (no employee selection)
+  useEffect(() => {
+    if (isEmployeeBasedMode) {
+      const mode = tenantAssignmentMode === 'manual' ? 'manual' : 'automatic';
+      setAssignmentMode(mode);
+    } else {
+      setAssignmentMode('automatic');
+      setSelectedEmployee('');
+      setSelectedSlot('');
+    }
+  }, [isEmployeeBasedMode, tenantAssignmentMode]);
 
 
   // Clear selected slots when key parameters change
@@ -4174,12 +4191,19 @@ export function ReceptionPage() {
                 })()}
               </div>
 
-              {/* Time Slots and Employees */}
+              {/* Time Slots: in employee-based mode ONLY from employee shifts; in service-based from service slots */}
               <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
-                <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <h4 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-2">
                   <Clock className="w-4 h-4" />
-                  {t('reception.scheduleAndEmployees')}
+                  {isEmployeeBasedMode
+                    ? (t('reception.availableTimesFromEmployees') || 'Available times (from employee shifts)')
+                    : t('reception.scheduleAndEmployees')}
                 </h4>
+                {isEmployeeBasedMode && (
+                  <p className="text-xs text-gray-500 mb-3">
+                    {t('reception.employeeModeSlotNote') || 'Times are from employee shifts. Service slot settings do not apply.'}
+                  </p>
+                )}
                 <div className="space-y-2">
                   {selectedSlots.length > 0 ? (
                     selectedSlots.map((slot, idx) => {
@@ -4818,49 +4842,56 @@ export function ReceptionPage() {
                 )}
               </div>
 
-              {/* ARCHIVED: Employee Assignment UI removed */}
-              {/* <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Employee Assignment *
-                </label>
-                <div className="flex gap-3 mb-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAssignmentMode('automatic');
-                      setSelectedSlot('');
-                      setSelectedEmployee('');
-                      setSelectedTimeSlot(null);
-                    }}
-                    className={`flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-colors ${
-                      assignmentMode === 'automatic'
-                        ? 'border-blue-600 bg-blue-50 text-blue-700'
-                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="font-semibold mb-1">{t('reception.automaticAssignment')}</div>
-                    <div className="text-xs opacity-75">System assigns to employee with least bookings</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAssignmentMode('manual');
-                      setSelectedSlot('');
-                      setSelectedEmployee('');
-                      setSelectedTimeSlot(null);
-                    }}
-                    className={`flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-colors ${
-                      assignmentMode === 'manual'
-                        ? 'border-blue-600 bg-blue-50 text-blue-700'
-                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="font-semibold mb-1">{t('reception.manualAssignment')}</div>
-                    <div className="text-xs opacity-75">Choose specific employee and time</div>
-                  </button>
-                </div> */}
+              {/* Employee-based mode only: show assignment toggle (Auto / Manual). Service-based mode has no employee selection. */}
+              {isEmployeeBasedMode && (tenantAssignmentMode === 'both' || tenantAssignmentMode === 'automatic' || tenantAssignmentMode === 'manual') && (
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {t('reception.employeeAssignment') || 'Employee assignment'}
+                  </label>
+                  <div className="flex gap-3 mb-3">
+                    {(tenantAssignmentMode === 'both' || tenantAssignmentMode === 'automatic') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAssignmentMode('automatic');
+                          setSelectedSlot('');
+                          setSelectedEmployee('');
+                          setSelectedTimeSlot(null);
+                        }}
+                        className={`flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-colors ${
+                          assignmentMode === 'automatic'
+                            ? 'border-blue-600 bg-blue-50 text-blue-700'
+                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="font-semibold mb-1">{t('reception.automaticAssignment')}</div>
+                        <div className="text-xs opacity-75">{t('reception.autoAssignDescription') || 'System assigns to employee with least bookings'}</div>
+                      </button>
+                    )}
+                    {(tenantAssignmentMode === 'both' || tenantAssignmentMode === 'manual') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAssignmentMode('manual');
+                          setSelectedSlot('');
+                          setSelectedEmployee('');
+                          setSelectedTimeSlot(null);
+                        }}
+                        className={`flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-colors ${
+                          assignmentMode === 'manual'
+                            ? 'border-blue-600 bg-blue-50 text-blue-700'
+                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="font-semibold mb-1">{t('reception.manualAssignment')}</div>
+                        <div className="text-xs opacity-75">{t('reception.manualAssignDescription') || 'Choose specific employee and time'}</div>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
-                {/* ARCHIVED: Employee distribution display removed */}
+                {/* Employee distribution display - optional, kept commented */}
                 {/* {assignmentMode === 'automatic' && availableEmployees.length > 0 && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
                     <div className="text-sm font-medium text-blue-900 mb-2">Employee Distribution:</div>
@@ -4914,8 +4945,8 @@ export function ReceptionPage() {
                   </div>
                 )}
 
-                {/* ARCHIVED: Manual employee selection removed */}
-                {/* {assignmentMode === 'manual' && (
+                {/* Employee-based + manual: show employee dropdown */}
+                {isEmployeeBasedMode && assignmentMode === 'manual' && (
                   <div className="mb-3">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       {t('reception.selectEmployee')} *
@@ -4932,14 +4963,12 @@ export function ReceptionPage() {
                       <option value="">{t('reception.chooseEmployee')}</option>
                       {availableEmployees.map((emp) => (
                         <option key={emp.id} value={emp.id}>
-                          {i18n.language === 'ar' ? emp.name_ar : emp.name} ({emp.bookingCount} bookings today)
+                          {i18n.language === 'ar' ? emp.name_ar : emp.name} ({emp.bookingCount} {t('reception.bookingsToday') || 'bookings today'})
                         </option>
                       ))}
                     </select>
                   </div>
                 )}
-              </div> */}
-              {/* ARCHIVED: Employee assignment section fully commented out */}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
