@@ -71,6 +71,22 @@ If you cannot update the Zoho Developer Console (e.g., you don't have access), y
 
 ---
 
+## Production (Netlify + Railway)
+
+When the frontend is on **Netlify** and the backend on **Railway**, Zoho must redirect to the **backend (Railway)** URL, not the Netlify URL. The app now uses the backend’s own URL for the redirect URI.
+
+**Add your Railway callback URL to Zoho Developer Console:**
+
+1. In Zoho Developer Console → your app → **Authorized Redirect URIs**
+2. Add (replace with your real Railway host):
+   ```
+   https://<your-railway-app>.up.railway.app/api/zoho/callback
+   ```
+   Example: `https://booktifisupabase-production.up.railway.app/api/zoho/callback`
+3. Save. After that, “Reconnect Zoho” from the Netlify site should show the success screen instead of the landing page.
+
+---
+
 ## Current Configuration
 
 - **Client ID**: `1000.11W8WXV5NHQZK87XTN54UNREEVFTEW`

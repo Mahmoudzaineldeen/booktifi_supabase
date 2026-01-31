@@ -21,78 +21,34 @@ router.get('/auth', async (req, res) => {
       return res.status(400).json({ error: 'tenant_id is required' });
     }
 
-    // HYBRID APPROACH: Dynamic redirect URI detection
-    // Priority 1: Frontend-provided origin (most reliable)
-    let origin: string | undefined = req.query.origin as string | undefined;
-    let originSource = 'Unknown';
-    
-    // Debug: Log all available information
-    console.log(`[Zoho Routes] ========================================`);
-    console.log(`[Zoho Routes] DEBUG: Origin Detection`);
-    console.log(`[Zoho Routes] Query params:`, req.query);
-    console.log(`[Zoho Routes] Origin from query:`, req.query.origin);
-    console.log(`[Zoho Routes] Origin header:`, req.headers.origin);
-    console.log(`[Zoho Routes] Referer header:`, req.headers.referer);
-    console.log(`[Zoho Routes] Host header:`, req.headers.host);
-    console.log(`[Zoho Routes] ========================================`);
-    
-    // Priority 2: Request headers (Origin or Referer)
-    if (!origin) {
-      origin = req.headers.origin as string | undefined;
-      if (origin) {
-        originSource = 'Origin Header';
-      } else if (req.headers.referer) {
-        // If no Origin header, try to extract from Referer
-        try {
-          const refererUrl = new URL(req.headers.referer);
-          origin = `${refererUrl.protocol}//${refererUrl.host}`;
-          originSource = 'Referer Header';
-        } catch (e) {
-          // Invalid referer URL, ignore
-        }
-      }
-    } else {
-      originSource = 'Frontend';
+    // Redirect URI must point to the BACKEND (this server), not the frontend.
+    // When frontend is on Netlify and backend on Railway, Zoho must redirect to Railway
+    // so this callback handler runs. Using frontend origin would send Zoho to Netlify,
+    // which serves the SPA and shows the landing page instead of the success screen.
+    const protocol = req.headers['x-forwarded-proto'] === 'https' || req.secure ? 'https' : 'http';
+    const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+    const backendBase = host ? `${protocol}://${host}` : (process.env.APP_URL || process.env.BACKEND_PUBLIC_URL || '');
+    const redirectUri = backendBase ? `${backendBase.replace(/\/+$/, '')}/api/zoho/callback` : '';
+
+    if (!redirectUri) {
+      throw new Error('Could not determine backend URL for Zoho redirect_uri. Set APP_URL or BACKEND_PUBLIC_URL on the server.');
     }
-    
-    // Priority 3: Environment variable
-    if (!origin) {
-      origin = process.env.APP_URL;
-      if (origin) {
-        originSource = 'Environment Variable (APP_URL)';
-      }
+
+    // Frontend origin (for state/logging only; not used for redirect_uri when split frontend/backend)
+    let frontendOrigin: string | undefined = (req.query.origin as string) || req.headers.origin as string | undefined;
+    if (!frontendOrigin && req.headers.referer) {
+      try {
+        const refererUrl = new URL(req.headers.referer);
+        frontendOrigin = `${refererUrl.protocol}//${refererUrl.host}`;
+      } catch (_) {}
     }
-    
-    // Priority 4: Construct from Host header (for same-origin requests)
-    if (!origin) {
-      const host = req.headers.host;
-      const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      if (host) {
-        origin = `${protocol}://${host}`;
-        originSource = 'Host Header';
-      }
-    }
-    
-    // Final fallback: Use APP_URL from environment or construct from Railway
-    if (!origin) {
-      if (!process.env.APP_URL) {
-        throw new Error('APP_URL environment variable is required for Zoho OAuth');
-      }
-      origin = process.env.APP_URL;
-      originSource = 'Environment (APP_URL)';
-    }
-    
-    // Construct redirect URI from detected origin
-    const redirectUri = `${origin}/api/zoho/callback`;
-    
-    // Log the redirect URI being used for debugging
+
     console.log(`[Zoho Routes] ========================================`);
     console.log(`[Zoho Routes] INITIATING OAUTH FLOW`);
     console.log(`[Zoho Routes] Tenant ID: ${tenantId}`);
-    console.log(`[Zoho Routes] Detected Origin: ${origin}`);
-    console.log(`[Zoho Routes] Origin Source: ${originSource}`);
-    console.log(`[Zoho Routes] Using Redirect URI: ${redirectUri}`);
-    console.log(`[Zoho Routes] ⚠️  Make sure this EXACT URI is configured in Zoho Developer Console`);
+    console.log(`[Zoho Routes] Backend (callback) URL: ${backendBase}`);
+    console.log(`[Zoho Routes] Redirect URI (must be in Zoho Console): ${redirectUri}`);
+    console.log(`[Zoho Routes] Frontend origin (for postMessage): ${frontendOrigin || 'same-origin'}`);
     console.log(`[Zoho Routes] ========================================`);
 
     // Load tenant-specific credentials (or fall back to global)
