@@ -665,7 +665,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       return res.json({ shiftIds: [] });
     }
 
-    const durationMinutes = (service as any).service_duration_minutes ?? (service as any).duration_minutes ?? 60;
+    const durationMinutes = Math.max(1, Number((service as any).service_duration_minutes ?? (service as any).duration_minutes ?? 60) || 60);
 
     let { data: shifts, error: shiftsError } = await supabase
       .from('shifts')
@@ -740,9 +740,16 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     if (empShiftsError || !empShifts || empShifts.length === 0) {
       return res.json({ shiftIds: [virtualShiftId] });
     }
-    const shiftsForDay = (empShifts as any[]).filter((es: any) =>
-      Array.isArray(es.days_of_week) && es.days_of_week.includes(dayOfWeek)
-    );
+    // Normalize days_of_week: PostgreSQL can return array or string like "{0,1,2,3,4,5,6}"
+    const toDaysArray = (d: any): number[] => {
+      if (Array.isArray(d)) return d.map((x: any) => Number(x)).filter((n: number) => !Number.isNaN(n) && n >= 0 && n <= 6);
+      if (typeof d === 'string') return d.replace(/[{}]/g, '').split(',').map((x: string) => Number(x.trim())).filter((n: number) => !Number.isNaN(n) && n >= 0 && n <= 6);
+      return [];
+    };
+    const shiftsForDay = (empShifts as any[]).filter((es: any) => {
+      const days = toDaysArray(es.days_of_week);
+      return days.length > 0 && days.includes(dayOfWeek);
+    });
 
     const startTimeStr = (t: string) => (t || '').slice(0, 8);
     const toMinutes = (t: string) => {
@@ -798,7 +805,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
         }
         const startTs = `${dateStr}T${startTime}`;
         const endTs = `${dateStr}T${endTime}`;
-        await supabase.from('slots').insert({
+        const fullRow = {
           tenant_id: tenantId,
           service_id: serviceId,
           shift_id: virtualShiftId,
@@ -814,7 +821,28 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
           available_capacity: availableCapacity,
           booked_count: overlapCount,
           is_available: true,
-        });
+          is_overbooked: false,
+        };
+        let { error: insertErr } = await supabase.from('slots').insert(fullRow);
+        if (insertErr && (String(insertErr.message || '').includes('column') || String(insertErr.code || '').includes('undefined_column'))) {
+          const minimalRow = {
+            tenant_id: tenantId,
+            shift_id: virtualShiftId,
+            employee_id: es.employee_id,
+            slot_date: dateStr,
+            start_time: startTime,
+            end_time: endTime,
+            start_time_utc: startTs,
+            end_time_utc: endTs,
+            original_capacity: 1,
+            available_capacity: availableCapacity,
+            booked_count: overlapCount,
+            is_available: true,
+            is_overbooked: false,
+          };
+          insertErr = (await supabase.from('slots').insert(minimalRow)).error;
+        }
+        if (insertErr) logger.warn('ensure-employee-based-slots: slot insert error', insertErr);
         slotStartM += durationMinutes;
       }
     }

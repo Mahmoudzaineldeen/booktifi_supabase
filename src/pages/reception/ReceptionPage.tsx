@@ -4897,50 +4897,62 @@ export function ReceptionPage() {
                 )}
               </div>
 
-              {/* Employee-based mode only: show assignment toggle (Auto / Manual). Service-based mode has no employee selection. */}
+              {/* Employee-based mode only: show assignment (Auto / Manual). Manual is an instruction to receptionist, not a button. */}
               {isEmployeeBasedMode && (tenantAssignmentMode === 'both' || tenantAssignmentMode === 'automatic' || tenantAssignmentMode === 'manual') && (
                 <div className="mb-3">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     {t('reception.employeeAssignment') || 'Employee assignment'}
                   </label>
-                  <div className="flex gap-3 mb-3">
+                  <div className="space-y-2">
                     {(tenantAssignmentMode === 'both' || tenantAssignmentMode === 'automatic') && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAssignmentMode('automatic');
-                          setSelectedSlot('');
-                          setSelectedEmployee('');
-                          setSelectedTimeSlot(null);
-                        }}
-                        className={`flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-colors ${
-                          assignmentMode === 'automatic'
-                            ? 'border-blue-600 bg-blue-50 text-blue-700'
-                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="font-semibold mb-1">{t('reception.automaticAssignment')}</div>
-                        <div className="text-xs opacity-75">{t('reception.autoAssignDescription') || 'System assigns to employee with least bookings'}</div>
-                      </button>
+                      <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                        assignmentMode === 'automatic'
+                          ? 'border-blue-600 bg-blue-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="assignmentMode"
+                          checked={assignmentMode === 'automatic'}
+                          onChange={() => {
+                            setAssignmentMode('automatic');
+                            setSelectedSlot('');
+                            setSelectedEmployee('');
+                            setSelectedTimeSlot(null);
+                          }}
+                          className="mt-1 w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-900">{t('reception.automaticAssignment')}</div>
+                          <div className="text-xs text-gray-600 mt-0.5">{t('reception.autoAssignDescription') || 'System assigns to employee with least bookings'}</div>
+                        </div>
+                      </label>
                     )}
                     {(tenantAssignmentMode === 'both' || tenantAssignmentMode === 'manual') && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAssignmentMode('manual');
-                          setSelectedSlot('');
-                          setSelectedEmployee('');
-                          setSelectedTimeSlot(null);
-                        }}
-                        className={`flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-colors ${
-                          assignmentMode === 'manual'
-                            ? 'border-blue-600 bg-blue-50 text-blue-700'
-                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="font-semibold mb-1">{t('reception.manualAssignment')}</div>
-                        <div className="text-xs opacity-75">{t('reception.manualAssignDescription') || 'Choose specific employee and time'}</div>
-                      </button>
+                      <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                        assignmentMode === 'manual'
+                          ? 'border-blue-600 bg-blue-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="assignmentMode"
+                          checked={assignmentMode === 'manual'}
+                          onChange={() => {
+                            setAssignmentMode('manual');
+                            setSelectedSlot('');
+                            setSelectedEmployee('');
+                            setSelectedTimeSlot(null);
+                          }}
+                          className="mt-1 w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-900">{t('reception.manualAssignment')}</div>
+                          <p className="text-xs text-gray-600 mt-0.5">
+                            {t('reception.manualAssignInstruction') || 'Receptionist should choose specific employee and time.'}
+                          </p>
+                        </div>
+                      </label>
                     )}
                   </div>
                 </div>

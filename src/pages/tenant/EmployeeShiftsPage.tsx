@@ -42,17 +42,19 @@ function formatTime(t: string): string {
   return part.length === 5 ? part : t.substring(0, 5);
 }
 
-function formatShift(shift: EmployeeShiftRow, isAr: boolean): string {
+function formatShiftDays(shift: EmployeeShiftRow, isAr: boolean): string {
   const dayNames = isAr ? DAY_NAMES_AR : DAY_NAMES_EN;
-  const days = (shift.days_of_week || [])
+  return (shift.days_of_week || [])
     .filter(d => d >= 0 && d <= 6)
     .sort((a, b) => a - b)
     .map(d => dayNames[d])
     .join(', ');
+}
+
+function formatShiftTime(shift: EmployeeShiftRow): string {
   const start = formatTime(shift.start_time_utc);
   const end = formatTime(shift.end_time_utc);
-  if (!days) return `${start}–${end}`;
-  return `${days} ${start}–${end}`;
+  return `${start} – ${end}`;
 }
 
 export function EmployeeShiftsPage() {
@@ -110,7 +112,7 @@ export function EmployeeShiftsPage() {
             )
           `)
           .eq('tenant_id', userProfile.tenant_id)
-          .in('role', ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'])
+          .eq('role', 'employee')
           .order('full_name');
         if (error) throw error;
         if (!cancelled) {
@@ -353,9 +355,14 @@ export function EmployeeShiftsPage() {
                           {t('employee.workingShifts')}
                         </h4>
                         {shifts.length > 0 ? (
-                          <ul className="text-sm text-gray-700 space-y-1">
+                          <ul className="text-sm text-gray-700 space-y-2">
                             {shifts.map((shift) => (
-                              <li key={shift.id}>{formatShift(shift, isAr)}</li>
+                              <li key={shift.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                <span>{formatShiftDays(shift, isAr)}</span>
+                                <span className="font-medium text-gray-900 whitespace-nowrap">
+                                  {formatShiftTime(shift)}
+                                </span>
+                              </li>
                             ))}
                           </ul>
                         ) : (
