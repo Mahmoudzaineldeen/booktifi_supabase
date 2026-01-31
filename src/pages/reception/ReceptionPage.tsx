@@ -184,6 +184,7 @@ export function ReceptionPage() {
   const [customerIsBlocked, setCustomerIsBlocked] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [packages, setPackages] = useState<any[]>([]);
+  const [loadingPackages, setLoadingPackages] = useState(false);
   const [subscriptionCustomerLookup, setSubscriptionCustomerLookup] = useState<any>(null);
   const [subscriptionPhoneFull, setSubscriptionPhoneFull] = useState(''); // Full phone number with country code
   const [isLookingUpSubscriptionCustomer, setIsLookingUpSubscriptionCustomer] = useState(false);
@@ -580,61 +581,52 @@ export function ReceptionPage() {
       setPackages([]);
       return;
     }
-    
+    setLoadingPackages(true);
     try {
-      // Fetch packages first
+      // Fetch packages first, then package_services in one batched query (no N+1)
       const { data: packagesData, error: packagesError } = await db
         .from('service_packages')
         .select('id, name, name_ar, total_price')
         .eq('tenant_id', userProfile!.tenant_id)
         .eq('is_active', true)
         .order('name');
-      
+
       if (packagesError) {
         console.error('Error fetching packages:', packagesError);
         setPackages([]);
         return;
       }
-      
+
       if (!packagesData || packagesData.length === 0) {
         setPackages([]);
         return;
       }
-      
-      // Fetch package services separately
+
       const packageIds = packagesData.map((p: { id: string }) => p.id);
-      
-      // Only fetch services if we have package IDs
-      if (packageIds.length === 0) {
-        setPackages(packagesData);
-        return;
-      }
-      
       const { data: packageServicesData, error: packageServicesError } = await db
         .from('package_services')
         .select('package_id, service_id, services(id, name, name_ar, base_price)')
         .in('package_id', packageIds);
-      
+
       if (packageServicesError) {
         console.error('Error fetching package services:', packageServicesError);
-        // Still set packages even if services fetch fails
         setPackages(packagesData.map((pkg: { id: string } & Record<string, unknown>) => ({
           ...pkg,
           package_services: []
         })));
         return;
       }
-      
-      // Combine packages with their services
+
       const packagesWithServices = packagesData.map((pkg: { id: string } & Record<string, unknown>) => ({
         ...pkg,
         package_services: packageServicesData?.filter((ps: { package_id: string }) => ps.package_id === pkg.id) || []
       }));
-      
       setPackages(packagesWithServices);
     } catch (error) {
       console.error('Unexpected error in fetchPackages:', error);
       setPackages([]);
+    } finally {
+      setLoadingPackages(false);
     }
   }
 
@@ -3065,15 +3057,25 @@ export function ReceptionPage() {
 
         const packages: CustomerPackage[] = [];
         if (subscriptionsData && subscriptionsData.length > 0) {
-          for (const sub of subscriptionsData) {
-            const isExpired = sub.expires_at && new Date(sub.expires_at) < new Date();
-            if (!isExpired) {
-              const { data: usageData } = await db
-                .from('package_subscription_usage')
-                .select('service_id, original_quantity, remaining_quantity, used_quantity, services(name, name_ar)')
-                .eq('subscription_id', sub.id);
-              packages.push({ ...sub, usage: usageData || [] } as CustomerPackage);
-            }
+          const nonExpired = subscriptionsData.filter(
+            (sub: { expires_at?: string }) => !sub.expires_at || new Date(sub.expires_at) >= new Date()
+          );
+          if (nonExpired.length > 0) {
+            const subscriptionIds = nonExpired.map((s: { id: string }) => s.id);
+            // Single batched query instead of N queries (one per subscription)
+            const { data: allUsage } = await db
+              .from('package_subscription_usage')
+              .select('subscription_id, service_id, original_quantity, remaining_quantity, used_quantity, services(name, name_ar)')
+              .in('subscription_id', subscriptionIds);
+            const usageBySub = new Map<string, typeof allUsage>();
+            (allUsage || []).forEach((row: { subscription_id: string } & Record<string, unknown>) => {
+              const list = usageBySub.get(row.subscription_id) || [];
+              list.push(row);
+              usageBySub.set(row.subscription_id, list);
+            });
+            nonExpired.forEach((sub: Record<string, unknown> & { id: string }) => {
+              packages.push({ ...sub, usage: usageBySub.get(sub.id) || [] } as CustomerPackage);
+            });
           }
         }
         setCustomerPackages(packages);
@@ -4412,8 +4414,9 @@ export function ReceptionPage() {
               required
             />
             {isLookingUpCustomer && (
-              <div className="absolute right-3 top-[38px]">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              <div className="absolute right-3 top-[38px] flex items-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent" />
+                <span className="text-xs text-gray-500">{t('reception.checkingCustomerAndPackages') || 'Checking customer & packages...'}</span>
               </div>
             )}
           </div>
@@ -4447,8 +4450,22 @@ export function ReceptionPage() {
             placeholder={t('booking.customerEmail')}
           />
 
-          {/* Package Information Display — scrollable, ~2 cards visible */}
-          {customerPackages.length > 0 && (
+          {/* Package Information Display — scrollable, ~2 cards visible; show loading skeleton while looking up customer */}
+          {isLookingUpCustomer && (
+            <div className="rounded-lg border-2 border-gray-200 bg-gray-50 p-4 animate-pulse" role="status" aria-label={t('reception.loadingCustomerPackages') || 'Loading customer packages...'}>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="h-5 w-5 rounded bg-gray-300" />
+                <div className="h-4 w-24 rounded bg-gray-300" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-4 w-full rounded bg-gray-200" />
+                <div className="h-4 w-3/4 rounded bg-gray-200" />
+                <div className="h-4 w-1/2 rounded bg-gray-200" />
+              </div>
+              <p className="text-xs text-gray-500 mt-2">{t('reception.loadingCustomerPackages') || 'Loading customer packages...'}</p>
+            </div>
+          )}
+          {!isLookingUpCustomer && customerPackages.length > 0 && (
             <div className="rounded-lg border-2 border-green-200 bg-green-50/50 p-2">
               <p className="mb-2 flex items-center gap-2 text-sm font-medium text-green-800">
                 <Package className="h-4 w-4" />
@@ -5112,6 +5129,18 @@ export function ReceptionPage() {
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
                     <Clock className="w-12 h-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-gray-600">{t('reception.selectServiceAndDateFirst') || 'Please select a service and date to see available times.'}</p>
+                  </div>
+                ) : (selectedService && selectedDate && (assignmentMode !== 'manual' || selectedEmployee) && loadingTimeSlots) ? (
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-4" role="status" aria-label={t('reception.loadingSlots') || 'Loading available times...'}>
+                    <div className="flex items-center justify-center gap-3 py-6">
+                      <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent" />
+                      <p className="text-sm font-medium text-gray-600">{t('reception.loadingSlots') || 'Loading available times...'}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="h-16 rounded-lg bg-gray-200/80 animate-pulse" />
+                      ))}
+                    </div>
                   </div>
                 ) : assignmentMode === 'manual' && !selectedEmployee ? (
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
@@ -6155,19 +6184,26 @@ export function ReceptionPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('packages.selectPackage')} *
             </label>
-            <select
-              value={subscriptionForm.package_id}
-              onChange={(e) => setSubscriptionForm({ ...subscriptionForm, package_id: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            >
-              <option value="">{t('packages.selectPackage')}</option>
-              {packages.map(pkg => (
-                <option key={pkg.id} value={pkg.id}>
-                  {i18n.language === 'ar' ? pkg.name_ar : pkg.name} - {formatPrice(pkg.total_price)}
-                </option>
-              ))}
-            </select>
+            {loadingPackages ? (
+              <div className="w-full px-3 py-3 border border-gray-200 rounded-lg bg-gray-50 flex items-center gap-2" role="status" aria-label={t('reception.loadingPackagesList')}>
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent" />
+                <span className="text-sm text-gray-600">{t('reception.loadingPackagesList') || 'Loading packages...'}</span>
+              </div>
+            ) : (
+              <select
+                value={subscriptionForm.package_id}
+                onChange={(e) => setSubscriptionForm({ ...subscriptionForm, package_id: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              >
+                <option value="">{t('packages.selectPackage')}</option>
+                {packages.map(pkg => (
+                  <option key={pkg.id} value={pkg.id}>
+                    {i18n.language === 'ar' ? pkg.name_ar : pkg.name} - {formatPrice(pkg.total_price)}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Payment method (same as bookings) */}
