@@ -257,10 +257,12 @@ export function ServicesPage() {
         stringValue: typeof serviceCapacity === 'string' ? `"${serviceCapacity}"` : 'N/A'
       });
       
-      let validCapacity: number;
-      
-      if (serviceCapacity === null || serviceCapacity === undefined || serviceCapacity === '' || isNaN(Number(serviceCapacity))) {
-        // If invalid, use default of 1
+      const isEmployeeBasedScheduling = serviceForm.scheduling_type === 'employee_based' || hideServiceSlots;
+      let validCapacity: number | null;
+
+      if (isEmployeeBasedScheduling) {
+        validCapacity = 1; // Not used for availability; keep DB constraint satisfied
+      } else if (serviceCapacity === null || serviceCapacity === undefined || serviceCapacity === '' || isNaN(Number(serviceCapacity))) {
         validCapacity = 1;
         console.warn('[Service Save] STEP 2 - service_capacity_per_slot is invalid, using default value of 1');
       } else {
@@ -273,9 +275,9 @@ export function ServicesPage() {
           validCapacity = parsed;
         }
       }
-      
-      console.log(`[Service Save] STEP 3 - Final validCapacity:`, { validCapacity, type: typeof validCapacity });
-      
+
+      console.log(`[Service Save] STEP 3 - Final validCapacity:`, { validCapacity, isEmployeeBasedScheduling });
+
       const payload: any = {
         name: serviceForm.name,
         name_ar: serviceForm.name_ar,
@@ -289,7 +291,7 @@ export function ServicesPage() {
         service_capacity_per_slot: validCapacity,
         duration_minutes: parseInt(String(serviceForm.service_duration_minutes || 60), 10),
         service_duration_minutes: parseInt(String(serviceForm.service_duration_minutes || 60), 10),
-        capacity_per_slot: validCapacity,
+        capacity_per_slot: validCapacity ?? 1,
         base_price: parseFloat(String(serviceForm.base_price || 0)),
         gallery_urls: galleryUrls.length > 0 ? galleryUrls : null,
         image_url: serviceForm.image_url || null,
@@ -1120,12 +1122,14 @@ export function ServicesPage() {
                     <span className="text-gray-600">{t('service.price', 'Price')}</span>
                     <span className="font-medium">{formatPrice(service.base_price)}</span>
                   </div>
+                  {!(hideServiceSlots || service.scheduling_type === 'employee_based') && (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">{t('service.capacity', 'Capacity')}</span>
                     <span className="font-medium">
                       {service.capacity_per_slot}
                     </span>
                   </div>
+                  )}
                 </div>
                 <div className="space-y-2">
                   {(hideServiceSlots || service.scheduling_type === 'employee_based') ? (
@@ -1480,17 +1484,14 @@ export function ServicesPage() {
             })()}
           </div>
 
+          {!hideServiceSlots && serviceForm.scheduling_type !== 'employee_based' && (
           <Input
             type="number"
             label="Service Capacity per Slot *"
             value={serviceForm.service_capacity_per_slot || ''}
             onChange={(e) => {
               const value = e.target.value;
-              console.log(`[ServiceForm] onChange - service_capacity_per_slot: input value = "${value}", type = ${typeof value}`);
-              
-              // Handle empty string or invalid input
               if (value === '' || value === null || value === undefined) {
-                console.log(`[ServiceForm] onChange - Setting to null (empty input)`);
                 setServiceForm({
                   ...serviceForm,
                   service_capacity_per_slot: null,
@@ -1498,17 +1499,13 @@ export function ServicesPage() {
                 });
               } else {
                 const parsed = parseInt(value, 10);
-                console.log(`[ServiceForm] onChange - Parsed value = ${parsed}, isNaN = ${isNaN(parsed)}`);
                 if (!isNaN(parsed) && parsed > 0) {
-                  console.log(`[ServiceForm] onChange - Setting to ${parsed}`);
                   setServiceForm({
                     ...serviceForm,
                     service_capacity_per_slot: parsed,
                     capacity_per_slot: parsed
                   });
                 } else {
-                  // Invalid input, keep current value or set to null
-                  console.warn(`[ServiceForm] onChange - Invalid parsed value, setting to null`);
                   setServiceForm({
                     ...serviceForm,
                     service_capacity_per_slot: null,
@@ -1521,6 +1518,7 @@ export function ServicesPage() {
             min="1"
             helperText={t('service.fixedCustomersPerSlot')}
           />
+          )}
 
           {/* Multiple Images Upload */}
           <div>

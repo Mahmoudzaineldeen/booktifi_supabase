@@ -94,6 +94,9 @@ export async function fetchAvailableSlots(
   const assignmentMode = (serviceRow as any)?.assignment_mode;
 
   const useEmployeeBasedAvailability = globalSchedulingMode === 'employee_based';
+  /** Only set when we call ensure-employee-based-slots; used so employee-based mode uses only API shift IDs. */
+  let employeeBasedShiftIds: string[] | null | undefined = undefined;
+
   if (useEmployeeBasedAvailability) {
     try {
       const API_URL = getApiUrl();
@@ -102,11 +105,16 @@ export async function fetchAvailableSlots(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId, serviceId, date: dateStr }),
       });
-      if (!res.ok) {
+      if (res.ok) {
+        const body = await res.json();
+        employeeBasedShiftIds = Array.isArray(body?.shiftIds) ? body.shiftIds : null;
+      } else {
         console.warn('[bookingAvailability] ensure-employee-based-slots failed:', res.status, await res.text());
+        employeeBasedShiftIds = null;
       }
     } catch (err) {
       console.warn('[bookingAvailability] ensure-employee-based-slots error:', err);
+      employeeBasedShiftIds = null;
     }
   } else if (schedulingType === 'employee_based') {
     try {
@@ -116,26 +124,50 @@ export async function fetchAvailableSlots(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId, serviceId, date: dateStr }),
       });
-      if (!res.ok) {
+      if (res.ok) {
+        const body = await res.json();
+        employeeBasedShiftIds = Array.isArray(body?.shiftIds) ? body.shiftIds : null;
+      } else {
         console.warn('[bookingAvailability] ensure-employee-based-slots failed:', res.status, await res.text());
+        employeeBasedShiftIds = null;
       }
     } catch (err) {
       console.warn('[bookingAvailability] ensure-employee-based-slots error:', err);
+      employeeBasedShiftIds = null;
     }
   }
 
-  // Step 1: Fetch shifts for this service
+  // In employee-based mode, only show slots from API; if we got no shift IDs, return empty (no service slots)
+  if (useEmployeeBasedAvailability && (employeeBasedShiftIds == null || employeeBasedShiftIds.length === 0)) {
+    return { slots: [], shifts: [], lockedSlotIds: [] };
+  }
+
   console.log('[bookingAvailability] ========================================');
   console.log('[bookingAvailability] Fetching shifts for service:', serviceId);
   console.log('[bookingAvailability] Tenant ID:', tenantId);
   console.log('[bookingAvailability] Date:', dateStr);
   console.log('[bookingAvailability] ========================================');
-  
-  const { data: shifts, error: shiftsError } = await db
-    .from('shifts')
-    .select('id, days_of_week')
-    .eq('service_id', serviceId)
-    .eq('is_active', true);
+
+  let shifts: Shift[] | null = null;
+  let shiftsError: any = null;
+
+  if (useEmployeeBasedAvailability && employeeBasedShiftIds && employeeBasedShiftIds.length > 0) {
+    const { data: shiftData, error: shiftErr } = await db
+      .from('shifts')
+      .select('id, days_of_week')
+      .in('id', employeeBasedShiftIds)
+      .eq('is_active', true);
+    shifts = shiftData || null;
+    shiftsError = shiftErr;
+  } else {
+    const result = await db
+      .from('shifts')
+      .select('id, days_of_week')
+      .eq('service_id', serviceId)
+      .eq('is_active', true);
+    shifts = result.data || null;
+    shiftsError = result.error;
+  }
 
   console.log('[bookingAvailability] Shifts query result:', {
     shiftsFound: shifts?.length || 0,

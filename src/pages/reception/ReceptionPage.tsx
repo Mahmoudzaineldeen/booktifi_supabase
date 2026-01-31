@@ -55,9 +55,20 @@ interface Booking {
     end_time: string;
   };
   users: {
+    id?: string;
     full_name: string;
     full_name_ar: string;
   } | null;
+  /** Populated when grouping: array of employee user objects from users:employee_id */
+  employees?: Array<{ id?: string; full_name: string; full_name_ar?: string }>;
+}
+
+/** Normalize employee display: use employees array (from grouping) or single users relation. */
+function getBookingEmployees(booking: Booking | Record<string, any>): Array<{ id?: string; full_name: string; full_name_ar?: string }> {
+  const b = booking as Record<string, any>;
+  if (b?.employees?.length) return b.employees;
+  if (b?.users && typeof b.users === 'object') return [b.users];
+  return [];
 }
 
 interface ServiceOffer {
@@ -861,7 +872,8 @@ export function ReceptionPage() {
         zoho_invoice_created_at: b.zoho_invoice_created_at,
         services: b.services || { name: '', name_ar: '' },
         slots: b.slots || { slot_date: '', start_time: '', end_time: '' },
-        users: b.users || null
+        users: b.users || null,
+        employees: b.users ? [b.users] : []
       }));
 
       setSearchResults(transformedBookings);
@@ -3313,16 +3325,16 @@ export function ReceptionPage() {
                   </div>
                 </div>
                 <div>
-                  <span className="text-gray-500">Employee{(booking as any).employees?.length > 1 ? 's' : ''}:</span>
+                  <span className="text-gray-500">Employee{getBookingEmployees(booking).length > 1 ? 's' : ''}:</span>
                   <div className="font-medium">
-                    {(booking as any).employees && (booking as any).employees.length > 0 ?
-                      (booking as any).employees.map((emp: any, idx: number) => (
-                        <span key={emp.id}>
-                          {i18n.language === 'ar' ? emp.full_name_ar : emp.full_name}
-                          {idx < (booking as any).employees.length - 1 ? ', ' : ''}
-                        </span>
-                      ))
-                      : 'N/A'}
+                    {getBookingEmployees(booking).length > 0
+                      ? getBookingEmployees(booking).map((emp, idx) => (
+                          <span key={emp.id ?? idx}>
+                            {i18n.language === 'ar' ? (emp.full_name_ar || emp.full_name) : emp.full_name}
+                            {idx < getBookingEmployees(booking).length - 1 ? ', ' : ''}
+                          </span>
+                        ))
+                      : (i18n.language === 'ar' ? '—' : '—')}
                   </div>
                 </div>
                 <div>
@@ -4055,10 +4067,10 @@ export function ReceptionPage() {
                                       )}
                                     </div>
                                   )}
-                                  {(booking as any).employees && (booking as any).employees.length > 0 && (
+                                  {getBookingEmployees(booking).length > 0 && (
                                     <div className="text-xs text-gray-500 truncate mt-1">
-                                      {(booking as any).employees.map((emp: any, idx: number) =>
-                                        (i18n.language === 'ar' ? emp.full_name_ar : emp.full_name)
+                                      {getBookingEmployees(booking).map(emp =>
+                                        (i18n.language === 'ar' ? (emp.full_name_ar || emp.full_name) : emp.full_name)
                                       ).join(', ')}
                                     </div>
                                   )}
@@ -5422,15 +5434,15 @@ export function ReceptionPage() {
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Employee{(selectedBookingForDetails as any).employees?.length > 1 ? 's' : ''}</label>
+                <label className="text-sm font-medium text-gray-500">Employee{getBookingEmployees(selectedBookingForDetails).length > 1 ? 's' : ''}</label>
                 <div className="mt-1 font-medium">
-                  {(selectedBookingForDetails as any).employees && (selectedBookingForDetails as any).employees.length > 0 ?
-                    (selectedBookingForDetails as any).employees.map((emp: any, idx: number) => (
-                      <div key={emp.id}>
-                        {i18n.language === 'ar' ? emp.full_name_ar : emp.full_name}
-                      </div>
-                    ))
-                    : 'N/A'}
+                  {getBookingEmployees(selectedBookingForDetails).length > 0
+                    ? getBookingEmployees(selectedBookingForDetails).map((emp, idx) => (
+                        <div key={emp.id ?? idx}>
+                          {i18n.language === 'ar' ? (emp.full_name_ar || emp.full_name) : emp.full_name}
+                        </div>
+                      ))
+                    : (i18n.language === 'ar' ? '—' : '—')}
                 </div>
               </div>
             </div>

@@ -111,19 +111,19 @@ router.post('/create', async (req, res) => {
               service_id: serviceAssignment.serviceId,
               shift_id,
               tenant_id,
-              duration_minutes: serviceAssignment.durationMinutes || null,
-              capacity_per_slot: serviceAssignment.capacityPerSlot || 1,
+              duration_minutes: null,
+              capacity_per_slot: null,
             });
           });
         } else {
-          // Employee-based service: no shift (availability from employee_shifts)
+          // Employee-based: availability from employee work schedule (employee_shifts); no per-employee capacity
           assignments.push({
             employee_id: newUser.id,
             service_id: serviceAssignment.serviceId,
             shift_id: null,
             tenant_id,
-            duration_minutes: serviceAssignment.durationMinutes || null,
-            capacity_per_slot: serviceAssignment.capacityPerSlot || 1,
+            duration_minutes: null,
+            capacity_per_slot: null,
           });
         }
       });

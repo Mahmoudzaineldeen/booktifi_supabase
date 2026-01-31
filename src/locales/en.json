@@ -315,6 +315,9 @@
     "startTime": "Start",
     "endTime": "End",
     "availabilityFromYourShifts": "Availability from your working shifts below.",
+    "availabilityFromWorkSchedule": "Availability comes from your Work Schedule below. Service duration is set in Services.",
+    "workSchedule": "Work Schedule",
+    "workScheduleHelp": "Define when this employee is working. Slots are generated from service duration and these shifts. Capacity = number of employees available at each time.",
     "pausedUntil": "Paused until"
   },
   "admin": {

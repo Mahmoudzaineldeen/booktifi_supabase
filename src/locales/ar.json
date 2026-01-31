@@ -686,6 +686,9 @@
     "startTime": "البداية",
     "endTime": "النهاية",
     "availabilityFromYourShifts": "التوفر من وردياتك أدناه.",
+    "availabilityFromWorkSchedule": "التوفر يأتي من جدول عملك أدناه. مدة الخدمة تُضبط في الخدمات.",
+    "workSchedule": "جدول العمل",
+    "workScheduleHelp": "حدد أوقات عمل هذا الموظف. تُولَّد الفترات من مدة الخدمة وهذه الورديات. السعة = عدد الموظفين المتاحين في كل وقت.",
     "pausedUntil": "متوقف حتى"
   },
   "admin": {

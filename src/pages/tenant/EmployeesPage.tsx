@@ -9,8 +9,9 @@ import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { countryCodes } from '../../lib/countryCodes';
-import { Plus, Edit, Users, Mail, Phone, Briefcase, UserX, UserCheck, Search, Trash2 } from 'lucide-react';
+import { Plus, Edit, Users, Mail, Phone, Briefcase, UserX, UserCheck, Search, Trash2, Clock } from 'lucide-react';
 import { getApiUrl } from '../../lib/apiUrl';
+import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 
 interface Employee {
   id: string;
@@ -25,8 +26,6 @@ interface Employee {
   employee_services?: Array<{
     service_id: string;
     shift_id: string | null;
-    duration_minutes: number | null;
-    capacity_per_slot: number | null;
     services: {
       name: string;
       name_ar: string;
@@ -57,13 +56,23 @@ interface Shift {
 interface ServiceShiftAssignment {
   serviceId: string;
   shiftIds: string[];
-  durationMinutes?: number;
-  capacityPerSlot?: number;
+}
+
+interface EmployeeShift {
+  id: string;
+  employee_id: string;
+  days_of_week: number[];
+  start_time_utc: string;
+  end_time_utc: string;
+  is_active: boolean;
 }
 
 export function EmployeesPage() {
   const { t, i18n } = useTranslation();
   const { userProfile } = useAuth();
+  const { features: tenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
+  const globalSchedulingMode = tenantFeatures?.scheduling_mode ?? 'service_slot_based';
+  const hideServiceShiftSelection = globalSchedulingMode === 'employee_based';
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -81,11 +90,17 @@ export function EmployeesPage() {
     assigned_services: [] as string[],
     service_shift_assignments: [] as ServiceShiftAssignment[],
   });
-  const [serviceCapacitySettings, setServiceCapacitySettings] = useState<Record<string, { duration: number; capacity: number }>>({});
   const [phoneFull, setPhoneFull] = useState<string>(''); // Full phone number with country code
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState<'all' | 'employee' | 'cashier' | 'receptionist' | 'coordinator' | 'customer_admin' | 'admin_user'>('all');
   const [isPausedUntil, setIsPausedUntil] = useState<string>('');
+  const [employeeShifts, setEmployeeShifts] = useState<EmployeeShift[]>([]);
+  const [employeeShiftForm, setEmployeeShiftForm] = useState({
+    days_of_week: [] as number[],
+    start_time: '09:00',
+    end_time: '18:00',
+    is_active: true,
+  });
 
   useEffect(() => {
     fetchServices();
@@ -136,8 +151,6 @@ export function EmployeesPage() {
           employee_services(
             service_id,
             shift_id,
-            duration_minutes,
-            capacity_per_slot,
             services(name, name_ar)
           )
         `)
@@ -231,19 +244,19 @@ export function EmployeesPage() {
                     service_id: serviceAssignment.serviceId,
                     shift_id,
                     tenant_id: userProfile.tenant_id,
-                    duration_minutes: serviceAssignment.durationMinutes,
-                    capacity_per_slot: serviceAssignment.capacityPerSlot
+                    duration_minutes: null,
+                    capacity_per_slot: null,
                   });
                 });
               } else {
-                // Employee-based service: no shift (availability from employee_shifts)
+                // Employee-based: availability from employee work schedule (employee_shifts)
                 assignments.push({
                   employee_id: editingEmployee.id,
                   service_id: serviceAssignment.serviceId,
                   shift_id: null,
                   tenant_id: userProfile.tenant_id,
-                  duration_minutes: serviceAssignment.durationMinutes,
-                  capacity_per_slot: serviceAssignment.capacityPerSlot
+                  duration_minutes: null,
+                  capacity_per_slot: null,
                 });
               }
             });
@@ -255,6 +268,25 @@ export function EmployeesPage() {
                 return;
               }
             }
+          }
+        }
+
+        // Save employee work schedule (employee_shifts) – shift-based only
+        if (formData.role === 'employee' && editingEmployee?.id && userProfile?.tenant_id) {
+          const { data: currentShifts } = await db.from('employee_shifts').select('id').eq('employee_id', editingEmployee.id);
+          const currentIds = (currentShifts || []).map((s: { id: string }) => s.id);
+          for (const id of currentIds) {
+            await db.from('employee_shifts').delete().eq('id', id);
+          }
+          for (const sh of employeeShifts) {
+            await db.from('employee_shifts').insert({
+              tenant_id: userProfile.tenant_id,
+              employee_id: editingEmployee.id,
+              days_of_week: sh.days_of_week,
+              start_time_utc: sh.start_time_utc,
+              end_time_utc: sh.end_time_utc,
+              is_active: sh.is_active ?? true,
+            });
           }
         }
 
@@ -289,6 +321,14 @@ export function EmployeesPage() {
             role: formData.role,
             tenant_id: userProfile.tenant_id,
             service_shift_assignments: formData.service_shift_assignments,
+            employee_shifts: formData.role === 'employee' && employeeShifts.length > 0
+              ? employeeShifts.map(sh => ({
+                  days_of_week: sh.days_of_week,
+                  start_time_utc: sh.start_time_utc,
+                  end_time_utc: sh.end_time_utc,
+                  is_active: sh.is_active ?? true,
+                }))
+              : undefined,
           }),
         });
 
@@ -338,15 +378,16 @@ export function EmployeesPage() {
       const shiftIds = serviceAssignments
         .map(es => es.shift_id)
         .filter(id => id) as string[];
-
-      const firstAssignment = serviceAssignments[0];
-      serviceShiftMap.push({
-        serviceId,
-        shiftIds,
-        durationMinutes: firstAssignment?.duration_minutes || 60,
-        capacityPerSlot: firstAssignment?.capacity_per_slot || 1
-      });
+      serviceShiftMap.push({ serviceId, shiftIds });
     }
+
+    const { data: shiftsData } = await db
+      .from('employee_shifts')
+      .select('*')
+      .eq('employee_id', employee.id)
+      .order('created_at');
+    setEmployeeShifts(shiftsData || []);
+    setEmployeeShiftForm({ days_of_week: [], start_time: '09:00', end_time: '18:00', is_active: true });
 
     setFormData({
       username: employee.username,
@@ -380,6 +421,8 @@ export function EmployeesPage() {
     setPhoneFull('');
     setShifts([]);
     setIsPausedUntil('');
+    setEmployeeShifts([]);
+    setEmployeeShiftForm({ days_of_week: [], start_time: '09:00', end_time: '18:00', is_active: true });
   }
 
   function closeModal() {
@@ -457,16 +500,7 @@ export function EmployeesPage() {
 
       const newServiceShiftAssignments = isRemoving
         ? prev.service_shift_assignments.filter(a => a.serviceId !== serviceId)
-        : [...prev.service_shift_assignments, {
-            serviceId,
-            shiftIds: [], // employee_based: no service shifts; slot_based: user will select
-            durationMinutes: (service?.scheduling_type === 'slot_based' || !isEmployeeBased)
-              ? (service?.service_duration_minutes ?? 60)
-              : (serviceCapacitySettings[serviceId]?.duration || 60),
-            capacityPerSlot: (service?.scheduling_type === 'slot_based' || !isEmployeeBased)
-              ? (service?.service_capacity_per_slot || 1)
-              : (serviceCapacitySettings[serviceId]?.capacity || 1)
-          }];
+        : [...prev.service_shift_assignments, { serviceId, shiftIds: [] }];
 
       fetchShiftsForServices(newAssignedServices.filter(id => {
         const s = services.find(sv => sv.id === id);
@@ -501,6 +535,38 @@ export function EmployeesPage() {
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const dayNamesAr = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+  function toggleEmployeeShiftDay(day: number) {
+    setEmployeeShiftForm(prev => ({
+      ...prev,
+      days_of_week: prev.days_of_week.includes(day)
+        ? prev.days_of_week.filter(d => d !== day)
+        : [...prev.days_of_week, day].sort()
+    }));
+  }
+
+  function addEmployeeShift(e: React.FormEvent) {
+    e.preventDefault();
+    if (employeeShiftForm.days_of_week.length === 0) {
+      alert(t('employee.selectAtLeastOneDay', 'Select at least one day'));
+      return;
+    }
+    const start = employeeShiftForm.start_time.length === 5 ? `${employeeShiftForm.start_time}:00` : employeeShiftForm.start_time;
+    const end = employeeShiftForm.end_time.length === 5 ? `${employeeShiftForm.end_time}:00` : employeeShiftForm.end_time;
+    setEmployeeShifts(prev => [...prev, {
+      id: `temp-${Date.now()}`,
+      employee_id: editingEmployee?.id || '',
+      days_of_week: employeeShiftForm.days_of_week,
+      start_time_utc: start,
+      end_time_utc: end,
+      is_active: employeeShiftForm.is_active,
+    }]);
+    setEmployeeShiftForm({ days_of_week: [], start_time: '09:00', end_time: '18:00', is_active: true });
+  }
+
+  function removeEmployeeShift(id: string) {
+    setEmployeeShifts(prev => prev.filter(s => s.id !== id));
+  }
 
   if (loading) {
     return (
@@ -862,74 +928,15 @@ export function EmployeesPage() {
                         </span>
                       </label>
 
-                      {isServiceSelected && service.capacity_mode === 'employee_based' && (
-                        <div className="mt-3 ml-6 grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">
-                              {t('employee.durationMinutes')}
-                            </label>
-                            <input
-                              type="number"
-                              min="1"
-                              value={serviceAssignment?.durationMinutes || 60}
-                              onChange={(e) => {
-                                const duration = parseInt(e.target.value) || 60;
-                                setFormData(prev => ({
-                                  ...prev,
-                                  service_shift_assignments: prev.service_shift_assignments.map(a =>
-                                    a.serviceId === service.id ? { ...a, durationMinutes: duration } : a
-                                  )
-                                }));
-                              }}
-                              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                              required
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">
-                              {t('employee.capacityPerSlot')}
-                            </label>
-                            <input
-                              type="number"
-                              min="1"
-                              value={serviceAssignment?.capacityPerSlot || 1}
-                              onChange={(e) => {
-                                const capacity = parseInt(e.target.value) || 1;
-                                setFormData(prev => ({
-                                  ...prev,
-                                  service_shift_assignments: prev.service_shift_assignments.map(a =>
-                                    a.serviceId === service.id ? { ...a, capacityPerSlot: capacity } : a
-                                  )
-                                }));
-                              }}
-                              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                              required
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {isServiceSelected && service.scheduling_type === 'employee_based' && (
+                      {isServiceSelected && (hideServiceShiftSelection || service.scheduling_type === 'employee_based') && (
                         <div className="mt-3 ml-6 bg-blue-50 border border-blue-200 rounded-lg p-3">
                           <div className="text-xs text-blue-800">
-                            {t('employee.availabilityFromYourShifts', 'Availability from your working shifts below.')}
+                            {t('employee.availabilityFromWorkSchedule', 'Availability comes from your Work Schedule below. Service duration is set in Services.')}
                           </div>
                         </div>
                       )}
 
-                      {isServiceSelected && (service.scheduling_type === 'slot_based' || !service.scheduling_type) && service.capacity_mode === 'service_based' && (
-                        <div className="mt-3 ml-6 bg-blue-50 border border-blue-200 rounded-lg p-3">
-                          <div className="text-xs text-blue-800">
-                            <div className="font-medium mb-1">{t('employee.serviceBasedCapacity')}</div>
-                            <div className="space-y-0.5">
-                              <div>{t('employee.duration')} {service.service_duration_minutes} {t('service.min')}</div>
-                              <div>{t('employee.capacity')} {service.service_capacity_per_slot || 1} {t('employee.perSlot')}</div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {isServiceSelected && (service.scheduling_type === 'slot_based' || !service.scheduling_type) && serviceShifts.length > 0 && (
+                      {isServiceSelected && !hideServiceShiftSelection && (service.scheduling_type === 'slot_based' || !service.scheduling_type) && serviceShifts.length > 0 && (
                         <div className="mt-3 ml-6 space-y-2 pl-3 border-l-2 border-gray-200">
                           <div className="text-xs font-medium text-gray-600 mb-2">
                             {t('employee.selectShifts')}
@@ -957,7 +964,7 @@ export function EmployeesPage() {
                         </div>
                       )}
 
-                      {isServiceSelected && (service.scheduling_type === 'slot_based' || !service.scheduling_type) && serviceShifts.length === 0 && (
+                      {isServiceSelected && !hideServiceShiftSelection && (service.scheduling_type === 'slot_based' || !service.scheduling_type) && serviceShifts.length === 0 && (
                         <div className="mt-2 ml-6 text-xs text-amber-600">
                           {t('employee.noShiftsConfigured')}
                         </div>
@@ -966,6 +973,35 @@ export function EmployeesPage() {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {formData.role === 'employee' && (
+            <div className="border-t pt-4">
+              <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                {t('employee.workSchedule', 'Work Schedule')}
+              </h4>
+              <p className="text-xs text-gray-500 mb-3">
+                {t('employee.workScheduleHelp', 'Define when this employee is working. Slots are generated from service duration and these shifts. Capacity = number of employees available at each time.')}
+              </p>
+              {employeeShifts.length > 0 && (
+                <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
+                  {employeeShifts.map((sh) => (
+                    <div key={sh.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 text-sm">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium text-gray-800">
+                          {sh.start_time_utc?.slice(0, 5)} – {sh.end_time_utc?.slice(0, 5)}
+                        </span>
+                        <span className="text-xs text-gray-600">
+                          {[...(sh.days_of_week || [])].sort().map(d => (i18n.language === 'ar' ? dayNamesAr[d] : dayNames[d])).join(', ')}
+                        </span>
+                      </div>
+                      <Button type="button" variant="danger" size="sm" onClick={() => removeEmployeeShift(sh.id)} icon={<Trash2 className="w-3 h-3" />} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
