@@ -5116,7 +5116,15 @@ export function ReceptionPage() {
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
                     <Clock className="w-12 h-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-gray-600">{t('reception.noSlotsAvailable')}</p>
-                    <p className="text-xs text-amber-600 mt-2">{t('reception.noSlotsForEmployeeHint') || 'This employee may have no shift on this day. Check Work Schedule in Settings → Employees.'}</p>
+                    <p className="text-xs text-amber-600 mt-2 max-w-md mx-auto">
+                      {selectedDate
+                        ? t('reception.noSlotsForEmployeeSteps', {
+                            dayName: (i18n.language === 'ar'
+                              ? ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+                              : ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'])[selectedDate.getDay()],
+                          })
+                        : t('reception.noSlotsForEmployeeHint')}
+                    </p>
                   </div>
                 ) : assignmentMode === 'automatic' && slots.length === 0 ? (
                   <div className="text-center py-8 bg-gray-50 rounded-lg">

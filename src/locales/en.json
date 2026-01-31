@@ -398,6 +398,7 @@
     "selectEmployeeFirst": "Please select an employee first.",
     "noEmployeesForServiceDate": "No employees with shifts for this service on the selected date. Add work schedule in Settings → Employees.",
     "noSlotsForEmployeeHint": "If this employee has a work schedule for this day in Settings → Employees, slots should appear. Try selecting the date again or refreshing the page.",
+    "noSlotsForEmployeeSteps": "No slots for this employee on this date. In Settings → Employees: (1) Assign this employee to the selected service, and (2) Add a work shift that includes {{dayName}} with start and end times. Then refresh the page.",
     "complete": "Complete",
     "markAsPaid": "Mark as Paid",
     "markAsUnpaid": "Mark as Unpaid",

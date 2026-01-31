@@ -89,10 +89,11 @@ describe('Employee shifts appear on reception for mix service', () => {
     const mixService = services!.find((s: { name: string }) => s.name === 'mix');
     expect(mixService).toBeDefined();
 
-    const { data: esList } = await db.from('employee_services').select('employee_id, service_id').eq('tenant_id', tenantId).eq('service_id', serviceId).is('shift_id', null);
+    const { data: esList } = await db.from('employee_services').select('employee_id, service_id, shift_id').eq('tenant_id', tenantId).eq('service_id', serviceId);
     expect(esList).toBeDefined();
     expect(Array.isArray(esList) && esList!.length).toBeGreaterThan(0);
-    expect(esList!.some((es: { employee_id: string }) => es.employee_id === employeeId)).toBe(true);
+    const assigned = esList!.filter((es: { employee_id: string; shift_id?: string | null }) => es.employee_id === employeeId && (es.shift_id == null));
+    expect(assigned.length).toBeGreaterThan(0);
 
     const { data: empShifts } = await db.from('employee_shifts').select('employee_id, days_of_week, start_time_utc, end_time_utc').eq('tenant_id', tenantId).eq('employee_id', employeeId).eq('is_active', true);
     expect(empShifts).toBeDefined();
@@ -111,11 +112,15 @@ describe('Employee shifts appear on reception for mix service', () => {
       console.warn('Skipping: VITE_API_URL or API_URL not set. Start server and set VITE_API_URL=http://localhost:3001/api');
       return;
     }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     const res = await fetch(`${base}/bookings/ensure-employee-based-slots`, {
+      signal: controller.signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tenantId, serviceId, date: testDate }),
     });
+    clearTimeout(timeoutId);
     if (!res.ok) {
       const text = await res.text();
       console.warn('ensure-employee-based-slots failed:', res.status, text);
@@ -125,7 +130,7 @@ describe('Employee shifts appear on reception for mix service', () => {
     expect(body).toBeDefined();
     expect(Array.isArray(body.shiftIds)).toBe(true);
     expect(body.shiftIds.length).toBeGreaterThanOrEqual(1);
-  });
+  }, 20000);
 
   it('slots exist for the employee on the test date (reception page would show them)', async () => {
     const base = getApiBase();
@@ -133,11 +138,15 @@ describe('Employee shifts appear on reception for mix service', () => {
       console.warn('Skipping: VITE_API_URL or API_URL not set.');
       return;
     }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     await fetch(`${base}/bookings/ensure-employee-based-slots`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tenantId, serviceId, date: testDate }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     const { data: slots, error } = await db
       .from('slots')
@@ -161,7 +170,7 @@ describe('Employee shifts appear on reception for mix service', () => {
     const endHour = parseInt(String(last.end_time).split(':')[0], 10);
     expect(startHour).toBeGreaterThanOrEqual(9);
     expect(endHour).toBeLessThanOrEqual(21);
-  });
+  }, 20000);
 
   it('slots have positive available_capacity so reception can offer them', async () => {
     const { data: slots, error } = await db

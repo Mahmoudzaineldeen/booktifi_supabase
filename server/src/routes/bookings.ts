@@ -640,7 +640,8 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     }
     const [y, m, d] = dateStr.split('-').map(Number);
     const slotDate = new Date(y, m - 1, d);
-    const dayOfWeek = slotDate.getDay();
+    // Use UTC for day-of-week so behavior is consistent regardless of server timezone
+    const dayOfWeek = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 
     const { data: service, error: serviceError } = await supabase
       .from('services')
@@ -735,9 +736,11 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     const { data: empShifts, error: empShiftsError } = await supabase
       .from('employee_shifts')
       .select('id, employee_id, start_time_utc, end_time_utc, days_of_week')
+      .eq('tenant_id', tenantId)
       .in('employee_id', availableEmployeeIds)
       .eq('is_active', true);
     if (empShiftsError || !empShifts || empShifts.length === 0) {
+      logger.warn('ensure-employee-based-slots: no employee_shifts for employees', { serviceId, dateStr, employeeCount: availableEmployeeIds.length });
       return res.json({ shiftIds: [virtualShiftId] });
     }
     // Normalize days_of_week: PostgreSQL can return array or string like "{0,1,2,3,4,5,6}"
@@ -750,6 +753,11 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       const days = toDaysArray(es.days_of_week);
       return days.length > 0 && days.includes(dayOfWeek);
     });
+    if (shiftsForDay.length === 0) {
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      logger.warn('ensure-employee-based-slots: no shifts for this day of week', { serviceId, dateStr, dayOfWeek, dayName: dayNames[dayOfWeek], employeeShiftsCount: empShifts.length });
+      return res.json({ shiftIds: [virtualShiftId] });
+    }
 
     const startTimeStr = (t: string) => (t || '').slice(0, 8);
     const toMinutes = (t: string) => {
@@ -841,6 +849,11 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
             is_overbooked: false,
           };
           insertErr = (await supabase.from('slots').insert(minimalRow)).error;
+          if (insertErr) {
+            const noOverbooked = { ...minimalRow };
+            delete (noOverbooked as any).is_overbooked;
+            insertErr = (await supabase.from('slots').insert(noOverbooked)).error;
+          }
         }
         if (insertErr) logger.warn('ensure-employee-based-slots: slot insert error', insertErr);
         slotStartM += durationMinutes;
