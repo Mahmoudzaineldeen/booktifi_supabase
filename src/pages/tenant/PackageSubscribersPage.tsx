@@ -10,7 +10,7 @@ import { Package, Users, Search, X, Calendar, Filter, FileSearch, Phone, Mail, C
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
-import { getPaymentDisplayValue, displayValueToApiPayload, PAYMENT_DISPLAY_KEYS, type PaymentDisplayValue } from '../../lib/paymentDisplay';
+import { getPaymentDisplayValue, PAYMENT_DISPLAY_KEYS, type PaymentDisplayValue } from '../../lib/paymentDisplay';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 import { ReceptionSubscribeModal } from '../../components/reception/ReceptionSubscribeModal';
@@ -324,7 +324,9 @@ export function PackageSubscribersPage() {
     }
     try {
       setSavingPaymentEdit(true);
-      const payload = displayValueToApiPayload(editPaymentDisplayValue);
+      // Package subscriptions API expects payment_status: 'paid' | 'pending' | 'failed' (not unpaid/paid_manual)
+      const payment_status = editPaymentDisplayValue === 'unpaid' ? 'pending' : 'paid';
+      const payment_method = editPaymentDisplayValue === 'unpaid' ? undefined : editPaymentDisplayValue === 'bank_transfer' ? 'transfer' : 'onsite';
       const token = localStorage.getItem('auth_token');
       const res = await fetch(
         `${getApiUrl()}/packages/subscriptions/${editingPaymentSubscription.id}/payment-status`,
@@ -335,8 +337,8 @@ export function PackageSubscribersPage() {
             Authorization: token ? `Bearer ${token}` : '',
           },
           body: JSON.stringify({
-            payment_status: payload.payment_status,
-            payment_method: payload.payment_method,
+            payment_status,
+            payment_method,
             transaction_reference: editPaymentDisplayValue === 'bank_transfer' ? editTransactionReference.trim() : undefined,
           }),
         }
@@ -346,6 +348,9 @@ export function PackageSubscribersPage() {
       setEditingPaymentSubscription(null);
       await fetchSubscribers({ silent: true });
       showNotification('success', t('packages.paymentStatusUpdated'));
+      if (data.invoiceWarning) {
+        showNotification('warning', data.invoiceWarning);
+      }
     } catch (err: any) {
       console.error('Error updating payment status:', err);
       showNotification('error', err.message || t('common.failedToMarkAsPaid'));

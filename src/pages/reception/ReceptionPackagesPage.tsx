@@ -24,7 +24,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { getApiUrl } from '../../lib/apiUrl';
-import { getPaymentDisplayValue, displayValueToApiPayload, PAYMENT_DISPLAY_KEYS, type PaymentDisplayValue } from '../../lib/paymentDisplay';
+import { getPaymentDisplayValue, PAYMENT_DISPLAY_KEYS, type PaymentDisplayValue } from '../../lib/paymentDisplay';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 import { Button } from '../../components/ui/Button';
@@ -117,8 +117,7 @@ export function ReceptionPackagesPage() {
   const [subscriptionConfirmationData, setSubscriptionConfirmationData] = useState<SubscriptionConfirmationData | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [editingPaymentSubscription, setEditingPaymentSubscription] = useState<PackageSubscriber | null>(null);
-  const [editPaymentStatus, setEditPaymentStatus] = useState<string>('paid');
-  const [editPaymentMethod, setEditPaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [editPaymentDisplayValue, setEditPaymentDisplayValue] = useState<PaymentDisplayValue>('paid_onsite');
   const [editTransactionReference, setEditTransactionReference] = useState('');
   const [savingPaymentEdit, setSavingPaymentEdit] = useState(false);
   const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
@@ -301,7 +300,9 @@ export function ReceptionPackagesPage() {
     }
     try {
       setSavingPaymentEdit(true);
-      const payload = displayValueToApiPayload(editPaymentDisplayValue);
+      // Package subscriptions API expects payment_status: 'paid' | 'pending' | 'failed' (not unpaid/paid_manual)
+      const payment_status = editPaymentDisplayValue === 'unpaid' ? 'pending' : 'paid';
+      const payment_method = editPaymentDisplayValue === 'unpaid' ? undefined : editPaymentDisplayValue === 'bank_transfer' ? 'transfer' : 'onsite';
       const token = localStorage.getItem('auth_token');
       const res = await fetch(
         `${getApiUrl()}/packages/subscriptions/${editingPaymentSubscription.id}/payment-status`,
@@ -312,8 +313,8 @@ export function ReceptionPackagesPage() {
             Authorization: token ? `Bearer ${token}` : '',
           },
           body: JSON.stringify({
-            payment_status: payload.payment_status,
-            payment_method: payload.payment_method,
+            payment_status,
+            payment_method,
             transaction_reference: editPaymentDisplayValue === 'bank_transfer' ? editTransactionReference.trim() : undefined,
           }),
         }
@@ -323,6 +324,9 @@ export function ReceptionPackagesPage() {
       setEditingPaymentSubscription(null);
       await fetchSubscribers();
       showNotification('success', t('packages.paymentStatusUpdated'));
+      if (data.invoiceWarning) {
+        showNotification('warning', data.invoiceWarning);
+      }
     } catch (err: any) {
       console.error('Error updating payment status:', err);
       showNotification('error', err.message || t('common.failedToMarkAsPaid'));

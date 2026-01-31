@@ -334,19 +334,29 @@ async function createInvoiceForPackageSubscription(
           } catch (_e) { /* non-blocking */ }
         }
       }
+      const subscriptionUpdate: Record<string, unknown> = {
+        zoho_invoice_id: zohoInvoiceId,
+        payment_status: 'paid',
+      };
+      if (options?.payment) {
+        subscriptionUpdate.payment_method = options.payment.payment_method;
+        subscriptionUpdate.transaction_reference = options.payment.transaction_reference?.trim() || null;
+      }
       let updateErr: any = null;
       const { error: err1 } = await supabase
         .from('package_subscriptions')
-        .update({ zoho_invoice_id: zohoInvoiceId, payment_status: 'paid' })
-        .eq('id', subscription.id);
+        .update(subscriptionUpdate)
+        .eq('id', subscription.id)
+        .eq('tenant_id', tenant_id);
       updateErr = err1;
       if (updateErr) {
         const isColumnError = String(updateErr.message || '').includes('column');
         if (isColumnError) {
           const { error: err2 } = await supabase
             .from('package_subscriptions')
-            .update({ zoho_invoice_id: zohoInvoiceId })
-            .eq('id', subscription.id);
+            .update({ zoho_invoice_id: zohoInvoiceId, payment_status: 'paid' })
+            .eq('id', subscription.id)
+            .eq('tenant_id', tenant_id);
           if (!err2) updateErr = null;
         }
         if (updateErr && isVerboseLogging()) {
@@ -1180,6 +1190,7 @@ router.patch('/subscriptions/:subscriptionId/payment-status', authenticateSubscr
       return res.status(404).json({ error: 'Subscription not found' });
     }
 
+    let invoiceWarning: string | null = null;
     // When marking as paid and no invoice yet (e.g. created as pending), create invoice first then update
     if (payment_status === 'paid' && !(subscription as any).zoho_invoice_id) {
       const { data: subFull, error: subErr } = await supabase
@@ -1202,7 +1213,7 @@ router.patch('/subscriptions/:subscriptionId/payment-status', authenticateSubscr
               transaction_reference: payMethod === 'transfer' && transaction_reference != null ? String(transaction_reference).trim() : undefined,
             };
           }
-          await createInvoiceForPackageSubscription(
+          const invoiceResult = await createInvoiceForPackageSubscription(
             tenantId,
             subFull,
             (subFull as any).package_id,
@@ -1210,8 +1221,15 @@ router.patch('/subscriptions/:subscriptionId/payment-status', authenticateSubscr
             { name: (cust as any).name, email: (cust as any).email ?? undefined, phone: (cust as any).phone ?? undefined },
             invoiceOptions
           );
-          // createInvoiceForPackageSubscription already updates subscription with zoho_invoice_id and payment_status 'paid'
+          if (invoiceResult.invoiceError) {
+            invoiceWarning = invoiceResult.invoiceError;
+            logger.warn('Package subscription payment-status: invoice could not be created/sent', undefined, {}, { subscriptionId, error: invoiceResult.invoiceError });
+          }
+        } else {
+          invoiceWarning = 'Package or customer not found for invoice.';
         }
+      } else {
+        invoiceWarning = 'Subscription could not be loaded for invoice.';
       }
     }
 
@@ -1240,7 +1258,9 @@ router.patch('/subscriptions/:subscriptionId/payment-status', authenticateSubscr
       return res.status(500).json({ error: 'Failed to update payment status', details: updateError.message });
     }
 
-    res.json({ success: true, subscription: updated });
+    const response: { success: true; subscription: typeof updated; invoiceWarning?: string } = { success: true, subscription: updated };
+    if (invoiceWarning) response.invoiceWarning = invoiceWarning;
+    res.json(response);
   } catch (error: any) {
     const context = logger.extractContext(req);
     logger.error('Update subscription payment status error', error, context);
