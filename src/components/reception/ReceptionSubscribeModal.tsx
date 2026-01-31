@@ -55,7 +55,7 @@ export function ReceptionSubscribeModal({
   const [customerLookup, setCustomerLookup] = useState<{ id: string; name: string; email?: string; phone: string } | null>(null);
   const [isLookingUpCustomer, setIsLookingUpCustomer] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [paymentMethod, setPaymentMethod] = useState<'unpaid' | 'onsite' | 'transfer'>('onsite');
   const [transactionReference, setTransactionReference] = useState('');
   const lookupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -162,7 +162,7 @@ export function ReceptionSubscribeModal({
     setCustomerName('');
     setCustomerEmail('');
     setCustomerLookup(null);
-    setPaymentMethod('onsite');
+    setPaymentMethod('onsite' as const);
     setTransactionReference('');
     onClose();
   }
@@ -189,8 +189,13 @@ export function ReceptionSubscribeModal({
         customer_name: customerName.trim(),
         customer_email: customerEmail.trim() || undefined,
       };
-      if (paymentMethod) body.payment_method = paymentMethod;
-      if (paymentMethod === 'transfer' && transactionReference.trim()) body.transaction_reference = transactionReference.trim();
+      if (paymentMethod === 'unpaid') {
+        body.payment_status = 'pending';
+      } else {
+        body.payment_status = 'paid';
+        body.payment_method = paymentMethod;
+        if (paymentMethod === 'transfer' && transactionReference.trim()) body.transaction_reference = transactionReference.trim();
+      }
       const response = await fetch(`${getApiUrl()}/packages/receptionist/subscriptions`, {
         method: 'POST',
         headers: {
@@ -320,12 +325,22 @@ export function ReceptionSubscribeModal({
           </select>
         </div>
 
-        {/* Payment method (same as bookings) */}
+        {/* Payment method (Unpaid | Paid On Site | Bank Transfer — same as bookings) */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             {t('reception.paymentMethod') || 'Payment method'}
           </label>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="subscriptionPaymentMethod"
+                checked={paymentMethod === 'unpaid'}
+                onChange={() => { setPaymentMethod('unpaid'); setTransactionReference(''); }}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>{t('payment.displayUnpaid') || (i18n.language === 'ar' ? 'غير مدفوع' : 'Unpaid')}</span>
+            </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
@@ -334,7 +349,7 @@ export function ReceptionSubscribeModal({
                 onChange={() => { setPaymentMethod('onsite'); setTransactionReference(''); }}
                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
-              <span>{i18n.language === 'ar' ? 'مدفوع يدوياً' : 'Paid On Site'}</span>
+              <span>{t('payment.displayPaidOnSite') || (i18n.language === 'ar' ? 'مدفوع يدوياً' : 'Paid On Site')}</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -344,7 +359,7 @@ export function ReceptionSubscribeModal({
                 onChange={() => setPaymentMethod('transfer')}
                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
-              <span>{i18n.language === 'ar' ? 'حوالة بنكية' : 'Bank Transfer'}</span>
+              <span>{t('payment.displayBankTransfer') || (i18n.language === 'ar' ? 'حوالة بنكية' : 'Bank Transfer')}</span>
             </label>
           </div>
           {paymentMethod === 'transfer' && (

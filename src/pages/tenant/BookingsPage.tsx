@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { safeTranslateStatus, safeTranslate } from '../../lib/safeTranslation';
-import { getPaymentDisplayLabel, getPaymentDisplayValue, type PaymentDisplayValue } from '../../lib/paymentDisplay';
+import { getPaymentDisplayLabel, getPaymentDisplayValue, PAYMENT_DISPLAY_KEYS, type PaymentDisplayValue } from '../../lib/paymentDisplay';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -116,7 +116,7 @@ export function BookingsPage() {
   const [createSelectedSlots, setCreateSelectedSlots] = useState<Array<{ slot_id: string; start_time: string; end_time: string; employee_id: string; slot_date: string }>>([]);
   const [createSelectedTimeSlot, setCreateSelectedTimeSlot] = useState<{ start_time: string; end_time: string; slot_date: string } | null>(null);
   const [createShowPreview, setCreateShowPreview] = useState(false);
-  const [createPaymentMethod, setCreatePaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
+  const [createPaymentMethod, setCreatePaymentMethod] = useState<'unpaid' | 'onsite' | 'transfer'>('onsite');
   const [createTransactionReference, setCreateTransactionReference] = useState('');
   const [createSelectedServices, setCreateSelectedServices] = useState<Array<{ service: AdminService; slot: Slot; employeeId: string }>>([]);
   const [createAssignmentMode, setCreateAssignmentMode] = useState<'automatic' | 'manual'>('automatic');
@@ -415,6 +415,14 @@ export function BookingsPage() {
       alert(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
       return;
     }
+    const paymentPayload = totalPrice > 0
+      ? (createPaymentMethod === 'unpaid'
+        ? { payment_status: 'unpaid' as const }
+        : {
+            payment_method: createPaymentMethod,
+            transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
+          })
+      : (createPaymentMethod === 'unpaid' ? { payment_status: 'unpaid' as const } : {});
 
     setCreatingBooking(true);
     try {
@@ -440,10 +448,7 @@ export function BookingsPage() {
             total_price: totalPrice,
             notes: createForm.notes?.trim() || null,
             language: i18n.language,
-            ...(totalPrice > 0 ? {
-              payment_method: createPaymentMethod,
-              transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
-            } : {}),
+            ...paymentPayload,
           }),
         });
         if (!res.ok) {
@@ -470,10 +475,7 @@ export function BookingsPage() {
             total_price: totalPrice,
             notes: createForm.notes?.trim() || null,
             language: i18n.language,
-            ...(totalPrice > 0 ? {
-              payment_method: createPaymentMethod,
-              transaction_reference: createPaymentMethod === 'transfer' ? createTransactionReference.trim() : undefined,
-            } : {}),
+            ...paymentPayload,
           }),
         });
         if (!res.ok) {
@@ -2136,13 +2138,10 @@ export function BookingsPage() {
                   <p className="text-sm text-gray-600">{createForm.notes}</p>
                 </div>
               )}
-              {/* Payment method (when payable) */}
+              {/* Payment method (payable or package booking — Unpaid option for both) */}
               {(() => {
                 const svc = createServices.find(s => s.id === createServiceId);
                 if (!svc) return null;
-                const pkgCheck = checkServiceInPackage(svc.id);
-                const hasPayableAmount = !pkgCheck.available || pkgCheck.remaining < createForm.visitor_count;
-                if (!hasPayableAmount) return null;
                 return (
                   <div className="bg-white rounded-lg p-4 mb-4 shadow-sm border border-gray-200">
                     <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('reception.paymentMethod') || 'Payment method'}</h4>
@@ -2151,11 +2150,21 @@ export function BookingsPage() {
                         <input
                           type="radio"
                           name="createPaymentMethod"
+                          checked={createPaymentMethod === 'unpaid'}
+                          onChange={() => { setCreatePaymentMethod('unpaid'); setCreateTransactionReference(''); }}
+                          className="rounded-full border-gray-300 text-blue-600"
+                        />
+                        <span>{t(PAYMENT_DISPLAY_KEYS.unpaid) || 'Unpaid'}</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="createPaymentMethod"
                           checked={createPaymentMethod === 'onsite'}
                           onChange={() => setCreatePaymentMethod('onsite')}
                           className="rounded-full border-gray-300 text-blue-600"
                         />
-                        <span>مدفوع يدوياً</span>
+                        <span>{t(PAYMENT_DISPLAY_KEYS.paid_onsite) || 'Paid On Site'}</span>
                       </label>
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
@@ -2165,7 +2174,7 @@ export function BookingsPage() {
                           onChange={() => setCreatePaymentMethod('transfer')}
                           className="rounded-full border-gray-300 text-blue-600"
                         />
-                        <span>حوالة</span>
+                        <span>{t(PAYMENT_DISPLAY_KEYS.bank_transfer) || 'Bank Transfer'}</span>
                       </label>
                     </div>
                     {createPaymentMethod === 'transfer' && (
@@ -2235,8 +2244,9 @@ export function BookingsPage() {
               required
             />
             {isLookingUpCustomer && (
-              <div className="absolute right-3 top-[38px]">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+              <div className="absolute right-3 top-[38px] flex items-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent" />
+                <span className="text-xs text-gray-500">{t('reception.checkingCustomerAndPackages') || 'Checking customer & packages...'}</span>
               </div>
             )}
           </div>
@@ -2256,8 +2266,22 @@ export function BookingsPage() {
             onChange={(e) => setCreateForm(f => ({ ...f, customer_email: e.target.value }))}
             placeholder={t('booking.customerEmail')}
           />
-          {/* Package Information Display — scrollable, ~2 cards visible (same as Reception) */}
-          {createCustomerPackages.length > 0 && (
+          {/* Package Information Display — scrollable; show loading skeleton while looking up customer (same as Reception) */}
+          {isLookingUpCustomer && (
+            <div className="rounded-lg border-2 border-gray-200 bg-gray-50 p-4 animate-pulse" role="status" aria-label={t('reception.loadingCustomerPackages') || 'Loading customer packages...'}>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="h-5 w-5 rounded bg-gray-300" />
+                <div className="h-4 w-24 rounded bg-gray-300" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-4 w-full rounded bg-gray-200" />
+                <div className="h-4 w-3/4 rounded bg-gray-200" />
+                <div className="h-4 w-1/2 rounded bg-gray-200" />
+              </div>
+              <p className="text-xs text-gray-500 mt-2">{t('reception.loadingCustomerPackages') || 'Loading customer packages...'}</p>
+            </div>
+          )}
+          {!isLookingUpCustomer && createCustomerPackages.length > 0 && (
             <div className="rounded-lg border-2 border-green-200 bg-green-50/50 p-2">
               <p className="mb-2 flex items-center gap-2 text-sm font-medium text-green-800">
                 <Package className="h-4 w-4" />
@@ -2305,7 +2329,7 @@ export function BookingsPage() {
               required
               disabled={loadingCreateSlots}
             >
-              <option value="">{createServices.length === 0 && !loadingCreateSlots ? t('reception.noServicesAvailable') : t('reception.chooseService')}</option>
+              <option value="">{createServices.length === 0 && !loadingCreateSlots ? t('reception.noServicesAvailable') : loadingCreateSlots ? t('common.loading') + '...' : t('reception.chooseService')}</option>
               {createServices.map((s) => {
                 const pkgCheck = checkServiceInPackage(s.id);
                 return (
@@ -2318,6 +2342,9 @@ export function BookingsPage() {
             </select>
             {createServices.length === 0 && !loadingCreateSlots && (
               <p className="mt-1 text-sm text-amber-600">⚠️ {t('reception.noServicesFound')}</p>
+            )}
+            {loadingCreateSlots && (
+              <p className="mt-1 text-sm text-blue-600">{t('reception.loadingServices')}</p>
             )}
           </div>
           {/* 4b. Select Offer (if service has offers) */}
@@ -2536,7 +2563,17 @@ export function BookingsPage() {
                 );
               })()}
               {loadingCreateSlots ? (
-                <p className="text-sm text-gray-500 py-4">{t('common.loading')}</p>
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4" role="status" aria-label={t('reception.loadingSlots') || 'Loading available times...'}>
+                  <div className="flex items-center justify-center gap-3 py-6">
+                    <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent" />
+                    <p className="text-sm font-medium text-gray-600">{t('reception.loadingSlots') || 'Loading available times...'}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    {[1, 2, 3, 4].map((i) => (
+                      <div key={i} className="h-16 rounded-lg bg-gray-200/80 animate-pulse" />
+                    ))}
+                  </div>
+                </div>
               ) : isEmployeeBasedMode && effectiveCreateAssignmentMode === 'manual' && !createSelectedEmployeeId ? (
                 <div className="text-center py-6 bg-gray-50 rounded-lg border border-gray-200">
                   <User className="w-10 h-10 text-gray-400 mx-auto mb-2" />
@@ -2622,6 +2659,63 @@ export function BookingsPage() {
               </div>
             </div>
           )}
+          {/* Payment method (payable or package booking — Unpaid option for both) */}
+          {(() => {
+            if (!createServiceId || !createForm.visitor_count) return null;
+            const svc = createServices.find(s => s.id === createServiceId);
+            if (!svc) return null;
+            return (
+              <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('reception.paymentMethod') || 'Payment method'}</h4>
+                <div className="flex flex-wrap gap-4 mb-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="createPaymentMethodForm"
+                      checked={createPaymentMethod === 'unpaid'}
+                      onChange={() => { setCreatePaymentMethod('unpaid'); setCreateTransactionReference(''); }}
+                      className="rounded-full border-gray-300 text-blue-600"
+                    />
+                    <span>{t(PAYMENT_DISPLAY_KEYS.unpaid) || 'Unpaid'}</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="createPaymentMethodForm"
+                      checked={createPaymentMethod === 'onsite'}
+                      onChange={() => setCreatePaymentMethod('onsite')}
+                      className="rounded-full border-gray-300 text-blue-600"
+                    />
+                    <span>{t(PAYMENT_DISPLAY_KEYS.paid_onsite) || 'Paid On Site'}</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="createPaymentMethodForm"
+                      checked={createPaymentMethod === 'transfer'}
+                      onChange={() => setCreatePaymentMethod('transfer')}
+                      className="rounded-full border-gray-300 text-blue-600"
+                    />
+                    <span>{t(PAYMENT_DISPLAY_KEYS.bank_transfer) || 'Bank Transfer'}</span>
+                  </label>
+                </div>
+                {createPaymentMethod === 'transfer' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('reception.transactionReference') || 'Transaction reference'} *
+                    </label>
+                    <input
+                      type="text"
+                      value={createTransactionReference}
+                      onChange={(e) => setCreateTransactionReference(e.target.value)}
+                      placeholder={t('reception.enterReferenceNumber') || 'Enter reference number'}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <div className="flex gap-3 pt-4 border-t mt-6">
             <Button
               type="submit"
@@ -2804,11 +2898,16 @@ export function BookingsPage() {
                     {t('bookings.availableTimeSlots')}
                   </label>
                   {loadingTimeSlots ? (
-                    <div className="text-center py-4">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                      <p className="text-sm text-gray-600 mt-2">
-                        {t('bookings.loadingAvailableSlots')}
-                      </p>
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4" role="status" aria-label={t('reception.loadingSlots') || 'Loading available times...'}>
+                      <div className="flex items-center justify-center gap-3 py-6">
+                        <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent" />
+                        <p className="text-sm font-medium text-gray-600">{t('bookings.loadingAvailableSlots')}</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        {[1, 2, 3, 4].map((i) => (
+                          <div key={i} className="h-16 rounded-lg bg-gray-200/80 animate-pulse" />
+                        ))}
+                      </div>
                     </div>
                   ) : availableTimeSlots.length === 0 ? (
                     <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
