@@ -323,15 +323,16 @@ router.post('/insert/:table', async (req, res) => {
     if (table === 'employee_shifts' && records.length > 0) {
       try {
         records = records.map((r: any) => {
-          // Parse days_of_week: array or PostgreSQL string "{0,1,2,3,4,5,6}"
+          // Parse days_of_week: array, PostgreSQL "{0,1,2}", or "0,1,2"
           let days: number[] = [];
-          if (Array.isArray(r.days_of_week)) {
-            days = (r.days_of_week as any[]).map((d: any) => Number(d)).filter((n: number) => !Number.isNaN(n) && n >= 0 && n <= 6);
-          } else if (typeof r.days_of_week === 'string') {
-            const raw = r.days_of_week.replace(/^\{|\}$/g, '').trim();
-            if (raw) {
-              days = raw.split(',').map((x: string) => Number(x.trim())).filter((n: number) => !Number.isNaN(n) && n >= 0 && n <= 6);
-            }
+          const rawDays = r.days_of_week;
+          if (Array.isArray(rawDays)) {
+            days = (rawDays as any[]).map((d: any) => Number(d)).filter((n: number) => !Number.isNaN(n) && n >= 0 && n <= 6);
+          } else if (typeof rawDays === 'string') {
+            const s = rawDays.replace(/^\{|\}$/g, '').trim();
+            if (s) days = s.split(',').map((x: string) => Number(x.trim())).filter((n: number) => !Number.isNaN(n) && n >= 0 && n <= 6);
+          } else if (typeof rawDays === 'number' && rawDays >= 0 && rawDays <= 6) {
+            days = [rawDays];
           }
           if (days.length === 0) {
             throw new Error('Each shift must have at least one day selected (days_of_week).');
@@ -339,14 +340,13 @@ router.post('/insert/:table', async (req, res) => {
           const toTime = (v: any) => {
             if (v == null || v === '') return null;
             let s = String(v).trim();
-            // ISO or "T" format: extract time part (HH:MM:SS)
+            if (!s) return null;
             const tMatch = s.match(/T(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:Z)?/i);
             if (tMatch) {
               const [, h, m, sec] = tMatch;
               return `${String(Number(h)).padStart(2, '0')}:${String(Number(m)).padStart(2, '0')}:${String(sec !== undefined ? Number(sec) : 0).padStart(2, '0')}`;
             }
-            // Plain time: HH:MM or HH:MM:SS or H:MM, optionally with .micros
-            s = s.slice(0, 12).replace(/\.[0-9]+$/, '');
+            s = s.replace(/\.[0-9]+$/, '').slice(0, 12);
             if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) return s.length === 5 ? `${s}:00` : s;
             return null;
           };
@@ -373,7 +373,7 @@ router.post('/insert/:table', async (req, res) => {
         });
       } catch (validationErr: any) {
         const msg = validationErr?.message || 'Invalid employee shift data.';
-        console.error(`[Insert] employee_shifts validation:`, msg, 'Payload:', JSON.stringify(records));
+        console.error(`[Insert] employee_shifts validation:`, msg, 'Payload:', JSON.stringify(Array.isArray(data) ? data : [data]));
         return res.status(400).json({ error: msg });
       }
     }

@@ -319,7 +319,9 @@
     "availabilityFromWorkSchedule": "Availability comes from your Work Schedule below. Service duration is set in Services.",
     "workSchedule": "Work Schedule",
     "workScheduleHelp": "Define when this employee is working. Slots are generated from service duration and these shifts. Capacity = number of employees available at each time.",
-    "pausedUntil": "Paused until"
+    "pausedUntil": "Paused until",
+    "invalidShiftData": "Each shift must have at least one day and end time after start time.",
+    "errorSavingShift": "Failed to save shift: {{message}}"
   },
   "employeeShifts": {
     "title": "Employee Shifts & Assignments",

@@ -67,6 +67,49 @@ interface EmployeeShift {
   is_active: boolean;
 }
 
+/** Normalize one shift for insert so server always receives valid days_of_week (array) and HH:MM:SS times. */
+function normalizeEmployeeShiftForInsert(
+  sh: { days_of_week?: number[] | string | null; start_time_utc?: string | null; end_time_utc?: string | null; is_active?: boolean },
+  tenantId: string,
+  employeeId: string
+): { tenant_id: string; employee_id: string; days_of_week: number[]; start_time_utc: string; end_time_utc: string; is_active: boolean } | null {
+  let days: number[] = [];
+  if (Array.isArray(sh.days_of_week)) {
+    days = sh.days_of_week.map((d) => Number(d)).filter((n) => !Number.isNaN(n) && n >= 0 && n <= 6);
+  } else if (typeof sh.days_of_week === 'string') {
+    const raw = sh.days_of_week.replace(/^\{|\}$/g, '').trim();
+    if (raw) days = raw.split(',').map((x) => Number(x.trim())).filter((n) => !Number.isNaN(n) && n >= 0 && n <= 6);
+  }
+  if (days.length === 0) return null;
+
+  const toTime = (v: unknown): string | null => {
+    if (v == null || v === '') return null;
+    let s = String(v).trim();
+    const tMatch = s.match(/T(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:Z)?/i);
+    if (tMatch) {
+      const [, h, m, sec] = tMatch;
+      return `${String(Number(h)).padStart(2, '0')}:${String(Number(m)).padStart(2, '0')}:${String(sec !== undefined ? Number(sec) : 0).padStart(2, '0')}`;
+    }
+    s = s.slice(0, 12).replace(/\.[0-9]+$/, '');
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) return s.length === 5 ? `${s}:00` : s;
+    return null;
+  };
+  const start = toTime(sh.start_time_utc);
+  const end = toTime(sh.end_time_utc);
+  if (!start || !end) return null;
+  const [sh_, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  if ((eh || 0) * 60 + (em || 0) <= (sh_ || 0) * 60 + (sm || 0)) return null;
+  return {
+    tenant_id: tenantId,
+    employee_id: employeeId,
+    days_of_week: days,
+    start_time_utc: start,
+    end_time_utc: end,
+    is_active: sh.is_active !== false,
+  };
+}
+
 export function EmployeesPage() {
   const { t, i18n } = useTranslation();
   const { userProfile } = useAuth();
@@ -279,14 +322,17 @@ export function EmployeesPage() {
             await db.from('employee_shifts').delete().eq('id', id);
           }
           for (const sh of employeeShifts) {
-            await db.from('employee_shifts').insert({
-              tenant_id: userProfile.tenant_id,
-              employee_id: editingEmployee.id,
-              days_of_week: sh.days_of_week,
-              start_time_utc: sh.start_time_utc,
-              end_time_utc: sh.end_time_utc,
-              is_active: sh.is_active ?? true,
-            });
+            const payload = normalizeEmployeeShiftForInsert(sh, userProfile.tenant_id, editingEmployee.id);
+            if (!payload) {
+              alert(t('employee.invalidShiftData', 'Each shift must have at least one day and end time after start time.'));
+              return;
+            }
+            const { error } = await db.from('employee_shifts').insert(payload);
+            if (error) {
+              console.error('Error saving employee shift:', error);
+              alert(t('employee.errorSavingShift', { message: error.message || 'Failed to save shift' }));
+              return;
+            }
           }
         }
 
