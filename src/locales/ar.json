@@ -605,6 +605,7 @@
     "services": "الخدمات",
     "bookings": "الحجوزات",
     "employees": "الموظفون",
+    "employeeShifts": "ورديات الموظفين والتعيينات",
     "settings": "الإعدادات",
     "reports": "التقارير",
     "visitors": "الزوار",
@@ -691,6 +692,19 @@
     "workScheduleHelp": "حدد أوقات عمل هذا الموظف. تُولَّد الفترات من مدة الخدمة وهذه الورديات. السعة = عدد الموظفين المتاحين في كل وقت.",
     "pausedUntil": "متوقف حتى"
   },
+  "employeeShifts": {
+    "title": "ورديات الموظفين والتعيينات",
+    "subtitle": "عرض الورديات والخدمات المعينة لكل موظف",
+    "searchByEmployee": "اسم الموظف",
+    "searchByService": "اسم الخدمة",
+    "placeholderEmployee": "أدخل اسم الموظف...",
+    "placeholderService": "أدخل اسم الخدمة...",
+    "noEmployees": "لا يوجد موظفون للعرض",
+    "tryDifferentSearch": "جرّب مصطلح بحث آخر.",
+    "configureInEmployees": "أضف الموظفين وعيّن الورديات من الإعدادات → الموظفون.",
+    "noServices": "لا توجد خدمات معينة",
+    "noShifts": "لا توجد ورديات محددة"
+  },
   "admin": {
     "platformManagement": "إدارة المنصة",
     "solutionOwnerAccess": "وصول مالك الحل فقط",
@@ -752,7 +766,6 @@
     "selectServiceAndDateFirst": "اختر الخدمة والتاريخ لرؤية الأوقات المتاحة.",
     "selectEmployeeFirst": "اختر الموظف أولاً.",
     "noEmployeesForServiceDate": "لا يوجد موظفون لديهم ورديات لهذه الخدمة في التاريخ المحدد. أضف جدول العمل من الإعدادات → الموظفون.",
-    "noEmployeesAssignedToService": "لا يوجد موظفون معينون لهذه الخدمة. عيّن الموظفين من الإعدادات → الخدمات.",
     "noSlotsForEmployeeHint": "قد لا يكون لهذا الموظف وردية في هذا اليوم. تحقق من جدول العمل في الإعدادات → الموظفون.",
     "createBookingFirst": "يرجى اختيار خدمة أولاً",
     "complete": "إكمال",
@@ -946,6 +959,7 @@
     "visitors": "الزوار",
     "reception": "الاستقبال",
     "employees": "الموظفون",
+    "employeeShifts": "ورديات الموظفين والتعيينات",
     "settings": "الإعدادات",
     "landingPage": "الصفحة الرئيسية",
     "previewMode": "وضع المعاينة",

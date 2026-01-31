@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList, UserCircle } from 'lucide-react';
+import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList, UserCircle, Clock } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface TenantLayoutProps {
@@ -106,6 +106,13 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       icon: Users,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/employees`),
       visible: (features?.employees_enabled ?? true) && (userProfile?.role === 'tenant_admin' || userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user'),
+    },
+    {
+      name: t('navigation.employeeShifts', 'Employee Shifts & Assignments'),
+      href: `/${tenantSlug}/admin/employee-shifts`,
+      icon: Clock,
+      current: location.pathname.startsWith(`/${tenantSlug}/admin/employee-shifts`),
+      visible: (features?.scheduling_mode === 'employee_based') && (userProfile?.role === 'tenant_admin' || userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user'),
     },
     {
       name: t('navigation.landingPage'),

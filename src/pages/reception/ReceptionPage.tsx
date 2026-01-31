@@ -177,7 +177,6 @@ export function ReceptionPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<string>('');
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<{start_time: string, end_time: string, slot_date: string} | null>(null);
   const [availableEmployees, setAvailableEmployees] = useState<Array<{id: string, name: string, name_ar: string, bookingCount: number}>>([]);
-  const [serviceHasNoAssignedEmployees, setServiceHasNoAssignedEmployees] = useState(false);
   const [isLookingUpCustomer, setIsLookingUpCustomer] = useState(false);
   const [countryCode, setCountryCode] = useState(tenantDefaultCountry); // Use tenant's default country code
   const [customerPhoneFull, setCustomerPhoneFull] = useState(''); // Full phone number with country code
@@ -338,9 +337,8 @@ export function ReceptionPage() {
       fetchEmployeeBookingCounts(dateStr, []);
     } else {
       setAvailableEmployees([]);
-      setServiceHasNoAssignedEmployees(false);
     }
-  }, [selectedService, selectedDate, userProfile?.tenant_id]);
+  }, [selectedService, userProfile?.tenant_id]);
 
   // Mode separation: in employee-based mode use tenant assignment mode; in service-based mode always automatic (no employee selection)
   useEffect(() => {
@@ -1176,17 +1174,13 @@ export function ReceptionPage() {
       if (empServError) {
         console.error('Error fetching employee services:', empServError);
         setAvailableEmployees([]);
-        setServiceHasNoAssignedEmployees(false);
         return;
       }
 
       if (!employeeServices || employeeServices.length === 0) {
         setAvailableEmployees([]);
-        setServiceHasNoAssignedEmployees(true);
         return;
       }
-
-      setServiceHasNoAssignedEmployees(false);
 
       const employeeIdsFromServices = [...new Set(employeeServices.map((es: { employee_id: string }) => es.employee_id))] as string[];
 
@@ -1272,7 +1266,6 @@ export function ReceptionPage() {
     } catch (err) {
       console.error('Error fetching employee booking counts:', err);
       setAvailableEmployees([]);
-      setServiceHasNoAssignedEmployees(false);
     }
   }
 
@@ -5104,11 +5097,7 @@ export function ReceptionPage() {
                     <User className="w-12 h-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-gray-600">{t('reception.selectEmployeeFirst') || 'Please select an employee first.'}</p>
                     {!loadingTimeSlots && availableEmployees.length === 0 && (
-                      <p className="text-xs text-amber-600 mt-2">
-                        {serviceHasNoAssignedEmployees
-                          ? (t('reception.noEmployeesAssignedToService') || 'No employees assigned to this service. Assign employees in Settings → Services.')
-                          : (t('reception.noEmployeesForServiceDate') || 'No employees with shifts for this service on the selected date. Add work schedule in Settings → Employees.')}
-                      </p>
+                      <p className="text-xs text-amber-600 mt-2">{t('reception.noEmployeesForServiceDate') || 'No employees with shifts for this service on the selected date. Add work schedule in Settings → Employees.'}</p>
                     )}
                   </div>
                 ) : assignmentMode === 'manual' && selectedEmployee && slots.filter(s => s.employee_id === selectedEmployee).length === 0 ? (

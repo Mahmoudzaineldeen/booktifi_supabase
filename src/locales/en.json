@@ -272,6 +272,7 @@
     "services": "Services",
     "bookings": "Bookings",
     "employees": "Employees",
+    "employeeShifts": "Employee Shifts & Assignments",
     "settings": "Settings",
     "reports": "Reports",
     "visitors": "Visitors",
@@ -319,6 +320,19 @@
     "workSchedule": "Work Schedule",
     "workScheduleHelp": "Define when this employee is working. Slots are generated from service duration and these shifts. Capacity = number of employees available at each time.",
     "pausedUntil": "Paused until"
+  },
+  "employeeShifts": {
+    "title": "Employee Shifts & Assignments",
+    "subtitle": "View working shifts and assigned services per employee",
+    "searchByEmployee": "Employee Name",
+    "searchByService": "Service Name",
+    "placeholderEmployee": "Enter employee name...",
+    "placeholderService": "Enter service name...",
+    "noEmployees": "No employees to display",
+    "tryDifferentSearch": "Try a different search term.",
+    "configureInEmployees": "Add employees and assign shifts in Settings → Employees.",
+    "noServices": "No services assigned",
+    "noShifts": "No shifts defined"
   },
   "admin": {
     "platformManagement": "Platform Management",
@@ -382,7 +396,6 @@
     "selectServiceAndDateFirst": "Please select a service and date to see available times.",
     "selectEmployeeFirst": "Please select an employee first.",
     "noEmployeesForServiceDate": "No employees with shifts for this service on the selected date. Add work schedule in Settings → Employees.",
-    "noEmployeesAssignedToService": "No employees assigned to this service. Assign employees in Settings → Services.",
     "noSlotsForEmployeeHint": "This employee may have no shift on this day. Check Work Schedule in Settings → Employees.",
     "complete": "Complete",
     "markAsPaid": "Mark as Paid",
