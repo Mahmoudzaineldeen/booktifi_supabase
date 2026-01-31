@@ -448,7 +448,7 @@ export async function fetchAvailableSlots(
   if (effectiveEmployeeBased && useAutoAssign && availableSlots.length > 0) {
     const { data: rotationRow } = await db.from('service_rotation_state').select('last_assigned_employee_id').eq('service_id', serviceId).single();
     const lastAssignedId = (rotationRow as any)?.last_assigned_employee_id ?? null;
-    const { data: empServices } = await db.from('employee_services').select('employee_id').eq('service_id', serviceId).is('shift_id', null);
+    const { data: empServices } = await db.from('employee_services').select('employee_id').eq('service_id', serviceId).eq('shift_id', null);
     const employeeIds = [...new Set((empServices || []).map((es: any) => es.employee_id))].sort();
     const nextIndex = lastAssignedId ? (employeeIds.indexOf(lastAssignedId) + 1) % Math.max(1, employeeIds.length) : 0;
     const nextEmployeeId = employeeIds[nextIndex] ?? employeeIds[0];
