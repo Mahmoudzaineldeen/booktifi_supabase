@@ -4533,7 +4533,12 @@ export function ReceptionPage() {
               <p className="text-xs text-gray-600 mt-1">
                 {(() => {
                   const service = services.find(s => s.id === selectedService);
-                  return `${formatPrice(service?.base_price || 0)} per ticket`;
+                  const price = service?.base_price ?? 0;
+                  return (
+                    <>
+                      {formatPrice(price)} {t('reception.perTicket') || 'per ticket'}
+                    </>
+                  );
                 })()}
                 {(() => {
                   const service = services.find(s => s.id === selectedService);
@@ -5032,15 +5037,24 @@ export function ReceptionPage() {
                   );
                 })()}
 
-                {assignmentMode === 'manual' && !selectedEmployee ? (
+                {!selectedService || !selectedDate ? (
+                  <div className="text-center py-8 bg-gray-50 rounded-lg">
+                    <Clock className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-600">{t('reception.selectServiceAndDateFirst') || 'Please select a service and date to see available times.'}</p>
+                  </div>
+                ) : assignmentMode === 'manual' && !selectedEmployee ? (
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
                     <User className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                    <p className="text-gray-600">{t('reception.createBookingFirst')}</p>
+                    <p className="text-gray-600">{t('reception.selectEmployeeFirst') || 'Please select an employee first.'}</p>
+                    {availableEmployees.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-2">{t('reception.noEmployeesForServiceDate') || 'No employees with shifts for this service on the selected date. Add work schedule in Settings → Employees.'}</p>
+                    )}
                   </div>
-                ) : assignmentMode === 'manual' && slots.filter(s => s.employee_id === selectedEmployee).length === 0 ? (
+                ) : assignmentMode === 'manual' && selectedEmployee && slots.filter(s => s.employee_id === selectedEmployee).length === 0 ? (
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
                     <Clock className="w-12 h-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-gray-600">{t('reception.noSlotsAvailable')}</p>
+                    <p className="text-xs text-amber-600 mt-2">{t('reception.noSlotsForEmployeeHint') || 'This employee may have no shift on this day. Check Work Schedule in Settings → Employees.'}</p>
                   </div>
                 ) : assignmentMode === 'automatic' && slots.length === 0 ? (
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
