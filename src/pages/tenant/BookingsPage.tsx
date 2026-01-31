@@ -80,7 +80,7 @@ type SearchType = 'phone' | 'customer_name' | 'date' | 'service_name' | 'booking
 export function BookingsPage() {
   const { t, i18n } = useTranslation();
   const { userProfile, tenant } = useAuth();
-  const { formatPrice } = useCurrency();
+  const { formatPrice, formatPriceString } = useCurrency();
   const tenantDefaultCountry = useTenantDefaultCountry();
   const canCreateBooking = ['receptionist', 'admin_user', 'tenant_admin', 'customer_admin'].includes(userProfile?.role || '');
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -2179,7 +2179,7 @@ export function BookingsPage() {
                       const svc = createServices.find(s => s.id === createServiceId);
                       if (!svc) return formatPrice(0);
                       const pkgCheck = checkServiceInPackage(svc.id);
-                      if (pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count) return t('reception.packageServiceTotal', { price: formatPrice(0) });
+                      if (pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count) return t('reception.packageServiceTotal', { price: formatPriceString(0) });
                       return formatPrice((svc.base_price || 0) * createForm.visitor_count);
                     })()}
                   </span>

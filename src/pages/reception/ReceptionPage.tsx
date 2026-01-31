@@ -136,7 +136,7 @@ interface CustomerPackage {
 export function ReceptionPage() {
   const { t, i18n } = useTranslation();
   const { userProfile, tenant, signOut, loading: authLoading } = useAuth();
-  const { formatPrice } = useCurrency();
+  const { formatPrice, formatPriceString } = useCurrency();
   const navigate = useNavigate();
   const location = useLocation();
   const { tenantSlug: routeTenantSlug } = useParams<{ tenantSlug?: string }>();
@@ -450,6 +450,8 @@ export function ReceptionPage() {
         setSelectedSlots(prev => {
           const newSlots = [...prev];
           newSlots.splice(slotIndex, 1);
+          if (newSlots.length === 0) setSelectedSlot('');
+          else if (newSlots.length === 1) setSelectedSlot(newSlots[0].slot_id);
           return newSlots;
         });
       }
@@ -491,8 +493,9 @@ export function ReceptionPage() {
 
     setSelectedSlots(prev => [...prev, newSlot]);
 
-    // Set selectedTimeSlot for backward compatibility (use first selected slot)
+    // Sync selectedSlot when single slot selected so submit can find it
     if (selectedSlots.length === 0) {
+      setSelectedSlot(slot.id);
       setSelectedTimeSlot({
         start_time: slot.start_time,
         end_time: slot.end_time,
@@ -2034,6 +2037,12 @@ export function ReceptionPage() {
     }
 
     if (!userProfile?.tenant_id) return;
+    // User selected a service and slot(s) but slot wasn't found in list (e.g. stale slots) – show slot-specific error
+    const hadSlotSelection = selectedTimeSlot || selectedSlot || selectedSlots.length > 0;
+    if (selectedService && hadSlotSelection) {
+      alert(t('reception.slotNoLongerAvailable') || 'Selected slot is no longer available. Please choose another time.');
+      return;
+    }
     alert(t('reception.noServicesSelected'));
     return;
 
@@ -4334,7 +4343,7 @@ export function ReceptionPage() {
                       if (!service) return formatPrice(0);
                       const packageCheck = checkServiceInPackage(service.id);
                       if (packageCheck.available && packageCheck.remaining >= (bookingForm.visitor_count as number)) {
-                        return t('reception.packageServiceTotal', { price: formatPrice(0) });
+                        return t('reception.packageServiceTotal', { price: formatPriceString(0) });
                       }
                       const price = service.base_price || 0;
                       const visitorCount = typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1;
@@ -5141,6 +5150,47 @@ export function ReceptionPage() {
                     )}
                   </div>
                 ) : (
+                  <>
+                    {selectedSlots.length > 0 && (
+                      <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div className="text-xs font-medium text-blue-800 mb-1">{t('reception.yourSelection') || 'Your selection'}</div>
+                        <div className="space-y-1">
+                          {selectedSlots.map((slot, idx) => {
+                            const slotObj = slots.find(s => s.id === slot.slot_id);
+                            const employee = slotObj?.users;
+                            return (
+                              <div key={idx} className="flex justify-between items-center text-sm">
+                                <span className="text-gray-700">
+                                  {format(parseISO(slot.slot_date), 'MMM d', { locale: i18n.language === 'ar' ? ar : undefined })} {slot.start_time} - {slot.end_time}
+                                  {employee && (
+                                    <span className="text-gray-500 ml-1">({i18n.language === 'ar' ? employee.full_name_ar : employee.full_name})</span>
+                                  )}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const slotIndex = selectedSlots.map(s => s.slot_id).lastIndexOf(slot.slot_id);
+                                    if (slotIndex !== -1) {
+                                      setSelectedSlots(prev => {
+                                        const next = [...prev];
+                                        next.splice(slotIndex, 1);
+                                        if (next.length === 0) setSelectedSlot('');
+                                        else if (next.length === 1) setSelectedSlot(next[0].slot_id);
+                                        return next;
+                                      });
+                                    }
+                                  }}
+                                  className="text-red-600 hover:text-red-800 p-1 rounded"
+                                  title={t('reception.removeSlot') || 'Remove'}
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
                     {assignmentMode === 'automatic' ? (
                       // For automatic mode, group slots by time and show unique time slots
@@ -5154,15 +5204,15 @@ export function ReceptionPage() {
                           timeSlotMap.get(timeKey)!.push(slot);
                         });
 
-                        return Array.from(timeSlotMap.entries()).map(([timeKey, groupedSlots]) => {
+                        // Hide time groups that are already selected so selected slots disappear from the list
+                        const entries = Array.from(timeSlotMap.entries()).filter(([, groupedSlots]) => {
+                          const first = groupedSlots[0];
+                          return !selectedSlots.some(s => s.start_time === first.start_time && s.end_time === first.end_time);
+                        });
+
+                        return entries.map(([timeKey, groupedSlots]) => {
                           const firstSlot = groupedSlots[0];
                           const totalAvailable = groupedSlots.reduce((sum, s) => sum + s.available_capacity, 0);
-
-                          // Count how many times this time slot is selected
-                          const selectionCount = selectedSlots.filter(
-                            s => s.start_time === firstSlot.start_time && s.end_time === firstSlot.end_time
-                          ).length;
-                          const isSelected = selectionCount > 0;
 
                           return (
                             <button
@@ -5173,17 +5223,8 @@ export function ReceptionPage() {
                                 e.preventDefault();
                                 handleSlotClick(firstSlot, { ...e, button: 2 } as any);
                               }}
-                              className={`p-3 text-left rounded-lg border relative ${
-                                isSelected
-                                  ? 'bg-blue-600 text-white border-blue-600'
-                                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                              }`}
+                              className="p-3 text-left rounded-lg border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                             >
-                              {isSelected && (
-                                <div className="absolute -top-2 -right-2 bg-blue-800 text-white text-xs min-w-[24px] h-6 rounded-full font-bold flex items-center justify-center px-1">
-                                  {selectionCount}
-                                </div>
-                              )}
                               <div className="flex items-center gap-2 mb-1">
                                 <Clock className="w-4 h-4" />
                                 <span className="font-medium">{firstSlot.start_time} - {firstSlot.end_time}</span>
@@ -5191,11 +5232,6 @@ export function ReceptionPage() {
                               <div className="text-xs">
                                 {totalAvailable} spots left
                               </div>
-                              {isSelected && (
-                                <div className="text-xs mt-1 opacity-90">
-                                  Selected: {selectionCount} time{selectionCount > 1 ? 's' : ''}
-                                </div>
-                              )}
                             </button>
                           );
                         });
@@ -5206,7 +5242,7 @@ export function ReceptionPage() {
                         // Group slots by time for manual mode too
                         const timeSlotMap = new Map<string, Slot[]>();
                         slots
-                          .filter(slot => slot.employee_id === selectedEmployee)
+                          .filter(slot => slot.employee_id === selectedEmployee && !selectedSlots.some(s => s.slot_id === slot.id))
                           .forEach(slot => {
                             const timeKey = `${slot.slot_date}-${slot.start_time}-${slot.end_time}`;
                             if (!timeSlotMap.has(timeKey)) {
@@ -5218,10 +5254,6 @@ export function ReceptionPage() {
                         return Array.from(timeSlotMap.entries()).map(([timeKey, groupedSlots]) => {
                           const slot = groupedSlots[0];
 
-                          // Count how many times this slot is selected
-                          const selectionCount = selectedSlots.filter(s => s.slot_id === slot.id).length;
-                          const isSelected = selectionCount > 0;
-
                           return (
                             <button
                               key={slot.id}
@@ -5231,17 +5263,8 @@ export function ReceptionPage() {
                                 e.preventDefault();
                                 handleSlotClick(slot, { ...e, button: 2 } as any);
                               }}
-                              className={`p-3 text-left rounded-lg border relative ${
-                                isSelected
-                                  ? 'bg-blue-600 text-white border-blue-600'
-                                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                              }`}
+                              className="p-3 text-left rounded-lg border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                             >
-                              {isSelected && (
-                                <div className="absolute -top-2 -right-2 bg-blue-800 text-white text-xs min-w-[24px] h-6 rounded-full font-bold flex items-center justify-center px-1">
-                                  {selectionCount}
-                                </div>
-                              )}
                               <div className="flex items-center gap-2 mb-1">
                                 <Clock className="w-4 h-4" />
                                 <span className="font-medium">{slot.start_time} - {slot.end_time}</span>
@@ -5249,17 +5272,13 @@ export function ReceptionPage() {
                               <div className="text-xs">
                                 {slot.available_capacity} spots left
                               </div>
-                              {isSelected && (
-                                <div className="text-xs mt-1 opacity-90">
-                                  Selected: {selectionCount} time{selectionCount > 1 ? 's' : ''}
-                                </div>
-                              )}
                             </button>
                           );
                         });
                       })()
                     )}
                   </div>
+                  </>
                 )}
               </div>
             </>
