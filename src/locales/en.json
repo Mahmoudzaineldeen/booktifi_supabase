@@ -382,6 +382,7 @@
     "selectServiceAndDateFirst": "Please select a service and date to see available times.",
     "selectEmployeeFirst": "Please select an employee first.",
     "noEmployeesForServiceDate": "No employees with shifts for this service on the selected date. Add work schedule in Settings → Employees.",
+    "noEmployeesAssignedToService": "No employees assigned to this service. Assign employees in Settings → Services.",
     "noSlotsForEmployeeHint": "This employee may have no shift on this day. Check Work Schedule in Settings → Employees.",
     "complete": "Complete",
     "markAsPaid": "Mark as Paid",
