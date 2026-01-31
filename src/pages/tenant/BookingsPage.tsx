@@ -113,6 +113,8 @@ export function BookingsPage() {
   const [createSlots, setCreateSlots] = useState<Slot[]>([]);
   const [loadingCreateSlots, setLoadingCreateSlots] = useState(false);
   const [creatingBooking, setCreatingBooking] = useState(false);
+  /** When set, create modal is closed and a full-screen loading overlay is shown (creating_booking -> creating_invoice) */
+  const [createBookingLoadingStep, setCreateBookingLoadingStep] = useState<null | 'creating_booking' | 'creating_invoice'>(null);
   const [createOfferId, setCreateOfferId] = useState('');
   const [createShowFullCalendar, setCreateShowFullCalendar] = useState(false);
   const [isLookingUpCustomer, setIsLookingUpCustomer] = useState(false);
@@ -435,6 +437,8 @@ export function BookingsPage() {
       : (createPaymentMethod === 'unpaid' ? { payment_status: 'unpaid' as const } : {});
 
     setCreatingBooking(true);
+    setIsCreateModalOpen(false);
+    setCreateBookingLoadingStep('creating_booking');
     try {
       const session = await db.auth.getSession();
       const token = session.data.session?.access_token || localStorage.getItem('auth_token');
@@ -467,7 +471,9 @@ export function BookingsPage() {
           throw new Error(err.error || err.message || 'Failed to create booking');
         }
         const result = await res.json();
-        setIsCreateModalOpen(false);
+        setCreateBookingLoadingStep('creating_invoice');
+        await new Promise(r => setTimeout(r, 700));
+        setCreateBookingLoadingStep(null);
         resetCreateForm();
         fetchBookings();
         setConfirmationBookingId(result.id ?? null);
@@ -495,13 +501,16 @@ export function BookingsPage() {
           throw new Error(err.error || err.message || 'Failed to create booking');
         }
         const result = await res.json();
-        setIsCreateModalOpen(false);
+        setCreateBookingLoadingStep('creating_invoice');
+        await new Promise(r => setTimeout(r, 700));
+        setCreateBookingLoadingStep(null);
         resetCreateForm();
         fetchBookings();
         const firstId = result.bookings?.[0]?.id ?? null;
         setConfirmationBookingId(firstId);
       }
     } catch (err: any) {
+      setCreateBookingLoadingStep(null);
       showNotification('error', err.message || t('reception.errorCreatingBooking', { message: err.message }));
     } finally {
       setCreatingBooking(false);
@@ -1993,6 +2002,18 @@ export function BookingsPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Full-screen loading overlay when creating booking (modal already closed) */}
+      {createBookingLoadingStep && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white/90 backdrop-blur-sm" dir={isAr ? 'rtl' : 'ltr'}>
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent mb-4" />
+          <p className="text-lg font-medium text-gray-800">
+            {createBookingLoadingStep === 'creating_booking'
+              ? t('reception.creatingBooking', 'Creating booking...')
+              : t('reception.creatingInvoice', 'Creating invoice...')}
+          </p>
         </div>
       )}
 

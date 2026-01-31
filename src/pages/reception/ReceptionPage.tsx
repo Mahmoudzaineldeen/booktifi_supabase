@@ -216,6 +216,8 @@ export function ReceptionPage() {
   const [manualSlotAssignments, setManualSlotAssignments] = useState<Array<{slotIndex: number, employeeId: string, slotId: string}>>([]);
   const [showPreview, setShowPreview] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
+  /** When set, create booking modal is closed and full-screen loading overlay is shown (creating_booking -> creating_invoice) */
+  const [bookingCreationLoadingStep, setBookingCreationLoadingStep] = useState<null | 'creating_booking' | 'creating_invoice'>(null);
   const [selectedSlots, setSelectedSlots] = useState<Array<{slot_id: string, start_time: string, end_time: string, employee_id: string, slot_date: string}>>([]);
 
   // QR Code Validation State
@@ -1526,7 +1528,9 @@ export function ReceptionPage() {
 
         const result = await response.json();
         console.log('✅ Booking created successfully:', result);
-        setIsModalOpen(false);
+        setBookingCreationLoadingStep('creating_invoice');
+        await new Promise(r => setTimeout(r, 700));
+        setBookingCreationLoadingStep(null);
         resetForm();
         fetchBookings();
         fetchAvailableSlots();
@@ -1534,6 +1538,7 @@ export function ReceptionPage() {
         return;
       } catch (error: any) {
         console.error('Error creating booking:', error);
+        setBookingCreationLoadingStep(null);
         showNotification('error', t('reception.errorCreatingBooking', { message: error.message || t('common.error') }));
         return;
       }
@@ -1557,7 +1562,9 @@ export function ReceptionPage() {
       firstBookingId = await handleConsecutiveBooking(service, quantity, fullPhoneNumber);
     }
 
-    setIsModalOpen(false);
+    setBookingCreationLoadingStep('creating_invoice');
+    await new Promise(r => setTimeout(r, 700));
+    setBookingCreationLoadingStep(null);
     resetForm();
     fetchBookings();
     fetchAvailableSlots();
@@ -1905,12 +1912,15 @@ export function ReceptionPage() {
       console.log('Bookings and slots refreshed');
 
       const firstBookingId = results[0]?.id ?? null;
-      setIsModalOpen(false);
+      setBookingCreationLoadingStep('creating_invoice');
+      await new Promise(r => setTimeout(r, 700));
+      setBookingCreationLoadingStep(null);
       resetForm();
       setConfirmationBookingId(firstBookingId);
     } catch (err: any) {
       console.error('Error creating multi-service bookings:', err);
       console.error('Error stack:', err.stack);
+      setBookingCreationLoadingStep(null);
       showNotification('error', t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
     }
   }
@@ -2237,17 +2247,21 @@ export function ReceptionPage() {
         });
 
         // Note: Slot capacity is updated by the backend API
-        setIsModalOpen(false);
+        setBookingCreationLoadingStep('creating_invoice');
+        await new Promise(r => setTimeout(r, 700));
+        setBookingCreationLoadingStep(null);
         resetForm();
         fetchBookings();
         fetchAvailableSlots();
         setConfirmationBookingId(result?.id ?? null);
       } catch (err: any) {
         console.error('Error creating booking:', err);
+        setBookingCreationLoadingStep(null);
         showNotification('error', t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
       }
     } catch (err: any) {
       console.error('Error in handleSubmit:', err);
+      setBookingCreationLoadingStep(null);
       showNotification('error', t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
     }
   }
@@ -4190,6 +4204,18 @@ export function ReceptionPage() {
           </div>
         )}
 
+      {/* Full-screen loading overlay when creating booking (modal already closed) */}
+      {bookingCreationLoadingStep && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white/90 backdrop-blur-sm" dir={i18n.language === 'ar' ? 'rtl' : 'ltr'}>
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent mb-4" />
+          <p className="text-lg font-medium text-gray-800">
+            {bookingCreationLoadingStep === 'creating_booking'
+              ? t('reception.creatingBooking', 'Creating booking...')
+              : t('reception.creatingInvoice', 'Creating invoice...')}
+          </p>
+        </div>
+      )}
+
           <Modal
         isOpen={isModalOpen}
         onClose={() => {
@@ -4395,9 +4421,14 @@ export function ReceptionPage() {
                 fullWidth
                 onClick={async () => {
                   setShowPreview(false);
-                  // This will trigger the actual booking submission
-                  const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-                  await handleSubmit(submitEvent as any);
+                  setIsModalOpen(false);
+                  setBookingCreationLoadingStep('creating_booking');
+                  try {
+                    const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+                    await handleSubmit(submitEvent as any);
+                  } finally {
+                    setBookingCreationLoadingStep(null);
+                  }
                 }}
               >
                 {t('reception.confirmBooking')}

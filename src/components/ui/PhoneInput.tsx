@@ -262,11 +262,11 @@ export function PhoneInput({
           {isDropdownOpen && (
             <>
               <div 
-                className="fixed inset-0 z-10" 
+                className="fixed inset-0 z-30" 
                 onClick={() => setIsDropdownOpen(false)}
               />
               <div 
-                className={`absolute top-full ${isRTL ? 'right-0' : 'left-0'} mt-1 w-80 max-h-80 overflow-hidden bg-white border border-gray-300 rounded-lg shadow-lg z-20 flex flex-col`}
+                className={`absolute top-full ${isRTL ? 'right-0' : 'left-0'} mt-1 w-80 max-h-80 overflow-hidden bg-white border border-gray-300 rounded-lg shadow-lg z-40 flex flex-col`}
                 dir={isRTL ? 'rtl' : 'ltr'}
               >
                 {/* Search Bar */}

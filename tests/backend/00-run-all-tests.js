@@ -12,6 +12,7 @@ import { runAllTests as runInvoiceTests } from './06-invoice-generation.test.js'
 import { runAllTests as runErrorHandlingTests } from './07-error-handling.test.js';
 import { runAllTests as runBookingManagementTests } from './08-booking-management.test.js';
 import { runAllTests as runZohoDisconnectTests } from './09-zoho-disconnect.test.js';
+import { runAllTests as runBookingCreationPerformanceTests } from './11-booking-creation-performance.test.js';
 import { CONFIG } from './config.js';
 
 const overallResults = {
@@ -131,7 +132,18 @@ async function runAllTestSuites() {
   overallResults.moduleResults.push({ name: 'Zoho Disconnect', success: zohoDisconnectSuccess });
   if (zohoDisconnectSuccess) overallResults.totalPassed++;
   else overallResults.totalFailed++;
-  
+
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // Test Suite 11: Booking Creation Performance (no blocking on Zoho/WhatsApp)
+  console.log('\n' + '═'.repeat(62));
+  console.log('TEST SUITE 11: Booking Creation Performance');
+  console.log('═'.repeat(62));
+  const bookingPerfSuccess = await runBookingCreationPerformanceTests();
+  overallResults.moduleResults.push({ name: 'Booking Creation Performance', success: bookingPerfSuccess });
+  if (bookingPerfSuccess) overallResults.totalPassed++;
+  else overallResults.totalFailed++;
+
   const endTime = Date.now();
   const duration = ((endTime - startTime) / 1000).toFixed(2);
   

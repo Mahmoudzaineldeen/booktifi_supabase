@@ -616,6 +616,8 @@
     "invoiceBeingPrepared": "Invoice is being prepared and will be sent shortly.",
     "invoiceSendFailed": "Invoice could not be sent.",
     "ticketWillBeSentWhatsApp": "The booking ticket will be sent to the customer's WhatsApp number.",
+    "creatingBooking": "Creating booking...",
+    "creatingInvoice": "Creating invoice...",
     "loadingPackagesList": "Loading packages...",
     "slotNoLongerAvailable": "Selected slot is no longer available. Please choose another time.",
     "yourSelection": "Your selection",

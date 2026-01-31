@@ -864,6 +864,8 @@
     "invoiceBeingPrepared": "جاري إعداد الفاتورة وإرسالها قريباً.",
     "invoiceSendFailed": "تعذر إرسال الفاتورة.",
     "ticketWillBeSentWhatsApp": "سيتم إرسال تذكرة الحجز إلى رقم واتساب العميل.",
+    "creatingBooking": "جاري إنشاء الحجز...",
+    "creatingInvoice": "جاري إنشاء الفاتورة...",
     "loadingPackagesList": "جاري تحميل الباقات...",
     "slotNoLongerAvailable": "الفترة المختارة لم تعد متاحة. يرجى اختيار وقت آخر.",
     "yourSelection": "اختيارك",
