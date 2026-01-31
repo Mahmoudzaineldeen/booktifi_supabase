@@ -411,14 +411,9 @@ export function EmployeesPage() {
   async function openEditModal(employee: Employee) {
     setEditingEmployee(employee);
     const assignedServices = employee.employee_services?.map(es => es.service_id) || [];
-
-    if (assignedServices.length > 0) {
-      await fetchShiftsForServices(assignedServices);
-    }
-
-    const serviceShiftMap: ServiceShiftAssignment[] = [];
     const uniqueServiceIds = [...new Set(assignedServices)];
 
+    const serviceShiftMap: ServiceShiftAssignment[] = [];
     for (const serviceId of uniqueServiceIds) {
       const serviceAssignments = employee.employee_services?.filter(es => es.service_id === serviceId) || [];
       const shiftIds = serviceAssignments
@@ -427,12 +422,15 @@ export function EmployeesPage() {
       serviceShiftMap.push({ serviceId, shiftIds });
     }
 
-    const { data: shiftsData } = await db
-      .from('employee_shifts')
-      .select('*')
-      .eq('employee_id', employee.id)
-      .order('created_at');
-    setEmployeeShifts(shiftsData || []);
+    // Load service shifts and employee shifts in parallel for faster modal open
+    const [shiftsDataResult, employeeShiftsResult] = await Promise.all([
+      assignedServices.length > 0
+        ? db.from('shifts').select('*').in('service_id', assignedServices).eq('is_active', true).order('start_time_utc')
+        : Promise.resolve({ data: [] }),
+      db.from('employee_shifts').select('*').eq('employee_id', employee.id).order('created_at'),
+    ]);
+    setShifts(shiftsDataResult.data || []);
+    setEmployeeShifts(employeeShiftsResult.data || []);
     setEmployeeShiftForm({ days_of_week: [], start_time: '09:00', end_time: '18:00', is_active: true });
 
     setFormData({

@@ -263,5 +263,46 @@ router.post('/update', async (req, res) => {
   }
 });
 
+// Single endpoint for Employee Shifts page: users + employee_shifts + employee_services in one round-trip (faster load)
+router.get('/shifts-page-data', async (req, res) => {
+  try {
+    const tenantId = req.query.tenant_id as string;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'tenant_id is required' });
+    }
+
+    const [usersRes, shiftsRes, servicesRes] = await Promise.all([
+      supabase
+        .from('users')
+        .select('id, full_name, full_name_ar, role')
+        .eq('tenant_id', tenantId)
+        .eq('role', 'employee')
+        .order('full_name'),
+      supabase
+        .from('employee_shifts')
+        .select('id, employee_id, days_of_week, start_time_utc, end_time_utc, is_active')
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true),
+      supabase
+        .from('employee_services')
+        .select('employee_id, service_id, services(name, name_ar)')
+        .eq('tenant_id', tenantId),
+    ]);
+
+    if (usersRes.error) throw usersRes.error;
+    if (shiftsRes.error) throw shiftsRes.error;
+    if (servicesRes.error) throw servicesRes.error;
+
+    res.json({
+      users: usersRes.data ?? [],
+      employee_shifts: shiftsRes.data ?? [],
+      employee_services: servicesRes.data ?? [],
+    });
+  } catch (error: any) {
+    console.error('Shifts page data error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
 export { router as employeeRoutes };
 

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
-import { db } from '../../lib/db';
+import { getApiUrl } from '../../lib/apiUrl';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Users, Search, X, Clock, Briefcase } from 'lucide-react';
@@ -90,51 +90,50 @@ export function EmployeeShiftsPage() {
 
   useEffect(() => {
     if (!userProfile?.tenant_id || !isEmployeeBased) return;
+    const tenantId = userProfile.tenant_id;
     let cancelled = false;
     setLoading(true);
     (async () => {
       try {
-        const { data, error } = await db
-          .from('users')
-          .select(`
-            id,
-            full_name,
-            full_name_ar,
-            role,
-            employee_shifts (
-              id,
-              employee_id,
-              days_of_week,
-              start_time_utc,
-              end_time_utc,
-              is_active
-            ),
-            employee_services (
-              service_id,
-              services (
-                name,
-                name_ar
-              )
-            )
-          `)
-          .eq('tenant_id', userProfile.tenant_id)
-          .eq('role', 'employee')
-          .order('full_name');
-        if (error) throw error;
-        if (!cancelled) {
-          const rows = (data || []).map((row: any) => ({
-            id: row.id,
-            full_name: row.full_name || '',
-            full_name_ar: row.full_name_ar || '',
-            role: row.role || '',
-            employee_shifts: (row.employee_shifts || []).filter((s: EmployeeShiftRow) => s.is_active !== false),
-            employee_services: (row.employee_services || []).map((es: any) => ({
-              service_id: es.service_id,
-              services: es.services || { name: '', name_ar: '' },
-            })),
-          }));
-          setEmployees(rows);
+        // Single endpoint: one round-trip instead of three (faster load)
+        const token = localStorage.getItem('auth_token');
+        const url = `${getApiUrl()}/employees/shifts-page-data?tenant_id=${encodeURIComponent(tenantId)}`;
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token && token.trim() ? { Authorization: `Bearer ${token.trim()}` } : {}),
+          },
+        });
+        const json = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          throw new Error(json?.error?.message || json?.error || res.statusText);
         }
+        const users = json.users ?? [];
+        const shifts = (json.employee_shifts ?? []) as EmployeeShiftRow[];
+        const empServices = json.employee_services ?? [];
+        const shiftByEmployee = new Map<string, EmployeeShiftRow[]>();
+        for (const s of shifts) {
+          const list = shiftByEmployee.get(s.employee_id) || [];
+          list.push(s);
+          shiftByEmployee.set(s.employee_id, list);
+        }
+        const servicesByEmployee = new Map<string, Array<{ service_id: string; services: { name?: string; name_ar?: string } }>>();
+        for (const es of empServices as any[]) {
+          const list = servicesByEmployee.get(es.employee_id) || [];
+          list.push({ service_id: es.service_id, services: es.services || { name: '', name_ar: '' } });
+          servicesByEmployee.set(es.employee_id, list);
+        }
+        const rows: EmployeeWithShiftsAndServices[] = users.map((row: any) => ({
+          id: row.id,
+          full_name: row.full_name || '',
+          full_name_ar: row.full_name_ar || '',
+          role: row.role || '',
+          employee_shifts: shiftByEmployee.get(row.id) || [],
+          employee_services: (servicesByEmployee.get(row.id) || []).map((es) => ({ service_id: es.service_id, services: es.services })),
+        }));
+        setEmployees(rows);
       } catch (e) {
         if (!cancelled) {
           console.error('Error fetching employees for shifts:', e);
