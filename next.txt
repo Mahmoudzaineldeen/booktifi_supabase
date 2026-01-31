@@ -9,7 +9,7 @@
 .done remove cached info in the booking as receptionist
 .done packages
 .done tickets enable and disable
-.delayed employee section has each employee shifts and we can delete and edit any employee and assign to a service and in setting page the admin shows if the service are employee based or slot based if employee based we don't add any shifts while creating a service the shifts are the employees shifts an employee  auto assign fair cycle this means that all employees are even in work distriputed(if we have employee 1 2 3 the we assign to 1 then 2 then 3 and rotate again through cycle)/manual assign (receptionist or admin)
+.done employee section has each employee shifts and we can delete and edit any employee and assign to a service and in setting page the admin shows if the service are employee based or slot based if employee based we don't add any shifts while creating a service the shifts are the employees shifts an employee  auto assign fair cycle this means that all employees are even in work distriputed(if we have employee 1 2 3 the we assign to 1 then 2 then 3 and rotate again through cycle)/manual assign (receptionist or admin)
 
 .done admin has the ability to make bookings as subscriptions 
 
