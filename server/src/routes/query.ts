@@ -145,6 +145,10 @@ router.post('/query', async (req, res) => {
             } else {
               query = query.in(column, value);
             }
+          } else if (value === null || value === 'null') {
+            // IS NULL: use .is() so PostgREST generates "col.is.null", not eq which can send literal "null" and break UUID columns
+            const column = validateColumnName(key);
+            query = query.is(column, null);
           } else {
             // Default: equality check
             const column = validateColumnName(key);
