@@ -413,18 +413,6 @@
       "calendar": "Calendar"
     }
   },
-  "navigation": {
-    "home": "Home",
-    "services": "Services",
-    "bookings": "Bookings",
-    "employees": "Employees",
-    "employeeShifts": "Employee Shifts & Assignments",
-    "settings": "Settings",
-    "reports": "Reports",
-    "visitors": "Visitors",
-    "activityLogs": "Activity Logs",
-    "landingPage": "Landing Page"
-  },
   "employee": {
     "employees": "Employees",
     "addEmployee": "Add Employee",
@@ -697,7 +685,24 @@
     "coveredByPackage": "Covered by Package",
     "packagePaidFormat": "Package: {{package}} | Paid: {{paid}}",
     "editPaymentStatusTitle": "Edit payment status",
-    "transactionReferencePlaceholder": "Transfer reference number"
+    "transactionReferencePlaceholder": "Transfer reference number",
+    "errorCreatingBooking": "Error creating booking: {{message}}",
+    "selectedSlotNotFound": "Selected slot could not be found",
+    "pleaseEnterBookingId": "Please enter a booking ID",
+    "qrScanned": "QR scanned",
+    "noInvoiceForBooking": "No invoice for this booking",
+    "downloadPdf": "Download PDF",
+    "invoice": "Invoice",
+    "bookingDetails": "Booking details",
+    "mode": "Mode",
+    "singleBooking": "Single booking",
+    "parallelBooking": "Parallel (multiple services at same time)",
+    "consecutiveBooking": "Consecutive (one after another)",
+    "basePrice": "Base price",
+    "save": "Save",
+    "offers": "offers",
+    "noServicesFound": "No services found",
+    "loadingServices": "Loading services..."
   },
   "employeePage": {
     "title": "My Bookings",
@@ -844,7 +849,11 @@
     "bookings": "Bookings",
     "reception": "Reception",
     "employees": "Employees",
+    "employeeShifts": "Employee Shifts & Assignments",
     "settings": "Settings",
+    "reports": "Reports",
+    "visitors": "Visitors",
+    "activityLogs": "Activity Logs",
     "landingPage": "Landing Page",
     "previewMode": "Preview Mode",
     "viewBookingPage": "View Booking Page",

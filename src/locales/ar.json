@@ -658,18 +658,6 @@
       "calendar": "التقويم"
     }
   },
-  "navigation": {
-    "home": "الرئيسية",
-    "services": "الخدمات",
-    "bookings": "الحجوزات",
-    "employees": "الموظفون",
-    "employeeShifts": "ورديات الموظفين والتعيينات",
-    "settings": "الإعدادات",
-    "reports": "التقارير",
-    "visitors": "الزوار",
-    "activityLogs": "سجل النشاطات",
-    "landingPage": "الصفحة الرئيسية"
-  },
   "employee": {
     "employees": "الموظفون",
     "addEmployee": "إضافة موظف",
@@ -942,7 +930,20 @@
     "singleBooking": "حجز واحد",
     "parallelBooking": "حجز متوازي",
     "consecutiveBooking": "حجز متتالي",
-    "autoAssigned": "تعيين تلقائي"
+    "autoAssigned": "تعيين تلقائي",
+    "errorCreatingBooking": "خطأ في إنشاء الحجز: {{message}}",
+    "selectedSlotNotFound": "الفترة المختارة غير متوفرة",
+    "pleaseEnterBookingId": "يرجى إدخال رقم الحجز",
+    "qrScanned": "تم المسح",
+    "noInvoiceForBooking": "لا توجد فاتورة لهذا الحجز",
+    "downloadPdf": "تحميل PDF",
+    "invoice": "الفاتورة",
+    "bookingDetails": "تفاصيل الحجز",
+    "basePrice": "السعر الأساسي",
+    "save": "حفظ",
+    "offers": "عروض",
+    "noServicesFound": "لم يتم العثور على خدمات",
+    "loadingServices": "جاري تحميل الخدمات..."
   },
   "cashier": {
     "title": "مكتب الصراف",
@@ -1112,11 +1113,13 @@
     "packageSubscribers": "مشتركي الباقات",
     "offers": "العروض",
     "bookings": "الحجوزات",
-    "visitors": "الزوار",
     "reception": "الاستقبال",
     "employees": "الموظفون",
     "employeeShifts": "ورديات الموظفين والتعيينات",
     "settings": "الإعدادات",
+    "reports": "التقارير",
+    "visitors": "الزوار",
+    "activityLogs": "سجل النشاطات",
     "landingPage": "الصفحة الرئيسية",
     "previewMode": "وضع المعاينة",
     "viewBookingPage": "عرض صفحة الحجز",
