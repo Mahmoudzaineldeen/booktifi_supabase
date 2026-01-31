@@ -1115,6 +1115,7 @@ export function ReceptionPage() {
   async function fetchAvailableSlots() {
     if (!userProfile?.tenant_id || !selectedService || !selectedDate) return;
 
+    setLoadingTimeSlots(true);
     try {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
 
@@ -1144,6 +1145,8 @@ export function ReceptionPage() {
     } catch (err) {
       console.error('Error in fetchAvailableSlots:', err);
       setSlots([]);
+    } finally {
+      setLoadingTimeSlots(false);
     }
   }
 
@@ -1151,7 +1154,8 @@ export function ReceptionPage() {
     if (!userProfile?.tenant_id || !selectedService) return;
 
     try {
-      // Get employees assigned to this service through employee_services
+      // Get all employees assigned to this service (any shift_id) so the dropdown is never empty when there are assigned employees.
+      // Slots are filtered by the API; employees without shifts on the date will show "no slots" when selected.
       const { data: employeeServices, error: empServError } = await db
         .from('employee_services')
         .select('employee_id, users:employee_id(id, full_name, full_name_ar, is_active)')
@@ -1168,20 +1172,52 @@ export function ReceptionPage() {
         return;
       }
 
-      // Filter active employees and create map
+      const employeeIdsFromServices = [...new Set(employeeServices.map((es: { employee_id: string }) => es.employee_id))] as string[];
+
+      // Build map from embedded users relation when present
       const employeeMap = new Map<string, {id: string, name: string, name_ar: string}>();
-      employeeServices.forEach((es: { employee_id: string; users?: { id: string; full_name: string; full_name_ar: string; is_active: boolean } }) => {
-        if (es.users && es.users.is_active) {
+      employeeServices.forEach((es: { employee_id: string; users?: { id: string; full_name: string; full_name_ar: string; is_active?: boolean } }) => {
+        if (es.users && (es.users.is_active !== false)) {
           employeeMap.set(es.employee_id, {
             id: es.users.id,
-            name: es.users.full_name,
-            name_ar: es.users.full_name_ar
+            name: es.users.full_name ?? '',
+            name_ar: es.users.full_name_ar ?? ''
           });
         }
       });
 
-      // Get all slots for this date and these employees
+      // Fallback: if users relation was null (e.g. RLS) but we have employee_services, fetch names from users
+      if (employeeMap.size === 0 && employeeIdsFromServices.length > 0) {
+        const { data: usersData } = await db
+          .from('users')
+          .select('id, full_name, full_name_ar')
+          .in('id', employeeIdsFromServices)
+          .eq('tenant_id', userProfile!.tenant_id);
+        (usersData || []).forEach((u: { id: string; full_name?: string; full_name_ar?: string }) => {
+          employeeMap.set(u.id, {
+            id: u.id,
+            name: u.full_name ?? '',
+            name_ar: u.full_name_ar ?? ''
+          });
+        });
+        // If still no names (e.g. RLS blocks users read), still show employees by id so dropdown isn't empty
+        if (employeeMap.size === 0) {
+          employeeIdsFromServices.forEach((id: string) => {
+            employeeMap.set(id, { id, name: 'Employee', name_ar: 'موظف' });
+          });
+        }
+      }
+
       const employeeIds = Array.from(employeeMap.keys());
+      // When no shift IDs (e.g. no slots yet), still show employees with zero counts so dropdown is populated
+      if (shiftIds.length === 0) {
+        const employeesWithCounts = Array.from(employeeMap.values()).map(emp => ({
+          ...emp,
+          bookingCount: 0
+        }));
+        setAvailableEmployees(employeesWithCounts);
+        return;
+      }
       const { data: allSlots } = await db
         .from('slots')
         .select('id, employee_id')
@@ -5062,7 +5098,7 @@ export function ReceptionPage() {
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
                     <User className="w-12 h-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-gray-600">{t('reception.selectEmployeeFirst') || 'Please select an employee first.'}</p>
-                    {availableEmployees.length === 0 && (
+                    {!loadingTimeSlots && availableEmployees.length === 0 && (
                       <p className="text-xs text-amber-600 mt-2">{t('reception.noEmployeesForServiceDate') || 'No employees with shifts for this service on the selected date. Add work schedule in Settings → Employees.'}</p>
                     )}
                   </div>

@@ -351,11 +351,8 @@ router.post('/insert/:table', async (req, res) => {
           ignoreDuplicates: true 
         });
       } else if (table === 'employee_services') {
-        // Use upsert with ignoreDuplicates to handle duplicate (employee_id, service_id) pairs
-        query = supabase.from(table).upsert(records, { 
-          onConflict: 'employee_id,service_id',
-          ignoreDuplicates: true 
-        });
+        // Use plain insert; ON CONFLICT varies by DB (two-column vs three-column unique). Duplicates get unique violation.
+        query = supabase.from(table).insert(records);
       } else {
         query = supabase.from(table).insert(records);
       }
