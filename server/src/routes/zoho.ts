@@ -52,7 +52,6 @@ router.get('/auth', async (req, res) => {
     console.log(`[Zoho Routes] ========================================`);
     console.log(`[Zoho Routes] INITIATING OAUTH FLOW`);
     console.log(`[Zoho Routes] Tenant ID: ${tenantId}`);
-    console.log(`[Zoho Routes] Backend (callback) URL: ${backendBase}`);
     console.log(`[Zoho Routes] Redirect URI (must be in Zoho Console): ${redirectUri}`);
     console.log(`[Zoho Routes] Frontend origin (for postMessage): ${frontendOrigin || 'same-origin'}`);
     console.log(`[Zoho Routes] ========================================`);
