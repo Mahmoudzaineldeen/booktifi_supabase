@@ -17,6 +17,7 @@ import { fetchAvailableSlots, Slot } from '../../lib/bookingAvailability';
 import { Input } from '../../components/ui/Input';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
+import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { countryCodes } from '../../lib/countryCodes';
 import { BookingConfirmationModal } from '../../components/shared/BookingConfirmationModal';
 
@@ -82,6 +83,9 @@ export function BookingsPage() {
   const { userProfile, tenant } = useAuth();
   const { formatPrice, formatPriceString } = useCurrency();
   const tenantDefaultCountry = useTenantDefaultCountry();
+  const { features: tenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
+  const isEmployeeBasedMode = tenantFeatures?.scheduling_mode === 'employee_based';
+  const tenantAssignmentMode = (tenantFeatures?.employee_assignment_mode ?? 'both') as 'automatic' | 'manual' | 'both';
   const canCreateBooking = ['receptionist', 'admin_user', 'tenant_admin', 'customer_admin'].includes(userProfile?.role || '');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,6 +119,8 @@ export function BookingsPage() {
   const [createPaymentMethod, setCreatePaymentMethod] = useState<'onsite' | 'transfer'>('onsite');
   const [createTransactionReference, setCreateTransactionReference] = useState('');
   const [createSelectedServices, setCreateSelectedServices] = useState<Array<{ service: AdminService; slot: Slot; employeeId: string }>>([]);
+  const [createAssignmentMode, setCreateAssignmentMode] = useState<'automatic' | 'manual'>('automatic');
+  const [createSelectedEmployeeId, setCreateSelectedEmployeeId] = useState<string>('');
   const [confirmationBookingId, setConfirmationBookingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -209,6 +215,14 @@ export function BookingsPage() {
   useEffect(() => {
     setCreateSelectedSlots([]);
   }, [createServiceId, createDate, createForm.visitor_count, createForm.booking_option]);
+
+  const effectiveCreateAssignmentMode: 'automatic' | 'manual' =
+    tenantAssignmentMode === 'both' ? createAssignmentMode : (tenantAssignmentMode === 'manual' ? 'manual' : 'automatic');
+
+  useEffect(() => {
+    setCreateSelectedEmployeeId('');
+    setCreateSlotId('');
+  }, [createServiceId, createDate]);
 
   // Look up customer by phone and auto-fill name/email + package (same as reception)
   async function lookupCustomerByPhone(fullPhoneNumber: string) {
@@ -2434,7 +2448,67 @@ export function BookingsPage() {
               )}
             </div>
           )}
-          {/* 8. Available Slots — same as Reception: group by time, click to add/remove, validation */}
+          {/* 8. Employee-based: note, assignment mode (when both), employee dropdown (when manual) — same as Reception */}
+          {createServiceId && createDate && isEmployeeBasedMode && (
+            <>
+              <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-xs text-blue-800">{t('reception.employeeModeSlotNote') || 'Times are from employee shifts. Service slot settings do not apply.'}</p>
+              </div>
+              {tenantAssignmentMode === 'both' && (
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.assignmentMode') || 'Assignment'}</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCreateAssignmentMode('automatic')}
+                      className={`px-3 py-2 rounded-lg border text-sm font-medium ${effectiveCreateAssignmentMode === 'automatic' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                    >
+                      {t('reception.autoAssign') || 'Automatic'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCreateAssignmentMode('manual')}
+                      className={`px-3 py-2 rounded-lg border text-sm font-medium ${effectiveCreateAssignmentMode === 'manual' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                    >
+                      {t('reception.manualAssign') || 'Manual'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {effectiveCreateAssignmentMode === 'manual' && (
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.selectEmployee')} *</label>
+                  <select
+                    value={createSelectedEmployeeId}
+                    onChange={(e) => { setCreateSelectedEmployeeId(e.target.value); setCreateSlotId(''); setCreateSelectedSlots([]); }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required={effectiveCreateAssignmentMode === 'manual'}
+                  >
+                    <option value="">{t('reception.chooseEmployee') || 'Choose employee'}</option>
+                    {(() => {
+                      const empMap = new Map<string, { id: string; name: string; name_ar: string }>();
+                      createSlots.forEach(slot => {
+                        if (slot.employee_id && !empMap.has(slot.employee_id)) {
+                          const u = (slot as any).users;
+                          empMap.set(slot.employee_id, {
+                            id: slot.employee_id,
+                            name: u?.full_name ?? '',
+                            name_ar: u?.full_name_ar ?? '',
+                          });
+                        }
+                      });
+                      return Array.from(empMap.values()).map(emp => (
+                        <option key={emp.id} value={emp.id}>
+                          {i18n.language === 'ar' ? (emp.name_ar || emp.name) : emp.name}
+                        </option>
+                      ));
+                    })()}
+                  </select>
+                </div>
+              )}
+            </>
+          )}
+          {/* 9. Available Slots — same as Reception: group by time, click to add/remove, validation; in employee manual mode filter by selected employee */}
           {createServiceId && createDate && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">{t('reception.availableSlots')} *</label>
@@ -2463,55 +2537,65 @@ export function BookingsPage() {
               })()}
               {loadingCreateSlots ? (
                 <p className="text-sm text-gray-500 py-4">{t('common.loading')}</p>
-              ) : createSlots.length === 0 ? (
-                <div className="text-center py-8 bg-gray-50 rounded-lg">
-                  <Clock className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                  <p className="text-gray-600">{t('reception.noSlotsAvailable')}</p>
+              ) : isEmployeeBasedMode && effectiveCreateAssignmentMode === 'manual' && !createSelectedEmployeeId ? (
+                <div className="text-center py-6 bg-gray-50 rounded-lg border border-gray-200">
+                  <User className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+                  <p className="text-gray-600">{t('reception.selectEmployeeFirst') || 'Please select an employee above to see available times.'}</p>
                 </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                  {(() => {
-                    const timeMap = new Map<string, Slot[]>();
-                    createSlots.forEach(slot => {
-                      const key = `${slot.slot_date}-${slot.start_time}-${slot.end_time}`;
-                      if (!timeMap.has(key)) timeMap.set(key, []);
-                      timeMap.get(key)!.push(slot);
-                    });
-                    return Array.from(timeMap.entries()).map(([timeKey, grouped]) => {
-                      const first = grouped[0];
-                      const totalCap = grouped.reduce((sum, s) => sum + s.available_capacity, 0);
-                      const selCount = createSelectedSlots.filter(s => s.start_time === first.start_time && s.end_time === first.end_time).length;
-                      const isSelSingle = createForm.visitor_count <= 1 && createSlotId && grouped.some(s => s.id === createSlotId);
-                      const isSel = selCount > 0 || isSelSingle;
-                      return (
-                        <button
-                          key={timeKey}
-                          type="button"
-                          onClick={(e) => {
-                            if (createForm.visitor_count <= 1) {
-                              setCreateSlotId(prev => (grouped.some(s => s.id === prev) && prev === first.id ? '' : first.id));
-                              setCreateSelectedSlots([]);
-                            } else {
-                              handleCreateSlotClick(first, e);
-                            }
-                          }}
-                          onContextMenu={(e) => { e.preventDefault(); if (createForm.visitor_count > 1) handleCreateSlotClick(first, { ...e, button: 2 } as React.MouseEvent); }}
-                          className={`p-3 text-left rounded-lg border relative ${isSel ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                        >
-                          {createForm.visitor_count > 1 && selCount > 0 && (
-                            <div className="absolute -top-2 -right-2 bg-blue-800 text-white text-xs min-w-[24px] h-6 rounded-full font-bold flex items-center justify-center px-1">{selCount}</div>
-                          )}
-                          <div className="flex items-center gap-2 mb-1">
-                            <Clock className="w-4 h-4" />
-                            <span className="font-medium">{first.start_time} - {first.end_time}</span>
-                          </div>
-                          <div className="text-xs">{totalCap} spots left</div>
-                        </button>
-                      );
-                    });
-                  })()}
-                </div>
-              )}
+              ) : (() => {
+                const displaySlots = isEmployeeBasedMode && effectiveCreateAssignmentMode === 'manual' && createSelectedEmployeeId
+                  ? createSlots.filter(s => s.employee_id === createSelectedEmployeeId)
+                  : createSlots;
+                return displaySlots.length === 0 ? (
+                  <div className="text-center py-8 bg-gray-50 rounded-lg">
+                    <Clock className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-600">{t('reception.noSlotsAvailable')}</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                    {(() => {
+                      const timeMap = new Map<string, Slot[]>();
+                      displaySlots.forEach(slot => {
+                        const key = `${slot.slot_date}-${slot.start_time}-${slot.end_time}`;
+                        if (!timeMap.has(key)) timeMap.set(key, []);
+                        timeMap.get(key)!.push(slot);
+                      });
+                      return Array.from(timeMap.entries()).map(([timeKey, grouped]) => {
+                        const first = grouped[0];
+                        const totalCap = grouped.reduce((sum, s) => sum + s.available_capacity, 0);
+                        const selCount = createSelectedSlots.filter(s => s.start_time === first.start_time && s.end_time === first.end_time).length;
+                        const isSelSingle = createForm.visitor_count <= 1 && createSlotId && grouped.some(s => s.id === createSlotId);
+                        const isSel = selCount > 0 || isSelSingle;
+                        return (
+                          <button
+                            key={timeKey}
+                            type="button"
+                            onClick={(e) => {
+                              if (createForm.visitor_count <= 1) {
+                                setCreateSlotId(prev => (grouped.some(s => s.id === prev) && prev === first.id ? '' : first.id));
+                                setCreateSelectedSlots([]);
+                              } else {
+                                handleCreateSlotClick(first, e);
+                              }
+                            }}
+                            onContextMenu={(e) => { e.preventDefault(); if (createForm.visitor_count > 1) handleCreateSlotClick(first, { ...e, button: 2 } as React.MouseEvent); }}
+                            className={`p-3 text-left rounded-lg border relative ${isSel ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                          >
+                            {createForm.visitor_count > 1 && selCount > 0 && (
+                              <div className="absolute -top-2 -right-2 bg-blue-800 text-white text-xs min-w-[24px] h-6 rounded-full font-bold flex items-center justify-center px-1">{selCount}</div>
+                            )}
+                            <div className="flex items-center gap-2 mb-1">
+                              <Clock className="w-4 h-4" />
+                              <span className="font-medium">{first.start_time} - {first.end_time}</span>
+                            </div>
+                            <div className="text-xs">{totalCap} spots left</div>
+                          </button>
+                        );
+                      });
+                    })()}
+                  </div>
+                );
+              })()}
             </div>
           )}
           {/* Booking Option when quantity > 1 — same as Reception */}
