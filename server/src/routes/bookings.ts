@@ -7,6 +7,27 @@ import { formatCurrency } from '../utils/currency';
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
+/** Tickets feature disabled message - same everywhere for consistency */
+const TICKETS_DISABLED_MESSAGE = 'Tickets feature disabled';
+
+/**
+ * Check tenant tickets_enabled. If disabled, send 403 and return false; otherwise return true.
+ * Use at the start of ticket-related endpoints (validate-qr, get details, etc.).
+ */
+async function requireTicketsEnabled(tenantId: string, res: express.Response): Promise<boolean> {
+  const { data: tenantRow, error } = await supabase
+    .from('tenants')
+    .select('tickets_enabled')
+    .eq('id', tenantId)
+    .maybeSingle();
+  if (error || !tenantRow) return true; // Allow on error (backward compat)
+  if ((tenantRow as any).tickets_enabled === false) {
+    res.status(403).json({ error: TICKETS_DISABLED_MESSAGE });
+    return false;
+  }
+  return true;
+}
+
 /**
  * Normalize phone number to international format
  * Handles Egyptian numbers specially: +2001032560826 -> +201032560826 (removes leading 0 after +20)
@@ -521,6 +542,41 @@ function validatePaymentStatusTransition(oldStatus: string, newStatus: string): 
 
   return { valid: true };
 }
+
+// ============================================================================
+// Customer search by phone (for Add Booking / Add Subscription dropdown)
+// MUST be before /:id routes so GET /customer-search is not matched as :id
+// ============================================================================
+router.get('/customer-search', authenticateReceptionistOrTenantAdmin, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'No tenant associated' });
+    }
+    const phoneParam = (req.query.phone as string) || '';
+    const digits = phoneParam.replace(/\D/g, '');
+    if (digits.length < 3) {
+      return res.status(400).json({
+        error: 'Phone fragment too short',
+        hint: 'Provide at least 3 digits to search customers',
+      });
+    }
+    const pattern = `%${digits}%`;
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, name, phone, email')
+      .eq('tenant_id', tenantId)
+      .ilike('phone', pattern)
+      .limit(11);
+
+    if (error) {
+      return res.status(500).json({ error: 'Failed to search customers', details: error.message });
+    }
+    return res.json({ customers: data || [] });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Customer search failed' });
+  }
+});
 
 // ============================================================================
 // Check package exhaustion notification status
@@ -3247,6 +3303,9 @@ router.post('/validate-qr', authenticate, async (req, res) => {
       });
     }
 
+    // Tickets feature must be enabled for this tenant
+    if (!(await requireTicketsEnabled(userData.tenant_id, res))) return;
+
     // Use extracted booking ID for database query
     const bookingIdToUse = extractedBookingId;
 
@@ -3366,6 +3425,7 @@ router.get('/:id/details', async (req, res) => {
       .from('bookings')
       .select(`
         id,
+        tenant_id,
         customer_name,
         customer_phone,
         customer_email,
@@ -3385,7 +3445,8 @@ router.get('/:id/details', async (req, res) => {
         tenants!inner (
           name,
           name_ar,
-          currency_code
+          currency_code,
+          tickets_enabled
         )
       `)
       .eq('id', bookingId)
@@ -3424,6 +3485,31 @@ router.get('/:id/details', async (req, res) => {
         `);
       }
       return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    // Tickets feature must be enabled for this tenant (block ticket/view access when disabled)
+    const tenantsRow = (booking as any).tenants;
+    if (tenantsRow && tenantsRow.tickets_enabled === false) {
+      const userAgent = req.headers['user-agent'] || '';
+      const isBrowser = userAgent.includes('Mozilla') || userAgent.includes('Chrome') || userAgent.includes('Safari') || userAgent.includes('Firefox') || userAgent.includes('Edge');
+      const acceptsJson = req.headers.accept?.includes('application/json');
+      if (isBrowser && !acceptsJson) {
+        return res.status(403).send(`
+          <!DOCTYPE html>
+          <html>
+          <head><title>Tickets Unavailable</title><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}.container{background:white;padding:30px;border-radius:10px;max-width:500px;margin:0 auto}h1{color:#e67e22}</style>
+          </head>
+          <body>
+            <div class="container">
+              <h1>Tickets are currently unavailable</h1>
+              <p>Please contact us for more information.</p>
+            </div>
+          </body>
+          </html>
+        `);
+      }
+      return res.status(403).json({ error: TICKETS_DISABLED_MESSAGE });
     }
 
     // Helper function to format date as MM-DD-YYYY
@@ -5308,42 +5394,6 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
   } catch (error: any) {
     logger.error('Mark paid error:', error);
     res.status(500).json({ error: error.message || 'Failed to mark booking as paid' });
-  }
-});
-
-// ============================================================================
-// Customer search by phone (for Add Booking / Add Subscription dropdown)
-// ============================================================================
-// Used when Admin/Receptionist types phone: show matching customers (1–10 only).
-// Query: LIKE '%digits%' LIMIT 11; if results.length > 10 we do not show dropdown.
-router.get('/customer-search', authenticateReceptionistOrTenantAdmin, async (req, res) => {
-  try {
-    const tenantId = req.user!.tenant_id;
-    if (!tenantId) {
-      return res.status(403).json({ error: 'No tenant associated' });
-    }
-    const phoneParam = (req.query.phone as string) || '';
-    const digits = phoneParam.replace(/\D/g, '');
-    if (digits.length < 5) {
-      return res.status(400).json({
-        error: 'Phone fragment too short',
-        hint: 'Provide at least 5 digits to search customers',
-      });
-    }
-    const pattern = `%${digits}%`;
-    const { data, error } = await supabase
-      .from('customers')
-      .select('id, name, phone, email')
-      .eq('tenant_id', tenantId)
-      .ilike('phone', pattern)
-      .limit(11);
-
-    if (error) {
-      return res.status(500).json({ error: 'Failed to search customers', details: error.message });
-    }
-    return res.json({ customers: data || [] });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Customer search failed' });
   }
 });
 

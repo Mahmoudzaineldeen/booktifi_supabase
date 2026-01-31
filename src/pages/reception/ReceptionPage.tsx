@@ -3797,6 +3797,12 @@ export function ReceptionPage() {
         </div>
       </header>
 
+      {tenant?.tickets_enabled === false && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 text-center text-sm text-amber-800">
+          {t('reception.ticketsDisabledBySettings')}
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Visitors View (reception layout, same APIs as admin) */}
         {isVisitorsPath && (
@@ -5603,6 +5609,7 @@ export function ReceptionPage() {
           setConfirmationBookingId(null);
           setIsModalOpen(true);
         }}
+        ticketsEnabled={tenant?.tickets_enabled !== false}
       />
 
       {/* Booking Details Modal */}

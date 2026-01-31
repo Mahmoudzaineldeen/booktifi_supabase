@@ -9,6 +9,7 @@ import { Card, CardContent } from '../../components/ui/Card';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { Package, CheckCircle, Calendar, Clock, Users, ArrowRight, User } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
+import { TicketsUnavailablePage } from '../../components/shared/TicketsUnavailablePage';
 
 export function BookingSuccessPage() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
@@ -102,6 +103,10 @@ export function BookingSuccessPage() {
     return null;
   }
 
+  if (tenant && tenant.tickets_enabled === false) {
+    return <TicketsUnavailablePage />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -156,9 +161,13 @@ export function BookingSuccessPage() {
             </h2>
 
             <p className="text-gray-600 mb-8">
-              {i18n.language === 'ar' 
-                ? 'شكراً لك! تم تأكيد حجزك بنجاح. سيتم إرسال تذكرة الحجز إلى رقم الواتساب الخاص بك.'
-                : 'Thank you! Your booking has been confirmed. Your booking ticket will be sent to your WhatsApp number.'}
+              {tenant?.tickets_enabled !== false
+                ? (i18n.language === 'ar' 
+                    ? 'شكراً لك! تم تأكيد حجزك بنجاح. سيتم إرسال تذكرة الحجز إلى رقم الواتساب الخاص بك.'
+                    : 'Thank you! Your booking has been confirmed. Your booking ticket will be sent to your WhatsApp number.')
+                : (i18n.language === 'ar' 
+                    ? 'شكراً لك! تم تأكيد حجزك بنجاح.'
+                    : 'Thank you! Your booking has been confirmed.')}
             </p>
 
             <div className="bg-gray-50 rounded-lg p-6 mb-8 text-left space-y-4">

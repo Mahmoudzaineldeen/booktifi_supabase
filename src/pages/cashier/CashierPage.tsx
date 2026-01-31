@@ -310,6 +310,12 @@ export function CashierPage() {
         </div>
       </header>
 
+      {tenant?.tickets_enabled === false && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 text-center text-sm text-amber-800">
+          {t('reception.ticketsDisabledBySettings')}
+        </div>
+      )}
+
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* QR Scanner Section - only when tickets are enabled */}
         {tenant?.tickets_enabled !== false ? (

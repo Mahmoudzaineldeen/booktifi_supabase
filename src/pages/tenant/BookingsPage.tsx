@@ -1458,6 +1458,11 @@ export function BookingsPage() {
 
   return (
     <div className="p-4 md:p-8">
+      {tenant?.tickets_enabled === false && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-center text-sm text-amber-800">
+          {t('reception.ticketsDisabledBySettings')}
+        </div>
+      )}
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -2806,6 +2811,7 @@ export function BookingsPage() {
           setConfirmationBookingId(null);
           setIsCreateModalOpen(true);
         }}
+        ticketsEnabled={tenant?.tickets_enabled !== false}
       />
 
       {/* Edit Booking Modal */}

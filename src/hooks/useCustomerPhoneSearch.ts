@@ -15,7 +15,7 @@ export interface CustomerSuggestion {
 }
 
 const DEBOUNCE_MS = 400;
-const MIN_DIGITS = 5;
+const MIN_DIGITS = 3;
 const MAX_SHOW = 10;
 const LIMIT = 11;
 

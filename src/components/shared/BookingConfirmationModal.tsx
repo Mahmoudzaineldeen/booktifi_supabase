@@ -22,6 +22,8 @@ export interface BookingConfirmationModalProps {
   bookingId: string | null;
   onBackToBookings: () => void;
   onCreateAnother: () => void;
+  /** When false, ticket-related message is hidden (tickets feature disabled) */
+  ticketsEnabled?: boolean;
 }
 
 interface FetchedBooking {
@@ -40,6 +42,7 @@ export function BookingConfirmationModal({
   bookingId,
   onBackToBookings,
   onCreateAnother,
+  ticketsEnabled = true,
 }: BookingConfirmationModalProps) {
   const { t, i18n } = useTranslation();
   const { formatPrice } = useCurrency();
@@ -165,9 +168,13 @@ export function BookingConfirmationModal({
                   {i18n.language === 'ar' ? 'تم تأكيد الحجز!' : 'Booking Confirmed!'}
                 </h2>
                 <p className="text-gray-600 text-sm mb-6">
-                  {i18n.language === 'ar'
-                    ? 'شكراً! تم تأكيد الحجز. سيتم إرسال تذكرة الحجز إلى رقم واتساب العميل.'
-                    : "Thank you! The booking has been confirmed. The booking ticket will be sent to the customer's WhatsApp number."}
+                  {ticketsEnabled
+                    ? (i18n.language === 'ar'
+                        ? 'شكراً! تم تأكيد الحجز. سيتم إرسال تذكرة الحجز إلى رقم واتساب العميل.'
+                        : "Thank you! The booking has been confirmed. The booking ticket will be sent to the customer's WhatsApp number.")
+                    : (i18n.language === 'ar'
+                        ? 'شكراً! تم تأكيد الحجز.'
+                        : 'Thank you! The booking has been confirmed.')}
                 </p>
 
                 <div className="bg-gray-50 rounded-lg p-5 mb-6 text-left space-y-4">

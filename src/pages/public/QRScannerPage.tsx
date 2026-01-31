@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useCurrency } from '../../contexts/CurrencyContext';
@@ -8,6 +8,8 @@ import { format, parseISO } from 'date-fns';
 import { User, Calendar, Clock, Package, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { getApiUrl } from '../../lib/apiUrl';
 import { extractBookingIdFromQR, parseQRContentForDisplay } from '../../lib/qrUtils';
+import { db } from '../../lib/db';
+import { TicketsUnavailablePage } from '../../components/shared/TicketsUnavailablePage';
 
 interface BookingDetails {
   id: string;
@@ -34,6 +36,27 @@ export function QRScannerPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(true);
+  const [ticketsEnabled, setTicketsEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!tenantSlug) {
+      setTicketsEnabled(true);
+      return;
+    }
+    let cancelled = false;
+    db
+      .from('tenants')
+      .select('tickets_enabled')
+      .eq('slug', tenantSlug)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setTicketsEnabled(data?.tickets_enabled !== false);
+      })
+      .catch(() => {
+        if (!cancelled) setTicketsEnabled(true);
+      });
+    return () => { cancelled = true; };
+  }, [tenantSlug]);
 
   const fetchBookingDetails = async (bookingId: string) => {
     setLoading(true);
@@ -84,6 +107,18 @@ export function QRScannerPage() {
   const handleScanError = (errorMessage: string) => {
     setError(errorMessage);
   };
+
+  if (ticketsEnabled === false) {
+    return <TicketsUnavailablePage />;
+  }
+
+  if (ticketsEnabled === null) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+      </div>
+    );
+  }
 
   if (isScannerOpen) {
     return (
