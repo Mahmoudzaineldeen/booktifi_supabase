@@ -317,7 +317,51 @@ router.post('/insert/:table', async (req, res) => {
       return res.status(400).json({ error: 'Invalid table name' });
     }
 
-    const records = Array.isArray(data) ? data : [data];
+    let records = Array.isArray(data) ? data : [data];
+
+    // Normalize employee_shifts so TIME and integer[] match DB expectations and CHECK constraints
+    if (table === 'employee_shifts' && records.length > 0) {
+      try {
+        records = records.map((r: any) => {
+          const days = Array.isArray(r.days_of_week)
+            ? (r.days_of_week as any[]).map((d: any) => Number(d)).filter((n: number) => !Number.isNaN(n) && n >= 0 && n <= 6)
+            : [];
+          if (days.length === 0) {
+            throw new Error('Each shift must have at least one day selected (days_of_week).');
+          }
+          const toTime = (v: any) => {
+            if (v == null) return null;
+            const s = String(v).trim().slice(0, 8);
+            if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) return s.length === 5 ? `${s}:00` : s;
+            return null;
+          };
+          const start = toTime(r.start_time_utc);
+          const end = toTime(r.end_time_utc);
+          if (!start || !end) {
+            throw new Error('Shift start_time_utc and end_time_utc must be valid times (e.g. 09:00 or 09:00:00).');
+          }
+          const [sh, sm] = start.split(':').map(Number);
+          const [eh, em] = end.split(':').map(Number);
+          const startM = (sh || 0) * 60 + (sm || 0);
+          const endM = (eh || 0) * 60 + (em || 0);
+          if (endM <= startM) {
+            throw new Error('Shift end time must be after start time.');
+          }
+          return {
+            tenant_id: r.tenant_id,
+            employee_id: r.employee_id,
+            days_of_week: days,
+            start_time_utc: start,
+            end_time_utc: end,
+            is_active: r.is_active !== false,
+          };
+        });
+      } catch (validationErr: any) {
+        const msg = validationErr?.message || 'Invalid employee shift data.';
+        console.error(`[Insert] employee_shifts validation:`, msg);
+        return res.status(400).json({ error: msg });
+      }
+    }
 
     // Check which key is being used
     const isUsingServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -476,6 +520,18 @@ router.post('/insert/:table', async (req, res) => {
           `Foreign key violation: ${error.message}. ` +
           `Make sure all referenced records exist.`
         );
+      }
+
+      // Handle check constraint violations (e.g. employee_shifts: end_time > start_time, days_of_week not empty)
+      if (error.code === '23514') {
+        const msg = error.message || '';
+        const friendly = msg.includes('end_time_utc') || msg.includes('start_time')
+          ? 'Shift end time must be after start time.'
+          : msg.includes('days_of_week') || msg.includes('array_length')
+            ? 'Each shift must have at least one day selected.'
+            : `Invalid data: ${msg}`;
+        console.error(`[Insert] Check constraint violation (23514):`, msg);
+        return res.status(400).json({ error: friendly });
       }
       
       // Generic error with full message

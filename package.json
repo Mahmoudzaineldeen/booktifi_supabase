@@ -22,6 +22,7 @@
     "test:integration:booking-invoice": "vitest run tests/integration/booking-invoice-payment-flow.test.ts",
     "test:integration:dashboard": "vitest run tests/integration/dashboard-metrics.test.ts",
     "test:integration:employee-shifts": "vitest run tests/integration/employee-shifts-reception-slots.test.ts",
+    "test:integration:employee-based-two": "vitest run tests/integration/employee-based-two-employees-slots.test.ts",
     "test:security": "vitest run tests/security",
     "test:coverage": "vitest run --coverage",
     "test:setup": "node tests/scripts/setup-test-data.js",

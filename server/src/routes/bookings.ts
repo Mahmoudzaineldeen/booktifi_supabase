@@ -699,12 +699,20 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       virtualShiftId = newShift.id;
     }
 
+    // In employee-based mode: include ALL employees assigned to this service (any shift_id).
+    // When global mode is employee_based, assignments are often stored with shift_id null; older or
+    // other flows may set shift_id — we include all so slots always appear for configured employees.
     const { data: employeeServices, error: esError } = await supabase
       .from('employee_services')
       .select('employee_id')
-      .eq('service_id', serviceId)
-      .is('shift_id', null);
-    if (esError || !employeeServices || employeeServices.length === 0) {
+      .eq('tenant_id', tenantId)
+      .eq('service_id', serviceId);
+    if (esError) {
+      logger.error('ensure-employee-based-slots: employee_services fetch', esError);
+      return res.status(500).json({ error: esError.message });
+    }
+    if (!employeeServices || employeeServices.length === 0) {
+      logger.warn('ensure-employee-based-slots: no employees assigned to service', { serviceId, dateStr });
       return res.json({ shiftIds: [virtualShiftId] });
     }
     const employeeIds = [...new Set(employeeServices.map((es: any) => es.employee_id))];
@@ -770,6 +778,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
     };
 
+    let slotsCreated = 0;
     for (const es of shiftsForDay) {
       const startM = toMinutes(startTimeStr(es.start_time_utc));
       const endM = toMinutes(startTimeStr(es.end_time_utc));
@@ -813,9 +822,9 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
         }
         const startTs = `${dateStr}T${startTime}`;
         const endTs = `${dateStr}T${endTime}`;
-        const fullRow = {
+        // Use only columns that exist on slots table: no service_id/total_capacity/remaining_capacity
+        const slotRow = {
           tenant_id: tenantId,
-          service_id: serviceId,
           shift_id: virtualShiftId,
           employee_id: es.employee_id,
           slot_date: dateStr,
@@ -823,43 +832,28 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
           end_time: endTime,
           start_time_utc: startTs,
           end_time_utc: endTs,
-          total_capacity: 1,
           original_capacity: 1,
-          remaining_capacity: availableCapacity,
           available_capacity: availableCapacity,
           booked_count: overlapCount,
           is_available: true,
           is_overbooked: false,
         };
-        let { error: insertErr } = await supabase.from('slots').insert(fullRow);
+        let { error: insertErr } = await supabase.from('slots').insert(slotRow);
         if (insertErr && (String(insertErr.message || '').includes('column') || String(insertErr.code || '').includes('undefined_column'))) {
-          const minimalRow = {
-            tenant_id: tenantId,
-            shift_id: virtualShiftId,
-            employee_id: es.employee_id,
-            slot_date: dateStr,
-            start_time: startTime,
-            end_time: endTime,
-            start_time_utc: startTs,
-            end_time_utc: endTs,
-            original_capacity: 1,
-            available_capacity: availableCapacity,
-            booked_count: overlapCount,
-            is_available: true,
-            is_overbooked: false,
-          };
-          insertErr = (await supabase.from('slots').insert(minimalRow)).error;
-          if (insertErr) {
-            const noOverbooked = { ...minimalRow };
-            delete (noOverbooked as any).is_overbooked;
-            insertErr = (await supabase.from('slots').insert(noOverbooked)).error;
-          }
+          const withoutOverbooked = { ...slotRow };
+          delete (withoutOverbooked as any).is_overbooked;
+          insertErr = (await supabase.from('slots').insert(withoutOverbooked)).error;
         }
-        if (insertErr) logger.warn('ensure-employee-based-slots: slot insert error', insertErr);
+        if (insertErr) {
+          logger.warn('ensure-employee-based-slots: slot insert error', { message: insertErr.message, code: insertErr.code });
+        } else {
+          slotsCreated += 1;
+        }
         slotStartM += durationMinutes;
       }
     }
 
+    logger.info('ensure-employee-based-slots: done', { serviceId, dateStr, slotsCreated, employeesWithShifts: shiftsForDay.length });
     return res.json({ shiftIds: [virtualShiftId] });
   } catch (error: any) {
     logger.error('ensure-employee-based-slots error', error);

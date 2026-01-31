@@ -359,8 +359,11 @@ export async function fetchAvailableSlots(
   }
 
   // Step 6: Filter slots to only include those that match shift days_of_week
-  // This prevents showing slots for days that don't match the shift schedule
-  if (shifts && shifts.length > 0) {
+  // Skip when showing employee-based slots: backend creates slots per-date from employee_shifts;
+  // the shift we reuse may have different days (e.g. Mon–Fri), but slots were already created
+  // only for the selected date and only for employees who work that day.
+  const showingEmployeeBasedSlots = (employeeBasedShiftIds != null && employeeBasedShiftIds.length > 0);
+  if (shifts && shifts.length > 0 && !showingEmployeeBasedSlots) {
     // Create a map of shift_id -> days_of_week for quick lookup
     const shiftDaysMap = new Map<string, number[]>();
     shifts.forEach((shift: any) => {
@@ -368,66 +371,21 @@ export async function fetchAvailableSlots(
     });
 
     // Get day of week from the date string to avoid timezone issues
-    // Parse the date string directly instead of using date.getDay()
     const [year, month, day] = dateStr.split('-').map(Number);
     const normalizedDate = new Date(year, month - 1, day);
     const dayOfWeek = normalizedDate.getDay();
-    
-    // Also get day of week from the original date object for comparison
-    const originalDayOfWeek = date.getDay();
-    
-    // Log both to catch any timezone issues
-    console.log('[bookingAvailability] Day of week check:', {
-      dateStr,
-      dayOfWeekFromString: dayOfWeek,
-      dayOfWeekFromDate: originalDayOfWeek,
-      dayName: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek],
-      availableSlotCount: availableSlots.length,
-      shifts: Array.from(shiftDaysMap.entries()).map(([id, days]) => ({ 
-        id: id.substring(0, 8), 
-        days, 
-        dayNames: days.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d])
-      }))
-    });
-    
-    // Use the normalized date's day of week (more reliable)
     const targetDayOfWeek = dayOfWeek;
 
     // Filter slots: only keep slots where the day matches the shift's days_of_week
     availableSlots = availableSlots.filter((slot: Slot) => {
       const slotShiftId = slot.shift_id;
-      if (!slotShiftId) {
-        console.warn(`[bookingAvailability] Slot ${slot.id} has no shift_id - filtering out`);
-        return false;
-      }
-
+      if (!slotShiftId) return false;
       const shiftDays = shiftDaysMap.get(slotShiftId);
-      if (!shiftDays || shiftDays.length === 0) {
-        console.warn(`[bookingAvailability] Shift ${slotShiftId} has no days_of_week - filtering out slot ${slot.id}`);
-        return false;
-      }
-
-      // Check if this day matches the shift's days_of_week
-      if (shiftDays.includes(targetDayOfWeek)) {
-        return true;
-      }
-
-      // Day doesn't match the shift's days_of_week, filter it out
-      console.warn(
-        `[bookingAvailability] Filtering out slot ${slot.id.substring(0, 8)} on ${dateStr} (DOW=${targetDayOfWeek}/${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][targetDayOfWeek]}) - doesn't match shift ${slotShiftId.substring(0, 8)} days [${shiftDays.join(', ')}] (${shiftDays.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')})`
-      );
-      return false;
+      if (!shiftDays || shiftDays.length === 0) return false;
+      return shiftDays.includes(targetDayOfWeek);
     });
 
-    const slotsBeforeDayFilter = availableSlots.length;
     console.log('[bookingAvailability] After day-of-week filter: ' + availableSlots.length + ' slots remaining');
-    if (slotsBeforeDayFilter > availableSlots.length) {
-      console.warn(`[bookingAvailability] ⚠️  Filtered out ${slotsBeforeDayFilter - availableSlots.length} slots due to day-of-week mismatch`);
-      console.warn(`[bookingAvailability]    Selected date: ${dateStr} (${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][targetDayOfWeek]})`);
-      console.warn(`[bookingAvailability]    Shift days:`, Array.from(shiftDaysMap.entries()).map(([id, days]) => 
-        `Shift ${id.substring(0, 8)}: [${days.join(', ')}] (${days.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')})`
-      ));
-    }
   }
 
   // Step 7: Filter out past time slots for today only (unless includePastSlots is true)

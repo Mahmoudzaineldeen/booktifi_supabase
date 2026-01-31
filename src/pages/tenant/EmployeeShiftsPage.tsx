@@ -36,10 +36,16 @@ type SearchType = 'employee_name' | 'service_name' | '';
 const DAY_NAMES_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NAMES_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 
-function formatTime(t: string): string {
+/** Format 24h time (e.g. "09:00" or "21:00:00") as 12h with AM/PM. Use isAr for Arabic ص/م. */
+function formatTime12h(t: string, isAr: boolean = false): string {
   if (!t) return '';
-  const part = t.split(':').slice(0, 2).join(':');
-  return part.length === 5 ? part : t.substring(0, 5);
+  const parts = t.split(':').map(Number);
+  const h = Math.min(23, Math.max(0, parts[0] ?? 0));
+  const m = Math.min(59, Math.max(0, parts[1] ?? 0));
+  const hour12 = h % 12 || 12;
+  const ampm = h < 12 ? (isAr ? 'ص' : 'AM') : (isAr ? 'م' : 'PM');
+  const minStr = String(m).padStart(2, '0');
+  return `${hour12}:${minStr} ${ampm}`;
 }
 
 function formatShiftDays(shift: EmployeeShiftRow, isAr: boolean): string {
@@ -51,9 +57,9 @@ function formatShiftDays(shift: EmployeeShiftRow, isAr: boolean): string {
     .join(', ');
 }
 
-function formatShiftTime(shift: EmployeeShiftRow): string {
-  const start = formatTime(shift.start_time_utc);
-  const end = formatTime(shift.end_time_utc);
+function formatShiftTime(shift: EmployeeShiftRow, isAr: boolean = false): string {
+  const start = formatTime12h(shift.start_time_utc, isAr);
+  const end = formatTime12h(shift.end_time_utc, isAr);
   return `${start} – ${end}`;
 }
 
@@ -360,7 +366,7 @@ export function EmployeeShiftsPage() {
                               <li key={shift.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                                 <span>{formatShiftDays(shift, isAr)}</span>
                                 <span className="font-medium text-gray-900 whitespace-nowrap">
-                                  {formatShiftTime(shift)}
+                                  {formatShiftTime(shift, isAr)}
                                 </span>
                               </li>
                             ))}
