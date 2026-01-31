@@ -55,6 +55,7 @@ interface Booking {
     start_time: string;
     end_time: string;
   };
+  slot_id?: string;
   users: {
     id?: string;
     full_name: string;
@@ -90,6 +91,7 @@ interface Service {
   original_price?: number | null;
   discount_percentage?: number | null;
   capacity_per_slot: number;
+  capacity_mode?: 'employee_based' | 'service_based';
   offers?: ServiceOffer[]; // Service offers
 }
 
@@ -100,11 +102,11 @@ interface Slot {
   end_time: string;
   available_capacity: number;
   booked_count: number;
-  employee_id: string;
-  users: {
+  employee_id?: string | null;
+  users?: {
     full_name: string;
     full_name_ar: string;
-  };
+  } | null;
 }
 
 interface PackageUsage {
@@ -236,7 +238,7 @@ export function ReceptionPage() {
   const [createPaymentMethod, setCreatePaymentMethod] = useState<'unpaid' | 'onsite' | 'transfer'>('onsite');
   const [createTransactionReference, setCreateTransactionReference] = useState('');
 
-  const isCoordinator = userProfile?.role === 'coordinator';
+  const isCoordinator = (userProfile?.role as string) === 'coordinator';
 
   // Track if initial auth check has been completed
   const [initialAuthDone, setInitialAuthDone] = useState(false);
@@ -524,7 +526,7 @@ export function ReceptionPage() {
     // Fetch all active offers for these services
     if (servicesData && servicesData.length > 0) {
         console.log(`[ReceptionPage] fetchServices: Found ${servicesData.length} services, fetching offers...`);
-      const serviceIds = servicesData.map(s => s.id);
+      const serviceIds = servicesData.map((s: { id: string }) => s.id);
         const offersResult = await db
         .from('service_offers')
         .select('id, service_id, name, name_ar, price, original_price, discount_percentage, is_active')
@@ -541,9 +543,9 @@ export function ReceptionPage() {
       }
       
       // Attach offers to their respective services
-      const servicesWithOffers = servicesData.map(service => ({
+      const servicesWithOffers = servicesData.map((service: { id: string } & Record<string, unknown>) => ({
         ...service,
-        offers: offersData?.filter(offer => offer.service_id === service.id) || []
+        offers: offersData?.filter((offer: { service_id: string }) => offer.service_id === service.id) || []
       }));
       
         console.log(`[ReceptionPage] fetchServices: Setting ${servicesWithOffers.length} services in state`);
@@ -571,7 +573,7 @@ export function ReceptionPage() {
       const { data: packagesData, error: packagesError } = await db
         .from('service_packages')
         .select('id, name, name_ar, total_price')
-        .eq('tenant_id', userProfile.tenant_id)
+        .eq('tenant_id', userProfile!.tenant_id)
         .eq('is_active', true)
         .order('name');
       
@@ -587,7 +589,7 @@ export function ReceptionPage() {
       }
       
       // Fetch package services separately
-      const packageIds = packagesData.map(p => p.id);
+      const packageIds = packagesData.map((p: { id: string }) => p.id);
       
       // Only fetch services if we have package IDs
       if (packageIds.length === 0) {
@@ -603,7 +605,7 @@ export function ReceptionPage() {
       if (packageServicesError) {
         console.error('Error fetching package services:', packageServicesError);
         // Still set packages even if services fetch fails
-        setPackages(packagesData.map(pkg => ({
+        setPackages(packagesData.map((pkg: { id: string } & Record<string, unknown>) => ({
           ...pkg,
           package_services: []
         })));
@@ -611,9 +613,9 @@ export function ReceptionPage() {
       }
       
       // Combine packages with their services
-      const packagesWithServices = packagesData.map(pkg => ({
+      const packagesWithServices = packagesData.map((pkg: { id: string } & Record<string, unknown>) => ({
         ...pkg,
-        package_services: packageServicesData?.filter(ps => ps.package_id === pkg.id) || []
+        package_services: packageServicesData?.filter((ps: { package_id: string }) => ps.package_id === pkg.id) || []
       }));
       
       setPackages(packagesWithServices);
@@ -657,7 +659,7 @@ export function ReceptionPage() {
       const { data: customerData, error: customerError } = await db
         .from('customers')
         .select('id, name, email, phone')
-        .eq('tenant_id', userProfile.tenant_id)
+        .eq('tenant_id', userProfile!.tenant_id)
         .eq('phone', fullPhoneNumber)
         .maybeSingle();
 
@@ -950,14 +952,14 @@ export function ReceptionPage() {
     }
 
     // Only search if search type is selected and not date (date is handled separately)
-    if (searchType && searchType !== 'date' && searchType !== '' && searchQuery.trim().length > 0) {
+    if (searchType && searchType !== 'date' && (searchType as string) !== '' && searchQuery.trim().length > 0) {
       const validation = validateSearchInput(searchType, searchQuery);
       if (validation.valid) {
         searchTimeoutRef.current = setTimeout(() => {
           searchBookings(searchType, searchQuery);
         }, 300); // 300ms debounce
       }
-    } else if (searchType === '' || (searchType !== 'date' && searchQuery.trim().length === 0)) {
+    } else if ((searchType as string) === '' || (searchType !== 'date' && searchQuery.trim().length === 0)) {
       setSearchResults([]);
       setShowSearchResults(false);
       setSearchValidationError('');
@@ -1005,7 +1007,7 @@ export function ReceptionPage() {
           slots (slot_date, start_time, end_time),
           users:employee_id (id, full_name, full_name_ar)
         `)
-        .eq('tenant_id', userProfile.tenant_id)
+        .eq('tenant_id', userProfile!.tenant_id)
         .order('created_at', { ascending: false })
         .limit(100);
 
@@ -1015,18 +1017,18 @@ export function ReceptionPage() {
       console.log(`[ReceptionPage] ========================================`);
       console.log(`[ReceptionPage] Fetched bookings: ${rawBookings.length} total bookings`);
       if (rawBookings.length > 0) {
-        console.log(`[ReceptionPage] Sample bookings:`, rawBookings.slice(0, 3).map(b => ({
+        console.log(`[ReceptionPage] Sample bookings:`, rawBookings.slice(0, 3).map((b: Record<string, unknown>) => ({
           id: b.id,
           customer_name: b.customer_name,
-          slot_date: b.slots?.slot_date,
-          start_time: b.slots?.start_time,
+          slot_date: (b.slots as Record<string, unknown>)?.slot_date,
+          start_time: (b.slots as Record<string, unknown>)?.start_time,
           visitor_count: b.visitor_count
         })));
       }
 
       // Group bookings by booking_group_id to aggregate employees and count
       const bookingGroups = new Map();
-      rawBookings.forEach(booking => {
+      rawBookings.forEach((booking: Record<string, unknown>) => {
         const groupId = booking.booking_group_id || booking.id;
 
         if (!bookingGroups.has(groupId)) {
@@ -1038,7 +1040,7 @@ export function ReceptionPage() {
         } else {
           const group = bookingGroups.get(groupId);
           // Add employee if not already in list
-          if (booking.users && !group.employees.find((e: any) => e.id === booking.users.id)) {
+          if (booking.users && !group.employees.find((e: { id: string }) => e.id === (booking.users as { id: string })?.id)) {
             group.employees.push(booking.users);
           }
           group.groupCount += 1;
@@ -1133,7 +1135,7 @@ export function ReceptionPage() {
       // Filter out slots that conflict with already selected services (receptionist-specific for multi-service bookings)
       // This only applies when booking multiple services - for single service, shows same slots as customer
       // When selectedServices.length === 0, filterConflictingSlots returns all slots unchanged
-      const nonConflictingSlots = filterConflictingSlots(result.slots);
+      const nonConflictingSlots = filterConflictingSlots(result.slots as Slot[]);
 
       setSlots(nonConflictingSlots);
 
@@ -1153,7 +1155,7 @@ export function ReceptionPage() {
       const { data: employeeServices, error: empServError } = await db
         .from('employee_services')
         .select('employee_id, users:employee_id(id, full_name, full_name_ar, is_active)')
-        .eq('tenant_id', userProfile.tenant_id)
+        .eq('tenant_id', userProfile!.tenant_id)
         .eq('service_id', selectedService);
 
       if (empServError) {
@@ -1168,7 +1170,7 @@ export function ReceptionPage() {
 
       // Filter active employees and create map
       const employeeMap = new Map<string, {id: string, name: string, name_ar: string}>();
-      employeeServices.forEach(es => {
+      employeeServices.forEach((es: { employee_id: string; users?: { id: string; full_name: string; full_name_ar: string; is_active: boolean } }) => {
         if (es.users && es.users.is_active) {
           employeeMap.set(es.employee_id, {
             id: es.users.id,
@@ -1183,7 +1185,7 @@ export function ReceptionPage() {
       const { data: allSlots } = await db
         .from('slots')
         .select('id, employee_id')
-        .eq('tenant_id', userProfile.tenant_id)
+        .eq('tenant_id', userProfile!.tenant_id)
         .eq('slot_date', dateStr)
         .in('shift_id', shiftIds)
         .in('employee_id', employeeIds);
@@ -1198,7 +1200,7 @@ export function ReceptionPage() {
       }
 
       // Get booking counts for each employee on this date
-      const slotIds = allSlots.map(s => s.id);
+      const slotIds = allSlots.map((s: { id: string }) => s.id);
 
       if (slotIds.length === 0) {
         const employeesWithCounts = Array.from(employeeMap.values()).map(emp => ({
@@ -1216,7 +1218,7 @@ export function ReceptionPage() {
         .in('status', ['pending', 'confirmed', 'checked_in']);
 
       const bookingCountMap = new Map<string, number>();
-      (bookings || []).forEach(booking => {
+      (bookings || []).forEach((booking: { employee_id: string }) => {
         const count = bookingCountMap.get(booking.employee_id) || 0;
         bookingCountMap.set(booking.employee_id, count + 1);
       });
@@ -1593,12 +1595,16 @@ export function ReceptionPage() {
       throw new Error(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
     }
 
+    const serviceId = selectedService;
+    const tenantId = userProfile?.tenant_id;
+    if (!serviceId || !tenantId) throw new Error('Missing service or tenant');
+
     // Use bulk booking endpoint for atomic transaction and proper validation
     try {
       const result = await createBulkBookingViaAPI({
         slot_ids: slotsToUse.map(s => s.id),
-        service_id: selectedService!,
-        tenant_id: userProfile!.tenant_id,
+        service_id: serviceId,
+        tenant_id: tenantId,
         customer_name: bookingForm.customer_name,
         customer_phone: fullPhoneNumber,
         customer_email: bookingForm.customer_email || null,
@@ -1635,7 +1641,7 @@ export function ReceptionPage() {
     }
 
     // Get employee ID from first selected slot (all should be same employee for consecutive)
-    const employeeId = selectedSlots[0].employee_id;
+    const employeeId = selectedSlots[0]?.employee_id ?? null;
 
     // Generate a group ID for all bookings in this transaction
     const bookingGroupId = crypto.randomUUID();
@@ -1662,19 +1668,23 @@ export function ReceptionPage() {
       throw new Error(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
     }
 
+    const serviceIdConsec = selectedService;
+    const tenantIdConsec = userProfile?.tenant_id;
+    if (!serviceIdConsec || !tenantIdConsec) throw new Error('Missing service or tenant');
+
     // Use bulk booking endpoint for atomic transaction and proper validation
     try {
       const result = await createBulkBookingViaAPI({
         slot_ids: slotsToUse.map(s => s.id),
-        service_id: selectedService!,
-        tenant_id: userProfile!.tenant_id,
+        service_id: serviceIdConsec,
+        tenant_id: tenantIdConsec,
         customer_name: bookingForm.customer_name,
         customer_phone: fullPhoneNumber,
         customer_email: bookingForm.customer_email || null,
         visitor_count: quantity,
         total_price: totalPrice,
         notes: bookingForm.notes || null,
-        employee_id: employeeId,
+        employee_id: employeeId ?? null,
         offer_id: selectedOffer || null,
         language: i18n.language,
         booking_group_id: bookingGroupId,
@@ -1707,7 +1717,7 @@ export function ReceptionPage() {
       const { data: existingCustomer } = await db
         .from('customers')
         .select('id, total_bookings')
-        .eq('tenant_id', userProfile.tenant_id)
+        .eq('tenant_id', userProfile!.tenant_id)
         .eq('phone', fullPhoneNumber)
         .maybeSingle();
 
@@ -1993,6 +2003,7 @@ export function ReceptionPage() {
     alert(t('reception.noServicesSelected'));
     return;
 
+    if (!userProfile?.tenant_id || !selectedService) return;
     const service = services.find(s => s.id === selectedService);
     if (!service) return;
 
@@ -2015,7 +2026,7 @@ export function ReceptionPage() {
     try {
       // Handle quantity-based booking
       if (bookingForm.visitor_count > 1) {
-        await handleQuantityBooking(service);
+        await handleQuantityBooking(service as Service);
         return;
       }
 
@@ -2031,17 +2042,18 @@ export function ReceptionPage() {
         }
 
         const dateStr = format(selectedDate, 'yyyy-MM-dd');
+        const timeSlot = selectedTimeSlot;
         console.log('=== AUTOMATIC BOOKING DEBUG ===');
         console.log('Selected date:', dateStr);
-        console.log('Selected time:', selectedTimeSlot);
+        console.log('Selected time:', timeSlot);
         console.log('All available slots:', slots);
         console.log('Selected service:', selectedService);
-        console.log('Service capacity mode:', service.capacity_mode);
+        console.log('Service capacity mode:', service?.capacity_mode);
 
         // Find all slots at this time (same start_time and end_time)
         const slotsAtSelectedTime = slots.filter(
-          s => s.start_time === selectedTimeSlot.start_time &&
-               s.end_time === selectedTimeSlot.end_time &&
+          s => s.start_time === timeSlot!.start_time &&
+               s.end_time === timeSlot!.end_time &&
                s.available_capacity > 0
         );
 
@@ -2060,8 +2072,8 @@ export function ReceptionPage() {
         console.log('Service-based capacity - Slot ID:', slotId, 'Employee ID:', employeeId || 'None');
       } else {
         // Manual mode
-        const slot = slots.find(s => s.id === selectedSlot);
-        if (!slot) {
+        const manualSlot = slots.find(s => s.id === selectedSlot);
+        if (!manualSlot) {
           alert(t('reception.selectedSlotNotFound'));
           return;
         }
@@ -2069,7 +2081,7 @@ export function ReceptionPage() {
         slotId = selectedSlot;
 
         // ARCHIVED: Employee-based removed - always service-based
-        employeeId = slot.employee_id || '';
+        employeeId = manualSlot!.employee_id ?? '';
         
         // ARCHIVED: Employee validation removed
         // else {
@@ -2088,7 +2100,11 @@ export function ReceptionPage() {
         // }
       }
 
-      const slot = slots.find(s => s.id === slotId)!;
+      const slot = slots.find(s => s.id === slotId);
+      if (!slot) {
+        alert(t('reception.slotNotSelected'));
+        return;
+      }
 
       // Construct full phone number with country code
       const fullPhoneNumber = `${countryCode}${bookingForm.customer_phone}`;
@@ -2097,7 +2113,7 @@ export function ReceptionPage() {
       const { data: existingCustomer } = await db
         .from('customers')
         .select('id, total_bookings')
-        .eq('tenant_id', userProfile.tenant_id)
+        .eq('tenant_id', userProfile!.tenant_id)
         .eq('phone', fullPhoneNumber)
         .maybeSingle();
 
@@ -2117,7 +2133,7 @@ export function ReceptionPage() {
         await db
           .from('customers')
           .insert({
-            tenant_id: userProfile.tenant_id,
+            tenant_id: userProfile!.tenant_id,
             phone: fullPhoneNumber,
             name: bookingForm.customer_name,
             email: bookingForm.customer_email || null,
@@ -2128,11 +2144,11 @@ export function ReceptionPage() {
 
       // Calculate total price based on adult/child pricing
       // If an offer is selected, use offer price; otherwise use base_price
-      let price = service.base_price || 0;
+      let price = service!.base_price || 0;
       if (selectedOffer) {
-        const offer = service.offers?.find(o => o.id === selectedOffer);
+        const offer = service!.offers?.find(o => o.id === selectedOffer);
         if (offer) {
-          price = offer.price;
+          price = offer!.price;
         }
       }
       const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
@@ -2144,7 +2160,7 @@ export function ReceptionPage() {
 
       try {
         const result = await createBookingViaAPI({
-          tenant_id: userProfile.tenant_id,
+          tenant_id: userProfile!.tenant_id,
           service_id: selectedService,
           slot_id: slotId,
           employee_id: employeeId || null,
@@ -2426,7 +2442,7 @@ export function ReceptionPage() {
         }
       }
 
-      setAvailableTimeSlots(result.slots);
+      setAvailableTimeSlots(result.slots as Slot[]);
     } catch (error: any) {
       console.error('Error fetching time slots:', error);
       alert(t('bookings.failedToFetchTimeSlots', { message: error.message }) || 'Failed to fetch time slots');
@@ -2982,7 +2998,7 @@ export function ReceptionPage() {
       const { data: customerData, error: customerError } = await db
         .from('customers')
         .select('id, name, email, phone, is_blocked')
-        .eq('tenant_id', userProfile.tenant_id)
+        .eq('tenant_id', userProfile!.tenant_id)
         .eq('phone', fullPhoneNumber)
         .maybeSingle();
 
@@ -3023,7 +3039,7 @@ export function ReceptionPage() {
         const { data: bookingData, error: bookingError } = await db
           .from('bookings')
           .select('customer_name, customer_email, customer_phone')
-          .eq('tenant_id', userProfile.tenant_id)
+          .eq('tenant_id', userProfile!.tenant_id)
           .eq('customer_phone', fullPhoneNumber)
           .order('created_at', { ascending: false })
           .limit(1)
@@ -6222,60 +6238,51 @@ export function ReceptionPage() {
               autoFocus
             />
 
-            {qrValidationResult && (
-              <div className={`p-4 rounded-lg border ${
-                qrValidationResult.success
-                  ? 'bg-green-50 border-green-200'
-                  : 'bg-red-50 border-red-200'
-              }`}>
-                <div className={`flex items-center gap-2 ${
-                  qrValidationResult.success ? 'text-green-800' : 'text-red-800'
+            {qrValidationResult != null ? (() => {
+              const qr = qrValidationResult as NonNullable<typeof qrValidationResult>;
+              return (
+                <div className={`p-4 rounded-lg border ${
+                  qr.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
                 }`}>
-                  {qrValidationResult.success ? (
-                    <CheckCircle className="w-5 h-5" />
-                  ) : (
-                    <XCircle className="w-5 h-5" />
+                  <div className={`flex items-center gap-2 ${
+                    qr.success ? 'text-green-800' : 'text-red-800'
+                  }`}>
+                    {qr.success ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+                    <span className="font-medium">{qr.message}</span>
+                  </div>
+                  {qr.booking != null && qr.success && (
+                    <div className="mt-3 pt-3 border-t border-green-200 space-y-2 text-sm">
+                      <div>
+                        <span className="text-gray-600">{i18n.language === 'ar' ? 'اسم العميل' : 'Customer'}:</span>
+                        <span className="font-medium ml-2">{qr.booking.customer_name}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">{i18n.language === 'ar' ? 'الخدمة' : 'Service'}:</span>
+                        <span className="font-medium ml-2">
+                          {i18n.language === 'ar' ? qr.booking.service_name_ar : qr.booking.service_name}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">{i18n.language === 'ar' ? 'التاريخ والوقت' : 'Date & Time'}:</span>
+                        <span className="font-medium ml-2">
+                          {format(parseISO(qr.booking.slot_date), 'MMM dd, yyyy')} {qr.booking.start_time}
+                        </span>
+                      </div>
+                    </div>
                   )}
-                  <span className="font-medium">{qrValidationResult.message}</span>
+                  {qr.booking != null && !qr.success && (
+                    <div className="mt-3 pt-3 border-t border-red-200 text-sm text-red-700">
+                      {i18n.language === 'ar' ? 'تم مسح هذا الرمز مسبقاً في:' : 'This QR code was already scanned at:'}
+                      <div className="font-medium mt-1">
+                        {qr.booking.qr_scanned_at
+                          ? format(parseISO(qr.booking.qr_scanned_at), 'MMM dd, yyyy HH:mm')
+                          : 'N/A'}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                
-                {qrValidationResult.booking && qrValidationResult.success && (
-                  <div className="mt-3 pt-3 border-t border-green-200 space-y-2 text-sm">
-                    <div>
-                      <span className="text-gray-600">{i18n.language === 'ar' ? 'اسم العميل' : 'Customer'}:</span>
-                      <span className="font-medium ml-2">{qrValidationResult.booking.customer_name}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">{i18n.language === 'ar' ? 'الخدمة' : 'Service'}:</span>
-                      <span className="font-medium ml-2">
-                        {i18n.language === 'ar' 
-                          ? qrValidationResult.booking.service_name_ar 
-                          : qrValidationResult.booking.service_name}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">{i18n.language === 'ar' ? 'التاريخ والوقت' : 'Date & Time'}:</span>
-                      <span className="font-medium ml-2">
-                        {format(parseISO(qrValidationResult.booking.slot_date), 'MMM dd, yyyy')} {qrValidationResult.booking.start_time}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {qrValidationResult.booking && !qrValidationResult.success && (
-                  <div className="mt-3 pt-3 border-t border-red-200 text-sm text-red-700">
-                    {i18n.language === 'ar' 
-                      ? 'تم مسح هذا الرمز مسبقاً في:'
-                      : 'This QR code was already scanned at:'}
-                    <div className="font-medium mt-1">
-                      {qrValidationResult.booking.qr_scanned_at 
-                        ? format(parseISO(qrValidationResult.booking.qr_scanned_at), 'MMM dd, yyyy HH:mm')
-                        : 'N/A'}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+              );
+            })() : null}
 
             <div className="flex gap-3 pt-4">
               <Button
