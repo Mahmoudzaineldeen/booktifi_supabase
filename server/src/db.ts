@@ -30,13 +30,51 @@ if (!isUsingServiceRole) {
   console.warn('   Get it from: Supabase Dashboard → Settings → API → service_role key');
 }
 
-// Create Supabase client with explicit headers to ensure apikey is always included
+const MAX_SUPABASE_RETRIES = 2;
+
+function isTransientConnectionError(err: unknown): boolean {
+  const msg = err && typeof (err as Error).message === 'string' ? (err as Error).message : '';
+  const str = String(msg).toLowerCase();
+  return (
+    str.includes('terminated') ||
+    str.includes('other side closed') ||
+    str.includes('und_err_socket') ||
+    str.includes('econnreset') ||
+    str.includes('etimedout') ||
+    str.includes('econnrefused') ||
+    str.includes('fetch failed')
+  );
+}
+
+function createFetchWithRetry(): typeof fetch {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= MAX_SUPABASE_RETRIES; attempt++) {
+      try {
+        return await fetch(input, init);
+      } catch (err) {
+        lastError = err;
+        if (attempt < MAX_SUPABASE_RETRIES && isTransientConnectionError(err)) {
+          const delayMs = 500 * (attempt + 1);
+          console.warn(`[Supabase] Transient connection error (attempt ${attempt + 1}/${MAX_SUPABASE_RETRIES + 1}), retrying in ${delayMs}ms:`, (err as Error).message);
+          await new Promise((r) => setTimeout(r, delayMs));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError;
+  };
+}
+
+// Create Supabase client with retry fetch for transient "other side closed" / UND_ERR_SOCKET errors
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false
   },
   global: {
+    fetch: createFetchWithRetry(),
     headers: {
       'apikey': supabaseKey,
       'Authorization': `Bearer ${supabaseKey}`,
@@ -45,7 +83,9 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
 });
 
 console.log('✅ Supabase client initialized:', supabaseUrl);
-console.log(`   Using: ${isUsingServiceRole ? 'SERVICE_ROLE key (bypasses RLS)' : 'ANON key (subject to RLS)'}`);export async function testConnection() {
+console.log(`   Using: ${isUsingServiceRole ? 'SERVICE_ROLE key (bypasses RLS)' : 'ANON key (subject to RLS)'}`);
+
+export async function testConnection() {
   try {
     const { data, error } = await supabase.from('tenants').select('id').limit(1);
     if (error) {
@@ -58,4 +98,6 @@ console.log(`   Using: ${isUsingServiceRole ? 'SERVICE_ROLE key (bypasses RLS)' 
     console.error('Database connection test error:', error);
     return false;
   }
-}testConnection();
+}
+
+testConnection();
