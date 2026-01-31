@@ -1,5 +1,6 @@
 import express from 'express';
 import { supabase } from '../db';
+import { invalidateEmployeeAvailabilityForTenant } from '../utils/employeeAvailabilityCache';
 
 const router = express.Router();
 
@@ -561,6 +562,12 @@ router.post('/insert/:table', async (req, res) => {
 
     console.log(`[Insert] Successfully inserted ${result?.length || 0} record(s)`);
 
+    // Invalidate employee-based availability cache when employee_shifts or employee_services change
+    if ((table === 'employee_shifts' || table === 'employee_services') && records.length > 0) {
+      const tenantId = (records[0] as any)?.tenant_id;
+      if (tenantId) invalidateEmployeeAvailabilityForTenant(tenantId);
+    }
+
     res.json(Array.isArray(data) ? result : result?.[0]);
   } catch (error: any) {
     console.error('Insert error:', error);
@@ -643,6 +650,13 @@ router.post('/update/:table', async (req, res) => {
     }
 
     console.log(`[Update] Successfully updated ${result?.length || 0} record(s)`);
+
+    // Invalidate employee-based availability cache when employee_shifts or employee_services change
+    if ((table === 'employee_shifts' || table === 'employee_services') && result && (Array.isArray(result) ? result.length > 0 : result)) {
+      const row = Array.isArray(result) ? result[0] : result;
+      const tenantId = (row as any)?.tenant_id;
+      if (tenantId) invalidateEmployeeAvailabilityForTenant(tenantId);
+    }
 
     res.json(result);
   } catch (error: any) {

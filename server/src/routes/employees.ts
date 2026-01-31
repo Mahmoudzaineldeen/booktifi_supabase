@@ -1,6 +1,7 @@
 import express from 'express';
 import { supabase } from '../db';
 import bcrypt from 'bcryptjs';
+import { invalidateEmployeeAvailabilityForTenant } from '../utils/employeeAvailabilityCache';
 
 const router = express.Router();
 
@@ -160,6 +161,7 @@ router.post('/create', async (req, res) => {
           console.error('Create employee_shifts error:', shiftsError);
           // Don't fail the whole create; user was created
         }
+        if (tenant_id) invalidateEmployeeAvailabilityForTenant(tenant_id);
       }
     }
 

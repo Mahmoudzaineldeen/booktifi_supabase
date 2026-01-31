@@ -48,14 +48,15 @@ function ToastItem({
   notification: Notification;
   onDismiss: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const style = TYPE_STYLES[notification.type];
   const { Icon } = style;
 
   React.useEffect(() => {
-    const t = requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
-    return () => cancelAnimationFrame(t);
+    const rafId = requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
+    return () => cancelAnimationFrame(rafId);
   }, []);
 
   React.useEffect(() => {

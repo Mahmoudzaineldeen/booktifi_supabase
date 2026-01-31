@@ -3,6 +3,12 @@ import { supabase } from '../db';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
 import { formatCurrency } from '../utils/currency';
+import {
+  getEmployeeAvailabilityCached,
+  setEmployeeAvailabilityCached,
+  invalidateEmployeeAvailability,
+  invalidateEmployeeAvailabilityForTenant,
+} from '../utils/employeeAvailabilityCache';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -755,6 +761,13 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       virtualShiftId = newShift.id;
     }
 
+    // Short-term cache: return cached result for same service/date (avoids N+1 and recomputation)
+    const cached = getEmployeeAvailabilityCached<{ shiftIds: string[]; slots?: any[] }>(tenantId, serviceId, dateStr);
+    if (cached && Array.isArray(cached.shiftIds) && cached.shiftIds.length > 0) {
+      logger.info('ensure-employee-based-slots: cache hit', { serviceId, dateStr });
+      return res.json(cached);
+    }
+
     // In employee-based mode: include ALL employees assigned to this service (any shift_id).
     // When global mode is employee_based, assignments are often stored with shift_id null; older or
     // other flows may set shift_id — we include all so slots always appear for configured employees.
@@ -823,6 +836,40 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       return res.json({ shiftIds: [virtualShiftId] });
     }
 
+    // --- Bulk queries: no DB calls inside loops (fixes N+1) ---
+    const employeeIdsFromShifts = [...new Set((shiftsForDay as any[]).map((es: any) => es.employee_id))];
+
+    // 1) All slots for these employees on this date (any shift) — for overlap + booking count
+    const { data: allSlotsForDate } = await supabase
+      .from('slots')
+      .select('id, employee_id, start_time, end_time')
+      .eq('tenant_id', tenantId)
+      .in('employee_id', employeeIdsFromShifts)
+      .eq('slot_date', dateStr);
+
+    // 2) Booking counts per slot_id (non-cancelled only)
+    const slotIdsForBookings = (allSlotsForDate || []).map((s: any) => s.id);
+    let bookingCountBySlotId: Record<string, number> = {};
+    if (slotIdsForBookings.length > 0) {
+      const { data: bookingsList } = await supabase
+        .from('bookings')
+        .select('slot_id')
+        .in('slot_id', slotIdsForBookings)
+        .neq('status', 'cancelled');
+      (bookingsList || []).forEach((b: any) => {
+        if (b.slot_id) bookingCountBySlotId[b.slot_id] = (bookingCountBySlotId[b.slot_id] || 0) + 1;
+      });
+    }
+
+    // 3) Existing employee-based slots (virtual shift, this date) — avoid duplicate inserts
+    const { data: existingSlots } = await supabase
+      .from('slots')
+      .select('employee_id, start_time')
+      .eq('shift_id', virtualShiftId)
+      .in('employee_id', employeeIdsFromShifts)
+      .eq('slot_date', dateStr);
+    const existingSlotKeys = new Set((existingSlots || []).map((s: any) => `${s.employee_id}:${s.start_time}`));
+
     const startTimeStr = (t: string) => (t || '').slice(0, 8);
     const toMinutes = (t: string) => {
       const parts = (t || '00:00').split(':').map(Number);
@@ -834,8 +881,25 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
     };
 
-    let slotsCreated = 0;
-    for (const es of shiftsForDay) {
+    // --- Build availability in memory: for each (shift, time window) compute overlap count and decide insert ---
+    type SlotRow = {
+      tenant_id: string;
+      shift_id: string;
+      employee_id: string;
+      slot_date: string;
+      start_time: string;
+      end_time: string;
+      start_time_utc: string;
+      end_time_utc: string;
+      original_capacity: number;
+      available_capacity: number;
+      booked_count: number;
+      is_available: boolean;
+      is_overbooked?: boolean;
+    };
+    const rowsToInsert: SlotRow[] = [];
+
+    for (const es of shiftsForDay as any[]) {
       const startM = toMinutes(startTimeStr(es.start_time_utc));
       const endM = toMinutes(startTimeStr(es.end_time_utc));
       let slotStartM = startM;
@@ -843,34 +907,22 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
         const slotEndM = slotStartM + durationMinutes;
         const startTime = toTime(slotStartM);
         const endTime = toTime(slotEndM);
-        const { data: overlappingSlots } = await supabase
-          .from('slots')
-          .select('id')
-          .eq('employee_id', es.employee_id)
-          .eq('slot_date', dateStr)
-          .lt('start_time', endTime)
-          .gt('end_time', startTime);
-        const overlappingSlotIds = (overlappingSlots || []).map((s: any) => s.id);
-        let overlapCount = 0;
-        if (overlappingSlotIds.length > 0) {
-          const { count } = await supabase
-            .from('bookings')
-            .select('id', { count: 'exact', head: true })
-            .in('slot_id', overlappingSlotIds);
-          overlapCount = count ?? 0;
-        }
-        const { data: existingSlot } = await supabase
-          .from('slots')
-          .select('id')
-          .eq('shift_id', virtualShiftId)
-          .eq('employee_id', es.employee_id)
-          .eq('slot_date', dateStr)
-          .eq('start_time', startTime)
-          .maybeSingle();
-        if (existingSlot) {
+        const key = `${es.employee_id}:${startTime}`;
+        if (existingSlotKeys.has(key)) {
           slotStartM += durationMinutes;
           continue;
         }
+        // Overlapping slots (same employee, time overlap) — in memory from allSlotsForDate
+        const overlapping = (allSlotsForDate || []).filter((s: any) => {
+          if (s.employee_id !== es.employee_id) return false;
+          const sStart = (s.start_time || '').slice(0, 8);
+          const sEnd = (s.end_time || '').slice(0, 8);
+          return sStart < endTime && sEnd > startTime;
+        });
+        let overlapCount = 0;
+        overlapping.forEach((s: any) => {
+          overlapCount += bookingCountBySlotId[s.id] || 0;
+        });
         const availableCapacity = Math.max(0, 1 - overlapCount);
         if (availableCapacity === 0) {
           slotStartM += durationMinutes;
@@ -878,8 +930,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
         }
         const startTs = `${dateStr}T${startTime}`;
         const endTs = `${dateStr}T${endTime}`;
-        // Use only columns that exist on slots table: no service_id/total_capacity/remaining_capacity
-        const slotRow = {
+        const slotRow: SlotRow = {
           tenant_id: tenantId,
           shift_id: virtualShiftId,
           employee_id: es.employee_id,
@@ -894,23 +945,58 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
           is_available: true,
           is_overbooked: false,
         };
-        let { error: insertErr } = await supabase.from('slots').insert(slotRow);
-        if (insertErr && (String(insertErr.message || '').includes('column') || String(insertErr.code || '').includes('undefined_column'))) {
-          const withoutOverbooked = { ...slotRow };
-          delete (withoutOverbooked as any).is_overbooked;
-          insertErr = (await supabase.from('slots').insert(withoutOverbooked)).error;
-        }
-        if (insertErr) {
-          logger.warn('ensure-employee-based-slots: slot insert error', { message: insertErr.message, code: insertErr.code });
-        } else {
-          slotsCreated += 1;
-        }
+        rowsToInsert.push(slotRow);
         slotStartM += durationMinutes;
       }
     }
 
+    // --- Bulk insert (no DB calls inside loops) ---
+    let slotsCreated = 0;
+    for (let i = 0; i < rowsToInsert.length; i += 50) {
+      const batch = rowsToInsert.slice(i, i + 50);
+      const rowsWithoutOverbooked = batch.map((r) => {
+        const { is_overbooked, ...rest } = r as SlotRow & { is_overbooked?: boolean };
+        return rest;
+      });
+      const { error: insertErr } = await supabase.from('slots').insert(rowsWithoutOverbooked);
+      if (insertErr) {
+        logger.warn('ensure-employee-based-slots: bulk slot insert error', { message: insertErr.message, code: insertErr.code, batchSize: batch.length });
+      } else {
+        slotsCreated += batch.length;
+      }
+    }
+
     logger.info('ensure-employee-based-slots: done', { serviceId, dateStr, slotsCreated, employeesWithShifts: shiftsForDay.length });
-    return res.json({ shiftIds: [virtualShiftId] });
+
+    // --- Optional: return slots + employees for frontend (reduces round-trips) ---
+    const { data: slotsForResponse } = await supabase
+      .from('slots')
+      .select('id, slot_date, start_time, end_time, available_capacity, booked_count, employee_id, shift_id, users:employee_id(full_name, full_name_ar)')
+      .eq('shift_id', virtualShiftId)
+      .eq('slot_date', dateStr)
+      .eq('is_available', true)
+      .order('start_time');
+    const payload: { shiftIds: string[]; slots?: any[]; employees?: { id: string; name: string; available_slots: any[] }[] } = {
+      shiftIds: [virtualShiftId],
+      slots: slotsForResponse || undefined,
+    };
+    if (slotsForResponse && slotsForResponse.length > 0) {
+      const byEmployee = new Map<string, any[]>();
+      slotsForResponse.forEach((s: any) => {
+        const eid = s.employee_id;
+        if (!eid) return;
+        if (!byEmployee.has(eid)) byEmployee.set(eid, []);
+        byEmployee.get(eid)!.push(s);
+      });
+      payload.employees = Array.from(byEmployee.entries()).map(([id, slots]) => ({
+        id,
+        name: (slots[0]?.users as any)?.full_name || (slots[0]?.users as any)?.full_name_ar || '',
+        available_slots: slots,
+      }));
+    }
+
+    setEmployeeAvailabilityCached(tenantId, serviceId, dateStr, payload);
+    return res.json(payload);
   } catch (error: any) {
     logger.error('ensure-employee-based-slots error', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
@@ -2560,6 +2646,18 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
     console.log(`[Booking Creation]    Ticket Rule: ✅ Booking ALWAYS created (even if free)`);
     console.log(`[Booking Creation] ========================================`);
 
+    // Invalidate employee-based availability cache so next load reflects this booking (employee-based mode only)
+    try {
+      const slotId = req.body?.slot_id;
+      const serviceId = req.body?.service_id;
+      if (tenant_id && serviceId && slotId) {
+        const { data: slotRow } = await supabase.from('slots').select('slot_date').eq('id', slotId).single();
+        if ((slotRow as any)?.slot_date) {
+          invalidateEmployeeAvailability(tenant_id, serviceId, (slotRow as any).slot_date);
+        }
+      }
+    } catch (_) { /* non-blocking */ }
+
     // Return the booking with proper structure
     return sendResponse(201, { 
       id: bookingId,
@@ -3029,6 +3127,25 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
     console.log(`[Bulk Booking Creation]    Group ID: ${bookingGroupId}`);
     console.log(`[Bulk Booking Creation]    Bookings: ${bookings.length}`);
     console.log(`[Bulk Booking Creation]    Customer: ${customer_name}`);
+
+    // Invalidate employee-based availability cache for each (service_id, date) affected (employee-based mode only)
+    try {
+      const slotIds = [...new Set((bookings as any[]).map((b: any) => b.slot_id).filter(Boolean))];
+      if (slotIds.length > 0 && tenant_id) {
+        const { data: slotRows } = await supabase.from('slots').select('id, slot_date').in('id', slotIds);
+        const slotDateById = new Map((slotRows || []).map((s: any) => [s.id, s.slot_date]));
+        const invalidated = new Set<string>();
+        for (const b of bookings as any[]) {
+          if (!b.service_id) continue;
+          const dateStr = slotDateById.get(b.slot_id);
+          if (!dateStr) continue;
+          const key = `${b.service_id}:${dateStr}`;
+          if (invalidated.has(key)) continue;
+          invalidated.add(key);
+          invalidateEmployeeAvailability(tenant_id, b.service_id, dateStr);
+        }
+      }
+    } catch (_) { /* non-blocking */ }
 
     // Store payment_method + transaction_reference when provided (Admin/Receptionist)
     if (bookingIds.length > 0 && (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer')) {
@@ -4034,6 +4151,14 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
       throw updateError;
     }
 
+    // Invalidate employee-based availability cache when booking is cancelled (employee-based mode only)
+    if (updatePayload.status === 'cancelled' && currentBooking.service_id) {
+      try {
+        const { data: s } = await supabase.from('slots').select('slot_date').eq('id', currentBooking.slot_id).single();
+        if ((s as any)?.slot_date) invalidateEmployeeAvailability(tenantId, currentBooking.service_id, (s as any).slot_date);
+      } catch (_) { /* non-blocking */ }
+    }
+
     // TASK 9 & 10: If slot changed, invalidate old ticket and generate new one, then notify customer
     if (slotChanged && oldSlotId) {
       console.log(`\n🔄 ========================================`);
@@ -4897,15 +5022,17 @@ router.delete('/:id', authenticateTenantAdminOnly, async (req, res) => {
 
     // Before hard delete, restore slot capacity if booking was pending or confirmed
     // This mimics what the trigger would do, but triggers don't fire on DELETE
+    let slotDateForCache: string | null = null;
     if (currentBooking.status === 'pending' || currentBooking.status === 'confirmed') {
-      // Fetch the slot to get current capacity values
+      // Fetch the slot to get current capacity values (and slot_date for cache invalidation)
       const { data: slotData, error: slotFetchError } = await supabase
         .from('slots')
-        .select('available_capacity, booked_count, original_capacity')
+        .select('available_capacity, booked_count, original_capacity, slot_date')
         .eq('id', currentBooking.slot_id)
         .single();
 
       if (!slotFetchError && slotData) {
+        if ((slotData as any).slot_date) slotDateForCache = (slotData as any).slot_date;
         // Calculate new capacity values
         const newAvailableCapacity = Math.min(
           slotData.original_capacity || slotData.available_capacity + currentBooking.visitor_count,
@@ -5051,6 +5178,18 @@ router.delete('/:id', authenticateTenantAdminOnly, async (req, res) => {
         console.log('[Delete Booking] ✅ Verification passed: Booking confirmed deleted from database');
       }
     }
+
+    // Invalidate employee-based availability cache for this service/date (employee-based mode only)
+    try {
+      if (currentBooking.service_id && tenantId) {
+        let dateStr = slotDateForCache ?? null;
+        if (!dateStr) {
+          const { data: s } = await supabase.from('slots').select('slot_date').eq('id', currentBooking.slot_id).single();
+          dateStr = (s as any)?.slot_date ?? null;
+        }
+        if (dateStr) invalidateEmployeeAvailability(tenantId, currentBooking.service_id, dateStr);
+      }
+    } catch (_) { /* non-blocking */ }
 
     res.json({
       success: true,
