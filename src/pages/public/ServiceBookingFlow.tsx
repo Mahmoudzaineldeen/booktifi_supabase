@@ -1957,7 +1957,7 @@ export function ServiceBookingFlow() {
                             price = parseFloat(String(service.base_price || 0));
                           }
                           return formatPrice(price);
-                        })()} {i18n.language === 'ar' ? 'لكل تذكرة' : 'per ticket'}
+                        })()} {t('checkout.perBook')}
                       </span>
                     </div>
                     <div className="flex items-center gap-3">
@@ -2180,7 +2180,7 @@ export function ServiceBookingFlow() {
                           {/* Price per ticket */}
                           <div className="flex items-center justify-between">
                             <span className="text-sm text-gray-600">
-                              {i18n.language === 'ar' ? 'السعر لكل تذكرة' : 'Price per ticket'}
+                              {t('checkout.pricePerBook')}
                             </span>
                             <div className="text-right">
                               {originalPrice && originalPrice > pricePerTicket && (

@@ -392,9 +392,7 @@
     "primaryColor": "اللون الأساسي",
     "operationalSettings": "إعدادات التشغيل",
     "disablePublicBookings": "تعطيل الحجوزات العامة مؤقتاً",
-    "saveSettings": "حفظ الإعدادات",
-    "enableTickets": "تفعيل التذاكر",
-    "ticketsDisabledDescription": "عند التعطيل، سيتم إيقاف إنشاء التذاكر ووظائفها بالكامل في جميع أنحاء النظام"
+    "saveSettings": "حفظ الإعدادات"
   },
   "service": {
     "name": "اسم الخدمة",
@@ -572,7 +570,9 @@
     "pleaseSelectAtLeastOneTicket": "يرجى اختيار تذكرة واحدة على الأقل",
     "errorFetchingPackageServices": "خطأ في جلب خدمات الحزمة",
     "packageHasNoServices": "هذه الحزمة لا تحتوي على خدمات. يرجى الاتصال بالمسؤول.",
-    "bookingsDisabledMaintenance": "الحجوزات معطلة مؤقتاً. يرجى زيارة موقعنا شخصياً لإجراء الحجز."
+    "bookingsDisabledMaintenance": "الحجوزات معطلة مؤقتاً. يرجى زيارة موقعنا شخصياً لإجراء الحجز.",
+    "perBook": "للحجز الواحد",
+    "pricePerBook": "السعر للحجز الواحد"
   },
   "phoneEntry": {
     "title": "أدخل رقم الهاتف",
@@ -916,7 +916,7 @@
     "namePlaceholder": "أدخل اسم العميل...",
     "servicePlaceholder": "أدخل اسم الخدمة...",
     "bookingsToday": "حجز اليوم",
-    "perTicket": "للتذكرة",
+    "perTicket": "للحجز الواحد",
     "noTimeSlotSelected": "لم يتم اختيار فترة زمنية",
     "notesLabel": "ملاحظات",
     "totalPrice": "السعر الإجمالي:",
@@ -1356,6 +1356,8 @@
   },
   "settings": {
     "saveChanges": "حفظ التغييرات",
+    "ticketsLabel": "تفعيل التذاكر",
+    "ticketsDisabledHelp": "عند التعطيل، سيتم إيقاف إنشاء التذاكر ووظائفها بالكامل في جميع أنحاء النظام",
     "schedulingConfiguration": "إعداد الجدولة",
     "schedulingModeDescription": "يحدد هذا الإعداد كيفية عمل نظام الحجز بالكامل. تغيير الوضع يحدّث مصدر التوفر والواجهة في لوحة الإدارة والاستقبال.",
     "serviceSlotBased": "حسب فترات الخدمة",
@@ -1645,6 +1647,7 @@
     "visitorCount": "عدد الزوار",
     "totalPrice": "السعر الإجمالي",
     "status": "الحالة",
+    "saveChanges": "حفظ التغييرات",
     "newerInvoicesInDB": "هناك فواتير أحدث في قاعدة البيانات ({{seconds}} ثانية)",
     "unknownService": "خدمة غير معروفة",
     "userId": "معرف المستخدم",

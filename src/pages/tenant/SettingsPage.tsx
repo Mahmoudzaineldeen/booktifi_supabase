@@ -1270,11 +1270,11 @@ export function SettingsPage() {
                   disabled={formData.tickets_enabled === undefined} // Disable until loaded
                 />
                 <div>
-                  <span className="text-sm font-medium text-gray-700">{t('settings.enableTickets')}</span>
+                  <span className="text-sm font-medium text-gray-700">{t('settings.ticketsLabel')}</span>
                   <p className="text-xs text-gray-500">
                     {formData.tickets_enabled === undefined 
                       ? t('common.loading') 
-                      : t('settings.ticketsDisabledDescription')}
+                      : t('settings.ticketsDisabledHelp')}
                   </p>
                 </div>
               </label>

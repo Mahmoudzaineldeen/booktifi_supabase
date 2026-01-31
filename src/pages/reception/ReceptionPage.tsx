@@ -4696,7 +4696,7 @@ export function ReceptionPage() {
                   const price = service?.base_price ?? 0;
                   return (
                     <>
-                      {formatPrice(price)} {t('reception.perTicket') || 'per ticket'}
+                      {formatPrice(price)} {t('reception.perTicket') || 'per book'}
                     </>
                   );
                 })()}
@@ -6037,7 +6037,7 @@ export function ReceptionPage() {
                   onClick={handleEditBooking}
                   className="flex-1"
                 >
-                  {t('common.save')}
+                  {t('billing.saveChanges')}
                 </Button>
                 <Button
                   onClick={() => {

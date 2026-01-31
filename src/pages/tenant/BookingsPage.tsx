@@ -2453,7 +2453,7 @@ export function BookingsPage() {
                 placeholder="Enter number of tickets"
               />
               <p className="text-xs text-gray-600 mt-1">
-                {formatPrice(createServices.find(s => s.id === createServiceId)?.base_price ?? 0)} per ticket
+                {formatPrice(createServices.find(s => s.id === createServiceId)?.base_price ?? 0)} {t('checkout.perBook')}
               </p>
               {createServiceId && createForm.visitor_count && (() => {
                 const pkgCheck = checkServiceInPackage(createServiceId);
@@ -2909,7 +2909,7 @@ export function BookingsPage() {
                   })}
                   className="flex-1"
                 >
-                  {t('common.save')}
+                  {t('billing.saveChanges')}
                 </Button>
                 <Button
                   onClick={() => setEditingBooking(null)}
