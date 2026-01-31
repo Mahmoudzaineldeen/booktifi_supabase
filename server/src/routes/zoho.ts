@@ -25,13 +25,19 @@ router.get('/auth', async (req, res) => {
     // When frontend is on Netlify and backend on Railway, Zoho must redirect to Railway
     // so this callback handler runs. Using frontend origin would send Zoho to Netlify,
     // which serves the SPA and shows the landing page instead of the success screen.
-    const protocol = req.headers['x-forwarded-proto'] === 'https' || req.secure ? 'https' : 'http';
-    const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
-    const backendBase = host ? `${protocol}://${host}` : (process.env.APP_URL || process.env.BACKEND_PUBLIC_URL || '');
-    const redirectUri = backendBase ? `${backendBase.replace(/\/+$/, '')}/api/zoho/callback` : '';
+    // Use ZOHO_REDIRECT_URI if set (must match EXACTLY what is in Zoho Developer Console).
+    let redirectUri: string;
+    if (process.env.ZOHO_REDIRECT_URI && process.env.ZOHO_REDIRECT_URI.trim()) {
+      redirectUri = process.env.ZOHO_REDIRECT_URI.trim().replace(/\/+$/, '');
+    } else {
+      const protocol = req.headers['x-forwarded-proto'] === 'https' || req.secure ? 'https' : 'http';
+      const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+      const backendBase = host ? `${protocol}://${host}` : (process.env.APP_URL || process.env.BACKEND_PUBLIC_URL || '');
+      redirectUri = backendBase ? `${backendBase.replace(/\/+$/, '')}/api/zoho/callback` : '';
+    }
 
     if (!redirectUri) {
-      throw new Error('Could not determine backend URL for Zoho redirect_uri. Set APP_URL or BACKEND_PUBLIC_URL on the server.');
+      throw new Error('Could not determine backend URL for Zoho redirect_uri. Set ZOHO_REDIRECT_URI, APP_URL, or BACKEND_PUBLIC_URL on the server.');
     }
 
     // Frontend origin (for state/logging only; not used for redirect_uri when split frontend/backend)

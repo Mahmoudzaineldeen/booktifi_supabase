@@ -7,9 +7,40 @@ Invalid Redirect Uri
 Redirect URI passed does not match with the one configured
 ```
 
+Zoho only accepts redirect URIs that are **exactly** listed in your app’s Authorized Redirect URIs. The URL the server sends must match character-for-character (including `https` vs `http`, no trailing slash).
+
 ## Solution
 
-### Step 1: Update Zoho Developer Console
+### Option A: Set ZOHO_REDIRECT_URI on the server (recommended for production)
+
+1. In **Zoho Developer Console** → your app → **Authorized Redirect URIs**, add exactly one URL, e.g.:
+   ```
+   https://booktifisupabase-production.up.railway.app/api/zoho/callback
+   ```
+   (Use your real Railway backend URL; no trailing slash.)
+
+2. On **Railway** (or your server), set the same URL in the environment:
+   ```
+   ZOHO_REDIRECT_URI=https://booktifisupabase-production.up.railway.app/api/zoho/callback
+   ```
+   Use the **exact** same string as in Zoho.
+
+3. Redeploy the backend and try “Reconnect Zoho” again.
+
+This way the server always sends the same redirect URI that Zoho expects.
+
+### Option B: Add the server’s redirect URI to Zoho
+
+1. Check what redirect URI the server is sending: look at **Railway logs** when you click “Reconnect Zoho”. You should see a line like:
+   ```
+   [Zoho Routes] Redirect URI (must be in Zoho Console): https://...
+   ```
+2. In **Zoho Developer Console** → your app → **Authorized Redirect URIs**, add that **exact** URL (copy-paste, no trailing slash).
+3. Save and wait 10–30 seconds, then try again.
+
+---
+
+### Step 1: Update Zoho Developer Console (local / manual)
 
 1. **Go to Zoho Developer Console**
    - Visit: https://api-console.zoho.com/
