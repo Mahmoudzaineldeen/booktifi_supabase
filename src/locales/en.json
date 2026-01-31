@@ -843,7 +843,8 @@
     "landingPage": "Landing Page",
     "previewMode": "Preview Mode",
     "viewBookingPage": "View Booking Page",
-    "viewCustomerPage": "View Customer Page"
+    "viewCustomerPage": "View Customer Page",
+    "customerPageDisabledMaintenance": "Customer page is disabled (maintenance mode is on)."
   },
   "offers": {
     "title": "Service Offers",

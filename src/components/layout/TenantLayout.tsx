@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
+import { showNotification } from '../../contexts/NotificationContext';
 import { LanguageToggle } from './LanguageToggle';
 import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList, UserCircle, Clock } from 'lucide-react';
 import { Button } from '../ui/Button';
@@ -235,7 +236,13 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
                   to={`/${tenantSlug}/book`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => setMobileMenuOpen(false)}
+                  onClick={(e) => {
+                    if (tenant?.maintenance_mode) {
+                      e.preventDefault();
+                      showNotification('warning', t('navigation.customerPageDisabledMaintenance'));
+                    }
+                    setMobileMenuOpen(false);
+                  }}
                   className="flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
                 >
                   <Calendar className="w-5 h-5" />
@@ -245,7 +252,13 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
                   to={`/${tenantSlug}/customer`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => setMobileMenuOpen(false)}
+                  onClick={(e) => {
+                    if (tenant?.maintenance_mode) {
+                      e.preventDefault();
+                      showNotification('warning', t('navigation.customerPageDisabledMaintenance'));
+                    }
+                    setMobileMenuOpen(false);
+                  }}
                   className="flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
                 >
                   <Users className="w-5 h-5" />

@@ -1113,7 +1113,8 @@
     "landingPage": "الصفحة الرئيسية",
     "previewMode": "وضع المعاينة",
     "viewBookingPage": "عرض صفحة الحجز",
-    "viewCustomerPage": "عرض صفحة العميل"
+    "viewCustomerPage": "عرض صفحة العميل",
+    "customerPageDisabledMaintenance": "صفحة العميل معطلة (وضع الصيانة مفعل)."
   },
   "offers": {
     "title": "عروض الخدمات",
