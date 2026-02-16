@@ -158,6 +158,9 @@ export async function fetchAvailableSlots(
     }
     shifts = employeeBasedShiftIds.map((id) => ({ id, days_of_week: [] }));
     shiftIds = employeeBasedShiftIds;
+  } else if (useEmployeeBasedAvailability) {
+    // Employee-based mode: only show slots from API. Do NOT fall back to service shifts/slots (would show service-based capacity e.g. 87).
+    return { slots: [], shifts: [], lockedSlotIds: [] };
   } else {
     console.log('[bookingAvailability] ========================================');
     console.log('[bookingAvailability] Fetching shifts for service:', serviceId);

@@ -65,7 +65,8 @@
     "saving": "Saving...",
     "updating": "Updating...",
     "submitting": "Submitting...",
-    "proceed": "Proceed"
+    "proceed": "Proceed",
+    "available": "Available"
   },
   "auth": {
     "login": "Login",

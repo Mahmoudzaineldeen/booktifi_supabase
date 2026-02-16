@@ -174,6 +174,7 @@ export function ReceptionPage() {
   const [availableTimeSlots, setAvailableTimeSlots] = useState<Slot[]>([]);
   const [loadingTimeSlots, setLoadingTimeSlots] = useState(false);
   const [selectedNewSlotId, setSelectedNewSlotId] = useState<string>('');
+  const [changeTimeEmployeeId, setChangeTimeEmployeeId] = useState<string>('');
   const [updatingBookingTime, setUpdatingBookingTime] = useState(false);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [showFullCalendar, setShowFullCalendar] = useState(false);
@@ -2528,6 +2529,7 @@ export function ReceptionPage() {
   async function handleTimeDateChange(newDate: Date) {
     setEditingTimeDate(newDate);
     setSelectedNewSlotId('');
+    setChangeTimeEmployeeId('');
     if (editingBookingTime && userProfile?.tenant_id) {
       // Pass date directly to avoid race condition
       await fetchTimeSlotsForEdit((editingBookingTime as any).service_id, userProfile.tenant_id, newDate);
@@ -6109,6 +6111,42 @@ export function ReceptionPage() {
                   />
                 </div>
 
+                {/* Employee-based + manual: Choose employee (same as creating bookings) */}
+                {isEmployeeBasedMode && (tenantAssignmentMode === 'manual' || tenantAssignmentMode === 'both') && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.selectEmployee')} *</label>
+                    <select
+                      value={changeTimeEmployeeId}
+                      onChange={(e) => {
+                        setChangeTimeEmployeeId(e.target.value);
+                        setSelectedNewSlotId('');
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required={tenantAssignmentMode === 'manual'}
+                    >
+                      <option value="">{t('reception.chooseEmployee') || 'Choose employee'}</option>
+                      {(() => {
+                        const empMap = new Map<string, { id: string; name: string; name_ar: string }>();
+                        availableTimeSlots.forEach((slot: any) => {
+                          if (slot.employee_id && !empMap.has(slot.employee_id)) {
+                            const u = slot.users;
+                            empMap.set(slot.employee_id, {
+                              id: slot.employee_id,
+                              name: u?.full_name ?? '',
+                              name_ar: u?.full_name_ar ?? '',
+                            });
+                          }
+                        });
+                        return Array.from(empMap.values()).map(emp => (
+                          <option key={emp.id} value={emp.id}>
+                            {i18n.language === 'ar' ? (emp.name_ar || emp.name) : emp.name}
+                          </option>
+                        ));
+                      })()}
+                    </select>
+                  </div>
+                )}
+
                 {/* Available Time Slots */}
                 <div>
                   <label className="block text-sm font-medium mb-1">
@@ -6121,18 +6159,22 @@ export function ReceptionPage() {
                         {t('bookings.loadingAvailableSlots') || 'Loading available slots...'}
                       </p>
                     </div>
-                  ) : availableTimeSlots.length === 0 ? (
-                    <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                      <p className="text-sm text-yellow-800">
-                        {t('bookings.noAvailableTimeSlots') || 'No available time slots for this date'}
-                      </p>
-                      <p className="text-xs text-yellow-700 mt-2">
-                        {t('bookings.makeSureShiftsAndSlotsExist') || 'Make sure shifts and slots exist for this service'}
-                      </p>
-                    </div>
-                  ) : (
+                  ) : (() => {
+                    const slotsToShow = changeTimeEmployeeId
+                      ? availableTimeSlots.filter((s: any) => s.employee_id === changeTimeEmployeeId)
+                      : availableTimeSlots;
+                    return slotsToShow.length === 0 ? (
+                      <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                        <p className="text-sm text-yellow-800">
+                          {changeTimeEmployeeId ? (t('bookings.noSlotsForSelectedEmployee') || 'No slots for selected employee on this date') : (t('bookings.noAvailableTimeSlots') || 'No available time slots for this date')}
+                        </p>
+                        <p className="text-xs text-yellow-700 mt-2">
+                          {t('bookings.makeSureShiftsAndSlotsExist') || 'Make sure shifts and slots exist for this service'}
+                        </p>
+                      </div>
+                    ) : (
                     <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto p-2 border border-gray-200 rounded-md">
-                      {availableTimeSlots.map((slot) => (
+                      {slotsToShow.map((slot) => (
                         <button
                           key={slot.id}
                           onClick={() => setSelectedNewSlotId(slot.id)}
@@ -6149,12 +6191,13 @@ export function ReceptionPage() {
                             </div>
                           )}
                           <div className="text-xs opacity-75">
-                            {slot.available_capacity} {t('common.available') || 'available'}
+                            {slot.available_capacity} {t('common.available') || 'Available'}
                           </div>
                         </button>
                       ))}
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
 
                 {/* Warning Message - Only show if tickets are enabled */}
@@ -6181,6 +6224,7 @@ export function ReceptionPage() {
                   onClick={() => {
                     setEditingBookingTime(null);
                     setSelectedNewSlotId('');
+                    setChangeTimeEmployeeId('');
                     setAvailableTimeSlots([]);
                   }}
                   variant="ghost"
