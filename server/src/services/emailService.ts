@@ -12,6 +12,7 @@
 
 import { sendEmail, testEmailConnection, type SendEmailOptions, type EmailAttachment } from './emailApiService';
 import { supabase } from '../db';
+import { formatTimeTo12Hour } from '../utils/timeFormat';
 
 // Legacy functions removed - now using emailApiService
 // These were kept for reference but are no longer used
@@ -140,7 +141,7 @@ export async function sendBookingTicketEmail(
           <li>رقم الحجز: ${bookingId}</li>
           <li>الخدمة: ${bookingDetails.service_name_ar || bookingDetails.service_name}</li>
           <li>التاريخ: ${bookingDetails.slot_date}</li>
-          <li>الوقت: ${bookingDetails.start_time} - ${bookingDetails.end_time}</li>
+          <li>الوقت: ${formatTimeTo12Hour(bookingDetails.start_time)} - ${formatTimeTo12Hour(bookingDetails.end_time)}</li>
         </ul>
         <p>يرجى إحضار هذه التذكرة عند الوصول.</p>
         <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
@@ -157,7 +158,7 @@ export async function sendBookingTicketEmail(
           <li>Booking ID: ${bookingId}</li>
           <li>Service: ${bookingDetails.service_name_ar || bookingDetails.service_name}</li>
           <li>Date: ${bookingDetails.slot_date}</li>
-          <li>Time: ${bookingDetails.start_time} - ${bookingDetails.end_time}</li>
+          <li>Time: ${formatTimeTo12Hour(bookingDetails.start_time)} - ${formatTimeTo12Hour(bookingDetails.end_time)}</li>
         </ul>
         <p>Please bring this ticket upon arrival.</p>
         <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">

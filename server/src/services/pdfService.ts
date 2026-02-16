@@ -6,6 +6,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync } from 'fs';
 import { formatCurrency, getCurrency } from '../utils/currency';
+import { formatTimeTo12Hour } from '../utils/timeFormat';
 // Import arabic-reshaper for proper Arabic text shaping
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
@@ -116,7 +117,7 @@ async function generateQRCodeDataURL(
       service_ar: bookingData?.service_name_ar || null,
       date: bookingData?.slot_date || null,
       time: bookingData?.start_time && bookingData?.end_time 
-        ? `${bookingData.start_time} - ${bookingData.end_time}`
+        ? `${formatTimeTo12Hour(bookingData.start_time)} - ${formatTimeTo12Hour(bookingData.end_time)}`
         : null,
       tenant: bookingData?.tenant_name || null,
       tenant_ar: bookingData?.tenant_name_ar || null,
@@ -199,15 +200,10 @@ function formatDate(dateString: string, language: 'en' | 'ar'): string {
 }
 
 /**
- * Format time with AM/PM
+ * Format time with AM/PM (uses shared 12-hour formatter; minutes padded)
  */
 function formatTime(timeString: string): string {
-  // If time is already in HH:MM format, convert to 12-hour format
-  const [hours, minutes] = timeString.split(':');
-  const hour = parseInt(hours);
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  const hour12 = hour % 12 || 12;
-  return `${hour12}:${minutes} ${ampm}`;
+  return formatTimeTo12Hour(timeString);
 }
 
 /**

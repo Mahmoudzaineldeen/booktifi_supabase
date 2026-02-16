@@ -31,6 +31,7 @@ import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 import { useCustomerPhoneSearch, type CustomerSuggestion } from '../../hooks/useCustomerPhoneSearch';
 import { CustomerPhoneSuggestionsDropdown } from '../../components/reception/CustomerPhoneSuggestionsDropdown';
+import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
 
 interface Booking {
   id: string;
@@ -3449,7 +3450,7 @@ export function ReceptionPage() {
                   <div className="font-medium">
                     {format(parseISO(booking.slots?.slot_date), 'MMM dd, yyyy', { locale: i18n.language?.startsWith('ar') ? ar : undefined })}
                     <br />
-                    {booking.slots?.start_time} - {booking.slots?.end_time}
+                    {formatTimeTo12Hour(booking.slots?.start_time ?? '')} - {formatTimeTo12Hour(booking.slots?.end_time ?? '')}
                   </div>
                 </div>
                 <div>
@@ -3530,7 +3531,7 @@ export function ReceptionPage() {
                   {booking.zoho_invoice_created_at && (
                     <p className="text-xs text-blue-600 mb-3">
                       {i18n.language === 'ar' ? 'تاريخ الإنشاء:' : 'Created:'}{' '}
-                      {format(parseISO(booking.zoho_invoice_created_at), 'MMM dd, yyyy HH:mm', { locale: i18n.language === 'ar' ? ar : undefined })}
+                      {formatDateTimeTo12Hour(booking.zoho_invoice_created_at, { locale: i18n.language === 'ar' ? ar : undefined })}
                     </p>
                   )}
                   <Button
@@ -3665,7 +3666,7 @@ export function ReceptionPage() {
                       </div>
                       {(booking as any).qr_scanned_at && (
                         <div className="text-xs text-green-600 mt-1">
-                          {format(parseISO((booking as any).qr_scanned_at), 'MMM dd, HH:mm')}
+                          {formatDateTimeTo12Hour((booking as any).qr_scanned_at)}
                         </div>
                       )}
                     </div>
@@ -4167,7 +4168,7 @@ export function ReceptionPage() {
                                   onClick={() => setSelectedBookingForDetails(booking)}
                                 >
                                   <div className="text-xs font-semibold truncate">
-                                    {booking.slots?.start_time}
+                                    {formatTimeTo12Hour(booking.slots?.start_time ?? '')}
                                   </div>
                                   <div className="text-xs font-medium truncate">
                                     {booking.customer_name}
@@ -4336,7 +4337,7 @@ export function ReceptionPage() {
                               {format(parseISO(slot.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}
                             </div>
                             <div className="text-xs text-gray-600">
-                              {slot.start_time} - {slot.end_time}
+                              {formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}
                             </div>
                           </div>
                           {employee && (
@@ -4354,7 +4355,7 @@ export function ReceptionPage() {
                           {format(parseISO(selectedTimeSlot.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}
                         </div>
                         <div className="text-xs text-gray-600">
-                          {selectedTimeSlot.start_time} - {selectedTimeSlot.end_time}
+                          {formatTimeTo12Hour(selectedTimeSlot.start_time)} - {formatTimeTo12Hour(selectedTimeSlot.end_time)}
                         </div>
                       </div>
                       <div className="text-sm text-gray-600">
@@ -4931,7 +4932,7 @@ export function ReceptionPage() {
                         {i18n.language === 'ar' ? item.service.name_ar : item.service.name}
                       </div>
                       <div className="text-sm text-gray-600">
-                        {item.slot.start_time} - {item.slot.end_time}
+                        {formatTimeTo12Hour(item.slot.start_time)} - {formatTimeTo12Hour(item.slot.end_time)}
                         {item.employeeId && item.slot.users && (
                           <span className="ml-2">
                             ({i18n.language === 'ar' ? item.slot.users.full_name_ar : item.slot.users.full_name})
@@ -5110,7 +5111,7 @@ export function ReceptionPage() {
                               <span className="font-medium text-amber-900">
                                 {i18n.language === 'ar' ? item.service.name_ar : item.service.name}
                               </span>
-                              <span className="text-amber-700">{item.slot.start_time} - {item.slot.end_time}</span>
+                              <span className="text-amber-700">{formatTimeTo12Hour(item.slot.start_time)} - {formatTimeTo12Hour(item.slot.end_time)}</span>
                             </div>
                             {pricingInfo.usePackage ? (
                               <span className="text-green-600 font-semibold flex items-center gap-1">
@@ -5284,7 +5285,7 @@ export function ReceptionPage() {
                             return (
                               <div key={idx} className="flex justify-between items-center text-sm">
                                 <span className="text-gray-700">
-                                  {format(parseISO(slot.slot_date), 'MMM d', { locale: i18n.language === 'ar' ? ar : undefined })} {slot.start_time} - {slot.end_time}
+                                  {format(parseISO(slot.slot_date), 'MMM d', { locale: i18n.language === 'ar' ? ar : undefined })} {formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}
                                   {employee && (
                                     <span className="text-gray-500 ml-1">({i18n.language === 'ar' ? employee.full_name_ar : employee.full_name})</span>
                                   )}
@@ -5350,7 +5351,7 @@ export function ReceptionPage() {
                             >
                               <div className="flex items-center gap-2 mb-1">
                                 <Clock className="w-4 h-4" />
-                                <span className="font-medium">{firstSlot.start_time} - {firstSlot.end_time}</span>
+                                <span className="font-medium">{formatTimeTo12Hour(firstSlot.start_time)} - {formatTimeTo12Hour(firstSlot.end_time)}</span>
                               </div>
                               <div className="text-xs">
                                 {totalAvailable} spots left
@@ -5390,7 +5391,7 @@ export function ReceptionPage() {
                             >
                               <div className="flex items-center gap-2 mb-1">
                                 <Clock className="w-4 h-4" />
-                                <span className="font-medium">{slot.start_time} - {slot.end_time}</span>
+                                <span className="font-medium">{formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}</span>
                               </div>
                               <div className="text-xs">
                                 {slot.available_capacity} spots left
@@ -5718,7 +5719,7 @@ export function ReceptionPage() {
                 <div className="mt-1 flex items-center gap-2">
                   <Clock className="w-4 h-4 text-gray-400" />
                   <span className="font-medium">
-                    {selectedBookingForDetails.slots?.start_time} - {selectedBookingForDetails.slots?.end_time}
+                    {formatTimeTo12Hour(selectedBookingForDetails.slots?.start_time ?? '')} - {formatTimeTo12Hour(selectedBookingForDetails.slots?.end_time ?? '')}
                   </span>
                 </div>
               </div>
@@ -6089,7 +6090,7 @@ export function ReceptionPage() {
                       <Clock className="w-4 h-4" />
                       <span>
                         {editingBookingTime.slots?.start_time 
-                          ? `${editingBookingTime.slots.start_time} - ${editingBookingTime.slots.end_time}`
+                          ? `${formatTimeTo12Hour(editingBookingTime.slots.start_time)} - ${formatTimeTo12Hour(editingBookingTime.slots.end_time)}`
                           : 'N/A'}
                       </span>
                     </div>
@@ -6196,7 +6197,7 @@ export function ReceptionPage() {
                               : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                           }`}
                         >
-                          <div className="font-medium">{slot.start_time}</div>
+                          <div className="font-medium">{formatTimeTo12Hour(slot.start_time)}</div>
                           {isEmployeeBasedMode && (slot as any).users && (
                             <div className="text-xs truncate" title={i18n.language === 'ar' ? (slot as any).users?.full_name_ar : (slot as any).users?.full_name}>
                               {i18n.language === 'ar' ? (slot as any).users?.full_name_ar || (slot as any).users?.full_name : (slot as any).users?.full_name || (slot as any).users?.full_name_ar}
@@ -6548,7 +6549,7 @@ export function ReceptionPage() {
                       <div>
                         <span className="text-gray-600">{i18n.language === 'ar' ? 'التاريخ والوقت' : 'Date & Time'}:</span>
                         <span className="font-medium ml-2">
-                          {format(parseISO(qr.booking.slot_date), 'MMM dd, yyyy')} {qr.booking.start_time}
+                          {format(parseISO(qr.booking.slot_date), 'MMM dd, yyyy')} {formatTimeTo12Hour(qr.booking.start_time)}
                         </span>
                       </div>
                     </div>
@@ -6558,7 +6559,7 @@ export function ReceptionPage() {
                       {i18n.language === 'ar' ? 'تم مسح هذا الرمز مسبقاً في:' : 'This QR code was already scanned at:'}
                       <div className="font-medium mt-1">
                         {qr.booking.qr_scanned_at
-                          ? format(parseISO(qr.booking.qr_scanned_at), 'MMM dd, yyyy HH:mm')
+                          ? formatDateTimeTo12Hour(qr.booking.qr_scanned_at)
                           : 'N/A'}
                       </div>
                     </div>

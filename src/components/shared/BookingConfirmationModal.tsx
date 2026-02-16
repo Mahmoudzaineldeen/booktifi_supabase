@@ -15,6 +15,7 @@ import { Card, CardContent } from '../ui/Card';
 import { CheckCircle, Calendar, Clock, User, Users } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
 
 export interface BookingConfirmationModalProps {
   isOpen: boolean;
@@ -124,8 +125,8 @@ export function BookingConfirmationModal({
       : booking.services.name);
   const timeSlot =
     booking?.slots?.start_time && booking?.slots?.end_time
-      ? `${booking.slots.start_time} – ${booking.slots.end_time}`
-      : booking?.slots?.start_time || '—';
+      ? `${formatTimeTo12Hour(booking.slots.start_time)} – ${formatTimeTo12Hour(booking.slots.end_time)}`
+      : booking?.slots?.start_time ? formatTimeTo12Hour(booking.slots.start_time) : '—';
   const dateFormatted =
     booking?.slots?.slot_date &&
     (() => {

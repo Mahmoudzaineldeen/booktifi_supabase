@@ -21,6 +21,7 @@ import { VideoEmbed } from '../../components/ui/VideoEmbed';
 import { TestimonialsCarousel, Testimonial } from '../../components/ui/TestimonialsCarousel';
 import { FAQ, FAQItem } from '../../components/ui/FAQ';
 import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import { TestimonialForm } from '../../components/reviews/TestimonialForm';
 import { ReviewsCarousel } from '../../components/reviews/ReviewsCarousel';
 import { fetchAvailableSlots as fetchAvailableSlotsUtil } from '../../lib/bookingAvailability';
@@ -2570,7 +2571,7 @@ function PublicBookingPage() {
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <Clock className="w-4 h-4" />
-                      <span className="font-medium">{aggSlot.start_time} - {aggSlot.end_time}</span>
+                      <span className="font-medium">{formatTimeTo12Hour(aggSlot.start_time)} - {formatTimeTo12Hour(aggSlot.end_time)}</span>
                     </div>
                     <div className="text-xs opacity-90">
                       {aggSlot.totalCapacity} {t('booking.spotsLeft')}

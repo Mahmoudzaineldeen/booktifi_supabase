@@ -14,6 +14,7 @@ import { ComparisonChart } from '../../components/dashboard/ComparisonChart';
 import { StatCard } from '../../components/dashboard/StatCard';
 import { Calendar, Users, Briefcase, DollarSign, TrendingUp, CheckCircle, Grid, List, ChevronLeft, ChevronRight, Clock, XCircle, User, Package } from 'lucide-react';
 import { startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, parseISO, eachDayOfInterval, addDays, isSameDay, addMinutes, isAfter, isBefore, parse } from 'date-fns';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import { ar } from 'date-fns/locale';
 
 interface ServicePerformance {
@@ -717,7 +718,7 @@ export function TenantDashboardContent() {
                       </div>
                       {slot?.start_time && slot?.end_time && (
                         <div className="flex items-center gap-2 text-sm text-gray-700">
-                          <span>{slot.start_time} - {slot.end_time}</span>
+                          <span>{formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}</span>
                         </div>
                       )}
                       <div className="pt-2 border-t text-sm">
@@ -779,7 +780,7 @@ export function TenantDashboardContent() {
                       </div>
                       {slot?.start_time && slot?.end_time && (
                         <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <span>{slot.start_time} - {slot.end_time}</span>
+                          <span>{formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}</span>
                         </div>
                       )}
                       <div className="pt-2 border-t text-sm">
@@ -913,7 +914,7 @@ export function TenantDashboardContent() {
                                 onClick={() => setSelectedBookingForDetails(booking)}
                               >
                                 <div className="text-xs font-semibold truncate">
-                                  {booking.slots?.start_time}
+                                  {formatTimeTo12Hour(booking.slots?.start_time ?? '')}
                                 </div>
                                 <div className="text-xs font-medium truncate">
                                   {booking.customer_name}

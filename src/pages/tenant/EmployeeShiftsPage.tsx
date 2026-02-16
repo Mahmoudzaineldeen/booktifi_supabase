@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { getApiUrl } from '../../lib/apiUrl';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Users, Search, X, Clock, Briefcase } from 'lucide-react';
@@ -36,18 +37,6 @@ type SearchType = 'employee_name' | 'service_name' | '';
 const DAY_NAMES_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NAMES_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 
-/** Format 24h time (e.g. "09:00" or "21:00:00") as 12h with AM/PM. Use isAr for Arabic ص/م. */
-function formatTime12h(t: string, isAr: boolean = false): string {
-  if (!t) return '';
-  const parts = t.split(':').map(Number);
-  const h = Math.min(23, Math.max(0, parts[0] ?? 0));
-  const m = Math.min(59, Math.max(0, parts[1] ?? 0));
-  const hour12 = h % 12 || 12;
-  const ampm = h < 12 ? (isAr ? 'ص' : 'AM') : (isAr ? 'م' : 'PM');
-  const minStr = String(m).padStart(2, '0');
-  return `${hour12}:${minStr} ${ampm}`;
-}
-
 function formatShiftDays(shift: EmployeeShiftRow, isAr: boolean): string {
   const dayNames = isAr ? DAY_NAMES_AR : DAY_NAMES_EN;
   return (shift.days_of_week || [])
@@ -57,10 +46,8 @@ function formatShiftDays(shift: EmployeeShiftRow, isAr: boolean): string {
     .join(', ');
 }
 
-function formatShiftTime(shift: EmployeeShiftRow, isAr: boolean = false): string {
-  const start = formatTime12h(shift.start_time_utc, isAr);
-  const end = formatTime12h(shift.end_time_utc, isAr);
-  return `${start} – ${end}`;
+function formatShiftTime(shift: EmployeeShiftRow, _isAr?: boolean): string {
+  return `${formatTimeTo12Hour(shift.start_time_utc)} – ${formatTimeTo12Hour(shift.end_time_utc)}`;
 }
 
 export function EmployeeShiftsPage() {

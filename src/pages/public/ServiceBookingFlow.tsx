@@ -17,6 +17,7 @@ import { getApiUrl } from '../../lib/apiUrl';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
 
 interface Tenant {
   id: string;
@@ -875,17 +876,6 @@ export function ServiceBookingFlow() {
     return slotDate.length > 10 ? slotDate.substring(0, 10) : slotDate;
   };
 
-  // Format time to 12-hour format (e.g., "7:30am" or "7:30pm")
-  const formatTime12Hour = (timeStr: string): string => {
-    if (!timeStr) return '';
-    const [hours, minutes] = timeStr.split(':');
-    const hour = parseInt(hours || '0', 10);
-    const min = minutes || '00';
-    const period = hour >= 12 ? 'pm' : 'am';
-    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-    return `${displayHour}:${min}${period}`;
-  };
-
   // Get slots for selected date
   const getSlotsForDate = (date: Date | null): Slot[] => {
     if (!date) return [];
@@ -1226,8 +1216,8 @@ export function ServiceBookingFlow() {
                       <span className="text-gray-400">•</span>
                       <Clock className="w-4 h-4" />
                       <span className="font-medium">
-                        {formatTime12Hour(selectedSlot.start_time)}
-                        {selectedSlot.end_time && ` - ${formatTime12Hour(selectedSlot.end_time)}`}
+                        {formatTimeTo12Hour(selectedSlot.start_time)}
+                        {selectedSlot.end_time && ` - ${formatTimeTo12Hour(selectedSlot.end_time)}`}
                       </span>
                     </div>
                   )}
@@ -1657,7 +1647,7 @@ export function ServiceBookingFlow() {
                             {offer.closing_time && (
                               <div className="flex items-center gap-1">
                                 <Clock className="w-4 h-4" />
-                                <span>{i18n.language === 'ar' ? 'وقت الإغلاق:' : 'Closing time:'} {formatTime12Hour(offer.closing_time)}</span>
+                                <span>{i18n.language === 'ar' ? 'وقت الإغلاق:' : 'Closing time:'} {formatTimeTo12Hour(offer.closing_time)}</span>
                               </div>
                             )}
                             {offer.meeting_point && (
@@ -2030,7 +2020,7 @@ export function ServiceBookingFlow() {
                         const isSelected = selectedSlot && timeSlots.some((s) => s.id === selectedSlot.id);
                         
                         // Format time display - show start time in 12-hour format
-                        const timeDisplay = formatTime12Hour(firstSlot.start_time);
+                        const timeDisplay = formatTimeTo12Hour(firstSlot.start_time);
 
                         // Show capacity information
                         let capacityText = '';
@@ -2061,8 +2051,8 @@ export function ServiceBookingFlow() {
                       <div className="mt-2 text-sm text-gray-600 flex items-center gap-2">
                         <Clock className="w-4 h-4" />
                         <span>
-                          {formatTime12Hour(selectedSlot.start_time)}
-                          {selectedSlot.end_time && ` - ${formatTime12Hour(selectedSlot.end_time)}`}
+                          {formatTimeTo12Hour(selectedSlot.start_time)}
+                          {selectedSlot.end_time && ` - ${formatTimeTo12Hour(selectedSlot.end_time)}`}
                           {selectedSlot.available_capacity === 1 && (
                             <span className="ml-2 text-orange-600 font-medium">
                               ({i18n.language === 'ar' ? 'تذكرة واحدة متبقية' : '1 ticket left'})
@@ -2146,7 +2136,7 @@ export function ServiceBookingFlow() {
                       {i18n.language === 'ar' ? 'الوقت' : 'Time'}
                     </div>
                     <div className="font-medium text-gray-900">
-                      {selectedSlot.start_time} - {selectedSlot.end_time}
+                      {formatTimeTo12Hour(selectedSlot.start_time)} - {formatTimeTo12Hour(selectedSlot.end_time)}
                     </div>
                   </div>
                 )}

@@ -9,6 +9,7 @@ import {
   invalidateEmployeeAvailability,
   invalidateEmployeeAvailabilityForTenant,
 } from '../utils/employeeAvailabilityCache';
+import { formatTimeTo12Hour } from '../utils/timeFormat';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -3335,21 +3336,6 @@ router.get('/:id/details', async (req, res) => {
       }
     };
 
-    // Helper function to format time to 12-hour format (e.g., "8:00 PM")
-    const formatTime12Hour = (timeString: string): string => {
-      if (!timeString) return 'N/A';
-      try {
-        const [hours, minutes] = timeString.split(':');
-        const hour = parseInt(hours || '0', 10);
-        const min = minutes || '00';
-        const period = hour >= 12 ? 'PM' : 'AM';
-        const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-        return `${displayHour}:${min} ${period}`;
-      } catch {
-        return timeString;
-      }
-    };
-
     // Determine ticket type
     const getTicketType = (): string => {
       return booking.visitor_count > 1 ? `${booking.visitor_count} Tickets` : '1 Ticket';
@@ -3395,8 +3381,8 @@ router.get('/:id/details', async (req, res) => {
       tenant_name_ar: (booking.tenants as any)?.name_ar || null,
       tenant_currency_code: (booking.tenants as any)?.currency_code || 'SAR',
       formatted_date: formatDate((booking.slots as any).slot_date),
-      formatted_start_time: formatTime12Hour((booking.slots as any).start_time),
-      formatted_end_time: formatTime12Hour((booking.slots as any).end_time),
+      formatted_start_time: formatTimeTo12Hour((booking.slots as any).start_time || ''),
+      formatted_end_time: formatTimeTo12Hour((booking.slots as any).end_time || ''),
       ticket_type: getTicketType(),
     };
     

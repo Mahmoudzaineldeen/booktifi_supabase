@@ -7,6 +7,7 @@ import { Card, CardContent } from '../../components/ui/Card';
 import { format, parseISO } from 'date-fns';
 import { User, Calendar, Clock, Package, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { getApiUrl } from '../../lib/apiUrl';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import { extractBookingIdFromQR, parseQRContentForDisplay } from '../../lib/qrUtils';
 import { db } from '../../lib/db';
 import { TicketsUnavailablePage } from '../../components/shared/TicketsUnavailablePage';
@@ -236,7 +237,7 @@ export function QRScannerPage() {
                       <div>
                         <p className="text-sm text-gray-500">Time</p>
                         <p className="font-medium">
-                          {bookingDetails.start_time} - {bookingDetails.end_time}
+                          {formatTimeTo12Hour(bookingDetails.start_time)} - {formatTimeTo12Hour(bookingDetails.end_time)}
                         </p>
                       </div>
                     </div>

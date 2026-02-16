@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { Plus, Edit, Trash2, Briefcase, FolderOpen, Clock, X, Upload, Gift, Search } from 'lucide-react';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import heic2any from 'heic2any';
 
 interface Category {
@@ -1866,7 +1867,7 @@ export function ServicesPage() {
                   <div key={shift.id} className="flex items-center justify-between p-3 border rounded-lg">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium">{shift.start_time_utc} - {shift.end_time_utc}</span>
+                        <span className="font-medium">{formatTimeTo12Hour(shift.start_time_utc)} - {formatTimeTo12Hour(shift.end_time_utc)}</span>
                         <span className={`text-xs px-2 py-0.5 rounded ${
                           shift.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                         }`}>

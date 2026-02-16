@@ -14,6 +14,7 @@ import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { fetchAvailableSlots, Slot } from '../../lib/bookingAvailability';
+import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
 import { Input } from '../../components/ui/Input';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
@@ -568,9 +569,10 @@ export function BookingsPage() {
         const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
 
         const filteredBookings = activeBookings.filter(booking => {
-          const slotDate = booking.slots?.slot_date;
-          if (!slotDate) return false;
-          return slotDate >= weekStartStr && slotDate <= weekEndStr;
+          const raw = booking.slots?.slot_date;
+          if (raw == null) return false;
+          const normalized = normalizeSlotDate(raw);
+          return normalized >= weekStartStr && normalized <= weekEndStr;
         });
         setBookings(filteredBookings);
       } else {
@@ -583,11 +585,26 @@ export function BookingsPage() {
     }
   }
 
+  function normalizeSlotDate(raw: string | Date): string {
+    if (typeof raw === 'string') {
+      if (raw.includes('T') || raw.includes('Z')) {
+        try {
+          return format(parseISO(raw), 'yyyy-MM-dd');
+        } catch {
+          return raw.substring(0, 10);
+        }
+      }
+      return raw.substring(0, 10);
+    }
+    return format(new Date(raw), 'yyyy-MM-dd');
+  }
+
   function getBookingsForDate(date: Date) {
     const dateStr = format(date, 'yyyy-MM-dd');
     return displayBookings.filter(booking => {
-      const bookingDate = booking.slots?.slot_date;
-      return bookingDate === dateStr;
+      const raw = booking.slots?.slot_date;
+      if (raw == null) return false;
+      return normalizeSlotDate(raw) === dateStr;
     });
   }
 
@@ -1694,8 +1711,8 @@ export function BookingsPage() {
                           <Clock className="w-4 h-4 text-gray-500" />
                           <span className="text-sm text-gray-600">
                             {booking.slots ?
-                              `${format(new Date(booking.slots.slot_date), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })} ${booking.slots.start_time}` :
-                              format(new Date(booking.created_at), 'MMM dd, yyyy HH:mm', { locale: isAr ? ar : undefined })
+                              `${format(new Date(booking.slots.slot_date), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })} ${formatTimeTo12Hour(booking.slots.start_time)}` :
+                              formatDateTimeTo12Hour(booking.created_at, { locale: isAr ? ar : undefined })
                             }
                           </span>
                         </div>
@@ -1744,7 +1761,7 @@ export function BookingsPage() {
                           {booking.zoho_invoice_created_at && (
                             <p className="text-xs text-blue-600 mb-3">
                               {t('billing.created')}{' '}
-                              {format(new Date(booking.zoho_invoice_created_at), 'MMM dd, yyyy HH:mm', { locale: isAr ? ar : undefined })}
+                              {formatDateTimeTo12Hour(booking.zoho_invoice_created_at, { locale: isAr ? ar : undefined })}
                             </p>
                           )}
                           <Button
@@ -1980,7 +1997,7 @@ export function BookingsPage() {
                                 }}
                               >
                                 <div className="text-xs font-semibold truncate">
-                                  {booking.slots?.start_time}
+                                  {formatTimeTo12Hour(booking.slots?.start_time ?? '')}
                                 </div>
                                 <div className="text-xs font-medium truncate">
                                   {booking.customer_name}
@@ -2163,7 +2180,7 @@ export function BookingsPage() {
                       <div key={idx} className="flex justify-between items-center py-2 border-b last:border-b-0">
                         <div>
                           <div className="text-sm font-medium text-gray-900">{format(parseISO(s.slot_date), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })}</div>
-                          <div className="text-xs text-gray-600">{s.start_time} - {s.end_time}</div>
+                          <div className="text-xs text-gray-600">{formatTimeTo12Hour(s.start_time)} - {formatTimeTo12Hour(s.end_time)}</div>
                         </div>
                       </div>
                     ))
@@ -2173,7 +2190,7 @@ export function BookingsPage() {
                       <div className="flex justify-between items-center py-2">
                         <div>
                           <div className="text-sm font-medium text-gray-900">{format(parseISO(createDate), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })}</div>
-                          <div className="text-xs text-gray-600">{slot.start_time} - {slot.end_time}</div>
+                          <div className="text-xs text-gray-600">{formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}</div>
                         </div>
                       </div>
                     ) : null;
@@ -2706,7 +2723,7 @@ export function BookingsPage() {
                             )}
                             <div className="flex items-center gap-2 mb-1">
                               <Clock className="w-4 h-4" />
-                              <span className="font-medium">{first.start_time} - {first.end_time}</span>
+                              <span className="font-medium">{formatTimeTo12Hour(first.start_time)} - {formatTimeTo12Hour(first.end_time)}</span>
                             </div>
                             <div className="text-xs">{totalCap} spots left</div>
                           </button>
@@ -2954,7 +2971,7 @@ export function BookingsPage() {
                       <Clock className="w-4 h-4" />
                       <span>
                         {editingBookingTime.slots?.start_time 
-                          ? `${editingBookingTime.slots.start_time} - ${editingBookingTime.slots.end_time}`
+                          ? `${formatTimeTo12Hour(editingBookingTime.slots.start_time)} - ${formatTimeTo12Hour(editingBookingTime.slots.end_time)}`
                           : 'N/A'}
                       </span>
                     </div>
@@ -3066,7 +3083,7 @@ export function BookingsPage() {
                               : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                           }`}
                         >
-                          <div className="font-medium">{slot.start_time}</div>
+                          <div className="font-medium">{formatTimeTo12Hour(slot.start_time)}</div>
                           {isEmployeeBasedMode && (slot as any).users && (
                             <div className="text-xs truncate" title={isAr ? (slot as any).users?.full_name_ar : (slot as any).users?.full_name}>
                               {isAr ? (slot as any).users?.full_name_ar || (slot as any).users?.full_name : (slot as any).users?.full_name || (slot as any).users?.full_name_ar}

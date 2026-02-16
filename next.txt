@@ -33,6 +33,20 @@ organization id=910540679
 done 10 or least
 done Arabic
 done  performance is sucks
-done done remove all alerts
+done remove all alerts
 done full disable the the fully customer if the 
+
+change email info@kingdomcentre.com.sa to healingtouches_sa@hotmail.com
+
+make the system time 12 hour not 24 
+
+add branches tab in admin page 
+
+pricing (number of braches and users and WhatsApp number messages)
+https://www.daftra.com/plans
+Pricing page
+
+add payment getway and WhatsApp getway
+
+add new role (agency) link with the agency id so if any one created a link through an agency link there is a tap called added persons shows persons registered through my link and there is a cashback for me for each one add same for the service provider 
 

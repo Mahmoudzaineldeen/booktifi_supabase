@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { Calendar, Clock, LogOut, Star, MessageSquare, Package, CalendarOff, UserCircle, CheckCircle, XCircle, User, FileText, TrendingUp, BarChart3 } from 'lucide-react';
 import { format } from 'date-fns';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import { ReviewForm } from '../../components/reviews/ReviewForm';
 import { Modal } from '../../components/ui/Modal';
 import { getApiUrl } from '../../lib/apiUrl';
@@ -786,7 +787,7 @@ export function CustomerDashboard() {
                       </div>
                       <div className="flex items-center gap-2 text-gray-700">
                         <Clock className="w-5 h-5" style={{ color: primaryColor }} />
-                        <span className="font-medium">{booking.start_time} - {booking.end_time}</span>
+                        <span className="font-medium">{formatTimeTo12Hour(booking.start_time)} - {formatTimeTo12Hour(booking.end_time)}</span>
                       </div>
                       <div className="pt-3 border-t flex items-center gap-2" style={{ borderColor: `${primaryColor}20` }}>
                         {booking.status === 'confirmed' ? (
@@ -839,7 +840,7 @@ export function CustomerDashboard() {
                       </div>
                       <div className="flex items-center gap-2 text-gray-700">
                         <Clock className="w-5 h-5" style={{ color: primaryColor }} />
-                        <span className="font-medium">{booking.start_time} - {booking.end_time}</span>
+                        <span className="font-medium">{formatTimeTo12Hour(booking.start_time)} - {formatTimeTo12Hour(booking.end_time)}</span>
                       </div>
                       {booking.review_id && (
                         <div className="flex items-center gap-2 pt-3 border-t" style={{ borderColor: `${primaryColor}20` }}>

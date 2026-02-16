@@ -12,6 +12,7 @@ import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { QrCode, Scan, LogOut, User, Phone, Mail, Clock, CheckCircle, XCircle, DollarSign, Calendar, FileText } from 'lucide-react';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { format, parseISO } from 'date-fns';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import { useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../../lib/apiUrl';
 import { extractBookingIdFromQR } from '../../lib/qrUtils';
@@ -457,7 +458,7 @@ export function CashierPage() {
                     <div>
                       <p className="text-xs text-gray-500">{i18n.language === 'ar' ? 'التاريخ والوقت' : 'Date & Time'}</p>
                       <p className="font-medium">
-                        {format(parseISO(scannedBooking.slots.slot_date), 'MMM dd, yyyy')} • {scannedBooking.slots.start_time} - {scannedBooking.slots.end_time}
+                        {format(parseISO(scannedBooking.slots.slot_date), 'MMM dd, yyyy')} • {formatTimeTo12Hour(scannedBooking.slots.start_time)} - {formatTimeTo12Hour(scannedBooking.slots.end_time)}
                       </p>
                     </div>
                   </div>

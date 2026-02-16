@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader } from '../../components/ui/Card';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { ArrowLeft, FileText, Download, Calendar, CheckCircle, XCircle, Clock, Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
 import { getApiUrl } from '../../lib/apiUrl';
 import { showNotification } from '../../contexts/NotificationContext';
 
@@ -561,7 +562,7 @@ export function CustomerBillingPage() {
                         <span className="font-medium">{t('common.fromDatabase')}</span>{' '}
                         <span className="font-mono">
                           {latestInvoiceFromDB.timestamp 
-                            ? format(new Date(latestInvoiceFromDB.timestamp), 'MMM dd, yyyy HH:mm:ss')
+                            ? formatDateTimeTo12Hour(latestInvoiceFromDB.timestamp)
                             : 'N/A'}
                         </span>
                         {latestInvoiceFromDB.invoiceId && (
@@ -575,7 +576,7 @@ export function CustomerBillingPage() {
                           <div>
                             <span className="font-medium">{t('common.displayedOnPage')}</span>{' '}
                             <span className="font-mono">
-                              {format(new Date(invoices[0].zoho_invoice_created_at || invoices[0].created_at), 'MMM dd, yyyy HH:mm:ss')}
+                              {formatDateTimeTo12Hour(invoices[0].zoho_invoice_created_at || invoices[0].created_at)}
                             </span>
                             {invoices[0].zoho_invoice_id && (
                               <span className="ml-2 text-gray-500">
@@ -668,7 +669,7 @@ export function CustomerBillingPage() {
                           <Clock className="w-4 h-4" style={{ color: primaryColor }} />
                           <span className="font-medium">
                             {invoice.start_time && invoice.end_time 
-                              ? `${format(new Date(`2000-01-01T${invoice.start_time}`), 'HH:mm')} - ${format(new Date(`2000-01-01T${invoice.end_time}`), 'HH:mm')}`
+                              ? `${formatTimeTo12Hour(invoice.start_time)} - ${formatTimeTo12Hour(invoice.end_time)}`
                               : 'N/A'}
                           </span>
                         </div>
@@ -736,7 +737,7 @@ export function CustomerBillingPage() {
                         borderColor: `${primaryColor}20`
                       }}>
                         {invoice.zoho_invoice_created_at 
-                          ? format(new Date(invoice.zoho_invoice_created_at), 'MMM dd, yyyy HH:mm')
+                          ? formatDateTimeTo12Hour(invoice.zoho_invoice_created_at)
                           : 'N/A'}
                       </p>
                     </div>

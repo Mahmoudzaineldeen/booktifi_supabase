@@ -18,6 +18,7 @@ import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { showNotification } from '../../contexts/NotificationContext';
 import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
 
 interface BookingData {
   serviceId: string;
@@ -1225,7 +1226,7 @@ export function CheckoutPage() {
                       <div>
                         <p className="text-xs text-gray-500">{t('checkout.time')}</p>
                         <p className="text-sm font-medium text-gray-900">
-                          {slot.start_time} - {slot.end_time}
+                          {formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}
                         </p>
                       </div>
                     </div>

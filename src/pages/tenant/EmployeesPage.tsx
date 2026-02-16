@@ -11,6 +11,7 @@ import { PhoneInput } from '../../components/ui/PhoneInput';
 import { countryCodes } from '../../lib/countryCodes';
 import { Plus, Edit, Users, Mail, Phone, Briefcase, UserX, UserCheck, Search, Trash2, Clock } from 'lucide-react';
 import { getApiUrl } from '../../lib/apiUrl';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
@@ -1004,7 +1005,7 @@ export function EmployeesPage() {
                               />
                               <div className="flex-1">
                                 <div className="font-medium text-gray-700">
-                                  {shift.start_time_utc} - {shift.end_time_utc}
+                                  {formatTimeTo12Hour(shift.start_time_utc)} - {formatTimeTo12Hour(shift.end_time_utc)}
                                 </div>
                                 <div className="text-gray-500">
                                   {shift.days_of_week.sort().map(day =>
@@ -1044,7 +1045,7 @@ export function EmployeesPage() {
                     <div key={sh.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 text-sm">
                       <div className="flex flex-col gap-0.5">
                         <span className="font-medium text-gray-800">
-                          {sh.start_time_utc?.slice(0, 5)} – {sh.end_time_utc?.slice(0, 5)}
+                          {formatTimeTo12Hour(sh.start_time_utc ?? '')} – {formatTimeTo12Hour(sh.end_time_utc ?? '')}
                         </span>
                         <span className="text-xs text-gray-600">
                           {[...(sh.days_of_week || [])].sort().map(d => (i18n.language === 'ar' ? dayNamesAr[d] : dayNames[d])).join(', ')}

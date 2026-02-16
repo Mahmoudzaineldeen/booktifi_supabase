@@ -2,6 +2,7 @@ import express from 'express';
 import { supabase } from '../db';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
+import { formatTimeTo12Hour } from '../utils/timeFormat';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -1005,7 +1006,7 @@ async function getVisitorDetailStructured(
         bookingId: b.id,
         serviceName: b.services?.name ?? '',
         date: b.slots?.slot_date ?? '',
-        time: b.slots?.start_time ?? '',
+        time: formatTimeTo12Hour(b.slots?.start_time ?? ''),
         visitorsCount: b.visitor_count ?? 0,
         type: (b.package_covered_quantity ?? 0) > 0 ? ('PACKAGE' as const) : ('PAID' as const),
         amountPaid: (b.package_covered_quantity ?? 0) > 0 ? 0 : parsePrice(b.total_price),
@@ -1077,7 +1078,7 @@ async function getVisitorDetailStructured(
       bookingId: b.id,
       serviceName: b.services?.name ?? '',
       date: b.slots?.slot_date ?? '',
-      time: b.slots?.start_time ?? '',
+      time: formatTimeTo12Hour(b.slots?.start_time ?? ''),
       visitorsCount: b.visitor_count ?? 0,
       type: (b.package_covered_quantity ?? 0) > 0 ? ('PACKAGE' as const) : ('PAID' as const),
       amountPaid: (b.package_covered_quantity ?? 0) > 0 ? 0 : parsePrice(b.total_price),
