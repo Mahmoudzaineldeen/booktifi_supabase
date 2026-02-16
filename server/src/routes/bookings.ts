@@ -4147,7 +4147,7 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
         .select(`
           *,
           services:service_id (name, name_ar),
-          slots:slot_id (slot_date, start_time, end_time),
+          slots:slot_id (slot_date, start_time, end_time, employee_id),
           tenants:tenant_id (name, name_ar)
         `)
         .eq('id', bookingId)
@@ -4219,7 +4219,7 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
         .select(`
           *,
           services:service_id (name, name_ar),
-          slots:slot_id (slot_date, start_time, end_time),
+          slots:slot_id (slot_date, start_time, end_time, employee_id),
           tenants:tenant_id (name, name_ar)
         `)
         .eq('id', bookingId)

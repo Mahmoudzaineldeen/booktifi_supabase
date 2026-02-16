@@ -2594,14 +2594,16 @@ export function ReceptionPage() {
       if (result.booking && result.booking.slots) {
         backendBookingData = {
           slot_id: result.booking.slot_id,
-          slots: result.booking.slots
+          slots: result.booking.slots,
+          employee_id: result.booking.employee_id ?? undefined,
         };
         console.log('[ReceptionPage] ✅ Got updated booking from backend response:');
         console.log('[ReceptionPage]   slot_id:', backendBookingData.slot_id);
         console.log('[ReceptionPage]   slot_date:', backendBookingData.slots?.slot_date);
         console.log('[ReceptionPage]   start_time:', backendBookingData.slots?.start_time);
+        console.log('[ReceptionPage]   employee_id:', backendBookingData.employee_id);
         
-        // Immediately update the state with backend data
+        // Immediately update the state with backend data (including employee_id for employee-based mode)
         setBookings(prevBookings => 
           prevBookings.map(b => {
             if (b.id === updatedBookingId) {
@@ -2611,7 +2613,8 @@ export function ReceptionPage() {
               return { 
                 ...b, 
                 slot_id: backendBookingData.slot_id, 
-                slots: backendBookingData.slots 
+                slots: backendBookingData.slots,
+                ...(backendBookingData.employee_id !== undefined && { employee_id: backendBookingData.employee_id }),
               };
             }
             return b;
@@ -2625,7 +2628,8 @@ export function ReceptionPage() {
               return { 
                 ...b, 
                 slot_id: backendBookingData.slot_id, 
-                slots: backendBookingData.slots 
+                slots: backendBookingData.slots,
+                ...(backendBookingData.employee_id !== undefined && { employee_id: backendBookingData.employee_id }),
               };
             }
             return b;
@@ -2660,6 +2664,7 @@ export function ReceptionPage() {
                   ...b,
                   slot_id: backendBookingData.slot_id,
                   slots: backendBookingData.slots,
+                  ...(backendBookingData.employee_id !== undefined && { employee_id: backendBookingData.employee_id }),
                 };
                 console.log('[ReceptionPage]   State update from API response:', {
                   bookingId: updatedBookingId,
@@ -2681,6 +2686,7 @@ export function ReceptionPage() {
                   ...b,
                   slot_id: backendBookingData.slot_id,
                   slots: backendBookingData.slots,
+                  ...(backendBookingData.employee_id !== undefined && { employee_id: backendBookingData.employee_id }),
                 };
               }
               return b;
@@ -2815,6 +2821,7 @@ export function ReceptionPage() {
                   ...b,
                   slot_id: backendBookingData.slot_id,
                   slots: backendBookingData.slots,
+                  ...(backendBookingData.employee_id !== undefined && { employee_id: backendBookingData.employee_id }),
                 };
               }
               return b;
@@ -6136,6 +6143,11 @@ export function ReceptionPage() {
                           }`}
                         >
                           <div className="font-medium">{slot.start_time}</div>
+                          {isEmployeeBasedMode && (slot as any).users && (
+                            <div className="text-xs truncate" title={i18n.language === 'ar' ? (slot as any).users?.full_name_ar : (slot as any).users?.full_name}>
+                              {i18n.language === 'ar' ? (slot as any).users?.full_name_ar || (slot as any).users?.full_name : (slot as any).users?.full_name || (slot as any).users?.full_name_ar}
+                            </div>
+                          )}
                           <div className="text-xs opacity-75">
                             {slot.available_capacity} {t('common.available') || 'available'}
                           </div>
