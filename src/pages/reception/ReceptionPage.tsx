@@ -6160,9 +6160,21 @@ export function ReceptionPage() {
                       </p>
                     </div>
                   ) : (() => {
+                    const requireEmployeeFirst = isEmployeeBasedMode && (tenantAssignmentMode === 'manual' || tenantAssignmentMode === 'both');
                     const slotsToShow = changeTimeEmployeeId
                       ? availableTimeSlots.filter((s: any) => s.employee_id === changeTimeEmployeeId)
-                      : availableTimeSlots;
+                      : requireEmployeeFirst
+                        ? []
+                        : availableTimeSlots;
+                    if (requireEmployeeFirst && !changeTimeEmployeeId) {
+                      return (
+                        <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                          <p className="text-sm text-blue-800">
+                            {t('bookings.selectEmployeeFirst') || 'Please select an employee above to see available time slots.'}
+                          </p>
+                        </div>
+                      );
+                    }
                     return slotsToShow.length === 0 ? (
                       <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                         <p className="text-sm text-yellow-800">

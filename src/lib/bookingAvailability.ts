@@ -153,6 +153,9 @@ export async function fetchAvailableSlots(
   // Use slots + shift IDs from API when present (avoids shifts + slots DB queries in employee-based mode)
   if (apiSlotsFromResponse && apiSlotsFromResponse.length > 0 && employeeBasedShiftIds && employeeBasedShiftIds.length > 0) {
     availableSlots = apiSlotsFromResponse;
+    if (useEmployeeBasedAvailability) {
+      availableSlots = availableSlots.filter((s) => (s as any).employee_id != null);
+    }
     if (!includeZeroCapacity) {
       availableSlots = availableSlots.filter((s) => (s.available_capacity ?? 0) > 0);
     }

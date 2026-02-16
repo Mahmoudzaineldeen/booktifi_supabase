@@ -1221,6 +1221,7 @@
     "bookingTimeUpdatedSuccessfully": "Booking time updated successfully. New tickets will be sent to the customer.",
     "noAvailableTimeSlots": "No available time slots for this date",
     "makeSureShiftsAndSlotsExist": "Make sure shifts and slots exist for this date",
+    "selectEmployeeFirst": "Please select an employee above to see available time slots.",
     "search": {
       "type": "Search Type",
       "query": "Search Query",

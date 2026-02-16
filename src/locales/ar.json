@@ -1719,6 +1719,7 @@
     "bookingTimeUpdatedSuccessfully": "تم تحديث وقت الحجز بنجاح. سيتم إرسال التذاكر الجديدة للعميل.",
     "noAvailableTimeSlots": "لا توجد أوقات متاحة لهذا التاريخ",
     "makeSureShiftsAndSlotsExist": "تأكد من وجود ورديات ووقتات لهذا التاريخ",
+    "selectEmployeeFirst": "يرجى اختيار الموظف أعلاه لعرض الأوقات المتاحة.",
     "search": {
       "type": "نوع البحث",
       "query": "استعلام البحث",

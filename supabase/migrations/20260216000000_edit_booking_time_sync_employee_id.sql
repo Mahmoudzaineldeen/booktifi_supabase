@@ -42,7 +42,8 @@ BEGIN
     visitor_count,
     total_price,
     status,
-    payment_status
+    payment_status,
+    package_covered_quantity
   INTO v_booking_record
   FROM bookings
   WHERE id = p_booking_id
@@ -111,14 +112,14 @@ BEGIN
   -- ============================================================================
   -- STEP 3: Check capacity (excluding locks)
   -- ============================================================================
-  SELECT COALESCE(SUM(visitor_count), 0)
+  SELECT COALESCE(SUM(reserved_capacity), 0)
   INTO v_locked_capacity
-  FROM slot_locks
+  FROM booking_locks
   WHERE slot_id = p_new_slot_id
-    AND expires_at > now()
-    AND session_id != COALESCE(
-      (SELECT session_id FROM slot_locks WHERE slot_id = v_old_slot_id_final LIMIT 1),
-      '00000000-0000-0000-0000-000000000000'::uuid
+    AND lock_expires_at > now()
+    AND reserved_by_session_id != COALESCE(
+      (SELECT reserved_by_session_id FROM booking_locks WHERE slot_id = v_old_slot_id_final LIMIT 1),
+      ''
     );
 
   v_available_capacity := v_new_slot_record.available_capacity - v_locked_capacity;
@@ -153,6 +154,12 @@ BEGIN
 
   v_price_changed := (v_old_price != v_new_price);
 
+  -- Respect bookings_package_price_check: when fully package-covered, total_price must be 0
+  IF v_booking_record.package_covered_quantity IS NOT NULL AND v_booking_record.package_covered_quantity = v_visitor_count THEN
+    v_new_price := 0;
+  END IF;
+  v_price_changed := (v_old_price != v_new_price);
+
   -- ============================================================================
   -- STEP 5: Release old slot capacity and reserve new slot capacity
   -- ============================================================================
@@ -173,18 +180,8 @@ BEGIN
   WHERE id = p_new_slot_id;
 
   -- ============================================================================
-  -- STEP 6: Invalidate old tickets (if any)
-  -- ============================================================================
-  UPDATE tickets
-  SET 
-    qr_scanned = true,
-    qr_token = NULL,
-    updated_at = now()
-  WHERE booking_id = p_booking_id
-    AND qr_scanned = false;
-
-  -- ============================================================================
-  -- STEP 7: Update booking with new slot, price, and employee (employee-based sync)
+  -- STEP 6: Update booking with new slot, price, employee, and invalidate old tickets
+  -- (Ticket/QR data lives on bookings; no separate tickets table required.)
   -- ============================================================================
   UPDATE bookings
   SET 
@@ -192,40 +189,48 @@ BEGIN
     service_id = v_new_slot_record.service_id,
     total_price = v_new_price,
     employee_id = v_new_slot_record.employee_id,
+    qr_token = NULL,
+    qr_scanned = true,
+    qr_scanned_at = now(),
+    qr_scanned_by_user_id = p_user_id,
     updated_at = now()
   WHERE id = p_booking_id;
 
   -- ============================================================================
-  -- STEP 8: Create audit log
+  -- STEP 7: Create audit log (optional; skip if table does not exist)
   -- ============================================================================
-  INSERT INTO booking_audit_logs (
-    booking_id,
-    action,
-    performed_by_user_id,
-    old_values,
-    new_values,
-    created_at
-  ) VALUES (
-    p_booking_id,
-    'time_changed',
-    p_user_id,
-    jsonb_build_object(
-      'old_slot_id', v_old_slot_id_final,
-      'old_price', v_old_price,
-      'old_service_id', v_booking_record.service_id
-    ),
-    jsonb_build_object(
-      'new_slot_id', p_new_slot_id,
-      'new_price', v_new_price,
-      'new_service_id', v_new_slot_record.service_id,
-      'new_employee_id', v_new_slot_record.employee_id,
-      'price_changed', v_price_changed
-    ),
-    now()
-  );
+  BEGIN
+    INSERT INTO booking_audit_logs (
+      booking_id,
+      action,
+      performed_by_user_id,
+      old_values,
+      new_values,
+      created_at
+    ) VALUES (
+      p_booking_id,
+      'time_changed',
+      p_user_id,
+      jsonb_build_object(
+        'old_slot_id', v_old_slot_id_final,
+        'old_price', v_old_price,
+        'old_service_id', v_booking_record.service_id
+      ),
+      jsonb_build_object(
+        'new_slot_id', p_new_slot_id,
+        'new_price', v_new_price,
+        'new_service_id', v_new_slot_record.service_id,
+        'new_employee_id', v_new_slot_record.employee_id,
+        'price_changed', v_price_changed
+      ),
+      now()
+    );
+  EXCEPTION
+    WHEN undefined_table THEN NULL;  -- table does not exist in this schema
+  END;
 
   -- ============================================================================
-  -- STEP 9: Return success with updated booking data
+  -- STEP 8: Return success with updated booking data
   -- ============================================================================
   RETURN jsonb_build_object(
     'success', true,
