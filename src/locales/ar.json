@@ -831,6 +831,7 @@
     "date": "التاريخ",
     "time": "الوقت",
     "service": "الخدمة",
+    "notes": "ملاحظات",
     "specialNotes": "ملاحظات خاصة",
     "paidManual": "مدفوع يدوياً",
     "awaitingPayment": "في انتظار الدفع",

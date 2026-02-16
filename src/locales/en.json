@@ -581,6 +581,7 @@
     "date": "Date",
     "time": "Time",
     "service": "Service",
+    "notes": "Notes",
     "specialNotes": "Special Notes",
     "paidManual": "Paid Manual",
     "awaitingPayment": "Awaiting Payment",
