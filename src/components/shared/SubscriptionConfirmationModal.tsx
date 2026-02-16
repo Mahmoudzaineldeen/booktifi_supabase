@@ -60,7 +60,7 @@ export function SubscriptionConfirmationModal({
   onAddAnother,
   onViewSubscribers,
 }: SubscriptionConfirmationModalProps) {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { formatPrice } = useCurrency();
 
   if (!data) return null;
