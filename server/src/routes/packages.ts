@@ -1697,44 +1697,58 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
       }
     }
 
-    // Verify package exists and belongs to tenant
-    const { data: packageData, error: packageError } = await supabase
-      .from('service_packages')
-      .select('id, tenant_id, total_price, name, name_ar, is_active')
-      .eq('id', package_id)
-      .eq('tenant_id', tenantId)
-      .eq('is_active', true)
-      .single();
+    // Run independent queries in parallel for speed
+    const [packageResult, customerResult, existingSubResult, servicesResult] = await Promise.all([
+      supabase
+        .from('service_packages')
+        .select('id, tenant_id, total_price, name, name_ar, is_active')
+        .eq('id', package_id)
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true)
+        .single(),
+      supabase
+        .from('customers')
+        .select('id, tenant_id, name, phone, email')
+        .eq('id', finalCustomerId)
+        .eq('tenant_id', tenantId)
+        .single(),
+      supabase
+        .from('package_subscriptions')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('customer_id', finalCustomerId)
+        .eq('package_id', package_id)
+        .eq('status', 'active')
+        .eq('is_active', true)
+        .maybeSingle(),
+      supabase
+        .from('package_services')
+        .select('service_id, capacity_total')
+        .eq('package_id', package_id),
+    ]);
+
+    const { data: packageData, error: packageError } = packageResult;
+    const { data: customerData, error: customerError } = customerResult;
+    const { data: existingSubscription } = existingSubResult;
+    const { data: packageServices, error: servicesError } = servicesResult;
 
     if (packageError || !packageData) {
       return res.status(404).json({ error: 'Package not found or inactive' });
     }
-
-    // Verify customer exists and belongs to tenant
-    const { data: customerData, error: customerError } = await supabase
-      .from('customers')
-      .select('id, tenant_id, name, phone, email')
-      .eq('id', finalCustomerId)
-      .eq('tenant_id', tenantId)
-      .single();
-
     if (customerError || !customerData) {
       return res.status(404).json({ error: 'Customer not found' });
     }
-
-    // Check if subscription already exists with remaining capacity
-    const { data: existingSubscription } = await supabase
-      .from('package_subscriptions')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .eq('customer_id', finalCustomerId)
-      .eq('package_id', package_id)
-      .eq('status', 'active')
-      .eq('is_active', true)
-      .maybeSingle();
+    if (servicesError) {
+      return res.status(500).json({
+        error: 'Failed to fetch package services',
+        details: servicesError.message
+      });
+    }
+    if (!packageServices || packageServices.length === 0) {
+      return res.status(400).json({ error: 'Package has no services' });
+    }
 
     if (existingSubscription) {
-      // If package is fully consumed (0 remaining), allow re-purchase: deactivate old subscription and create new one
       const { data: usageRows } = await supabase
         .from('package_subscription_usage')
         .select('remaining_quantity')
@@ -1749,7 +1763,6 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
         });
       }
 
-      // Fully consumed: deactivate the old subscription so customer can purchase again
       await supabase
         .from('package_subscriptions')
         .update({ is_active: false, updated_at: new Date().toISOString() })
@@ -1757,23 +1770,6 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
       if (isVerboseLogging()) {
         logger.info('Receptionist subscribe: deactivated exhausted subscription to allow re-purchase', {}, {}, { subscriptionId: existingSubscription.id, packageId: package_id });
       }
-    }
-
-    // Get package services to initialize usage
-    const { data: packageServices, error: servicesError } = await supabase
-      .from('package_services')
-      .select('service_id, capacity_total')
-      .eq('package_id', package_id);
-
-    if (servicesError) {
-      return res.status(500).json({ 
-        error: 'Failed to fetch package services',
-        details: servicesError.message 
-      });
-    }
-
-    if (!packageServices || packageServices.length === 0) {
-      return res.status(400).json({ error: 'Package has no services' });
     }
 
     // Create subscription (include payment_status, payment_method, transaction_reference when provided)
@@ -1822,15 +1818,10 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
       // Don't fail - subscription is created, usage can be fixed later
     }
 
-    // Create Zoho invoice when not created as pending (pending = invoice created when marked paid later)
-    let zohoInvoiceId: string | null = null;
-    let invoiceError: string | null = null;
+    // Return 201 immediately; create Zoho invoice in background so the request is fast
     if (reqPaymentStatus !== 'pending') {
       const customer_phone_raw = req.body.customer_phone as string | undefined;
       const customer_email_raw = req.body.customer_email as string | undefined;
-      if (isVerboseLogging()) {
-        logger.info('Receptionist subscribe: creating package subscription invoice', {}, {}, { subscriptionId: subscription.id, packageId: package_id });
-      }
       const receptionInvoiceOptions: { customer_phone?: string; customer_email?: string; payment?: { payment_method: 'onsite' | 'transfer'; transaction_reference?: string | null } } = {
         customer_phone: customer_phone_raw,
         customer_email: customer_email_raw,
@@ -1841,19 +1832,20 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
           transaction_reference: reqTransactionRef != null ? String(reqTransactionRef).trim() : undefined,
         };
       }
-      const result = await createInvoiceForPackageSubscription(
+      createInvoiceForPackageSubscription(
         tenantId,
         subscription,
         package_id,
         { name: packageData.name, name_ar: packageData.name_ar, total_price: packageData.total_price },
         { name: customerData.name, email: customerData.email ?? undefined, phone: customerData.phone ?? undefined },
         receptionInvoiceOptions
-      );
-      zohoInvoiceId = result.zohoInvoiceId;
-      invoiceError = result.invoiceError;
-      if (invoiceError && isVerboseLogging()) {
-        logger.warn('Receptionist subscribe: invoice creation failed (subscription still created)', undefined, {}, { subscriptionId: subscription.id, invoiceError });
-      }
+      ).then((result) => {
+        if (result.invoiceError && isVerboseLogging()) {
+          logger.warn('Receptionist subscribe: invoice creation failed (subscription still created)', undefined, {}, { subscriptionId: subscription.id, invoiceError: result.invoiceError });
+        }
+      }).catch((err) => {
+        logger.error('Receptionist subscribe: background invoice creation error', err, {}, { subscriptionId: subscription.id });
+      });
     } else if (isVerboseLogging()) {
       logger.info('Receptionist subscribe: created as pending (not paid), invoice will be created when marked paid', {}, {}, { subscriptionId: subscription.id });
     }
@@ -1871,8 +1863,9 @@ router.post('/receptionist/subscriptions', authenticateSubscriptionManager, asyn
         },
         subscribed_at: subscription.subscribed_at
       },
-      invoice: zohoInvoiceId ? { id: zohoInvoiceId, status: 'created' } : null,
-      invoice_error: invoiceError ?? undefined
+      invoice: null,
+      invoice_pending: reqPaymentStatus !== 'pending',
+      invoice_error: undefined
     });
 
   } catch (error: any) {

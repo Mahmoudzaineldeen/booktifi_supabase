@@ -22,6 +22,8 @@ export interface SubscriptionConfirmationData {
   subscribedAt: string;
   totalPrice?: number;
   invoiceCreated?: boolean;
+  /** True when server is creating/sending invoice in background */
+  invoicePending?: boolean;
   invoiceError?: string;
 }
 
@@ -93,6 +95,11 @@ export function SubscriptionConfirmationModal({
               {i18n.language === 'ar'
                 ? 'تم اشتراك العميل في الباقة. سيتم إرسال الفاتورة عبر الواتساب/البريد إن وُجد.'
                 : 'The customer has been subscribed to the package. Invoice will be sent via WhatsApp/email if configured.'}
+              {data.invoicePending && (
+                <span className="block mt-1 text-gray-500">
+                  {i18n.language === 'ar' ? 'جاري إنشاء الفاتورة وإرسالها...' : 'Invoice is being created and will be sent shortly.'}
+                </span>
+              )}
             </p>
 
             <div className="bg-gray-50 rounded-lg p-5 mb-6 text-left space-y-4">

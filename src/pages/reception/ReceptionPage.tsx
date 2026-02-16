@@ -778,6 +778,7 @@ export function ReceptionPage() {
         subscribedAt: data.subscription?.subscribed_at ?? new Date().toISOString(),
         totalPrice: pkg?.total_price ?? data.subscription?.package?.total_price,
         invoiceCreated: !!data.invoice?.id,
+        invoicePending: !!data.invoice_pending,
         invoiceError: data.invoice_error,
       };
       setIsSubscriptionModalOpen(false);
