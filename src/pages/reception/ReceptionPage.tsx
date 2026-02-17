@@ -526,20 +526,23 @@ export function ReceptionPage() {
     }
     const branchId = (userProfile as { branch_id?: string | null }).branch_id ?? null;
     try {
-      let serviceIds: string[] | null = null;
       if (branchId) {
         const token = localStorage.getItem('auth_token');
         const res = await fetch(`${getApiUrl()}/branches/${branchId}/services`, {
           headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         });
         const data = await res.json();
-        if (res.ok && Array.isArray(data?.data)) {
-          serviceIds = data.data.map((s: { id: string }) => s.id);
-          if (serviceIds.length === 0) {
-            setServices([]);
-            return;
-          }
+        if (!res.ok) {
+          console.warn('[ReceptionPage] fetchServices: branch services API failed', res.status, data);
+          setServices([]);
+          return;
         }
+        if (Array.isArray(data?.data)) {
+          setServices(data.data);
+          return;
+        }
+        setServices([]);
+        return;
       }
       const servicesResult = await db
         .from('services')
@@ -552,10 +555,7 @@ export function ReceptionPage() {
         setServices([]);
         return;
       }
-      let servicesData = servicesDataRaw ?? [];
-      if (branchId && serviceIds && serviceIds.length > 0) {
-        servicesData = servicesData.filter((s: { id: string }) => serviceIds!.includes(s.id));
-      }
+      const servicesData = servicesDataRaw ?? [];
       if (servicesData.length > 0) {
         const serviceIdsArr = servicesData.map((s: { id: string }) => s.id);
         const offersResult = await db

@@ -20,6 +20,7 @@ declare global {
 }
 
 const ADMIN_ROLES = ['tenant_admin', 'solution_owner'];
+const ROLES_CAN_READ_OWN_BRANCH_SERVICES = ['receptionist', 'cashier', 'coordinator'];
 
 function authenticateAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
@@ -42,6 +43,44 @@ function authenticateAdmin(req: express.Request, res: express.Response, next: ex
       branch_id: decoded.branch_id || null,
     };
     next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+/** Allow admin to read any branch services; receptionist/cashier/coordinator only their own branch. */
+function authenticateBranchServicesRead(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authorization required' });
+    }
+    const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as any;
+    if (!decoded.tenant_id && decoded.role !== 'solution_owner') {
+      return res.status(403).json({ error: 'Tenant required' });
+    }
+    const branchIdParam = req.params.id;
+    if (ADMIN_ROLES.includes(decoded.role)) {
+      req.user = {
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+        tenant_id: decoded.tenant_id || null,
+        branch_id: decoded.branch_id || null,
+      };
+      return next();
+    }
+    if (ROLES_CAN_READ_OWN_BRANCH_SERVICES.includes(decoded.role) && branchIdParam && decoded.branch_id === branchIdParam) {
+      req.user = {
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+        tenant_id: decoded.tenant_id || null,
+        branch_id: decoded.branch_id || null,
+      };
+      return next();
+    }
+    return res.status(403).json({ error: 'Access denied to branch services' });
   } catch (e) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
@@ -298,8 +337,9 @@ router.delete('/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
-/** Get services assigned to this branch (for employee form dropdown). */
-router.get('/:id/services', authenticateAdmin, async (req, res) => {
+/** Get services assigned to this branch (admin: any branch; receptionist/cashier/coordinator: own branch only).
+ * Returns full service details + offers so reception page can use this without querying services table (avoids RLS). */
+router.get('/:id/services', authenticateBranchServicesRead, async (req, res) => {
   try {
     const branchId = req.params.id;
     const tenantId = req.user!.tenant_id;
@@ -310,15 +350,44 @@ router.get('/:id/services', authenticateAdmin, async (req, res) => {
 
     const { data: rows } = await supabase
       .from('service_branches')
-      .select('service_id, services(id, name, name_ar)')
+      .select('service_id')
       .eq('branch_id', branchId);
 
-    const services = (rows || []).map((r: any) => ({
-      id: r.services?.id ?? r.service_id,
-      name: r.services?.name ?? '',
-      name_ar: r.services?.name_ar ?? '',
+    const serviceIds = [...new Set((rows || []).map((r: any) => r.service_id).filter(Boolean))];
+    if (serviceIds.length === 0) {
+      return res.json({ data: [] });
+    }
+
+    const { data: servicesData, error: servicesErr } = await supabase
+      .from('services')
+      .select('id, name, name_ar, base_price, original_price, discount_percentage, capacity_per_slot, capacity_mode')
+      .in('id', serviceIds)
+      .eq('tenant_id', branch.tenant_id)
+      .eq('is_active', true)
+      .order('name');
+
+    if (servicesErr) throw servicesErr;
+    const services = servicesData || [];
+
+    const { data: offersData } = await supabase
+      .from('service_offers')
+      .select('id, service_id, name, name_ar, price, original_price, discount_percentage, is_active')
+      .in('service_id', serviceIds)
+      .eq('is_active', true)
+      .order('name');
+
+    const offersByService = new Map<string, any[]>();
+    (offersData || []).forEach((o: any) => {
+      if (!offersByService.has(o.service_id)) offersByService.set(o.service_id, []);
+      offersByService.get(o.service_id)!.push(o);
+    });
+
+    const servicesWithOffers = services.map((s: any) => ({
+      ...s,
+      offers: offersByService.get(s.id) || [],
     }));
-    res.json({ data: services });
+
+    res.json({ data: servicesWithOffers });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load services' });
   }
