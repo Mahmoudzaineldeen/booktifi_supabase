@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { getApiUrl } from '../../lib/apiUrl';
+import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
 import { showNotification } from '../../contexts/NotificationContext';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -74,14 +75,6 @@ interface VisitorDetail {
 }
 
 const PAGE_SIZE = 20;
-
-function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem('auth_token');
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
 
 export function VisitorsPage() {
   const { t, i18n } = useTranslation();
@@ -195,7 +188,7 @@ export function VisitorsPage() {
 
   useEffect(() => {
     if (userProfile?.role !== 'tenant_admin' && userProfile?.role !== 'admin_user' && userProfile?.role !== 'customer_admin') return;
-    fetch(`${getApiUrl()}/branches`, { headers: getAuthHeaders() })
+    apiFetch('/branches', { headers: getAuthHeaders() })
       .then((res) => res.json())
       .then((data) => setBranches(data.data || []))
       .catch(() => setBranches([]));

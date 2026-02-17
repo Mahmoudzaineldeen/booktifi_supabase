@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useCurrency } from '../../contexts/CurrencyContext';
-import { getApiUrl } from '../../lib/apiUrl';
+import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 import { Button } from '../../components/ui/Button';
@@ -43,14 +43,6 @@ interface BranchDetail {
   income_summary: { from_bookings: number; from_subscriptions: number; total: number };
 }
 
-function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem('auth_token');
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
-
 export function BranchDetailPage() {
   const { t, i18n } = useTranslation();
   const { tenantSlug, branchId } = useParams<{ tenantSlug: string; branchId: string }>();
@@ -73,7 +65,7 @@ export function BranchDetailPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${getApiUrl()}/branches/${branchId}`, { headers: getAuthHeaders() });
+        const res = await apiFetch(`/branches/${branchId}`, { headers: getAuthHeaders() });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to load branch');
         if (!cancelled) {
@@ -95,7 +87,7 @@ export function BranchDetailPage() {
     if (!detail?.tenant_id) return;
     (async () => {
       try {
-        const res = await fetch(`${getApiUrl()}/query`, {
+        const res = await apiFetch('/query', {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify({
@@ -116,7 +108,7 @@ export function BranchDetailPage() {
     if (!branchId) return;
     setSaving(true);
     try {
-      const res = await fetch(`${getApiUrl()}/branches/${branchId}`, {
+      const res = await apiFetch(`/branches/${branchId}`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify({ name: editName.trim(), location: editLocation.trim() || null }),
@@ -137,7 +129,7 @@ export function BranchDetailPage() {
     if (!branchId) return;
     setSaving(true);
     try {
-      const res = await fetch(`${getApiUrl()}/branches/${branchId}/services`, {
+      const res = await apiFetch(`/branches/${branchId}/services`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify({ service_ids: Array.from(selectedServiceIds) }),
@@ -181,7 +173,7 @@ export function BranchDetailPage() {
     if (!ok) return;
     setSaving(true);
     try {
-      const res = await fetch(`${getApiUrl()}/branches/${branchId}`, {
+      const res = await apiFetch(`/branches/${branchId}`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify({ is_active: newActive }),
@@ -209,7 +201,7 @@ export function BranchDetailPage() {
     if (!ok) return;
     setSaving(true);
     try {
-      const res = await fetch(`${getApiUrl()}/branches/${branchId}`, {
+      const res = await apiFetch(`/branches/${branchId}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });

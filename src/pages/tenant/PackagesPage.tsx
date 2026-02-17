@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { db } from '../../lib/db';
 import { getApiUrl } from '../../lib/apiUrl';
+import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 import { Button } from '../../components/ui/Button';
@@ -81,18 +82,10 @@ export function PackagesPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
 
-  function getAuthHeaders(): HeadersInit {
-    const token = localStorage.getItem('auth_token');
-    return {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    };
-  }
-
   const fetchBranches = useCallback(async () => {
     try {
       setLoadingBranches(true);
-      const res = await fetch(`${getApiUrl()}/branches`, { headers: getAuthHeaders() });
+      const res = await apiFetch('/branches', { headers: getAuthHeaders() });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load branches');
       setBranches(data.data || []);

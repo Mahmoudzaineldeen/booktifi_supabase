@@ -22,68 +22,89 @@ declare global {
 const ADMIN_ROLES = ['tenant_admin', 'solution_owner'];
 const ROLES_CAN_READ_OWN_BRANCH_SERVICES = ['receptionist', 'cashier', 'coordinator'];
 
-function authenticateAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authorization required' });
-    }
-    const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as any;
-    if (!decoded.tenant_id && decoded.role !== 'solution_owner') {
-      return res.status(403).json({ error: 'Tenant required' });
-    }
-    if (!ADMIN_ROLES.includes(decoded.role)) {
-      return res.status(403).json({ error: 'Only tenant admin can manage branches' });
-    }
-    req.user = {
-      id: decoded.id,
-      email: decoded.email,
-      role: decoded.role,
-      tenant_id: decoded.tenant_id || null,
-      branch_id: decoded.branch_id || null,
-    };
-    next();
-  } catch (e) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
-  }
+/** Resolve current user from DB after JWT verify so permissions use DB (no stale token 403). */
+async function resolveUserFromDb(userId: string): Promise<{ id: string; email?: string; role: string; tenant_id: string | null; branch_id: string | null } | null> {
+  const { data: user, error } = await supabase
+    .from('users')
+    .select('id, email, role, tenant_id, branch_id, is_active')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error || !user || user.is_active === false) return null;
+  return {
+    id: user.id,
+    email: user.email ?? undefined,
+    role: user.role ?? 'employee',
+    tenant_id: user.tenant_id ?? null,
+    branch_id: user.branch_id ?? null,
+  };
 }
 
-/** Allow admin to read any branch services; receptionist/cashier/coordinator only their own branch. */
+function authenticateAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  (async () => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Authorization required' });
+      }
+      const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as any;
+      const userId = decoded?.id;
+      if (!userId) return res.status(401).json({ error: 'Invalid token' });
+
+      const user = await resolveUserFromDb(userId);
+      if (!user) return res.status(401).json({ error: 'User not found or inactive' });
+
+      if (!user.tenant_id && user.role !== 'solution_owner') {
+        return res.status(403).json({ error: 'Tenant required' });
+      }
+      if (!ADMIN_ROLES.includes(user.role)) {
+        return res.status(403).json({ error: 'Only tenant admin can manage branches' });
+      }
+      req.user = {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        tenant_id: user.tenant_id,
+        branch_id: user.branch_id,
+      };
+      next();
+    } catch (e) {
+      res.status(401).json({ error: 'Invalid or expired token' });
+    }
+  })();
+}
+
+/** Allow admin to read any branch services; receptionist/cashier/coordinator only their own branch. Uses DB for role/branch. */
 function authenticateBranchServicesRead(req: express.Request, res: express.Response, next: express.NextFunction) {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authorization required' });
+  (async () => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Authorization required' });
+      }
+      const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as any;
+      const userId = decoded?.id;
+      if (!userId) return res.status(401).json({ error: 'Invalid token' });
+
+      const user = await resolveUserFromDb(userId);
+      if (!user) return res.status(401).json({ error: 'User not found or inactive' });
+
+      if (!user.tenant_id && user.role !== 'solution_owner') {
+        return res.status(403).json({ error: 'Tenant required' });
+      }
+      const branchIdParam = req.params.id;
+      if (ADMIN_ROLES.includes(user.role)) {
+        req.user = { id: user.id, email: user.email, role: user.role, tenant_id: user.tenant_id, branch_id: user.branch_id };
+        return next();
+      }
+      if (ROLES_CAN_READ_OWN_BRANCH_SERVICES.includes(user.role) && branchIdParam && user.branch_id === branchIdParam) {
+        req.user = { id: user.id, email: user.email, role: user.role, tenant_id: user.tenant_id, branch_id: user.branch_id };
+        return next();
+      }
+      return res.status(403).json({ error: 'Access denied to branch services' });
+    } catch (e) {
+      res.status(401).json({ error: 'Invalid or expired token' });
     }
-    const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as any;
-    if (!decoded.tenant_id && decoded.role !== 'solution_owner') {
-      return res.status(403).json({ error: 'Tenant required' });
-    }
-    const branchIdParam = req.params.id;
-    if (ADMIN_ROLES.includes(decoded.role)) {
-      req.user = {
-        id: decoded.id,
-        email: decoded.email,
-        role: decoded.role,
-        tenant_id: decoded.tenant_id || null,
-        branch_id: decoded.branch_id || null,
-      };
-      return next();
-    }
-    if (ROLES_CAN_READ_OWN_BRANCH_SERVICES.includes(decoded.role) && branchIdParam && decoded.branch_id === branchIdParam) {
-      req.user = {
-        id: decoded.id,
-        email: decoded.email,
-        role: decoded.role,
-        tenant_id: decoded.tenant_id || null,
-        branch_id: decoded.branch_id || null,
-      };
-      return next();
-    }
-    return res.status(403).json({ error: 'Access denied to branch services' });
-  } catch (e) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
-  }
+  })();
 }
 
 /** List branches for the tenant (admin only). */

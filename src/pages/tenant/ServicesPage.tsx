@@ -5,6 +5,7 @@ import { useCurrency } from '../../contexts/CurrencyContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { db } from '../../lib/db';
 import { getApiUrl } from '../../lib/apiUrl';
+import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 import { Button } from '../../components/ui/Button';
@@ -65,13 +66,6 @@ export function ServicesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
 
-  function getAuthHeaders(): HeadersInit {
-    const token = localStorage.getItem('auth_token');
-    return {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    };
-  }
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -131,7 +125,7 @@ export function ServicesPage() {
   const fetchBranches = useCallback(async () => {
     try {
       setLoadingBranches(true);
-      const res = await fetch(`${getApiUrl()}/branches`, { headers: getAuthHeaders() });
+      const res = await apiFetch('/branches', { headers: getAuthHeaders() });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load branches');
       setBranches(data.data || []);
@@ -532,7 +526,7 @@ export function ServicesPage() {
 
       if (savedServiceId != null) {
         try {
-          const putRes = await fetch(`${getApiUrl()}/branches/by-service/${savedServiceId}/branches`, {
+          const putRes = await apiFetch(`/branches/by-service/${savedServiceId}/branches`, {
             method: 'PUT',
             headers: getAuthHeaders(),
             body: JSON.stringify({ branch_ids: serviceForm.branch_ids || [] }),
@@ -829,7 +823,7 @@ export function ServicesPage() {
     setIsServiceModalOpen(true);
     (async () => {
       try {
-        const res = await fetch(`${getApiUrl()}/branches/by-service/${service.id}/branches`, { headers: getAuthHeaders() });
+        const res = await apiFetch(`/branches/by-service/${service.id}/branches`, { headers: getAuthHeaders() });
         const data = await res.json();
         if (res.ok && data.data?.branch_ids) {
           setServiceForm(prev => ({ ...prev, branch_ids: data.data.branch_ids }));

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { getApiUrl } from '../../lib/apiUrl';
+import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
 import { showNotification } from '../../contexts/NotificationContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -15,14 +16,6 @@ interface Branch {
   location: string | null;
   created_at: string;
   is_active?: boolean;
-}
-
-function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem('auth_token');
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
 }
 
 export function BranchesPage() {
@@ -40,7 +33,7 @@ export function BranchesPage() {
 
   const fetchBranches = useCallback(async () => {
     try {
-      const res = await fetch(`${getApiUrl()}/branches`, { headers: getAuthHeaders() });
+      const res = await apiFetch('/branches', { headers: getAuthHeaders() });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load branches');
       setBranches(data.data || []);
@@ -62,7 +55,7 @@ export function BranchesPage() {
     (async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${getApiUrl()}/branches`, { headers: getAuthHeaders() });
+        const res = await apiFetch('/branches', { headers: getAuthHeaders() });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to load branches');
         if (!cancelled) setBranches(data.data || []);
@@ -86,7 +79,7 @@ export function BranchesPage() {
     }
     setCreating(true);
     try {
-      const res = await fetch(`${getApiUrl()}/branches`, {
+      const res = await apiFetch('/branches', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({

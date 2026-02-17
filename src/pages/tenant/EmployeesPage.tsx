@@ -11,6 +11,7 @@ import { PhoneInput } from '../../components/ui/PhoneInput';
 import { countryCodes } from '../../lib/countryCodes';
 import { Plus, Edit, Users, Mail, Phone, Briefcase, UserX, UserCheck, Search, Trash2, Clock } from 'lucide-react';
 import { getApiUrl } from '../../lib/apiUrl';
+import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
 import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { showNotification } from '../../contexts/NotificationContext';
@@ -158,18 +159,10 @@ export function EmployeesPage() {
     is_active: true,
   });
 
-  function getAuthHeaders(): HeadersInit {
-    const token = localStorage.getItem('auth_token');
-    return {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    };
-  }
-
   async function fetchBranches() {
     try {
       setLoadingBranches(true);
-      const res = await fetch(`${getApiUrl()}/branches`, { headers: getAuthHeaders() });
+      const res = await apiFetch('/branches', { headers: getAuthHeaders() });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load branches');
       setBranches(data.data || []);
