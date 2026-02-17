@@ -1216,52 +1216,71 @@ export function ReceptionPage() {
   async function fetchEmployeeBookingCounts(dateStr: string, shiftIds: string[]) {
     if (!userProfile?.tenant_id || !selectedService) return;
 
+    const branchId = (userProfile as { branch_id?: string | null }).branch_id ?? null;
+
     try {
-      // Query only employee_id so we don't depend on backend nested-relation support; then fetch names from users.
-      const { data: employeeServices, error: empServError } = await db
-        .from('employee_services')
-        .select('employee_id')
-        .eq('tenant_id', userProfile!.tenant_id)
-        .eq('service_id', selectedService);
+      let employeeMap = new Map<string, { id: string; name: string; name_ar: string }>();
 
-      if (empServError) {
-        console.error('Error fetching employee services:', empServError);
-        setAvailableEmployees([]);
-        return;
-      }
-
-      if (!employeeServices || employeeServices.length === 0) {
-        setAvailableEmployees([]);
-        return;
-      }
-
-      const employeeIdsFromServices = [...new Set(employeeServices.map((es: { employee_id: string }) => es.employee_id))] as string[];
-
-      const branchId = (userProfile as { branch_id?: string | null }).branch_id ?? null;
-      let usersQuery = db
-        .from('users')
-        .select('id, full_name, full_name_ar, is_active, branch_id')
-        .in('id', employeeIdsFromServices)
-        .eq('tenant_id', userProfile!.tenant_id);
       if (branchId) {
-        usersQuery = usersQuery.eq('branch_id', branchId);
-      }
-      const { data: usersData } = await usersQuery;
-      const employeeMap = new Map<string, {id: string, name: string, name_ar: string}>();
-      (usersData || []).forEach((u: { id: string; full_name?: string; full_name_ar?: string; is_active?: boolean }) => {
-        if (u.is_active !== false) {
-          employeeMap.set(u.id, {
-            id: u.id,
-            name: u.full_name ?? '',
-            name_ar: u.full_name_ar ?? ''
+        // Branch-scoped: get employees from backend API (server enforces branch isolation)
+        const token = localStorage.getItem('auth_token');
+        const res = await fetch(
+          `${getApiUrl()}/bookings/receptionist/employees-for-service?service_id=${encodeURIComponent(selectedService)}`,
+          { headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          console.warn('[ReceptionPage] employees-for-service API failed', res.status, data);
+          setAvailableEmployees([]);
+          return;
+        }
+        const list = data?.employees ?? [];
+        list.forEach((emp: { id: string; name?: string; name_ar?: string }) => {
+          employeeMap.set(emp.id, {
+            id: emp.id,
+            name: emp.name ?? '',
+            name_ar: emp.name_ar ?? ''
+          });
+        });
+      } else {
+        // No branch: use Supabase (admin or tenant without branches)
+        const { data: employeeServices, error: empServError } = await db
+          .from('employee_services')
+          .select('employee_id')
+          .eq('tenant_id', userProfile!.tenant_id)
+          .eq('service_id', selectedService);
+
+        if (empServError) {
+          console.error('Error fetching employee services:', empServError);
+          setAvailableEmployees([]);
+          return;
+        }
+
+        if (!employeeServices || employeeServices.length === 0) {
+          setAvailableEmployees([]);
+          return;
+        }
+
+        const employeeIdsFromServices = [...new Set(employeeServices.map((es: { employee_id: string }) => es.employee_id))] as string[];
+        const { data: usersData } = await db
+          .from('users')
+          .select('id, full_name, full_name_ar, is_active')
+          .in('id', employeeIdsFromServices)
+          .eq('tenant_id', userProfile!.tenant_id);
+        (usersData || []).forEach((u: { id: string; full_name?: string; full_name_ar?: string; is_active?: boolean }) => {
+          if (u.is_active !== false) {
+            employeeMap.set(u.id, {
+              id: u.id,
+              name: u.full_name ?? '',
+              name_ar: u.full_name_ar ?? ''
+            });
+          }
+        });
+        if (employeeMap.size === 0) {
+          employeeIdsFromServices.forEach((id: string) => {
+            employeeMap.set(id, { id, name: 'Employee', name_ar: 'موظف' });
           });
         }
-      });
-      // If no names (e.g. RLS), still show employees so dropdown isn't empty
-      if (employeeMap.size === 0) {
-        employeeIdsFromServices.forEach((id: string) => {
-          employeeMap.set(id, { id, name: 'Employee', name_ar: 'موظف' });
-        });
       }
 
       const employeeIds = Array.from(employeeMap.keys());

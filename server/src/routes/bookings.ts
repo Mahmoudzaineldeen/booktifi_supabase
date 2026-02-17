@@ -438,6 +438,33 @@ function authenticateReceptionistOrCoordinatorForView(req: express.Request, res:
   }
 }
 
+// Receptionist, coordinator, cashier, or admin: for branch-scoped employees list (same as view + cashier).
+const RECEPTIONIST_COORDINATOR_CASHIER_VIEW_ROLES = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user', 'coordinator', 'cashier'];
+function authenticateReceptionistCoordinatorOrCashierForView(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authorization header required' });
+    }
+    const token = authHeader.replace('Bearer ', '');
+    if (!token || token.trim() === '') return res.status(401).json({ error: 'Token is required' });
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (jwtError: any) {
+      return res.status(401).json({ error: jwtError.name === 'TokenExpiredError' ? 'Token has expired' : 'Invalid token' });
+    }
+    if (!RECEPTIONIST_COORDINATOR_CASHIER_VIEW_ROLES.includes(decoded.role)) {
+      return res.status(403).json({ error: 'Access denied.', userRole: decoded.role });
+    }
+    if (!decoded.tenant_id) return res.status(403).json({ error: 'No tenant associated with your account.' });
+    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null };
+    next();
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Authentication error' });
+  }
+}
+
 // Receptionist/admin can full-edit; coordinator can ONLY set status to 'confirmed'.
 function authenticateReceptionistOrCoordinatorForPatch(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
@@ -554,6 +581,52 @@ function validatePaymentStatusTransition(oldStatus: string, newStatus: string): 
 
   return { valid: true };
 }
+
+// ============================================================================
+// Employees for service (branch-scoped for receptionist/cashier/coordinator)
+// MUST be before /:id routes so GET /receptionist/employees-for-service is not matched as :id
+// ============================================================================
+router.get('/receptionist/employees-for-service', authenticateReceptionistCoordinatorOrCashierForView, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id;
+    const branchId = req.user!.branch_id ?? null;
+    const serviceId = (req.query.service_id as string) || '';
+    if (!tenantId || !serviceId) {
+      return res.status(400).json({ error: 'tenant_id and service_id are required' });
+    }
+    const { data: empServices } = await supabase
+      .from('employee_services')
+      .select('employee_id')
+      .eq('tenant_id', tenantId)
+      .eq('service_id', serviceId);
+    const employeeIds = [...new Set((empServices || []).map((r: any) => r.employee_id).filter(Boolean))];
+    if (employeeIds.length === 0) {
+      return res.json({ employees: [] });
+    }
+    let usersQuery = supabase
+      .from('users')
+      .select('id, full_name, full_name_ar')
+      .in('id', employeeIds)
+      .eq('tenant_id', tenantId)
+      .eq('role', 'employee')
+      .eq('is_active', true);
+    if (branchId) {
+      usersQuery = usersQuery.eq('branch_id', branchId);
+    }
+    const { data: users, error } = await usersQuery.order('full_name');
+    if (error) {
+      return res.status(500).json({ error: 'Failed to load employees', details: error.message });
+    }
+    const employees = (users || []).map((u: any) => ({
+      id: u.id,
+      name: u.full_name ?? '',
+      name_ar: u.full_name_ar ?? '',
+    }));
+    return res.json({ employees });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to load employees for service' });
+  }
+});
 
 // ============================================================================
 // Customer search by phone (for Add Booking / Add Subscription dropdown)
