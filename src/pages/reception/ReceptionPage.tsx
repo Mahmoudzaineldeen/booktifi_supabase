@@ -1008,10 +1008,12 @@ export function ReceptionPage() {
   async function fetchBookings() {
     if (!userProfile?.tenant_id) return;
 
+    const branchId = (userProfile as { branch_id?: string | null }).branch_id ?? null;
+
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
 
-      const { data, error } = await db
+      let query = db
         .from('bookings')
         .select(`
           id,
@@ -1043,6 +1045,10 @@ export function ReceptionPage() {
         .eq('tenant_id', userProfile!.tenant_id)
         .order('created_at', { ascending: false })
         .limit(100);
+      if (branchId) {
+        query = query.eq('branch_id', branchId);
+      }
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -1148,32 +1154,56 @@ export function ReceptionPage() {
   async function fetchAvailableSlots() {
     if (!userProfile?.tenant_id || !selectedService || !selectedDate) return;
 
+    const branchId = (userProfile as { branch_id?: string | null }).branch_id ?? null;
+
     setLoadingTimeSlots(true);
     try {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
 
+      // When receptionist is branch-scoped, get employee IDs for this service in this branch so we only show their slots
+      let branchEmployeeIds: Set<string> | null = null;
+      if (branchId) {
+        const { data: empServ } = await db
+          .from('employee_services')
+          .select('employee_id')
+          .eq('tenant_id', userProfile!.tenant_id)
+          .eq('service_id', selectedService);
+        const ids = [...new Set((empServ ?? []).map((es: { employee_id: string }) => es.employee_id))];
+        if (ids.length > 0) {
+          const { data: branchUsers } = await db
+            .from('users')
+            .select('id')
+            .in('id', ids)
+            .eq('tenant_id', userProfile!.tenant_id)
+            .eq('branch_id', branchId);
+          branchEmployeeIds = new Set((branchUsers ?? []).map((u: { id: string }) => u.id));
+        } else {
+          branchEmployeeIds = new Set();
+        }
+      }
+
       // Use shared availability logic (SAME as customer page)
-      // This ensures receptionist sees exactly the same available slots as customers
       const result = await fetchAvailableSlotsUtil({
         tenantId: userProfile.tenant_id,
         serviceId: selectedService,
         date: selectedDate,
-        includePastSlots: false, // Receptionist: same as customer - filter out past slots
-        includeLockedSlots: false, // Receptionist: same as customer - filter out locked slots
-        includeZeroCapacity: false, // Receptionist: same as customer - filter out fully booked slots
+        includePastSlots: false,
+        includeLockedSlots: false,
+        includeZeroCapacity: false,
       });
 
-      // Get shift IDs for employee booking counts
+      let slotsToShow = result.slots as Slot[];
+      if (branchEmployeeIds !== null) {
+        slotsToShow = slotsToShow.filter((s) => s.employee_id && branchEmployeeIds!.has(s.employee_id));
+      }
+
+      // Get shift IDs for employee booking counts (from displayed slots so counts match)
       const shiftIds = result.shifts.map(s => s.id);
 
-      // Filter out slots that conflict with already selected services (receptionist-specific for multi-service bookings)
-      // This only applies when booking multiple services - for single service, shows same slots as customer
-      // When selectedServices.length === 0, filterConflictingSlots returns all slots unchanged
-      const nonConflictingSlots = filterConflictingSlots(result.slots as Slot[]);
+      const nonConflictingSlots = filterConflictingSlots(slotsToShow);
 
       setSlots(nonConflictingSlots);
 
-      // Fetch employee booking counts for this date (receptionist-specific feature)
       await fetchEmployeeBookingCounts(dateStr, shiftIds);
     } catch (err) {
       console.error('Error in fetchAvailableSlots:', err);
@@ -1273,11 +1303,17 @@ export function ReceptionPage() {
         return;
       }
 
-      const { data: bookings } = await db
+      const branchIdForCount = (userProfile as { branch_id?: string | null }).branch_id ?? null;
+      let bookingCountQuery = db
         .from('bookings')
         .select('employee_id')
         .in('slot_id', slotIds)
-        .in('status', ['pending', 'confirmed', 'checked_in']);
+        .in('status', ['pending', 'confirmed', 'checked_in'])
+        .eq('tenant_id', userProfile!.tenant_id);
+      if (branchIdForCount) {
+        bookingCountQuery = bookingCountQuery.eq('branch_id', branchIdForCount);
+      }
+      const { data: bookings } = await bookingCountQuery;
 
       const bookingCountMap = new Map<string, number>();
       (bookings || []).forEach((booking: { employee_id: string }) => {
