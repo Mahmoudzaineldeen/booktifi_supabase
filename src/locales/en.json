@@ -302,7 +302,17 @@
     "categoryNotFoundOrAlreadyDeleted": "Category not found or already deleted",
     "shiftNotFoundOrAlreadyDeleted": "Shift not found or already deleted",
     "deleteShiftConfirm": "Delete this shift?",
-    "regenerateSlotsConfirm": "This will regenerate all slots for the next 30 days. Existing bookings will be preserved. Continue?"
+    "regenerateSlotsConfirm": "This will regenerate all slots for the next 30 days. Existing bookings will be preserved. Continue?",
+    "durationMinutesRequired": "Duration (minutes) *",
+    "basePriceRequired": "Base Price *",
+    "discountOptionsOptional": "Discount Options (Optional)",
+    "originalPriceBeforeDiscount": "Original Price (before discount)",
+    "originalPricePlaceholder": "e.g., 200",
+    "discountPercentageLabel": "Discount Percentage (%)",
+    "discountPercentagePlaceholder": "e.g., 16",
+    "serviceImagesMultiple": "Service Images (Multiple)",
+    "currentPriceSave": "Current price: {{price}} (Save {{percent}}%)",
+    "serviceCapacityPerSlotRequired": "Service Capacity per Slot *"
   },
   "booking": {
     "booking": "Booking",

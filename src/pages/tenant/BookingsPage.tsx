@@ -78,7 +78,8 @@ interface Booking {
   };
   package_covered_quantity?: number | null;
   package_subscription_id?: string | null;
-  // ARCHIVED: users (employee) field removed
+  employee_id?: string | null;
+  users?: { full_name: string; full_name_ar?: string | null } | null;
 }
 
 type SearchType = 'phone' | 'customer_name' | 'date' | 'service_name' | 'booking_id' | '';
@@ -544,6 +545,7 @@ export function BookingsPage() {
           package_subscription_id,
           service_id,
           slot_id,
+          employee_id,
           services:service_id (
             name,
             name_ar
@@ -552,6 +554,10 @@ export function BookingsPage() {
             slot_date,
             start_time,
             end_time
+          ),
+          users:employee_id (
+            full_name,
+            full_name_ar
           )
         `)
         .eq('tenant_id', userProfile.tenant_id)
@@ -1399,8 +1405,12 @@ export function BookingsPage() {
         created_at: b.created_at,
         zoho_invoice_id: b.zoho_invoice_id,
         zoho_invoice_created_at: b.zoho_invoice_created_at,
+        package_covered_quantity: b.package_covered_quantity,
+        package_subscription_id: b.package_subscription_id,
         service_id: b.service_id,
         slot_id: b.slot_id,
+        employee_id: b.employee_id,
+        users: b.users || null,
         services: b.services || { name: '', name_ar: '' },
         slots: b.slots || { slot_date: '', start_time: '', end_time: '' }
       }));
@@ -1723,6 +1733,12 @@ export function BookingsPage() {
                         <span>{booking.visitor_count} {t('booking.visitorCount')}</span>
                         <span>•</span>
                         <span className="font-semibold">{booking.total_price} {t('service.price')}</span>
+                        {booking.users && (
+                          <>
+                            <span>•</span>
+                            <span>{isAr ? (booking.users.full_name_ar || booking.users.full_name) : booking.users.full_name}</span>
+                          </>
+                        )}
                         {((booking.package_covered_quantity ?? 0) > 0 || booking.package_subscription_id) && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
                             <Package className="w-3.5 h-3.5" />
@@ -2004,12 +2020,17 @@ export function BookingsPage() {
                                 </div>
                                 <div className="text-xs text-gray-600 truncate flex items-center gap-1">
                                   {isAr ? booking.services?.name_ar : booking.services?.name}
-                                  {((booking.package_covered_quantity ?? 0) > 0 || booking.package_subscription_id) && (
-                                    <span title={t('bookings.coveredByPackage', 'Covered by Package')}>
-                                      <Package className="w-3 h-3 text-emerald-600 shrink-0" />
-                                    </span>
-                                  )}
                                 </div>
+                                {booking.users && (
+                                  <div className="text-xs text-gray-500 truncate">
+                                    {isAr ? (booking.users.full_name_ar || booking.users.full_name) : booking.users.full_name}
+                                  </div>
+                                )}
+                                {((booking.package_covered_quantity ?? 0) > 0 || booking.package_subscription_id) && (
+                                  <span title={t('bookings.coveredByPackage', 'Covered by Package')}>
+                                    <Package className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  </span>
+                                )}
                               </div>
                             );
                           })}

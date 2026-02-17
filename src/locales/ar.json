@@ -264,7 +264,17 @@
     "daysOfWeek": "أيام الأسبوع",
     "noResultsFound": "لا توجد نتائج",
     "clearSearch": "مسح البحث",
-    "manageOffers": "إدارة العروض"
+    "manageOffers": "إدارة العروض",
+    "durationMinutesRequired": "المدة (دقائق) *",
+    "basePriceRequired": "السعر الأساسي *",
+    "discountOptionsOptional": "خيارات الخصم (اختياري)",
+    "originalPriceBeforeDiscount": "السعر الأصلي (قبل الخصم)",
+    "originalPricePlaceholder": "مثال: 200",
+    "discountPercentageLabel": "نسبة الخصم (%)",
+    "discountPercentagePlaceholder": "مثال: 16",
+    "serviceImagesMultiple": "صور الخدمة (متعددة)",
+    "currentPriceSave": "السعر الحالي: {{price}} (وفر {{percent}}%)",
+    "serviceCapacityPerSlotRequired": "السعة لكل فترة *"
   },
   "packages": {
     "pleaseEnterPackageName": "يرجى إدخال اسم الحزمة",
@@ -459,7 +469,19 @@
     "categoryNotFoundOrAlreadyDeleted": "لم يتم العثور على الفئة أو تم حذفها بالفعل",
     "shiftNotFoundOrAlreadyDeleted": "لم يتم العثور على الوردية أو تم حذفها بالفعل",
     "deleteShiftConfirm": "هل تريد حذف هذه الوردية؟",
-    "regenerateSlotsConfirm": "سيتم إعادة إنشاء جميع الفترات للـ 30 يوماً القادمة. الحجوزات الحالية ستبقى. متابعة؟"
+    "regenerateSlotsConfirm": "سيتم إعادة إنشاء جميع الفترات للـ 30 يوماً القادمة. الحجوزات الحالية ستبقى. متابعة؟",
+    "durationMinutesRequired": "المدة (دقائق) *",
+    "basePriceRequired": "السعر الأساسي *",
+    "discountOptionsOptional": "خيارات الخصم (اختياري)",
+    "originalPriceBeforeDiscount": "السعر الأصلي (قبل الخصم)",
+    "originalPricePlaceholder": "مثال: 200",
+    "discountPercentageLabel": "نسبة الخصم (%)",
+    "discountPercentagePlaceholder": "مثال: 16",
+    "serviceImagesMultiple": "صور الخدمة (متعددة)",
+    "currentPriceSave": "السعر الحالي: {{price}} (وفر {{percent}}%)",
+    "serviceCapacityPerSlotRequired": "السعة لكل فترة *",
+    "fixedDurationForAllSlots": "مدة ثابتة لجميع الفترات",
+    "fixedCustomersPerSlot": "عدد ثابت للعملاء لكل فترة زمنية"
   },
   "booking": {
     "booking": "حجز",

@@ -1496,7 +1496,7 @@ export function ServicesPage() {
           <div className="grid grid-cols-2 gap-4">
             <Input
               type="number"
-              label="Duration (minutes) *"
+              label={t('service.durationMinutesRequired', 'Duration (minutes) *')}
               value={serviceForm.service_duration_minutes}
               onChange={(e) => {
                 const minutes = parseInt(e.target.value);
@@ -1512,7 +1512,7 @@ export function ServicesPage() {
             />
             <Input
               type="number"
-              label="Base Price *"
+              label={t('service.basePriceRequired', 'Base Price *')}
               value={serviceForm.base_price}
               onChange={(e) => setServiceForm({ ...serviceForm, base_price: parseFloat(e.target.value) })}
               required
@@ -1528,11 +1528,11 @@ export function ServicesPage() {
 
           {/* Discount Options */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h4 className="text-sm font-semibold text-gray-700 mb-3">Discount Options (Optional)</h4>
+            <h4 className="text-sm font-semibold text-gray-700 mb-3">{t('service.discountOptionsOptional', 'Discount Options (Optional)')}</h4>
             <div className="grid grid-cols-2 gap-4">
               <Input
                 type="number"
-                label="Original Price (before discount)"
+                label={t('service.originalPriceBeforeDiscount', 'Original Price (before discount)')}
                 value={serviceForm.original_price || ''}
                 onChange={(e) => {
                   const originalPrice = e.target.value ? parseFloat(e.target.value) : null;
@@ -1549,11 +1549,11 @@ export function ServicesPage() {
                 }}
                 min="0"
                 step="0.01"
-                placeholder="e.g., 200"
+                placeholder={t('service.originalPricePlaceholder', 'e.g., 200')}
               />
               <Input
                 type="number"
-                label="Discount Percentage (%)"
+                label={t('service.discountPercentageLabel', 'Discount Percentage (%)')}
                 value={serviceForm.discount_percentage || ''}
                 onChange={(e) => {
                   const discount = e.target.value ? parseInt(e.target.value) : null;
@@ -1568,7 +1568,7 @@ export function ServicesPage() {
                 }}
                 min="0"
                 max="100"
-                placeholder="e.g., 16"
+                placeholder={t('service.discountPercentagePlaceholder', 'e.g., 16')}
               />
             </div>
             {(() => {
@@ -1578,7 +1578,7 @@ export function ServicesPage() {
                 const discount = serviceForm.discount_percentage || Math.round(((originalPrice - basePrice) / originalPrice) * 100);
                 return (
                   <p className="text-xs text-gray-600 mt-2">
-                    Current price: {formatPrice(basePrice)} (Save {discount}%)
+                    {t('service.currentPriceSave', 'Current price: {{price}} (Save {{percent}}%)', { price: formatPrice(basePrice), percent: discount })}
                   </p>
                 );
               }
@@ -1589,7 +1589,7 @@ export function ServicesPage() {
           {!hideServiceSlots && serviceForm.scheduling_type !== 'employee_based' && (
           <Input
             type="number"
-            label="Service Capacity per Slot *"
+            label={t('service.serviceCapacityPerSlotRequired', 'Service Capacity per Slot *')}
             value={serviceForm.service_capacity_per_slot || ''}
             onChange={(e) => {
               const value = e.target.value;
@@ -1625,7 +1625,7 @@ export function ServicesPage() {
           {/* Multiple Images Upload */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Service Images (Multiple)
+              {t('service.serviceImagesMultiple', 'Service Images (Multiple)')}
             </label>
             <div className="space-y-2">
               <input

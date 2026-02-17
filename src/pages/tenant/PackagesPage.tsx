@@ -1309,9 +1309,9 @@ export function PackagesPage() {
                     return '0.00';
                   })()}
                   readOnly
-                  className="w-full px-4 py-3 border-2 border-blue-200 rounded-lg bg-white cursor-not-allowed font-semibold text-gray-700 text-lg"
+                  className="w-full px-4 py-3 pr-12 border-2 border-blue-200 rounded-lg bg-white cursor-not-allowed font-semibold text-gray-700 text-lg"
                 />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium pointer-events-none">
                   {getSymbolJSX()}
                 </span>
               </div>
@@ -1367,8 +1367,9 @@ export function PackagesPage() {
                       });
                     }}
                     placeholder="0"
+                    className="pr-10"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">%</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium pointer-events-none">%</span>
                 </div>
               </div>
 
@@ -1420,9 +1421,9 @@ export function PackagesPage() {
                         return updated;
                       });
                     }}
-                    className="font-semibold text-lg"
+                    className="font-semibold text-lg pr-12"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium pointer-events-none">
                     {getSymbolJSX()}
                   </span>
                 </div>
