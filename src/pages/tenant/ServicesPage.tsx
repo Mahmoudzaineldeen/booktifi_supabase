@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { db } from '../../lib/db';
+import { getApiUrl } from '../../lib/apiUrl';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 import { Button } from '../../components/ui/Button';
@@ -63,6 +64,14 @@ export function ServicesPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+
+  function getAuthHeaders(): HeadersInit {
+    const token = localStorage.getItem('auth_token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  }
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -99,7 +108,11 @@ export function ServicesPage() {
     combo_services: [] as string[],
     scheduling_type: 'slot_based' as 'slot_based' | 'employee_based',
     assignment_mode: null as 'auto_assign' | 'manual_assign' | null,
+    branch_ids: [] as string[],
   });
+
+  const [branches, setBranches] = useState<Array<{ id: string; name: string; location: string | null }>>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
 
   const [categoryForm, setCategoryForm] = useState({
     name: '',
@@ -115,10 +128,26 @@ export function ServicesPage() {
     is_active: true
   });
 
+  const fetchBranches = useCallback(async () => {
+    try {
+      setLoadingBranches(true);
+      const res = await fetch(`${getApiUrl()}/branches`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load branches');
+      setBranches(data.data || []);
+    } catch (e: any) {
+      setBranches([]);
+      showNotification('error', e.message || 'Failed to load branches');
+    } finally {
+      setLoadingBranches(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchCategories();
     fetchServices();
-  }, [userProfile]);
+    fetchBranches();
+  }, [userProfile, fetchBranches]);
 
   async function fetchCategories() {
     if (!userProfile?.tenant_id) return;
@@ -192,7 +221,10 @@ export function ServicesPage() {
         showNotification('warning', t('service.pleaseEnterServiceName'));
         return;
       }
-
+      if (!serviceForm.branch_ids?.length) {
+        showNotification('warning', t('service.selectAtLeastOneBranch'));
+        return;
+      }
 
       if (!editingService) {
         // Check for duplicates when creating new service
@@ -428,6 +460,7 @@ export function ServicesPage() {
         base_price: finalPayload.base_price,
       });
 
+      let savedServiceId: string | null = null;
       if (editingService) {
         const result = await db.from('services').update(finalPayload).eq('id', editingService.id).then();
         if (result.error) {
@@ -436,6 +469,7 @@ export function ServicesPage() {
           showNotification('error', `Error updating service: ${errorMessage}`);
           return;
         }
+        savedServiceId = editingService.id;
       } else {
         const result = await db.from('services').insert(finalPayload).select().single();
         if (result.error) {
@@ -444,6 +478,7 @@ export function ServicesPage() {
           showNotification('error', `Error creating service: ${errorMessage}`);
           return;
         }
+        savedServiceId = result.data?.id ?? null;
         
         // Auto-create default shift only for slot_based services (employee_based use employee shifts)
         if (result.data && userProfile?.tenant_id && serviceForm.scheduling_type === 'slot_based') {
@@ -492,6 +527,22 @@ export function ServicesPage() {
           } catch (shiftError) {
             console.warn('Error creating default shift:', shiftError);
           }
+        }
+      }
+
+      if (savedServiceId != null) {
+        try {
+          const putRes = await fetch(`${getApiUrl()}/branches/by-service/${savedServiceId}/branches`, {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ branch_ids: serviceForm.branch_ids || [] }),
+          });
+          if (!putRes.ok) {
+            const err = await putRes.json().catch(() => ({}));
+            showNotification('error', (err as any).error || t('service.failedToAssignBranches'));
+          }
+        } catch {
+          showNotification('error', t('service.failedToAssignBranches'));
         }
       }
 
@@ -773,8 +824,20 @@ export function ServicesPage() {
       combo_services: [],
       scheduling_type: schedulingType,
       assignment_mode: serviceData.assignment_mode || (schedulingType === 'employee_based' ? 'manual_assign' : null),
+      branch_ids: [],
     });
     setIsServiceModalOpen(true);
+    (async () => {
+      try {
+        const res = await fetch(`${getApiUrl()}/branches/by-service/${service.id}/branches`, { headers: getAuthHeaders() });
+        const data = await res.json();
+        if (res.ok && data.data?.branch_ids) {
+          setServiceForm(prev => ({ ...prev, branch_ids: data.data.branch_ids }));
+        }
+      } catch {
+        // ignore
+      }
+    })();
   }
 
   function openEditCategory(cat: Category) {
@@ -811,6 +874,7 @@ export function ServicesPage() {
       combo_services: [],
       scheduling_type: 'slot_based',
       assignment_mode: null,
+      branch_ids: [],
     });
   }
 
@@ -1265,20 +1329,38 @@ export function ServicesPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('service.category')}
+              {t('service.assignToBranches')}
             </label>
-            <select
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              value={serviceForm.category_id}
-              onChange={(e) => setServiceForm({ ...serviceForm, category_id: e.target.value })}
-            >
-              <option value="">{t('service.selectCategory')}</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {i18n.language === 'ar' ? cat.name_ar : cat.name}
-                </option>
-              ))}
-            </select>
+            {loadingBranches ? (
+              <p className="text-sm text-gray-500">{t('common.loading')}</p>
+            ) : branches.length === 0 ? (
+              <p className="text-sm text-gray-500">{t('service.noBranchesYet')}</p>
+            ) : (
+              <div className="border border-gray-300 rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
+                {branches.map((branch) => (
+                  <label key={branch.id} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={serviceForm.branch_ids.includes(branch.id)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setServiceForm(prev => ({
+                          ...prev,
+                          branch_ids: checked
+                            ? [...prev.branch_ids, branch.id]
+                            : prev.branch_ids.filter(id => id !== branch.id),
+                        }));
+                      }}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-900">{branch.name}</span>
+                    {branch.location && (
+                      <span className="text-xs text-gray-500">({branch.location})</span>
+                    )}
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Scheduling Type: only shown when global mode is service_slot_based. When employee_based, global setting controls behavior. */}

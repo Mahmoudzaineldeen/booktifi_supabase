@@ -99,6 +99,62 @@ router.post('/', authenticateAdmin, async (req, res) => {
   }
 });
 
+/** Get branch IDs assigned to a service (for service form). */
+router.get('/by-service/:serviceId/branches', authenticateAdmin, async (req, res) => {
+  try {
+    const serviceId = req.params.serviceId;
+    const tenantId = req.user!.tenant_id;
+    if (!serviceId) return res.status(400).json({ error: 'Service ID required' });
+
+    const { data: service } = await supabase.from('services').select('id, tenant_id').eq('id', serviceId).maybeSingle();
+    if (!service) return res.status(404).json({ error: 'Service not found' });
+    if (tenantId && service.tenant_id !== tenantId) return res.status(403).json({ error: 'Access denied' });
+
+    const { data: rows } = await supabase.from('service_branches').select('branch_id').eq('service_id', serviceId);
+    const branch_ids = (rows || []).map((r: { branch_id: string }) => r.branch_id);
+    res.json({ data: { branch_ids } });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load service branches' });
+  }
+});
+
+/** Set branch assignments for a service. Body: { branch_ids: string[] } */
+router.put('/by-service/:serviceId/branches', authenticateAdmin, async (req, res) => {
+  try {
+    const serviceId = req.params.serviceId;
+    const tenantId = req.user!.tenant_id;
+    const { branch_ids } = req.body;
+    const ids = Array.isArray(branch_ids) ? branch_ids.filter((id: any) => id && String(id).trim()) : [];
+    if (!serviceId) return res.status(400).json({ error: 'Service ID required' });
+    if (ids.length === 0) return res.status(400).json({ error: 'At least one branch must be assigned to the service' });
+
+    const { data: service } = await supabase.from('services').select('id, tenant_id').eq('id', serviceId).maybeSingle();
+    if (!service) return res.status(404).json({ error: 'Service not found' });
+    if (tenantId && service.tenant_id !== tenantId) return res.status(403).json({ error: 'Access denied' });
+
+    // Ensure all branch_ids belong to the service's tenant
+    const tenantIdToCheck = service.tenant_id || tenantId;
+    if (ids.length > 0 && tenantIdToCheck) {
+      const { data: branchRows } = await supabase.from('branches').select('id').in('id', ids).eq('tenant_id', tenantIdToCheck);
+      const validIds = (branchRows || []).map((b: { id: string }) => b.id);
+      const invalid = ids.filter((id: string) => !validIds.includes(id));
+      if (invalid.length > 0) {
+        return res.status(400).json({ error: 'Some branches are invalid or do not belong to your tenant', invalid });
+      }
+    }
+
+    await supabase.from('service_branches').delete().eq('service_id', serviceId);
+    if (ids.length > 0) {
+      const rows = ids.map((branch_id: string) => ({ service_id: serviceId, branch_id }));
+      const { error: insErr } = await supabase.from('service_branches').insert(rows);
+      if (insErr) throw insErr;
+    }
+    res.json({ success: true, assigned_count: ids.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update service branches' });
+  }
+});
+
 /** Branch detail: assigned services, packages, employees, receptionists, cashiers, income summary. */
 router.get('/:id', authenticateAdmin, async (req, res) => {
   try {
