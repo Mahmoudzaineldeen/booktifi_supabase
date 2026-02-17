@@ -141,6 +141,7 @@ function authenticate(req: express.Request, res: express.Response, next: express
         email: decoded.email,
         role: decoded.role,
         tenant_id: decoded.tenant_id,
+        branch_id: decoded.branch_id ?? null,
       };
     }
     next();
@@ -217,6 +218,7 @@ function authenticateTenantAdminOnly(req: express.Request, res: express.Response
       email: decoded.email,
       role: decoded.role,
       tenant_id: decoded.tenant_id,
+      branch_id: decoded.branch_id ?? null,
     };
     
     next();
@@ -283,6 +285,7 @@ function authenticateCashierOnly(req: express.Request, res: express.Response, ne
       email: decoded.email,
       role: decoded.role,
       tenant_id: decoded.tenant_id,
+      branch_id: decoded.branch_id ?? null,
     };
     
     next();
@@ -309,6 +312,7 @@ function authenticateCustomerOrStaff(req: express.Request, res: express.Response
               email: decoded.email,
               role: decoded.role,
               tenant_id: decoded.tenant_id,
+              branch_id: decoded.branch_id ?? null,
             };
           }
         } catch (jwtError: any) {
@@ -384,6 +388,7 @@ function authenticateReceptionistOrTenantAdmin(req: express.Request, res: expres
       email: decoded.email,
       role: decoded.role,
       tenant_id: decoded.tenant_id,
+      branch_id: decoded.branch_id ?? null,
     };
     
     next();
@@ -426,7 +431,7 @@ function authenticateReceptionistOrCoordinatorForView(req: express.Request, res:
     if (!decoded.tenant_id) {
       return res.status(403).json({ error: 'Access denied. No tenant associated with your account.' });
     }
-    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id };
+    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null };
     next();
   } catch (error: any) {
     return res.status(500).json({ error: 'Authentication error', hint: error.message });
@@ -466,7 +471,7 @@ function authenticateReceptionistOrCoordinatorForPatch(req: express.Request, res
     if (!decoded.tenant_id) {
       return res.status(403).json({ error: 'Access denied. No tenant associated with your account.' });
     }
-    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id };
+    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null };
     // Coordinator: only allow PATCH when body is strictly { status: 'confirmed' }
     if (decoded.role === 'coordinator') {
       const body = req.body || {};
@@ -1881,6 +1886,12 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
         updatePayload.payment_method = reqPaymentMethod;
         updatePayload.transaction_reference = reqPaymentMethod === 'transfer' && reqTransactionRef ? String(reqTransactionRef).trim() : null;
       }
+      if (req.user?.branch_id) {
+        updatePayload.branch_id = req.user.branch_id;
+      } else if (actualBooking.service_id) {
+        const { data: firstBranch } = await supabase.from('service_branches').select('branch_id').eq('service_id', actualBooking.service_id).limit(1).maybeSingle();
+        if (firstBranch?.branch_id) updatePayload.branch_id = firstBranch.branch_id;
+      }
       if (Object.keys(updatePayload).length > 1) {
         await supabase.from('bookings').update(updatePayload).eq('id', actualBooking.id);
       }
@@ -2840,17 +2851,15 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       }
     } catch (_) { /* non-blocking */ }
 
-    // Store payment_method + transaction_reference when provided (Admin/Receptionist)
-    if (bookingIds.length > 0 && (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer')) {
-      const refValue = reqPaymentMethod === 'transfer' && reqTransactionRef ? String(reqTransactionRef).trim() : null;
-      await supabase
-        .from('bookings')
-        .update({
-          payment_method: reqPaymentMethod,
-          transaction_reference: refValue,
-          updated_at: new Date().toISOString()
-        })
-        .in('id', bookingIds);
+    // Store payment_method + transaction_reference when provided; set branch_id for income tracking
+    if (bookingIds.length > 0) {
+      const bulkUpdate: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') {
+        bulkUpdate.payment_method = reqPaymentMethod;
+        bulkUpdate.transaction_reference = reqPaymentMethod === 'transfer' && reqTransactionRef ? String(reqTransactionRef).trim() : null;
+      }
+      if (req.user?.branch_id) bulkUpdate.branch_id = req.user.branch_id;
+      await supabase.from('bookings').update(bulkUpdate).in('id', bookingIds);
     }
 
     // ============================================================================
@@ -5223,6 +5232,7 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
   try {
     const userId = req.user!.id;
     const tenantId = req.user!.tenant_id!;
+    const branchId = req.user!.branch_id || null;
     const limit = parseInt(req.query.limit as string) || 50;
 
     // Extract search parameters - only ONE is allowed
@@ -5300,10 +5310,9 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
       }
 
       // Search by phone (case-insensitive, partial match)
-      const { data, error } = await supabase
-        .from('bookings')
-        .select(baseSelect, { count: 'exact' })
-        .eq('tenant_id', tenantId)
+      let phoneQuery = supabase.from('bookings').select(baseSelect, { count: 'exact' }).eq('tenant_id', tenantId);
+      if (branchId) phoneQuery = phoneQuery.eq('branch_id', branchId);
+      const { data, error } = await phoneQuery
         .ilike('customer_phone', `%${phone.trim()}%`)
         .order('created_at', { ascending: false })
         .limit(limit);
@@ -5322,10 +5331,9 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
       }
 
       // Search by customer name (case-insensitive, partial match)
-      const { data, error } = await supabase
-        .from('bookings')
-        .select(baseSelect, { count: 'exact' })
-        .eq('tenant_id', tenantId)
+      let nameQuery = supabase.from('bookings').select(baseSelect, { count: 'exact' }).eq('tenant_id', tenantId);
+      if (branchId) nameQuery = nameQuery.eq('branch_id', branchId);
+      const { data, error } = await nameQuery
         .ilike('customer_name', `%${customer_name.trim()}%`)
         .order('created_at', { ascending: false })
         .limit(limit);
@@ -5356,10 +5364,9 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
 
       if (slotsOnDate && slotsOnDate.length > 0) {
         const slotIds = slotsOnDate.map(s => s.id);
-        const { data, error } = await supabase
-          .from('bookings')
-          .select(baseSelect, { count: 'exact' })
-          .eq('tenant_id', tenantId)
+        let dateQuery = supabase.from('bookings').select(baseSelect, { count: 'exact' }).eq('tenant_id', tenantId);
+        if (branchId) dateQuery = dateQuery.eq('branch_id', branchId);
+        const { data, error } = await dateQuery
           .in('slot_id', slotIds)
           .order('created_at', { ascending: false })
           .limit(limit);
@@ -5392,10 +5399,9 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
 
       if (serviceMatches && serviceMatches.length > 0) {
         const serviceIds = serviceMatches.map(s => s.id);
-        const { data, error } = await supabase
-          .from('bookings')
-          .select(baseSelect, { count: 'exact' })
-          .eq('tenant_id', tenantId)
+        let serviceQuery = supabase.from('bookings').select(baseSelect, { count: 'exact' }).eq('tenant_id', tenantId);
+        if (branchId) serviceQuery = serviceQuery.eq('branch_id', branchId);
+        const { data, error } = await serviceQuery
           .in('service_id', serviceIds)
           .order('created_at', { ascending: false })
           .limit(limit);
@@ -5418,12 +5424,9 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
       }
 
       // Search by booking ID (exact match)
-      const { data, error } = await supabase
-        .from('bookings')
-        .select(baseSelect, { count: 'exact' })
-        .eq('tenant_id', tenantId)
-        .eq('id', booking_id.trim())
-        .limit(limit);
+      let idQuery = supabase.from('bookings').select(baseSelect, { count: 'exact' }).eq('tenant_id', tenantId);
+      if (branchId) idQuery = idQuery.eq('branch_id', branchId);
+      const { data, error } = await idQuery.eq('id', booking_id.trim()).limit(limit);
 
       if (error) throw error;
       bookings = data || [];

@@ -219,18 +219,19 @@ router.post('/signin', async (req, res) => {
       }
     }
 
-    // Generate JWT token with all required fields
-    // Ensure all fields are present (null is acceptable for tenant_id for solution_owner)
+    // Generate JWT token with all required fields (include branch_id for branch-scoped roles)
     const tokenPayload: {
       id: string;
       email: string | null;
       role: string;
       tenant_id: string | null;
+      branch_id?: string | null;
     } = {
       id: user.id,
       email: user.email || null,
       role: user.role || 'employee',
-      tenant_id: user.tenant_id || null, // null is valid for solution_owner
+      tenant_id: user.tenant_id || null,
+      branch_id: user.branch_id ?? null,
     };
 
     // Validate required fields
@@ -374,6 +375,7 @@ router.post('/signup', async (req, res) => {
       email: user.email || null,
       role: user.role || 'employee',
       tenant_id: user.tenant_id || null,
+      branch_id: (user as any).branch_id ?? null,
     };
 
     // Validate required fields
@@ -487,17 +489,19 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'User not found or inactive' });
     }
 
-    // Generate new token with validated fields
+    // Generate new token with validated fields (include branch_id for branch-scoped roles)
     const tokenPayload: {
       id: string;
       email: string | null;
       role: string;
       tenant_id: string | null;
+      branch_id?: string | null;
     } = {
       id: user.id,
       email: user.email || null,
       role: user.role || 'employee',
       tenant_id: user.tenant_id || null,
+      branch_id: (user as any).branch_id ?? null,
     };
 
     if (!tokenPayload.id || !tokenPayload.role) {
@@ -1681,6 +1685,7 @@ router.post('/verify-otp', async (req, res) => {
         email: user.email || null,
         role: user.role || 'employee',
         tenant_id: user.tenant_id || null,
+        branch_id: (user as any).branch_id ?? null,
       };
 
       if (!tokenPayload.id || !tokenPayload.role) {
@@ -1913,11 +1918,13 @@ router.post('/login-with-otp', async (req, res) => {
       email: string | null;
       role: string;
       tenant_id: string | null;
+      branch_id?: string | null;
     } = {
       id: user.id,
       email: user.email || null,
       role: user.role || 'employee',
       tenant_id: user.tenant_id || null,
+      branch_id: (user as any).branch_id ?? null,
     };
 
     if (!tokenPayload.id || !tokenPayload.role) {

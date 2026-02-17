@@ -8,6 +8,7 @@ declare global {
         email?: string;
         role: string;
         tenant_id?: string;
+        branch_id?: string | null;
       };
     }
   }

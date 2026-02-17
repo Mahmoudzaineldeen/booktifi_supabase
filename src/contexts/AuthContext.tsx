@@ -226,7 +226,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data, error } = await db
         .from('users')
-        .select('id, tenant_id, email, phone, full_name, full_name_ar, role, is_active, created_at, updated_at')
+        .select('id, tenant_id, branch_id, email, phone, full_name, full_name_ar, role, is_active, created_at, updated_at')
         .eq('id', userId)
         .maybeSingle();
 

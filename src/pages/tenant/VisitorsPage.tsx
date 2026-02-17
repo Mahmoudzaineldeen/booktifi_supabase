@@ -115,6 +115,8 @@ export function VisitorsPage() {
   const [serviceId, setServiceId] = useState('');
   const [bookingStatus, setBookingStatus] = useState('');
   const [services, setServices] = useState<{ id: string; name: string; name_ar?: string }[]>([]);
+  const [branchId, setBranchId] = useState<string>('all');
+  const [branches, setBranches] = useState<{ id: string; name: string; location: string | null }[]>([]);
 
   const [detailVisitor, setDetailVisitor] = useState<VisitorDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -142,8 +144,10 @@ export function VisitorsPage() {
     if (bookingType !== 'all') params.set('bookingType', bookingType);
     if (serviceId) params.set('serviceId', serviceId);
     if (bookingStatus) params.set('bookingStatus', bookingStatus);
+    if (branchId && branchId !== 'all') params.set('branch_id', branchId);
+    else params.set('branch_id', 'all');
     return params.toString();
-  }, [pagination.page, nameFilter, phoneFilter, startDate, endDate, bookingType, serviceId, bookingStatus]);
+  }, [pagination.page, nameFilter, phoneFilter, startDate, endDate, bookingType, serviceId, bookingStatus, branchId]);
 
   const fetchVisitors = useCallback(async () => {
     if (!userProfile?.tenant_id) return;
@@ -189,6 +193,14 @@ export function VisitorsPage() {
       .catch(() => setServices([]));
   }, [userProfile?.tenant_id]);
 
+  useEffect(() => {
+    if (userProfile?.role !== 'tenant_admin' && userProfile?.role !== 'admin_user' && userProfile?.role !== 'customer_admin') return;
+    fetch(`${getApiUrl()}/branches`, { headers: getAuthHeaders() })
+      .then((res) => res.json())
+      .then((data) => setBranches(data.data || []))
+      .catch(() => setBranches([]));
+  }, [userProfile?.role]);
+
   const handleFilter = () => {
     setPagination((p) => ({ ...p, page: 1 }));
     setTimeout(() => fetchVisitors(), 0);
@@ -202,6 +214,7 @@ export function VisitorsPage() {
     setBookingType('all');
     setServiceId('');
     setBookingStatus('');
+    setBranchId('all');
     setPagination((p) => ({ ...p, page: 1 }));
     setTimeout(() => fetchVisitors(), 0);
   };
@@ -606,6 +619,23 @@ export function VisitorsPage() {
                 <option value="checked_in">{t('booking.statusCheckedIn', 'Checked-in')}</option>
               </select>
             </div>
+            {(userProfile?.role === 'tenant_admin' || userProfile?.role === 'admin_user' || userProfile?.role === 'customer_admin') && branches.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('visitors.branch', 'Branch')}
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  value={branchId}
+                  onChange={(e) => setBranchId(e.target.value)}
+                >
+                  <option value="all">{t('visitors.allBranches', 'All Branches')}</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           <div className="flex gap-2 mt-4">
             <Button variant="primary" icon={<Filter className="w-4 h-4" />} onClick={handleFilter}>

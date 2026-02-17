@@ -43,7 +43,7 @@ function authenticateVisitorsAccess(req: express.Request, res: express.Response,
     if (!decoded.tenant_id) {
       return res.status(403).json({ error: 'No tenant associated with your account.' });
     }
-    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id };
+    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null };
     next();
   } catch (err: any) {
     return res.status(500).json({ error: 'Authentication error', hint: err.message });
@@ -61,6 +61,7 @@ interface ListFilters {
   bookingType?: BookingTypeFilter;
   serviceId?: string;
   bookingStatus?: BookingStatusFilter;
+  branchId?: string | null;
 }
 
 function buildBookingTypeCondition(bookingType: BookingTypeFilter): string | null {
@@ -125,18 +126,20 @@ function phoneMatches(filterPhone: string, storedPhone: string): boolean {
 const FETCH_PAGE_SIZE = 1000;
 
 /** Total spent = bookings (paid only, confirmed/completed/checked_in) + package purchases. */
-async function fetchPackageSpendByCustomer(tenantId: string): Promise<Record<string, number>> {
+async function fetchPackageSpendByCustomer(tenantId: string, branchId?: string | null): Promise<Record<string, number>> {
   const byCustomer: Record<string, number> = {};
   let offset = 0;
   let hasMore = true;
   while (hasMore) {
-    const { data, error } = await supabase
+    let q = supabase
       .from('package_subscriptions')
       .select('customer_id, service_packages(total_price)')
       .eq('tenant_id', tenantId)
       .eq('payment_status', 'paid')
       .order('id', { ascending: true })
       .range(offset, offset + FETCH_PAGE_SIZE - 1);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data, error } = await q;
     if (error) throw error;
     const chunk = data || [];
     for (const row of chunk as any[]) {
@@ -153,7 +156,7 @@ async function fetchPackageSpendByCustomer(tenantId: string): Promise<Record<str
 
 async function fetchAllBookings(
   tenantId: string,
-  filters: { serviceId?: string; bookingStatus?: string }
+  filters: { serviceId?: string; bookingStatus?: string; branchId?: string | null }
 ): Promise<any[]> {
   const rows: any[] = [];
   let offset = 0;
@@ -177,6 +180,7 @@ async function fetchAllBookings(
         package_covered_quantity,
         paid_quantity,
         package_subscription_id,
+        branch_id,
         slots(slot_date, start_time, end_time)
       `)
       .eq('tenant_id', tenantId)
@@ -184,6 +188,7 @@ async function fetchAllBookings(
       .range(offset, offset + FETCH_PAGE_SIZE - 1);
     if (filters.serviceId) q = q.eq('service_id', filters.serviceId);
     if (filters.bookingStatus) q = q.eq('status', filters.bookingStatus);
+    if (filters.branchId) q = q.eq('branch_id', filters.branchId);
     const { data, error } = await q;
     if (error) throw error;
     const chunk = data || [];
@@ -206,6 +211,12 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
     const offset = (page - 1) * limit;
 
+    const branchIdParam = (req.query.branch_id as string)?.trim() || undefined;
+    const isBranchScopedRole = (req.user as any).role === 'receptionist' || (req.user as any).role === 'cashier';
+    const effectiveBranchId = isBranchScopedRole
+      ? (req.user as any).branch_id || null
+      : (branchIdParam === 'all' || !branchIdParam ? null : branchIdParam);
+
     const filters: ListFilters = {
       name: (req.query.name as string)?.trim() || undefined,
       phone: (req.query.phone as string)?.trim() || undefined,
@@ -214,6 +225,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       bookingType: (req.query.bookingType as BookingTypeFilter) || 'all',
       serviceId: (req.query.serviceId as string)?.trim() || undefined,
       bookingStatus: (req.query.bookingStatus as BookingStatusFilter) || '',
+      branchId: effectiveBranchId,
     };
 
     // 1) Fetch ALL customers for tenant (paginate to avoid PostgREST row cap)
@@ -243,10 +255,11 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       customers = customers.filter((c: any) => phoneMatches(filters.phone!, c.phone || ''));
     }
 
-    // 2) Fetch ALL bookings for tenant (paginate to avoid row cap)
+    // 2) Fetch ALL bookings for tenant (paginate to avoid row cap), optionally by branch
     const bookings = (await fetchAllBookings(tenantId, {
       serviceId: filters.serviceId,
       bookingStatus: filters.bookingStatus || undefined,
+      branchId: filters.branchId || undefined,
     })) as any[];
     const slotDates: Record<string, { slot_date: string }> = {};
     bookings.forEach((b: any) => {
@@ -275,7 +288,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     const isPaymentPaid = (ps: string) => ps && PAYMENT_PAID_STATUSES.has(String(ps).toLowerCase());
 
     // Package purchase spend (total spent = bookings + package purchases)
-    const packageSpendByCustomer = await fetchPackageSpendByCustomer(tenantId);
+    const packageSpendByCustomer = await fetchPackageSpendByCustomer(tenantId, filters.branchId || undefined);
 
     // Aggregate by customer_id (and by guest phone for customer_id null)
     const byCustomerId: Record<string, { total: number; spent: number; spentOnSite: number; spentTransfer: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
@@ -492,7 +505,10 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     }
 
     // Fetch ALL bookings (paginate)
+    const exportBranchId = (req.query.branch_id as string)?.trim();
+    const effectiveExportBranchId = exportBranchId === 'all' || !exportBranchId ? undefined : exportBranchId;
     const allBookingsExport = await fetchAllBookings(tenantId, {
+      branchId: effectiveExportBranchId || undefined,
       serviceId: filters.serviceId,
       bookingStatus: filters.bookingStatus || undefined,
     });
@@ -517,7 +533,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     };
     const filteredBookings = bookings.filter((b) => applyDateFilter(b) && applyTypeFilter(b));
 
-    const packageSpendByCustomerExport = await fetchPackageSpendByCustomer(tenantId);
+    const packageSpendByCustomerExport = await fetchPackageSpendByCustomer(tenantId, effectiveExportBranchId);
     const PAYMENT_PAID_STATUSES = new Set(['paid', 'paid_manual']);
     const isPaymentPaidExport = (ps: string) => ps && PAYMENT_PAID_STATUSES.has(String(ps).toLowerCase());
     const byCustomerId: Record<string, { total: number; spent: number; spentOnSite: number; spentTransfer: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};

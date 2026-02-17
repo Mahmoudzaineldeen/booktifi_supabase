@@ -15,6 +15,7 @@ import { employeeRoutes } from './routes/employees';
 import { zohoRoutes } from './routes/zoho';
 import { packageRoutes } from './routes/packages';
 import { visitorRoutes } from './routes/visitors';
+import { branchRoutes } from './routes/branches';
 import { debugRoutes } from './routes/debug';
 import { startLockCleanup } from './jobs/cleanupLocks';
 import { startZohoReceiptWorker } from './jobs/zohoReceiptWorker';
@@ -83,6 +84,7 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/zoho', zohoRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/visitors', visitorRoutes);
+app.use('/api/branches', branchRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api', queryRoutes);
 

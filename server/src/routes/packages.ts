@@ -158,6 +158,7 @@ function authenticateSubscriptionManager(req: express.Request, res: express.Resp
       email: decoded.email,
       role: decoded.role,
       tenant_id: decoded.tenant_id,
+      branch_id: decoded.branch_id ?? null,
     };
 
     next();
@@ -193,6 +194,7 @@ function authenticateReceptionistOrAdmin(req: express.Request, res: express.Resp
       email: decoded.email,
       role: decoded.role,
       tenant_id: decoded.tenant_id,
+      branch_id: decoded.branch_id ?? null,
     };
 
     next();
@@ -395,6 +397,7 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       is_active = true,
       service_ids, // Array of service IDs (backward compatibility)
       services, // Array of { service_id, capacity_total } objects (new format)
+      branch_ids, // Array of branch IDs for multi-branch assignment
     } = req.body;
 
     // Validation
@@ -515,6 +518,28 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       });
     }
 
+    // Branch assignment: validate package branch_ids and service-branch compatibility
+    const packageBranchIds = Array.isArray(branch_ids) ? branch_ids.filter((id: any) => id && String(id).trim()) : [];
+    if (packageBranchIds.length > 0) {
+      const { data: branchRows } = await supabase.from('branches').select('id').in('id', packageBranchIds).eq('tenant_id', tenantId);
+      const validBranchIds = (branchRows || []).map((b: any) => b.id);
+      if (validBranchIds.length !== packageBranchIds.length) {
+        return res.status(400).json({ error: 'One or more branch IDs are invalid or do not belong to your tenant.' });
+      }
+      const { data: serviceBranchRows } = await supabase.from('service_branches').select('service_id, branch_id').in('service_id', serviceIds).in('branch_id', validBranchIds);
+      const serviceBranchSet = new Set((serviceBranchRows || []).map((r: any) => `${r.service_id}:${r.branch_id}`));
+      const branchSet = new Set(validBranchIds);
+      for (const sid of serviceIds) {
+        const serviceInSomeBranch = validBranchIds.some((bid: string) => serviceBranchSet.has(`${sid}:${bid}`));
+        if (!serviceInSomeBranch) {
+          return res.status(400).json({
+            error: 'Selected service is not available in the assigned branches.',
+            hint: 'Each service in the package must be assigned to at least one of the selected branches.',
+          });
+        }
+      }
+    }
+
     // Prepare package payload
     const packagePayload: any = {
       tenant_id: tenantId,
@@ -611,6 +636,15 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       if (isVerboseLogging()) logger.warn('Create Package: service count mismatch', undefined, {}, { expected: serviceData.length, inserted: insertedServices.length });
     }
 
+    if (packageBranchIds.length > 0) {
+      const packageBranchRows = packageBranchIds.map((branch_id: string) => ({ package_id: newPackage.id, branch_id }));
+      const { error: pbErr } = await supabase.from('package_branches').insert(packageBranchRows);
+      if (pbErr) {
+        if (isVerboseLogging()) logger.error('Create Package: insert package_branches failed', pbErr, {}, {});
+        return res.status(500).json({ error: 'Failed to assign branches to package', details: pbErr.message });
+      }
+    }
+
     // Fetch complete package with services
     const { data: completePackage, error: fetchError } = await supabase
       .from('service_packages')
@@ -662,7 +696,7 @@ router.put('/:id', authenticateTenantAdmin, async (req, res) => {
   try {
     const packageId = req.params.id;
     const tenantId = req.user!.tenant_id!;
-    const updateData = req.body;
+    const { branch_ids, ...updateData } = req.body;
 
     // Get current package to verify ownership
     const { data: currentPackage, error: fetchError } = await supabase
@@ -679,7 +713,41 @@ router.put('/:id', authenticateTenantAdmin, async (req, res) => {
       return res.status(403).json({ error: 'Access denied. This package belongs to a different tenant.' });
     }
 
-    // Update package
+    if (branch_ids !== undefined && Array.isArray(branch_ids)) {
+      const packageBranchIds = branch_ids.filter((id: any) => id && String(id).trim());
+      const { data: packageServices } = await supabase.from('package_services').select('service_id').eq('package_id', packageId);
+      const serviceIds = (packageServices || []).map((r: any) => r.service_id);
+
+      if (packageBranchIds.length > 0 && serviceIds.length > 0) {
+        const { data: branchRows } = await supabase.from('branches').select('id').in('id', packageBranchIds).eq('tenant_id', tenantId);
+        const validBranchIds = (branchRows || []).map((b: any) => b.id);
+        if (validBranchIds.length !== packageBranchIds.length) {
+          return res.status(400).json({ error: 'One or more branch IDs are invalid or do not belong to your tenant.' });
+        }
+        const { data: serviceBranchRows } = await supabase.from('service_branches').select('service_id, branch_id').in('service_id', serviceIds).in('branch_id', validBranchIds);
+        const serviceBranchSet = new Set((serviceBranchRows || []).map((r: any) => `${r.service_id}:${r.branch_id}`));
+        for (const sid of serviceIds) {
+          const serviceInSomeBranch = validBranchIds.some((bid: string) => serviceBranchSet.has(`${sid}:${bid}`));
+          if (!serviceInSomeBranch) {
+            return res.status(400).json({
+              error: 'Selected service is not available in the assigned branches.',
+              hint: 'Each service in the package must be assigned to at least one of the selected branches.',
+            });
+          }
+        }
+      }
+
+      await supabase.from('package_branches').delete().eq('package_id', packageId);
+      if (packageBranchIds.length > 0) {
+        const rows = packageBranchIds.map((branch_id: string) => ({ package_id: packageId, branch_id }));
+        const { error: pbErr } = await supabase.from('package_branches').insert(rows);
+        if (pbErr) {
+          return res.status(500).json({ error: 'Failed to update package branches', details: pbErr.message });
+        }
+      }
+    }
+
+    // Update package (exclude branch_ids from table columns)
     const { data: updatedPackage, error: updateError } = await supabase
       .from('service_packages')
       .update({
@@ -892,6 +960,12 @@ router.post('/subscriptions', async (req, res) => {
       package_id,
       customer_id: finalCustomerId,
     };
+    if (req.user?.branch_id) {
+      subscriptionData.branch_id = req.user.branch_id;
+    } else {
+      const { data: pkgBranch } = await supabase.from('package_branches').select('branch_id').eq('package_id', package_id).limit(1).maybeSingle();
+      if (pkgBranch?.branch_id) subscriptionData.branch_id = pkgBranch.branch_id;
+    }
     if (reqPaymentStatus === 'pending' || reqPaymentStatus === 'paid') {
       subscriptionData.payment_status = reqPaymentStatus;
     }
@@ -1367,7 +1441,16 @@ router.get('/subscriptions/:subscriptionId/invoice/download', authenticateSubscr
 async function handleGetPackagesForReceptionOrTenant(req: express.Request, res: express.Response) {
   try {
     const tenantId = req.user!.tenant_id!;
+    const branchId = (req.user as any).branch_id || null;
     const { search, service_id } = req.query;
+
+    // Branch isolation: receptionist/cashier only see packages assigned to their branch
+    let packageIdsFilter: string[] | null = null;
+    if (branchId) {
+      const { data: branchPackages } = await supabase.from('package_branches').select('package_id').eq('branch_id', branchId);
+      packageIdsFilter = (branchPackages || []).map((r: any) => r.package_id);
+      if (packageIdsFilter.length === 0) return res.json({ packages: [] });
+    }
 
     // Build query
     let query = supabase
@@ -1395,6 +1478,8 @@ async function handleGetPackagesForReceptionOrTenant(req: express.Request, res: 
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
       .order('name');
+
+    if (packageIdsFilter) query = query.in('id', packageIdsFilter);
 
     // Search by package name
     if (search && typeof search === 'string' && search.trim()) {
@@ -1462,16 +1547,14 @@ router.get('/tenant/packages', authenticateSubscriptionManager, handleGetPackage
 router.get('/receptionist/subscribers', authenticateSubscriptionManager, async (req, res) => {
   try {
     const tenantId = req.user!.tenant_id!;
+    const branchId = (req.user as any).branch_id || null;
     const { search, search_type, page = 1, limit = 50 } = req.query;
 
     const pageNum = parseInt(page as string) || 1;
     const limitNum = parseInt(limit as string) || 50;
     const offset = (pageNum - 1) * limitNum;
 
-    // Fetch all subscriptions first (we'll filter after fetching related data)
-    // Note: We fetch all because Supabase doesn't support filtering on nested relations directly
-    // This is acceptable for receptionist use cases as the dataset is typically manageable
-    const { data: allSubscriptions, error: fetchError } = await supabase
+    let subscriberQuery = supabase
       .from('package_subscriptions')
       .select(`
         id,
@@ -1484,9 +1567,12 @@ router.get('/receptionist/subscribers', authenticateSubscriptionManager, async (
         payment_method,
         transaction_reference
       `)
-      .eq('tenant_id', tenantId)
+      .eq('tenant_id', tenantId);
+    if (branchId) subscriberQuery = subscriberQuery.eq('branch_id', branchId);
+
+    // Fetch all subscriptions first (we'll filter after fetching related data)
+    const { data: allSubscriptions, error: fetchError } = await subscriberQuery
       .eq('status', 'active')
-      .eq('is_active', true)
       .order('subscribed_at', { ascending: false });
 
     if (fetchError) {

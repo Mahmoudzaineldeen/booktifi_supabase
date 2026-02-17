@@ -37,6 +37,7 @@ export interface Tenant {
 export interface User {
   id: string;
   tenant_id?: string;
+  branch_id?: string | null;
   email: string;
   phone?: string;
   full_name: string;

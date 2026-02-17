@@ -32,6 +32,8 @@ import { QRScannerPage } from './pages/public/QRScannerPage';
 import { LandingPageBuilderWrapper } from './pages/tenant/LandingPageBuilderWrapper';
 import { PackagesPageWrapper } from './pages/tenant/PackagesPageWrapper';
 import { PackageSubscribersPageWrapper } from './pages/tenant/PackageSubscribersPageWrapper';
+import { BranchesPageWrapper } from './pages/tenant/BranchesPageWrapper';
+import { BranchDetailPageWrapper } from './pages/tenant/BranchDetailPageWrapper';
 import { OffersPageWrapper } from './pages/tenant/OffersPageWrapper';
 import { CustomerSignupPage } from './pages/customer/CustomerSignupPage';
 import { CustomerLoginPage } from './pages/customer/CustomerLoginPage';
@@ -63,6 +65,8 @@ function AppContent() {
 
       {/* More specific admin routes first so /admin/visitors is not matched by /admin */}
       <Route path="/:tenantSlug/admin/services" element={<ServicesPageWrapper />} />
+      <Route path="/:tenantSlug/admin/branches/:branchId" element={<BranchDetailPageWrapper />} />
+      <Route path="/:tenantSlug/admin/branches" element={<BranchesPageWrapper />} />
       <Route path="/:tenantSlug/admin/packages" element={<PackagesPageWrapper />} />
       <Route path="/:tenantSlug/admin/package-subscribers" element={<PackageSubscribersPageWrapper />} />
       <Route path="/:tenantSlug/admin/offers" element={<OffersPageWrapper />} />

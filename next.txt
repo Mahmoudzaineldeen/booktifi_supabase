@@ -29,7 +29,8 @@ check date make separate visitors details button
 
 organization id=910540679
 
-
+customer email:healingtouches_sa@hotmail.com
+password:King@123
 done 10 or least
 done Arabic
 done  performance is sucks
@@ -38,11 +39,11 @@ done full disable the the fully customer if the
 
 change email info@kingdomcentre.com.sa to healingtouches_sa@hotmail.com
 
-make the system time 12 hour not 24 
+done make the system time 12 hour not 24 
 
 add branches tab in admin page 
 
-pricing (number of braches and users and WhatsApp number messages)
+pricing (number of branches and users and WhatsApp number messages)
 https://www.daftra.com/plans
 Pricing page
 

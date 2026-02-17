@@ -17,6 +17,7 @@ router.post('/create', async (req, res) => {
       phone,
       role,
       tenant_id,
+      branch_id,
       service_shift_assignments,
       employee_shifts: employeeShiftsBody,
     } = req.body;
@@ -29,6 +30,17 @@ router.post('/create', async (req, res) => {
     const validRoles = ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'];
     if (!validRoles.includes(role)) {
       return res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
+    }
+
+    const operationalRoles = ['employee', 'receptionist', 'coordinator', 'cashier'];
+    if (operationalRoles.includes(role) && !branch_id) {
+      return res.status(400).json({ error: 'Branch is required for this role.', hint: 'Select a branch for employees, receptionists, coordinators, and cashiers.' });
+    }
+    if (branch_id) {
+      const { data: branchRow } = await supabase.from('branches').select('id').eq('id', branch_id).eq('tenant_id', tenant_id).maybeSingle();
+      if (!branchRow) {
+        return res.status(400).json({ error: 'Invalid branch or branch does not belong to this tenant.' });
+      }
     }
 
     // Check if username already exists
@@ -70,19 +82,22 @@ router.post('/create', async (req, res) => {
 
     // Create user in database directly (no Supabase Auth dependency)
     const emailForUser = email || `${username}@bookati.local`;
+    const userPayload: Record<string, any> = {
+      username,
+      email: emailForUser,
+      phone: phone || null,
+      full_name,
+      full_name_ar: full_name_ar || '',
+      role: role || 'employee',
+      tenant_id,
+      password_hash: passwordHash,
+      is_active: true,
+    };
+    if (branch_id) userPayload.branch_id = branch_id;
+
     const { data: newUser, error: userError } = await supabase
       .from('users')
-      .insert({
-        username,
-        email: emailForUser,
-        phone: phone || null,
-        full_name,
-        full_name_ar: full_name_ar || '',
-        role: role || 'employee',
-        tenant_id,
-        password_hash: passwordHash,
-        is_active: true,
-      })
+      .insert(userPayload)
       .select()
       .single();
 
@@ -101,15 +116,20 @@ router.post('/create', async (req, res) => {
     }
 
     // Create employee service assignments (only for employees, not receptionists/cashiers)
-    if (role === 'employee' && service_shift_assignments && service_shift_assignments.length > 0) {
+    if (role === 'employee' && service_shift_assignments && service_shift_assignments.length > 0 && branch_id) {
+      const { data: branchServiceIds } = await supabase.from('service_branches').select('service_id').eq('branch_id', branch_id);
+      const allowedServiceIds = new Set((branchServiceIds || []).map((r: any) => r.service_id));
+
       const assignments: any[] = [];
       service_shift_assignments.forEach((serviceAssignment: any) => {
+        const serviceId = serviceAssignment.serviceId;
+        if (!allowedServiceIds.has(serviceId)) return;
         const shiftIds = serviceAssignment.shiftIds || [];
         if (shiftIds.length > 0) {
           shiftIds.forEach((shift_id: string) => {
             assignments.push({
               employee_id: newUser.id,
-              service_id: serviceAssignment.serviceId,
+              service_id: serviceId,
               shift_id,
               tenant_id,
               duration_minutes: null,
@@ -117,10 +137,9 @@ router.post('/create', async (req, res) => {
             });
           });
         } else {
-          // Employee-based: availability from employee work schedule (employee_shifts); no per-employee capacity
           assignments.push({
             employee_id: newUser.id,
-            service_id: serviceAssignment.serviceId,
+            service_id: serviceId,
             shift_id: null,
             tenant_id,
             duration_minutes: null,
@@ -183,6 +202,7 @@ router.post('/update', async (req, res) => {
       full_name_ar,
       phone,
       role,
+      branch_id,
       is_active,
       is_paused_until,
     } = req.body;
@@ -226,6 +246,13 @@ router.post('/update', async (req, res) => {
         return res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
       }
       updates.role = role;
+    }
+    if (branch_id !== undefined) {
+      if (branch_id && existing.tenant_id) {
+        const { data: branchRow } = await supabase.from('branches').select('id').eq('id', branch_id).eq('tenant_id', existing.tenant_id).maybeSingle();
+        if (!branchRow) return res.status(400).json({ error: 'Invalid branch or branch does not belong to this tenant.' });
+      }
+      updates.branch_id = branch_id || null;
     }
     if (is_active !== undefined) updates.is_active = is_active;
     if (is_paused_until !== undefined) updates.is_paused_until = is_paused_until === '' || is_paused_until === null ? null : is_paused_until;

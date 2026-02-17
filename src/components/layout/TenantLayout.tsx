@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { showNotification } from '../../contexts/NotificationContext';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList, UserCircle, Clock } from 'lucide-react';
+import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList, UserCircle, Clock, Building2 } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface TenantLayoutProps {
@@ -60,6 +60,13 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       icon: Package,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/packages`),
       visible: (features?.packages_enabled ?? true) && !isAdminUser, // customer_admin can access, but admin_user cannot
+    },
+    {
+      name: t('navigation.branches', 'Branches'),
+      href: `/${tenantSlug}/admin/branches`,
+      icon: Building2,
+      current: location.pathname.startsWith(`/${tenantSlug}/admin/branches`),
+      visible: userProfile?.role === 'tenant_admin' || userProfile?.role === 'solution_owner',
     },
     {
       name: t('navigation.packageSubscribers', 'Package Subscribers'),
