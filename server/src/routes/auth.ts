@@ -6,6 +6,21 @@ import { sendOTPEmail } from '../services/emailService.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+// Session token lifetime: default 30 days so users don't get 401/403 from expiry quickly
+const JWT_EXPIRY = process.env.JWT_EXPIRY || '30d';
+const JWT_EXPIRY_SECONDS = parseJwtExpiryToSeconds(JWT_EXPIRY);
+
+function parseJwtExpiryToSeconds(expiry: string): number {
+  const match = expiry.match(/^(\d+)([smhd])$/);
+  if (!match) return 30 * 24 * 60 * 60; // fallback 30 days
+  const n = parseInt(match[1], 10);
+  const u = match[2];
+  if (u === 's') return n;
+  if (u === 'm') return n * 60;
+  if (u === 'h') return n * 60 * 60;
+  if (u === 'd') return n * 24 * 60 * 60;
+  return 30 * 24 * 60 * 60;
+}
 
 /**
  * Normalize phone number to international format
@@ -244,7 +259,7 @@ router.post('/signin', async (req, res) => {
       return res.status(500).json({ error: 'User role is missing. Cannot create authentication token.' });
     }
 
-    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
 
     console.log('[Auth] ✅ Signin token created successfully:', {
       userId: tokenPayload.id,
@@ -388,7 +403,7 @@ router.post('/signup', async (req, res) => {
       return res.status(500).json({ error: 'User role is missing. Cannot create authentication token.' });
     }
 
-    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
 
     console.log('[Auth] ✅ Signup token created successfully:', {
       userId: tokenPayload.id,
@@ -509,7 +524,7 @@ router.post('/refresh', async (req, res) => {
       return res.status(500).json({ error: 'User data incomplete. Cannot refresh token.' });
     }
 
-    const newToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
+    const newToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
 
     console.log('[Auth] ✅ Token refreshed successfully:', {
       userId: tokenPayload.id,
@@ -519,7 +534,7 @@ router.post('/refresh', async (req, res) => {
 
     res.json({
       access_token: newToken,
-      expires_in: 7 * 24 * 60 * 60, // 7 days in seconds
+      expires_in: JWT_EXPIRY_SECONDS,
     });
   } catch (error: any) {
     console.error('Refresh token error:', error);
@@ -1691,7 +1706,7 @@ router.post('/verify-otp', async (req, res) => {
       if (!tokenPayload.id || !tokenPayload.role) {
         console.error('[Auth] ❌ Cannot create OTP session token: missing required fields', { user });
       } else {
-        sessionToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
+        sessionToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
         console.log('[Auth] ✅ OTP session token created:', {
           userId: tokenPayload.id,
           role: tokenPayload.role,
@@ -1932,7 +1947,7 @@ router.post('/login-with-otp', async (req, res) => {
       return res.status(500).json({ error: 'User data incomplete. Cannot create authentication token.' });
     }
 
-    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
 
     console.log('[Auth] ✅ Login with OTP token created:', {
       userId: tokenPayload.id,

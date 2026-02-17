@@ -163,12 +163,17 @@ node tests/backend/12-multi-branch-system.test.js
 
 This checks:
 
-- Admin login and branch CRUD.
+- Admin login and branch CRUD (create Branch A, B, list, detail).
 - Branch detail (See More) structure and income.
 - Creation of receptionists with branch assignment.
 - Login as receptionist and JWT `branch_id`.
 - Branch-scoped packages and booking search (200).
-- **403** when Receptionist A requests Branch B (and vice versa).
+- **403** when Receptionist A requests Branch B detail (and vice versa).
+- **GET /branches/:id/services**: Receptionist A gets 200 for own branch, 403 for other branch; Admin gets 200 for any branch.
+- **PUT /branches/:id/services**: Admin can assign service_ids (empty array); GET after returns same.
+- **Employees and service assignment (isolation)**: Gets one tenant service (optional), assigns it to Branch A and B; creates Employee A (Branch A) and Employee B (Branch B) with that service; Branch A detail `assigned_employees` includes only Employee A; Branch B detail includes only Employee B (no cross-branch leak).
+- **PATCH /branches/:id** with `is_active: false` (deactivate) and `is_active: true` (reactivate).
+- **DELETE /branches/:id**: Admin can delete a branch (Branch C); GET after returns 404.
 - Income summary in branch detail.
 - Package validation (empty `branch_ids` rejected).
 
