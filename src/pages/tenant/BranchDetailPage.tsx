@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { getApiUrl } from '../../lib/apiUrl';
@@ -55,6 +55,8 @@ export function BranchDetailPage() {
   const { t, i18n } = useTranslation();
   const { tenantSlug, branchId } = useParams<{ tenantSlug: string; branchId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const branchesState = (location.state as { branches?: Array<{ id: string; name: string; location?: string | null }> } | null)?.branches;
   const { formatPrice } = useCurrency();
   const [detail, setDetail] = useState<BranchDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -235,7 +237,13 @@ export function BranchDetailPage() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-4 mb-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/${tenantSlug}/admin/branches`)}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() =>
+            navigate(`/${tenantSlug}/admin/branches`, { state: branchesState ? { branches: branchesState } : undefined })
+          }
+        >
           <ArrowLeft className="w-4 h-4 mr-1" />
           {t('common.back', 'Back')}
         </Button>

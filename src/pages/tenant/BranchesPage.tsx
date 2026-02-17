@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { getApiUrl } from '../../lib/apiUrl';
 import { showNotification } from '../../contexts/NotificationContext';
@@ -28,9 +28,11 @@ function getAuthHeaders(): HeadersInit {
 export function BranchesPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedBranches = (location.state as { branches?: Branch[] } | null)?.branches;
+  const [branches, setBranches] = useState<Branch[]>(() => cachedBranches ?? []);
+  const [loading, setLoading] = useState(!cachedBranches);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createLocation, setCreateLocation] = useState('');
@@ -51,6 +53,11 @@ export function BranchesPage() {
   }, []);
 
   useEffect(() => {
+    if (cachedBranches?.length !== undefined) {
+      setBranches(cachedBranches);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -69,7 +76,7 @@ export function BranchesPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [cachedBranches]);
 
   const handleCreateBranch = async () => {
     const name = createName.trim();
@@ -185,7 +192,7 @@ export function BranchesPage() {
                   variant="outline"
                   size="sm"
                   className="mt-auto w-full justify-between group"
-                  onClick={() => navigate(`/${tenantSlug}/admin/branches/${branch.id}`)}
+                  onClick={() => navigate(`/${tenantSlug}/admin/branches/${branch.id}`, { state: { branches } })}
                 >
                   {t('branches.seeMore', 'See More')}
                   <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />

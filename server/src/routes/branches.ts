@@ -57,7 +57,7 @@ router.get('/', authenticateAdmin, async (req, res) => {
 
     let query = supabase
       .from('branches')
-      .select('id, name, location, created_at, is_active')
+      .select('id, name, location, created_at')
       .order('created_at', { ascending: true });
 
     if (tenantId) query = query.eq('tenant_id', tenantId);
@@ -163,11 +163,14 @@ router.get('/:id', authenticateAdmin, async (req, res) => {
 
     const { data: branch, error: branchError } = await supabase
       .from('branches')
-      .select('id, tenant_id, name, location, created_at, updated_at, is_active')
+      .select('id, tenant_id, name, location, created_at, updated_at')
       .eq('id', branchId)
       .maybeSingle();
 
-    if (branchError || !branch) {
+    if (branchError) {
+      return res.status(500).json({ error: 'Failed to load branch', details: branchError.message });
+    }
+    if (!branch) {
       return res.status(404).json({ error: 'Branch not found' });
     }
     if (tenantId && branch.tenant_id !== tenantId) {
@@ -213,6 +216,7 @@ router.get('/:id', authenticateAdmin, async (req, res) => {
     res.json({
       data: {
         ...branch,
+        is_active: branch.is_active ?? true,
         assigned_services: assignedServices,
         assigned_packages: assignedPackages,
         assigned_employees: employees,
@@ -250,6 +254,19 @@ router.patch('/:id', authenticateAdmin, async (req, res) => {
 
     const { data: branch, error } = await supabase.from('branches').update(updates).eq('id', branchId).select().single();
     if (error) throw error;
+
+    // When branch is deactivated, deactivate all employees, receptionists, and cashiers assigned to this branch
+    if (is_active === false) {
+      const { error: usersErr } = await supabase
+        .from('users')
+        .update({ is_active: false })
+        .eq('branch_id', branchId)
+        .in('role', ['employee', 'receptionist', 'cashier', 'coordinator']);
+      if (usersErr) {
+        return res.status(500).json({ error: 'Branch updated but failed to deactivate branch staff', details: usersErr.message });
+      }
+    }
+
     res.json({ data: branch });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update branch' });

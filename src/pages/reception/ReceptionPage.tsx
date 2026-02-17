@@ -524,68 +524,57 @@ export function ReceptionPage() {
       console.warn('[ReceptionPage] fetchServices: No tenant_id available', { userProfile });
       return;
     }
-    
-    console.log('[ReceptionPage] fetchServices: Starting...', { tenant_id: userProfile.tenant_id });
-    
+    const branchId = (userProfile as { branch_id?: string | null }).branch_id ?? null;
     try {
-    // Fetch services with their offers
-      console.log('[ReceptionPage] fetchServices: Querying services table...');
+      let serviceIds: string[] | null = null;
+      if (branchId) {
+        const token = localStorage.getItem('auth_token');
+        const res = await fetch(`${getApiUrl()}/branches/${branchId}/services`, {
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        });
+        const data = await res.json();
+        if (res.ok && Array.isArray(data?.data)) {
+          serviceIds = data.data.map((s: { id: string }) => s.id);
+          if (serviceIds.length === 0) {
+            setServices([]);
+            return;
+          }
+        }
+      }
       const servicesResult = await db
-      .from('services')
-      .select('id, name, name_ar, base_price, original_price, discount_percentage, capacity_per_slot, capacity_mode')
-      .eq('tenant_id', userProfile.tenant_id)
-      .eq('is_active', true)
-      .order('name');
-    
-      console.log('[ReceptionPage] fetchServices: Services query result:', { 
-        hasData: !!servicesResult.data, 
-        dataLength: servicesResult.data?.length, 
-        error: servicesResult.error 
-      });
-      
-      const { data: servicesData, error: servicesError } = servicesResult;
-      
-    if (servicesError) {
-        console.error('[ReceptionPage] Error fetching services:', servicesError);
-      setServices([]);
-      return;
-    }
-    
-    // Fetch all active offers for these services
-    if (servicesData && servicesData.length > 0) {
-        console.log(`[ReceptionPage] fetchServices: Found ${servicesData.length} services, fetching offers...`);
-      const serviceIds = servicesData.map((s: { id: string }) => s.id);
-        const offersResult = await db
-        .from('service_offers')
-        .select('id, service_id, name, name_ar, price, original_price, discount_percentage, is_active')
-        .in('service_id', serviceIds)
+        .from('services')
+        .select('id, name, name_ar, base_price, original_price, discount_percentage, capacity_per_slot, capacity_mode')
+        .eq('tenant_id', userProfile.tenant_id)
         .eq('is_active', true)
         .order('name');
-      
-        const { data: offersData, error: offersError } = offersResult;
-        
-      if (offersError) {
-          console.error('[ReceptionPage] Error fetching offers:', offersError);
-        } else {
-          console.log(`[ReceptionPage] fetchServices: Found ${offersData?.length || 0} offers`);
+      const { data: servicesDataRaw, error: servicesError } = servicesResult;
+      if (servicesError) {
+        setServices([]);
+        return;
       }
-      
-      // Attach offers to their respective services
-      const servicesWithOffers = servicesData.map((service: { id: string } & Record<string, unknown>) => ({
-        ...service,
-        offers: offersData?.filter((offer: { service_id: string }) => offer.service_id === service.id) || []
-      }));
-      
-        console.log(`[ReceptionPage] fetchServices: Setting ${servicesWithOffers.length} services in state`);
-      setServices(servicesWithOffers);
-        console.log(`[ReceptionPage] Loaded ${servicesWithOffers.length} services`);
-    } else {
-        console.warn('[ReceptionPage] No active services found for tenant', { tenant_id: userProfile.tenant_id });
+      let servicesData = servicesDataRaw ?? [];
+      if (branchId && serviceIds && serviceIds.length > 0) {
+        servicesData = servicesData.filter((s: { id: string }) => serviceIds!.includes(s.id));
+      }
+      if (servicesData.length > 0) {
+        const serviceIdsArr = servicesData.map((s: { id: string }) => s.id);
+        const offersResult = await db
+          .from('service_offers')
+          .select('id, service_id, name, name_ar, price, original_price, discount_percentage, is_active')
+          .in('service_id', serviceIdsArr)
+          .eq('is_active', true)
+          .order('name');
+        const { data: offersData } = offersResult;
+        const servicesWithOffers = servicesData.map((service: { id: string } & Record<string, unknown>) => ({
+          ...service,
+          offers: offersData?.filter((offer: { service_id: string }) => offer.service_id === service.id) || [],
+        }));
+        setServices(servicesWithOffers);
+      } else {
         setServices([]);
       }
     } catch (error) {
       console.error('[ReceptionPage] Unexpected error in fetchServices:', error);
-      console.error('[ReceptionPage] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       setServices([]);
     }
   }
@@ -595,9 +584,35 @@ export function ReceptionPage() {
       setPackages([]);
       return;
     }
+    const branchId = (userProfile as { branch_id?: string | null }).branch_id ?? null;
     setLoadingPackages(true);
     try {
-      // Fetch packages first, then package_services in one batched query (no N+1)
+      if (branchId) {
+        const token = localStorage.getItem('auth_token');
+        const res = await fetch(`${getApiUrl()}/packages/receptionist/packages`, {
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setPackages([]);
+          return;
+        }
+        const list = data?.packages ?? [];
+        const packagesWithServices = list.map((pkg: { id: string; name: string; name_ar?: string; total_price: number; services?: Array<{ service_id: string; service_name: string; service_name_ar?: string; capacity?: number }> }) => ({
+          id: pkg.id,
+          name: pkg.name,
+          name_ar: pkg.name_ar ?? '',
+          total_price: pkg.total_price,
+          package_services: (pkg.services ?? []).map((ps: { service_id: string; service_name: string; service_name_ar?: string; capacity?: number }) => ({
+            package_id: pkg.id,
+            service_id: ps.service_id,
+            services: { id: ps.service_id, name: ps.service_name, name_ar: ps.service_name_ar ?? '', base_price: 0 },
+            capacity_total: ps.capacity ?? 0,
+          })),
+        }));
+        setPackages(packagesWithServices);
+        return;
+      }
       const { data: packagesData, error: packagesError } = await db
         .from('service_packages')
         .select('id, name, name_ar, total_price')
@@ -606,16 +621,13 @@ export function ReceptionPage() {
         .order('name');
 
       if (packagesError) {
-        console.error('Error fetching packages:', packagesError);
         setPackages([]);
         return;
       }
-
       if (!packagesData || packagesData.length === 0) {
         setPackages([]);
         return;
       }
-
       const packageIds = packagesData.map((p: { id: string }) => p.id);
       const { data: packageServicesData, error: packageServicesError } = await db
         .from('package_services')
@@ -623,17 +635,12 @@ export function ReceptionPage() {
         .in('package_id', packageIds);
 
       if (packageServicesError) {
-        console.error('Error fetching package services:', packageServicesError);
-        setPackages(packagesData.map((pkg: { id: string } & Record<string, unknown>) => ({
-          ...pkg,
-          package_services: []
-        })));
+        setPackages(packagesData.map((pkg: { id: string } & Record<string, unknown>) => ({ ...pkg, package_services: [] })));
         return;
       }
-
       const packagesWithServices = packagesData.map((pkg: { id: string } & Record<string, unknown>) => ({
         ...pkg,
-        package_services: packageServicesData?.filter((ps: { package_id: string }) => ps.package_id === pkg.id) || []
+        package_services: packageServicesData?.filter((ps: { package_id: string }) => ps.package_id === pkg.id) || [],
       }));
       setPackages(packagesWithServices);
     } catch (error) {
@@ -1200,12 +1207,17 @@ export function ReceptionPage() {
 
       const employeeIdsFromServices = [...new Set(employeeServices.map((es: { employee_id: string }) => es.employee_id))] as string[];
 
-      const employeeMap = new Map<string, {id: string, name: string, name_ar: string}>();
-      const { data: usersData } = await db
+      const branchId = (userProfile as { branch_id?: string | null }).branch_id ?? null;
+      let usersQuery = db
         .from('users')
-        .select('id, full_name, full_name_ar, is_active')
+        .select('id, full_name, full_name_ar, is_active, branch_id')
         .in('id', employeeIdsFromServices)
         .eq('tenant_id', userProfile!.tenant_id);
+      if (branchId) {
+        usersQuery = usersQuery.eq('branch_id', branchId);
+      }
+      const { data: usersData } = await usersQuery;
+      const employeeMap = new Map<string, {id: string, name: string, name_ar: string}>();
       (usersData || []).forEach((u: { id: string; full_name?: string; full_name_ar?: string; is_active?: boolean }) => {
         if (u.is_active !== false) {
           employeeMap.set(u.id, {
