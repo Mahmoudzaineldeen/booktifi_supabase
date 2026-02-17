@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { getApiUrl } from '../../lib/apiUrl';
 import { showNotification } from '../../contexts/NotificationContext';
+import { showConfirm } from '../../contexts/ConfirmContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
@@ -21,6 +22,9 @@ import {
   DollarSign,
   X,
   Check,
+  Trash2,
+  Power,
+  PowerOff,
 } from 'lucide-react';
 
 interface BranchDetail {
@@ -30,6 +34,7 @@ interface BranchDetail {
   location: string | null;
   created_at: string;
   updated_at: string;
+  is_active?: boolean;
   assigned_services: Array<{ id: string; name: string; name_ar?: string }>;
   assigned_packages: Array<{ id: string; name: string; name_ar?: string }>;
   assigned_employees: Array<{ id: string; full_name: string; full_name_ar?: string; email?: string }>;
@@ -99,7 +104,8 @@ export function BranchDetailPage() {
           }),
         });
         const data = await res.json();
-        if (res.ok && Array.isArray(data.data)) setAllServices(data.data);
+        const list = Array.isArray(data) ? data : (data?.data ?? []);
+        if (res.ok && Array.isArray(list)) setAllServices(list);
       } catch (_) {}
     })();
   }, [detail?.tenant_id]);
@@ -159,6 +165,63 @@ export function BranchDetailPage() {
     });
   };
 
+  const handleDeactivateToggle = async () => {
+    if (!branchId) return;
+    const newActive = !(detail?.is_active !== false);
+    const ok = await showConfirm({
+      title: t('common.confirm'),
+      description: newActive
+        ? t('branches.activateConfirm', 'Activate this branch? It will appear in branch lists again.')
+        : t('branches.deactivateConfirm', 'Deactivate this branch? It will be hidden from assignment dropdowns.'),
+      confirmText: newActive ? t('branches.activate', 'Activate') : t('branches.deactivate', 'Deactivate'),
+      cancelText: t('common.cancel'),
+    });
+    if (!ok) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/branches/${branchId}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ is_active: newActive }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update');
+      setDetail((prev) => (prev ? { ...prev, is_active: newActive } : null));
+      showNotification('success', newActive ? t('branches.activated', 'Branch activated') : t('branches.deactivated', 'Branch deactivated'));
+    } catch (e: any) {
+      showNotification('error', e.message || 'Failed to update');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteBranch = async () => {
+    if (!branchId) return;
+    const ok = await showConfirm({
+      title: t('branches.deleteConfirmTitle', 'Delete branch?'),
+      description: t('branches.deleteConfirmDescription', 'This will remove the branch. Bookings and subscriptions will keep their data but will no longer be linked to this branch. Employees and receptionists assigned to this branch will be unassigned. This cannot be undone.'),
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
+      destructive: true,
+    });
+    if (!ok) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/branches/${branchId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete branch');
+      showNotification('success', t('branches.deleted', 'Branch deleted'));
+      navigate(`/${tenantSlug}/admin/branches`);
+    } catch (e: any) {
+      showNotification('error', e.message || 'Failed to delete branch');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading || !detail) {
     return (
       <div className="p-6">
@@ -182,10 +245,17 @@ export function BranchDetailPage() {
         <CardContent className="p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                <Building2 className="w-6 h-6 text-blue-600" />
-                {detail.name}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <Building2 className="w-6 h-6 text-blue-600" />
+                  {detail.name}
+                </h1>
+                {detail.is_active === false && (
+                  <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800">
+                    {t('common.inactive', 'Inactive')}
+                  </span>
+                )}
+              </div>
               {detail.location && (
                 <p className="text-gray-500 flex items-center gap-1 mt-1">
                   <MapPin className="w-4 h-4" />
@@ -193,7 +263,7 @@ export function BranchDetailPage() {
                 </p>
               )}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" onClick={() => setEditModalOpen(true)}>
                 <Edit2 className="w-4 h-4 mr-1" />
                 {t('common.edit', 'Edit')}
@@ -201,6 +271,34 @@ export function BranchDetailPage() {
               <Button variant="outline" size="sm" onClick={() => setAssignServicesModalOpen(true)}>
                 <Briefcase className="w-4 h-4 mr-1" />
                 {t('branches.assignServices', 'Assign services')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDeactivateToggle}
+                disabled={saving}
+              >
+                {detail.is_active === false ? (
+                  <>
+                    <Power className="w-4 h-4 mr-1" />
+                    {t('branches.activate', 'Activate')}
+                  </>
+                ) : (
+                  <>
+                    <PowerOff className="w-4 h-4 mr-1" />
+                    {t('branches.deactivate', 'Deactivate')}
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDeleteBranch}
+                disabled={saving}
+                className="text-red-600 border-red-200 hover:bg-red-50"
+              >
+                <Trash2 className="w-4 h-4 mr-1" />
+                {t('common.delete', 'Delete')}
               </Button>
             </div>
           </div>

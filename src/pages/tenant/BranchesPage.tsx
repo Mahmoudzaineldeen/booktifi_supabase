@@ -14,6 +14,7 @@ interface Branch {
   name: string;
   location: string | null;
   created_at: string;
+  is_active?: boolean;
 }
 
 function getAuthHeaders(): HeadersInit {
@@ -162,7 +163,14 @@ export function BranchesPage() {
                     <Building2 className="w-6 h-6" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h2 className="font-semibold text-gray-900 text-lg truncate">{branch.name}</h2>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="font-semibold text-gray-900 text-lg truncate">{branch.name}</h2>
+                      {branch.is_active === false && (
+                        <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800">
+                          {t('common.inactive', 'Inactive')}
+                        </span>
+                      )}
+                    </div>
                     {branch.location ? (
                       <p className="text-sm text-gray-500 flex items-center gap-1.5 mt-1">
                         <MapPin className="w-4 h-4 flex-shrink-0 text-gray-400" />

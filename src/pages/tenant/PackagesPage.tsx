@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
@@ -47,6 +47,11 @@ interface Service {
   base_price: number;
 }
 
+interface Branch {
+  id: string;
+  name: string;
+  location: string | null;
+}
 
 export function PackagesPage() {
   const { t, i18n } = useTranslation();
@@ -70,14 +75,40 @@ export function PackagesPage() {
     image_url: '',
     gallery_urls: [] as string[],
     is_active: true,
-    selectedServices: [] as Array<{ service_id: string; capacity_total: number }>
+    selectedServices: [] as Array<{ service_id: string; capacity_total: number }>,
+    branch_ids: [] as string[],
   });
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
 
+  function getAuthHeaders(): HeadersInit {
+    const token = localStorage.getItem('auth_token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  }
+
+  const fetchBranches = useCallback(async () => {
+    try {
+      setLoadingBranches(true);
+      const res = await fetch(`${getApiUrl()}/branches`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load branches');
+      setBranches(data.data || []);
+    } catch (e: any) {
+      setBranches([]);
+      showNotification('error', e.message || 'Failed to load branches');
+    } finally {
+      setLoadingBranches(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetchPackages();
     fetchServices();
-  }, [userProfile]);
+    fetchBranches();
+  }, [userProfile, fetchBranches]);
 
   // Auto-calculate original_price whenever selectedServices changes
   useEffect(() => {
@@ -274,6 +305,11 @@ export function PackagesPage() {
       showNotification('error', t('packages.totalPriceMustBeGreaterThanZeroForm'));
       return;
     }
+
+    if (!packageForm.branch_ids?.length) {
+      showNotification('warning', t('packages.selectAtLeastOneBranch'));
+      return;
+    }
     
     // Calculate discount percentage if total_price is less than original_price
     let finalDiscountPercentage = packageForm.discount_percentage;
@@ -322,15 +358,34 @@ export function PackagesPage() {
 
     try {
     if (editingPackage) {
-        // Update existing package
-        const { error: updateError } = await db
-          .from('service_packages')
-          .update(packagePayload)
-          .eq('id', editingPackage.id);
-
-        if (updateError) {
-          console.error('Error updating package:', updateError);
-          showNotification('error', t('packages.errorUpdatingPackage', { message: updateError.message }));
+        // Update package and branch assignments via API
+        const API_URL = getApiUrl();
+        const token = localStorage.getItem('auth_token');
+        const updatePayload = {
+          name: packagePayload.name,
+          name_ar: packagePayload.name_ar,
+          description: packagePayload.description,
+          description_ar: packagePayload.description_ar,
+          total_price: packagePayload.total_price,
+          original_price: packagePayload.original_price,
+          discount_percentage: packagePayload.discount_percentage,
+          image_url: packagePayload.image_url,
+          gallery_urls: packagePayload.gallery_urls,
+          is_active: packagePayload.is_active,
+          branch_ids: packageForm.branch_ids || [],
+        };
+        const updateRes = await fetch(`${API_URL}/packages/${editingPackage.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify(updatePayload),
+        });
+        if (!updateRes.ok) {
+          const errData = await updateRes.json().catch(() => ({}));
+          const errMsg = (errData as any).error || (errData as any).details || `HTTP ${updateRes.status}`;
+          showNotification('error', t('packages.errorUpdatingPackage', { message: errMsg }));
           return;
         }
 
@@ -444,6 +499,7 @@ export function PackagesPage() {
             body: JSON.stringify({
               ...packagePayload,
               services: serviceData, // Send full service data with capacity
+              branch_ids: packageForm.branch_ids || [],
             }),
           });
 
@@ -599,10 +655,12 @@ export function PackagesPage() {
         await fetchServices();
       }
 
-      const { data: packageServices, error: servicesError } = await db
-      .from('package_services')
-      .select('service_id, capacity_total')
-      .eq('package_id', pkg.id);
+      const [packageServicesResult, packageBranchesResult] = await Promise.all([
+        db.from('package_services').select('service_id, capacity_total').eq('package_id', pkg.id),
+        db.from('package_branches').select('branch_id').eq('package_id', pkg.id),
+      ]);
+      const { data: packageServices, error: servicesError } = packageServicesResult;
+      const { data: packageBranches } = packageBranchesResult;
 
       if (servicesError) {
         console.error('Error fetching package services:', servicesError);
@@ -693,7 +751,8 @@ export function PackagesPage() {
         image_url: pkg.image_url || '',
         gallery_urls: galleryUrls,
         is_active: pkg.is_active !== undefined ? pkg.is_active : true,
-        selectedServices: formattedSelectedServices
+        selectedServices: formattedSelectedServices,
+        branch_ids: (packageBranches || []).map((r: { branch_id: string }) => r.branch_id),
       });
       
       console.log('Package form set, opening modal');
@@ -717,7 +776,8 @@ export function PackagesPage() {
       image_url: '',
       gallery_urls: [],
       is_active: true,
-      selectedServices: []
+      selectedServices: [],
+      branch_ids: [],
     });
   }
 
@@ -1189,6 +1249,43 @@ export function PackagesPage() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Assign to branches */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {t('packages.assignToBranches')}
+            </label>
+            {loadingBranches ? (
+              <p className="text-sm text-gray-500">{t('common.loading')}</p>
+            ) : branches.length === 0 ? (
+              <p className="text-sm text-gray-500">{t('packages.noBranchesYet')}</p>
+            ) : (
+              <div className="border border-gray-300 rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
+                {(branches.filter((b) => (b as { is_active?: boolean }).is_active !== false)).map((branch) => (
+                  <label key={branch.id} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={packageForm.branch_ids.includes(branch.id)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setPackageForm(prev => ({
+                          ...prev,
+                          branch_ids: checked
+                            ? [...prev.branch_ids, branch.id]
+                            : prev.branch_ids.filter(id => id !== branch.id),
+                        }));
+                      }}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-900">{branch.name}</span>
+                    {branch.location && (
+                      <span className="text-xs text-gray-500">({branch.location})</span>
+                    )}
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Pricing Section */}

@@ -16,6 +16,12 @@ import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 
+interface Branch {
+  id: string;
+  name: string;
+  location: string | null;
+}
+
 interface Employee {
   id: string;
   username: string;
@@ -24,6 +30,7 @@ interface Employee {
   email: string | null;
   phone: string | null;
   role: string;
+  branch_id: string | null;
   is_active: boolean;
   is_paused_until?: string | null;
   employee_services?: Array<{
@@ -133,9 +140,12 @@ export function EmployeesPage() {
     email: '',
     phone: '',
     role: 'employee' as 'employee' | 'receptionist' | 'coordinator' | 'cashier' | 'customer_admin' | 'admin_user',
+    branch_id: '',
     assigned_services: [] as string[],
     service_shift_assignments: [] as ServiceShiftAssignment[],
   });
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
   const [phoneFull, setPhoneFull] = useState<string>(''); // Full phone number with country code
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState<'all' | 'employee' | 'cashier' | 'receptionist' | 'coordinator' | 'customer_admin' | 'admin_user'>('all');
@@ -148,9 +158,33 @@ export function EmployeesPage() {
     is_active: true,
   });
 
+  function getAuthHeaders(): HeadersInit {
+    const token = localStorage.getItem('auth_token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  }
+
+  async function fetchBranches() {
+    try {
+      setLoadingBranches(true);
+      const res = await fetch(`${getApiUrl()}/branches`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load branches');
+      setBranches(data.data || []);
+    } catch (e: any) {
+      setBranches([]);
+      showNotification('error', e.message || 'Failed to load branches');
+    } finally {
+      setLoadingBranches(false);
+    }
+  }
+
   useEffect(() => {
     fetchServices();
     fetchEmployees();
+    fetchBranches();
   }, [userProfile]);
 
   async function fetchServices() {
@@ -192,6 +226,7 @@ export function EmployeesPage() {
           email,
           phone,
           role,
+          branch_id,
           is_active,
           is_paused_until,
           employee_services(
@@ -213,10 +248,17 @@ export function EmployeesPage() {
     }
   }
 
+  const operationalRoles = ['employee', 'receptionist', 'coordinator', 'cashier'];
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
     if (!userProfile?.tenant_id) return;
+
+    if (operationalRoles.includes(formData.role) && !formData.branch_id?.trim()) {
+      showNotification('warning', t('employee.selectBranchRequired'));
+      return;
+    }
 
     try {
       if (editingEmployee) {
@@ -237,6 +279,11 @@ export function EmployeesPage() {
           role: formData.role,
           is_paused_until: isPausedUntil ? isPausedUntil : null,
         };
+        if (operationalRoles.includes(formData.role)) {
+          updatePayload.branch_id = formData.branch_id || null;
+        } else {
+          updatePayload.branch_id = null;
+        }
 
         if (formData.username && formData.username !== editingEmployee.username) {
           updatePayload.username = formData.username;
@@ -369,6 +416,7 @@ export function EmployeesPage() {
             phone: phoneFull || null,
             role: formData.role,
             tenant_id: userProfile.tenant_id,
+            branch_id: operationalRoles.includes(formData.role) ? (formData.branch_id || null) : null,
             service_shift_assignments: formData.service_shift_assignments,
             employee_shifts: formData.role === 'employee' && employeeShifts.length > 0
               ? employeeShifts.map(sh => ({
@@ -444,6 +492,7 @@ export function EmployeesPage() {
       email: employee.email || '',
       phone: employee.phone || '',
       role: employee.role as 'employee' | 'receptionist' | 'coordinator' | 'cashier' | 'customer_admin' | 'admin_user',
+      branch_id: employee.branch_id || '',
       assigned_services: uniqueServiceIds,
       service_shift_assignments: serviceShiftMap,
     });
@@ -462,6 +511,7 @@ export function EmployeesPage() {
       email: '',
       phone: '',
       role: 'employee',
+      branch_id: '',
       assigned_services: [],
       service_shift_assignments: [],
     });
@@ -939,6 +989,33 @@ export function EmployeesPage() {
               <option value="admin_user">{t('employee.roles.admin_user')}</option>
             </select>
           </div>
+
+          {(formData.role === 'employee' || formData.role === 'receptionist' || formData.role === 'coordinator' || formData.role === 'cashier') && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('employee.assignToBranch')}
+              </label>
+              {loadingBranches ? (
+                <p className="text-sm text-gray-500">{t('common.loading')}</p>
+              ) : branches.length === 0 ? (
+                <p className="text-sm text-gray-500">{t('employee.noBranchesYet')}</p>
+              ) : (
+                <select
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  value={formData.branch_id}
+                  onChange={(e) => setFormData({ ...formData, branch_id: e.target.value })}
+                  required
+                >
+                  <option value="">{t('employee.selectBranch')}</option>
+                  {(branches.filter((b) => (b as { is_active?: boolean }).is_active !== false)).map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}{b.location ? ` (${b.location})` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
 
           {formData.role === 'employee' && (
             <div>

@@ -57,7 +57,7 @@ router.get('/', authenticateAdmin, async (req, res) => {
 
     let query = supabase
       .from('branches')
-      .select('id, name, location, created_at')
+      .select('id, name, location, created_at, is_active')
       .order('created_at', { ascending: true });
 
     if (tenantId) query = query.eq('tenant_id', tenantId);
@@ -163,7 +163,7 @@ router.get('/:id', authenticateAdmin, async (req, res) => {
 
     const { data: branch, error: branchError } = await supabase
       .from('branches')
-      .select('id, tenant_id, name, location, created_at, updated_at')
+      .select('id, tenant_id, name, location, created_at, updated_at, is_active')
       .eq('id', branchId)
       .maybeSingle();
 
@@ -230,12 +230,12 @@ router.get('/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
-/** Update branch (name, location). */
+/** Update branch (name, location, is_active). */
 router.patch('/:id', authenticateAdmin, async (req, res) => {
   try {
     const branchId = req.params.id;
     const tenantId = req.user!.tenant_id;
-    const { name, location } = req.body;
+    const { name, location, is_active } = req.body;
 
     const { data: existing } = await supabase.from('branches').select('id, tenant_id').eq('id', branchId).maybeSingle();
     if (!existing) return res.status(404).json({ error: 'Branch not found' });
@@ -246,12 +246,38 @@ router.patch('/:id', authenticateAdmin, async (req, res) => {
     const updates: Record<string, any> = { updated_at: new Date().toISOString() };
     if (name !== undefined) updates.name = String(name).trim();
     if (location !== undefined) updates.location = location == null ? null : String(location).trim();
+    if (typeof is_active === 'boolean') updates.is_active = is_active;
 
     const { data: branch, error } = await supabase.from('branches').update(updates).eq('id', branchId).select().single();
     if (error) throw error;
     res.json({ data: branch });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update branch' });
+  }
+});
+
+/** Delete branch (admin only). Removes service_branches/package_branches; sets branch_id to null on bookings, subscriptions, users. */
+router.delete('/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const branchId = req.params.id;
+    const tenantId = req.user!.tenant_id;
+
+    const { data: existing } = await supabase.from('branches').select('id, tenant_id').eq('id', branchId).maybeSingle();
+    if (!existing) return res.status(404).json({ error: 'Branch not found' });
+    if (tenantId && existing.tenant_id !== tenantId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await supabase.from('service_branches').delete().eq('branch_id', branchId);
+    await supabase.from('package_branches').delete().eq('branch_id', branchId);
+    await supabase.from('bookings').update({ branch_id: null }).eq('branch_id', branchId);
+    await supabase.from('package_subscriptions').update({ branch_id: null }).eq('branch_id', branchId);
+    await supabase.from('users').update({ branch_id: null }).eq('branch_id', branchId);
+    const { error: delErr } = await supabase.from('branches').delete().eq('id', branchId);
+    if (delErr) throw delErr;
+    res.json({ success: true, message: 'Branch deleted' });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to delete branch' });
   }
 });
 

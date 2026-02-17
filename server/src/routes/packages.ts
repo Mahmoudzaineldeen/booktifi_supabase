@@ -518,9 +518,15 @@ router.post('/', authenticateTenantAdmin, async (req, res) => {
       });
     }
 
-    // Branch assignment: validate package branch_ids and service-branch compatibility
+    // Branch assignment: require at least one branch and validate service-branch compatibility
     const packageBranchIds = Array.isArray(branch_ids) ? branch_ids.filter((id: any) => id && String(id).trim()) : [];
-    if (packageBranchIds.length > 0) {
+    if (packageBranchIds.length === 0) {
+      return res.status(400).json({
+        error: 'At least one branch must be assigned to the package',
+        hint: 'Select at least one branch where this package is available.',
+      });
+    }
+    {
       const { data: branchRows } = await supabase.from('branches').select('id').in('id', packageBranchIds).eq('tenant_id', tenantId);
       const validBranchIds = (branchRows || []).map((b: any) => b.id);
       if (validBranchIds.length !== packageBranchIds.length) {
@@ -715,6 +721,12 @@ router.put('/:id', authenticateTenantAdmin, async (req, res) => {
 
     if (branch_ids !== undefined && Array.isArray(branch_ids)) {
       const packageBranchIds = branch_ids.filter((id: any) => id && String(id).trim());
+      if (packageBranchIds.length === 0) {
+        return res.status(400).json({
+          error: 'At least one branch must be assigned to the package',
+          hint: 'Select at least one branch where this package is available.',
+        });
+      }
       const { data: packageServices } = await supabase.from('package_services').select('service_id').eq('package_id', packageId);
       const serviceIds = (packageServices || []).map((r: any) => r.service_id);
 

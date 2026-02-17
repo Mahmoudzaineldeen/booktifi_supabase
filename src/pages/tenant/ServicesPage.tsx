@@ -1337,7 +1337,7 @@ export function ServicesPage() {
               <p className="text-sm text-gray-500">{t('service.noBranchesYet')}</p>
             ) : (
               <div className="border border-gray-300 rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
-                {branches.map((branch) => (
+                {(branches.filter((b) => (b as { is_active?: boolean }).is_active !== false)).map((branch) => (
                   <label key={branch.id} className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
