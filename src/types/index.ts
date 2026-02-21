@@ -17,6 +17,7 @@ export interface SupportTicket {
   updated_at: string;
   updated_by?: string | null;
   created_by_name?: string;
+  created_by_email?: string | null;
   branch_name?: string;
 }
 

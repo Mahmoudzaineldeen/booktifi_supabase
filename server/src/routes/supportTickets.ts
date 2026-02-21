@@ -184,7 +184,7 @@ router.get('/by-tenant/:tenantId', authenticateJWT, requireSolutionOwner, async 
     let users: any[] = [];
     let branches: any[] = [];
     if (userIds.length > 0) {
-      const { data: u } = await supabase.from('users').select('id, full_name, full_name_ar').in('id', userIds);
+      const { data: u } = await supabase.from('users').select('id, full_name, full_name_ar, email').in('id', userIds);
       users = u || [];
     }
     if (branchIds.length > 0) {
@@ -198,6 +198,7 @@ router.get('/by-tenant/:tenantId', authenticateJWT, requireSolutionOwner, async 
     const list = (tickets || []).map((t: any) => ({
       ...t,
       created_by_name: userMap[t.created_by_user_id]?.full_name || userMap[t.created_by_user_id]?.full_name_ar || '—',
+      created_by_email: userMap[t.created_by_user_id]?.email ?? null,
       branch_name: t.branch_id ? (branchMap[t.branch_id]?.name || '—') : '—',
     }));
     res.json({ tickets: list });
@@ -207,7 +208,7 @@ router.get('/by-tenant/:tenantId', authenticateJWT, requireSolutionOwner, async 
   }
 });
 
-/** Update ticket status — Solution Owner only */
+/** Update ticket status — Solution Owner only. When status is 'resolved', the ticket is deleted. */
 router.patch('/:id/status', authenticateJWT, requireSolutionOwner, async (req, res) => {
   try {
     const { id } = req.params;
@@ -215,6 +216,16 @@ router.patch('/:id/status', authenticateJWT, requireSolutionOwner, async (req, r
     const allowed = ['open', 'in_progress', 'resolved'];
     if (!status || !allowed.includes(status)) {
       return res.status(400).json({ error: 'Valid status required: open, in_progress, resolved' });
+    }
+
+    if (status === 'resolved') {
+      const { error: deleteError } = await supabase
+        .from('support_tickets')
+        .delete()
+        .eq('id', id);
+
+      if (deleteError) throw deleteError;
+      return res.json({ id, deleted: true });
     }
 
     const { data, error } = await supabase

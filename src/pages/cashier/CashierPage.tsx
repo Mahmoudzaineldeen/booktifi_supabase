@@ -9,7 +9,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
-import { QrCode, Scan, LogOut, User, Phone, Mail, Clock, CheckCircle, XCircle, DollarSign, Calendar, FileText, Wrench } from 'lucide-react';
+import { QrCode, Scan, LogOut, User, Phone, Mail, Clock, CheckCircle, XCircle, DollarSign, Calendar, FileText, Wrench, UserX } from 'lucide-react';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { format, parseISO } from 'date-fns';
 import { formatTimeTo12Hour } from '../../lib/timeFormat';
@@ -45,7 +45,7 @@ interface Booking {
 
 export function CashierPage() {
   const { t, i18n } = useTranslation();
-  const { userProfile, tenant, signOut, loading: authLoading } = useAuth();
+  const { userProfile, tenant, signOut, loading: authLoading, isImpersonating, exitImpersonation } = useAuth();
   const { formatPrice } = useCurrency();
   const navigate = useNavigate();
   const location = useLocation();
@@ -290,6 +290,22 @@ export function CashierPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 overflow-x-hidden">
+      {isImpersonating && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between shrink-0 sticky top-0 z-50">
+          <span className="text-sm text-amber-800 font-medium">
+            {t('support.impersonationBanner', "You're viewing as this employee. Exit to return to Solution Owner.")}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => exitImpersonation().then(() => navigate('/solution-admin'))}
+            className="text-amber-800 hover:bg-amber-100"
+          >
+            <UserX className="w-4 h-4 mr-1" />
+            {t('support.exitImpersonation', 'Exit Impersonation')}
+          </Button>
+        </div>
+      )}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">

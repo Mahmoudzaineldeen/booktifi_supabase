@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
-import { Calendar, LogOut, Building2, Ticket, ChevronDown, ChevronUp, LogIn } from 'lucide-react';
+import { Calendar, LogOut, Building2, Ticket, ChevronDown, ChevronUp, LogIn, Search } from 'lucide-react';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { getApiUrl } from '../../lib/apiUrl';
 import { showNotification } from '../../contexts/NotificationContext';
@@ -33,6 +33,14 @@ export function SupportTicketsPage() {
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
   const [loggingInAsUserId, setLoggingInAsUserId] = useState<string | null>(null);
   const [descriptionModalTicket, setDescriptionModalTicket] = useState<SupportTicket | null>(null);
+
+  // Filters when a tenant is expanded (search, branch, status, date range, sort)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterBranch, setFilterBranch] = useState<string>('');
+  const [filterStatus, setFilterStatus] = useState<string>('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sortCreated, setSortCreated] = useState<'newest' | 'oldest'>('newest');
 
   useEffect(() => {
     if (authLoading) return;
@@ -92,6 +100,54 @@ export function SupportTicketsPage() {
     }
     setExpandedTenantId(tenantId);
     if (!ticketsByTenant[tenantId]) fetchTicketsForTenant(tenantId);
+    setSearchQuery('');
+    setFilterBranch('');
+    setFilterStatus('');
+    setDateFrom('');
+    setDateTo('');
+    setSortCreated('newest');
+  }
+
+  function getFilteredTickets(tenantId: string): SupportTicket[] {
+    const list = ticketsByTenant[tenantId] || [];
+    const q = searchQuery.trim().toLowerCase();
+    let filtered = list.filter((t) => {
+      if (q) {
+        const matchEmail = (t.created_by_email || '').toLowerCase().includes(q);
+        const matchRole = (t.role || '').toLowerCase().includes(q);
+        const matchTitle = (t.title || '').toLowerCase().includes(q);
+        if (!matchEmail && !matchRole && !matchTitle) return false;
+      }
+      if (filterBranch) {
+        const branchVal = t.branch_id ?? '__none__';
+        if (branchVal !== filterBranch) return false;
+      }
+      if (filterStatus && t.status !== filterStatus) return false;
+      const created = new Date(t.created_at).getTime();
+      if (dateFrom && created < new Date(dateFrom + 'T00:00:00').getTime()) return false;
+      if (dateTo && created > new Date(dateTo + 'T23:59:59').getTime()) return false;
+      return true;
+    });
+    filtered = [...filtered].sort((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
+      return sortCreated === 'newest' ? tb - ta : ta - tb;
+    });
+    return filtered;
+  }
+
+  function getBranchOptions(tenantId: string): { value: string; label: string }[] {
+    const list = ticketsByTenant[tenantId] || [];
+    const seen = new Set<string>();
+    const options: { value: string; label: string }[] = [{ value: '', label: t('support.allBranches', 'All branches') }];
+    for (const t of list) {
+      const id = t.branch_id ?? '__none__';
+      const name = t.branch_name || '—';
+      if (seen.has(id)) continue;
+      seen.add(id);
+      options.push({ value: id, label: name });
+    }
+    return options;
   }
 
   async function updateStatus(ticketId: string, status: string) {
@@ -113,7 +169,10 @@ export function SupportTicketsPage() {
         showNotification('error', data.error || 'Failed to update status');
         return;
       }
-      showNotification('success', t('support.statusUpdated', 'Status updated'));
+      showNotification(
+        'success',
+        data.deleted ? t('support.ticketResolvedAndRemoved', 'Ticket resolved and removed') : t('support.statusUpdated', 'Status updated')
+      );
       const tenantId = Object.keys(ticketsByTenant).find((tid) =>
         ticketsByTenant[tid].some((t) => t.id === ticketId)
       );
@@ -271,23 +330,94 @@ export function SupportTicketsPage() {
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
                           </div>
                         ) : (
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                              <thead>
-                                <tr className="text-left text-gray-600 border-b">
-                                  <th className="pb-2 pr-4">{t('support.ticketId', 'Ticket ID')}</th>
-                                  <th className="pb-2 pr-4">{t('support.branch', 'Branch')}</th>
-                                  <th className="pb-2 pr-4">{t('support.employeeName', 'Employee Name')}</th>
-                                  <th className="pb-2 pr-4">{t('support.role', 'Role')}</th>
-                                  <th className="pb-2 pr-4">{t('support.title', 'Title')}</th>
-                                  <th className="pb-2 pr-4">{t('support.description', 'Description')}</th>
-                                  <th className="pb-2 pr-4">{t('support.status', 'Status')}</th>
-                                  <th className="pb-2 pr-4">{t('support.createdAt', 'Created At')}</th>
-                                  <th className="pb-2">{t('support.actions', 'Actions')}</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y">
-                                {(ticketsByTenant[tenant.id] || []).map((ticket) => (
+                          <>
+                            <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-white rounded-lg border border-gray-200">
+                              <div className="flex items-center gap-2 min-w-[200px] flex-1">
+                                <Search className="w-4 h-4 text-gray-500 shrink-0" />
+                                <input
+                                  type="text"
+                                  value={searchQuery}
+                                  onChange={(e) => setSearchQuery(e.target.value)}
+                                  placeholder={t('support.searchPlaceholder', 'Search by email, role or title…')}
+                                  className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+                              <select
+                                value={filterBranch}
+                                onChange={(e) => setFilterBranch(e.target.value)}
+                                className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                              >
+                                {getBranchOptions(tenant.id).map((opt) => (
+                                  <option key={opt.value || 'all'} value={opt.value}>{opt.label}</option>
+                                ))}
+                              </select>
+                              <select
+                                value={filterStatus}
+                                onChange={(e) => setFilterStatus(e.target.value)}
+                                className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                              >
+                                <option value="">{t('support.allStatuses', 'All statuses')}</option>
+                                <option value="open">{t('support.open', 'Open')}</option>
+                                <option value="in_progress">{t('support.inProgress', 'In Progress')}</option>
+                                <option value="resolved">{t('support.resolved', 'Resolved')}</option>
+                              </select>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <input
+                                  type="date"
+                                  value={dateFrom}
+                                  onChange={(e) => setDateFrom(e.target.value)}
+                                  className="text-sm border border-gray-300 rounded-lg px-3 py-2"
+                                  title={t('support.fromDate', 'From date')}
+                                />
+                                <span className="text-gray-500">–</span>
+                                <input
+                                  type="date"
+                                  value={dateTo}
+                                  onChange={(e) => setDateTo(e.target.value)}
+                                  className="text-sm border border-gray-300 rounded-lg px-3 py-2"
+                                  title={t('support.toDate', 'To date')}
+                                />
+                              </div>
+                              <select
+                                value={sortCreated}
+                                onChange={(e) => setSortCreated(e.target.value as 'newest' | 'oldest')}
+                                className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                              >
+                                <option value="newest">{t('support.newestFirst', 'Newest first')}</option>
+                                <option value="oldest">{t('support.oldestFirst', 'Oldest first')}</option>
+                              </select>
+                            </div>
+                            {(() => {
+                              const filtered = getFilteredTickets(tenant.id);
+                              const total = (ticketsByTenant[tenant.id] || []).length;
+                              if (total === 0) {
+                                return <p className="text-sm text-gray-600 py-2">{t('support.noTicketsForTenant', 'No tickets for this tenant.')}</p>;
+                              }
+                              if (filtered.length === 0) {
+                                return <p className="text-sm text-amber-700 py-2">{t('support.noTicketsMatchFilters', 'No tickets match your filters.')}</p>;
+                              }
+                              return (
+                                <>
+                                  <p className="text-xs text-gray-600 mb-2">
+                                    {t('support.showingTickets', 'Showing {{count}} of {{total}} tickets', { count: filtered.length, total })}
+                                  </p>
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                      <thead>
+                                        <tr className="text-left text-gray-600 border-b">
+                                          <th className="pb-2 pr-4">{t('support.ticketId', 'Ticket ID')}</th>
+                                          <th className="pb-2 pr-4">{t('support.branch', 'Branch')}</th>
+                                          <th className="pb-2 pr-4">{t('support.employeeName', 'Employee Name')}</th>
+                                          <th className="pb-2 pr-4">{t('support.role', 'Role')}</th>
+                                          <th className="pb-2 pr-4">{t('support.title', 'Title')}</th>
+                                          <th className="pb-2 pr-4">{t('support.description', 'Description')}</th>
+                                          <th className="pb-2 pr-4">{t('support.status', 'Status')}</th>
+                                          <th className="pb-2 pr-4">{t('support.createdAt', 'Created At')}</th>
+                                          <th className="pb-2">{t('support.actions', 'Actions')}</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y">
+                                        {filtered.map((ticket) => (
                                   <tr key={ticket.id} className="hover:bg-white/50">
                                     <td className="py-2 pr-4 font-mono text-xs">{ticket.id.slice(0, 8)}…</td>
                                     <td className="py-2 pr-4">{ticket.branch_name || '—'}</td>
@@ -337,10 +467,14 @@ export function SupportTicketsPage() {
                                       </Button>
                                     </td>
                                   </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </>
                         )}
                       </div>
                     )}
