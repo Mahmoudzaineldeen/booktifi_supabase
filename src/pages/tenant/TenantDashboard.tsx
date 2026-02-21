@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
-import { TenantLayout } from '../../components/layout/TenantLayout';
 import { TenantDashboardContent } from './TenantDashboardContent';
 
 export function TenantDashboard() {
@@ -230,9 +229,5 @@ export function TenantDashboard() {
     );
   }
 
-  return (
-    <TenantLayout tenantSlug={tenantSlugResolved}>
-      <TenantDashboardContent />
-    </TenantLayout>
-  );
+  return <TenantDashboardContent />;
 }

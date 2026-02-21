@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
-import { Building2, Users, Calendar, LogOut, Plus, Settings, Edit, Trash2, UserPlus, Shield, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Building2, Users, Calendar, LogOut, Plus, Settings, Edit, Trash2, UserPlus, Shield, Search, ChevronLeft, ChevronRight, Ticket } from 'lucide-react';
 import { Tenant } from '../../types';
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
@@ -459,6 +459,15 @@ export function SolutionOwnerDashboard() {
               >
                 <Settings className="w-4 h-4 mr-2" />
                 Tenant Features
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/solution-admin/support-tickets')}
+                className="text-blue-600 hover:text-blue-700"
+              >
+                <Ticket className="w-4 h-4 mr-2" />
+                Support Tickets
               </Button>
               <Button
                 variant="ghost"

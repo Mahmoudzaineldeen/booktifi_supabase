@@ -14,8 +14,11 @@ export function useTenantFeatures(tenantId: string | undefined) {
   const [features, setFeatures] = useState<TenantFeatures | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadFeatures = async () => {
+  const loadFeatures = async (options?: { showLoading?: boolean }) => {
     if (!tenantId) return;
+
+    const showLoading = options?.showLoading !== false;
+    if (showLoading) setLoading(true);
 
     try {
       const { data, error } = await db
@@ -26,7 +29,6 @@ export function useTenantFeatures(tenantId: string | undefined) {
 
       if (error) throw error;
 
-      // Default to all features enabled if no data
       setFeatures(data ? {
         ...data,
         scheduling_mode: (data as any).scheduling_mode ?? 'service_slot_based',
@@ -40,7 +42,6 @@ export function useTenantFeatures(tenantId: string | undefined) {
       });
     } catch (error) {
       console.error('Error loading tenant features:', error);
-      // Default to all features enabled if there's an error
       setFeatures({
         employees_enabled: true,
         employee_assignment_mode: 'both',
@@ -55,17 +56,21 @@ export function useTenantFeatures(tenantId: string | undefined) {
 
   useEffect(() => {
     if (tenantId) {
-      loadFeatures();
+      setFeatures(null);
+      loadFeatures({ showLoading: true });
+    } else {
+      setFeatures(null);
+      setLoading(false);
     }
   }, [tenantId]);
 
-  // Refetch when user returns to the tab so solution-owner changes on /management/features take effect
+  // Refetch when user returns to the tab (no loading state so sidebar does not flicker)
   useEffect(() => {
     if (!tenantId) return;
-    const onFocus = () => loadFeatures();
+    const onFocus = () => loadFeatures({ showLoading: false });
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, [tenantId]);
 
-  return { features, loading, reload: loadFeatures };
+  return { features, loading, reload: () => loadFeatures({ showLoading: false }) };
 }

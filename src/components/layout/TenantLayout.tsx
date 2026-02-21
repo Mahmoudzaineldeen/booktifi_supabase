@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { showNotification } from '../../contexts/NotificationContext';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList, UserCircle, Clock, Building2 } from 'lucide-react';
+import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList, UserCircle, Clock, Building2, Wrench, UserX } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface TenantLayoutProps {
@@ -18,9 +18,12 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
   const location = useLocation();
   const navigate = useNavigate();
   const params = useParams<{ tenantSlug?: string }>();
-  const { userProfile, tenant, signOut } = useAuth();
+  const { userProfile, tenant, signOut, isImpersonating, exitImpersonation } = useAuth();
   const { features } = useTenantFeatures(tenant?.id);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Only show feature-dependent items when we have resolved features (avoids flash on load and flicker on navigate/refetch)
+  const hasFeatures = features !== null;
 
   // Get tenantSlug from props, URL params, or tenant slug
   const tenantSlug = propTenantSlug || params.tenantSlug || tenant?.slug || '';
@@ -59,7 +62,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       href: `/${tenantSlug}/admin/packages`,
       icon: Package,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/packages`),
-      visible: (features?.packages_enabled ?? true) && !isAdminUser, // customer_admin can access, but admin_user cannot
+      visible: hasFeatures && (features?.packages_enabled ?? true) && !isAdminUser,
     },
     {
       name: t('navigation.branches', 'Branches'),
@@ -73,10 +76,8 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       href: `/${tenantSlug}/admin/package-subscribers`,
       icon: UserCheck,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/package-subscribers`),
-      visible: (features?.packages_enabled ?? true) && 
-               (userProfile?.role === 'tenant_admin' || 
-                userProfile?.role === 'admin_user' || 
-                userProfile?.role === 'customer_admin'), // Allow admin_user, customer_admin, and tenant_admin
+      visible: hasFeatures && (features?.packages_enabled ?? true) &&
+               (userProfile?.role === 'tenant_admin' || userProfile?.role === 'admin_user' || userProfile?.role === 'customer_admin'),
     },
     {
       name: t('navigation.offers'),
@@ -113,21 +114,21 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       href: `/${tenantSlug}/admin/employees`,
       icon: Users,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/employees`),
-      visible: (features?.employees_enabled ?? true) && (userProfile?.role === 'tenant_admin' || userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user'),
+      visible: hasFeatures && (features?.employees_enabled ?? true) && (userProfile?.role === 'tenant_admin' || userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user'),
     },
     {
       name: t('navigation.employeeShifts', 'Employee Shifts & Assignments'),
       href: `/${tenantSlug}/admin/employee-shifts`,
       icon: Clock,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/employee-shifts`),
-      visible: (features?.scheduling_mode === 'employee_based') && (userProfile?.role === 'tenant_admin' || userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user'),
+      visible: hasFeatures && (features?.scheduling_mode === 'employee_based') && (userProfile?.role === 'tenant_admin' || userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user'),
     },
     {
       name: t('navigation.landingPage'),
       href: `/${tenantSlug}/admin/landing`,
       icon: Globe,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/landing`),
-      visible: (features?.landing_page_enabled ?? true) && !isRestrictedRole, // Both restricted roles cannot access
+      visible: hasFeatures && (features?.landing_page_enabled ?? true) && !isRestrictedRole,
     },
     {
       name: t('navigation.settings'),
@@ -135,6 +136,21 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       icon: Settings,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/settings`),
       visible: !isRestrictedRole, // Both restricted roles cannot access
+    },
+    {
+      name: t('navigation.assignFixingTicket', 'Assign Fixing Ticket'),
+      href: `/${tenantSlug}/admin/assign-fixing-ticket`,
+      icon: Wrench,
+      current: location.pathname.startsWith(`/${tenantSlug}/admin/assign-fixing-ticket`),
+      visible: userProfile?.role !== 'solution_owner' && [
+        'tenant_admin',
+        'receptionist',
+        'cashier',
+        'employee',
+        'coordinator',
+        'admin_user',
+        'customer_admin',
+      ].includes(userProfile?.role || ''),
     },
   ];
 
@@ -276,6 +292,17 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
           </nav>
 
           <div className="p-4 border-t border-gray-200 space-y-3">
+            {isImpersonating && (
+              <Button
+                variant="secondary"
+                fullWidth
+                onClick={() => exitImpersonation().then(() => navigate('/solution-admin'))}
+                icon={<UserX className="w-4 h-4" />}
+                className="bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+              >
+                {t('support.exitImpersonation', 'Exit Impersonation')}
+              </Button>
+            )}
             <div className="flex justify-center">
               <LanguageToggle />
             </div>
@@ -290,8 +317,24 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
           </div>
         </aside>
 
-        <main className="flex-1 overflow-y-auto">
-          {children}
+        <main className="flex-1 overflow-y-auto flex flex-col">
+          {isImpersonating && (
+            <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between shrink-0">
+              <span className="text-sm text-amber-800 font-medium">
+                {t('support.impersonationBanner', "You're viewing as this employee. Exit to return to Solution Owner.")}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => exitImpersonation().then(() => navigate('/solution-admin'))}
+                className="text-amber-800 hover:bg-amber-100"
+              >
+                <UserX className="w-4 h-4 mr-1" />
+                {t('support.exitImpersonation', 'Exit Impersonation')}
+              </Button>
+            </div>
+          )}
+          <div className="flex-1">{children}</div>
         </main>
       </div>
     </div>

@@ -8,6 +8,9 @@ interface AuthUser {
   username?: string;
 }
 
+const IMPERSONATION_LOG_ID_KEY = 'impersonation_log_id';
+const IMPERSONATION_ORIGINAL_SESSION_KEY = 'impersonation_original_session';
+
 interface AuthContextType {
   user: AuthUser | null;
   userProfile: User | null;
@@ -17,8 +20,18 @@ interface AuthContextType {
   signUp: (email: string, password: string, fullName: string, role: UserRole, tenantId?: string) => Promise<{ error?: Error }>;
   signOut: () => Promise<void>;
   hasRole: (roles: UserRole[]) => boolean;
-  /** Apply session from admin impersonation (sets token + user + tenant and redirect can be done by caller) */
-  applyImpersonation: (data: { user: User; tenant: Tenant | null; session: { access_token: string } }) => void;
+  /** Apply session from admin impersonation (sets token + user + tenant; optional originalSession + log id for exit) */
+  applyImpersonation: (data: {
+    user: User;
+    tenant: Tenant | null;
+    session: { access_token: string };
+    impersonation_log_id?: string;
+    originalSession?: { access_token: string; userProfile: User; tenant: Tenant | null };
+  }) => void;
+  /** True when current session is an impersonation (Solution Owner logged in as another user) */
+  isImpersonating: boolean;
+  /** End impersonation and restore Solution Owner session */
+  exitImpersonation: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -40,6 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userProfile, setUserProfile] = useState<User | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isImpersonating, setIsImpersonating] = useState(false);
   const fetchingProfileRef = React.useRef<string | null>(null);
   const userProfileRef = React.useRef<User | null>(null);
 
@@ -520,12 +534,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return roles.includes(userProfile.role);
   }
 
-  function applyImpersonation(data: { user: User; tenant: Tenant | null; session: { access_token: string } }) {
-    const { user: userProfileData, tenant: tenantData, session } = data;
+  function applyImpersonation(data: {
+    user: User;
+    tenant: Tenant | null;
+    session: { access_token: string };
+    impersonation_log_id?: string;
+    originalSession?: { access_token: string; userProfile: User; tenant: Tenant | null };
+  }) {
+    const { user: userProfileData, tenant: tenantData, session, impersonation_log_id, originalSession } = data;
     if (!session?.access_token) return;
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('auth_token', session.access_token);
       localStorage.setItem('auth_session', JSON.stringify({ access_token: session.access_token, user: { id: userProfileData.id, email: userProfileData.email } }));
+      if (impersonation_log_id && originalSession) {
+        localStorage.setItem(IMPERSONATION_LOG_ID_KEY, impersonation_log_id);
+        localStorage.setItem(IMPERSONATION_ORIGINAL_SESSION_KEY, JSON.stringify(originalSession));
+        setIsImpersonating(true);
+      }
     }
     setUser({ id: userProfileData.id, email: userProfileData.email, username: userProfileData.username });
     setUserProfile(userProfileData);
@@ -533,6 +558,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     userProfileRef.current = userProfileData;
     startTokenRefreshInterval();
   }
+
+  async function exitImpersonation() {
+    const logId = typeof localStorage !== 'undefined' ? localStorage.getItem(IMPERSONATION_LOG_ID_KEY) : null;
+    const sessionStr = typeof localStorage !== 'undefined' ? localStorage.getItem(IMPERSONATION_ORIGINAL_SESSION_KEY) : null;
+    if (!logId || !sessionStr) {
+      setIsImpersonating(false);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(IMPERSONATION_LOG_ID_KEY);
+        localStorage.removeItem(IMPERSONATION_ORIGINAL_SESSION_KEY);
+      }
+      return;
+    }
+    try {
+      const apiUrl = (await import('../lib/apiUrl')).getApiUrl().replace(/\/$/, '');
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        await fetch(`${apiUrl}/auth/admin/impersonate/end`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ impersonation_log_id: logId }),
+        });
+      }
+    } catch (_) {
+      // Best-effort: still restore session
+    }
+    let original: { access_token: string; userProfile: User; tenant: Tenant | null };
+    try {
+      original = JSON.parse(sessionStr);
+    } catch {
+      setIsImpersonating(false);
+      localStorage.removeItem(IMPERSONATION_LOG_ID_KEY);
+      localStorage.removeItem(IMPERSONATION_ORIGINAL_SESSION_KEY);
+      return;
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('auth_token', original.access_token);
+      localStorage.setItem('auth_session', JSON.stringify({
+        access_token: original.access_token,
+        user: { id: original.userProfile.id, email: original.userProfile.email },
+      }));
+      localStorage.removeItem(IMPERSONATION_LOG_ID_KEY);
+      localStorage.removeItem(IMPERSONATION_ORIGINAL_SESSION_KEY);
+    }
+    setUser({ id: original.userProfile.id, email: original.userProfile.email, username: original.userProfile.username });
+    setUserProfile(original.userProfile);
+    setTenant(original.tenant || null);
+    userProfileRef.current = original.userProfile;
+    setIsImpersonating(false);
+    startTokenRefreshInterval();
+  }
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    const has = !!localStorage.getItem(IMPERSONATION_LOG_ID_KEY) && !!localStorage.getItem(IMPERSONATION_ORIGINAL_SESSION_KEY);
+    setIsImpersonating(has);
+  }, []);
 
   const value = {
     user,
@@ -544,6 +625,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signOut,
     hasRole,
     applyImpersonation,
+    isImpersonating,
+    exitImpersonation,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,7 +1,6 @@
 import { useParams, Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
-import { TenantLayout } from '../../components/layout/TenantLayout';
 import { LandingPageBuilder } from './LandingPageBuilder';
 
 export function LandingPageBuilderWrapper() {
@@ -53,9 +52,5 @@ export function LandingPageBuilderWrapper() {
     return <Navigate to={tenantSlug ? `/${tenantSlug}/admin` : '/login'} replace />;
   }
 
-  return (
-    <TenantLayout tenantSlug={tenantSlug || ''}>
-      <LandingPageBuilder />
-    </TenantLayout>
-  );
+  return <LandingPageBuilder />;
 }

@@ -2445,6 +2445,7 @@ router.post('/create-solution-owner', authenticateSolutionOwner, async (req, res
 // ============================================================================
 router.post('/admin/impersonate', authenticateSolutionOwner, async (req, res) => {
   try {
+    const solutionOwnerId = req.user!.id;
     const { user_id, email } = req.body;
     if (!user_id && !email) {
       return res.status(400).json({ error: 'Provide user_id or email to impersonate.' });
@@ -2469,6 +2470,23 @@ router.post('/admin/impersonate', authenticateSolutionOwner, async (req, res) =>
     }
 
     const user = targetUser as any;
+    const targetUserId = user.id;
+
+    const { data: logRow, error: logError } = await supabase
+      .from('impersonation_logs')
+      .insert({
+        solution_owner_id: solutionOwnerId,
+        target_user_id: targetUserId,
+        started_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+
+    if (logError) {
+      console.error('Impersonation log insert error:', logError);
+      return res.status(500).json({ error: 'Failed to create impersonation log' });
+    }
+
     const tokenPayload = {
       id: user.id,
       email: user.email ?? null,
@@ -2492,10 +2510,69 @@ router.post('/admin/impersonate', authenticateSolutionOwner, async (req, res) =>
         access_token: token,
         user: { id: user.id, email: user.email },
       },
+      impersonation_log_id: logRow.id,
     });
   } catch (error: any) {
     console.error('Impersonate error:', error);
     res.status(500).json({ error: error.message || 'Impersonation failed' });
+  }
+});
+
+// End impersonation: called with current (impersonated) user's JWT; sets ended_at on the log
+function decodeJWT(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authorization required' });
+    }
+    const token = authHeader.replace('Bearer ', '').trim();
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      tenant_id: decoded.tenant_id,
+    };
+    next();
+  } catch (e: any) {
+    if (e.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token has expired' });
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+router.post('/admin/impersonate/end', decodeJWT, async (req, res) => {
+  try {
+    const { impersonation_log_id } = req.body;
+    if (!impersonation_log_id) {
+      return res.status(400).json({ error: 'impersonation_log_id is required' });
+    }
+    const currentUserId = req.user!.id;
+
+    const { data: logRow, error: fetchError } = await supabase
+      .from('impersonation_logs')
+      .select('id, target_user_id, ended_at')
+      .eq('id', impersonation_log_id)
+      .maybeSingle();
+
+    if (fetchError) {
+      return res.status(500).json({ error: 'Failed to look up impersonation log' });
+    }
+    if (!logRow || (logRow as any).target_user_id !== currentUserId) {
+      return res.status(404).json({ error: 'Impersonation session not found or access denied.' });
+    }
+    if ((logRow as any).ended_at) {
+      return res.json({ ok: true, message: 'Session already ended' });
+    }
+
+    await supabase
+      .from('impersonation_logs')
+      .update({ ended_at: new Date().toISOString() })
+      .eq('id', impersonation_log_id);
+
+    res.json({ ok: true });
+  } catch (error: any) {
+    console.error('End impersonation error:', error);
+    res.status(500).json({ error: error.message || 'Failed to end impersonation' });
   }
 });
 
