@@ -147,23 +147,34 @@ router.post('/', authenticateJWT, async (req, res) => {
     }
     const screenshotUrl = typeof screenshot_url === 'string' && screenshot_url.trim() ? screenshot_url.trim() : null;
 
-    const { data, error } = await supabase
+    const payload: Record<string, unknown> = {
+      tenant_id,
+      branch_id: req.user!.branch_id || null,
+      created_by_user_id: req.user!.id,
+      role: req.user!.role || 'employee',
+      title: title.trim(),
+      description: description.trim(),
+      status: 'open',
+    };
+    if (screenshotUrl) payload.screenshot_url = screenshotUrl;
+
+    let result = await supabase
       .from('support_tickets')
-      .insert({
-        tenant_id,
-        branch_id: req.user!.branch_id || null,
-        created_by_user_id: req.user!.id,
-        role: req.user!.role || 'employee',
-        title: title.trim(),
-        description: description.trim(),
-        status: 'open',
-        screenshot_url: screenshotUrl,
-      })
+      .insert(payload)
       .select('id, tenant_id, branch_id, created_by_user_id, role, title, status, created_at')
       .single();
 
-    if (error) throw error;
-    res.status(201).json(data);
+    if (result.error && payload.screenshot_url !== undefined) {
+      delete payload.screenshot_url;
+      result = await supabase
+        .from('support_tickets')
+        .insert(payload)
+        .select('id, tenant_id, branch_id, created_by_user_id, role, title, status, created_at')
+        .single();
+    }
+
+    if (result.error) throw result.error;
+    res.status(201).json(result.data);
   } catch (err: any) {
     console.error('Support ticket create error:', err);
     res.status(500).json({ error: err.message || 'Failed to create ticket' });
@@ -259,6 +270,19 @@ router.get('/by-tenant/:tenantId', authenticateJWT, requireSolutionOwner, async 
   } catch (err: any) {
     console.error('Support tickets by-tenant error:', err);
     res.status(500).json({ error: err.message || 'Failed to load tickets' });
+  }
+});
+
+/** Delete ticket — Solution Owner only */
+router.delete('/:id', authenticateJWT, requireSolutionOwner, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error } = await supabase.from('support_tickets').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ id, deleted: true });
+  } catch (err: any) {
+    console.error('Support ticket delete error:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete ticket' });
   }
 });
 

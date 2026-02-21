@@ -5,10 +5,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
-import { Calendar, LogOut, Building2, Ticket, ChevronDown, ChevronUp, LogIn, Search } from 'lucide-react';
+import { Calendar, LogOut, Building2, Ticket, ChevronDown, ChevronUp, LogIn, Search, Trash2 } from 'lucide-react';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { getApiUrl } from '../../lib/apiUrl';
 import { showNotification } from '../../contexts/NotificationContext';
+import { showConfirm } from '../../contexts/ConfirmContext';
 import { SupportTicket } from '../../types';
 
 type TenantWithCounts = {
@@ -32,6 +33,7 @@ export function SupportTicketsPage() {
   const [ticketsByTenant, setTicketsByTenant] = useState<Record<string, SupportTicket[]>>({});
   const [loadingTickets, setLoadingTickets] = useState<Record<string, boolean>>({});
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+  const [deletingTicketId, setDeletingTicketId] = useState<string | null>(null);
   const [loggingInAsUserId, setLoggingInAsUserId] = useState<string | null>(null);
   const [descriptionModalTicket, setDescriptionModalTicket] = useState<SupportTicket | null>(null);
 
@@ -196,6 +198,41 @@ export function SupportTicketsPage() {
       showNotification('error', e.message || 'Failed to update status');
     } finally {
       setUpdatingStatus(null);
+    }
+  }
+
+  async function deleteTicket(ticketId: string) {
+    const ok = await showConfirm({
+      title: t('support.deleteTicket', 'Delete ticket'),
+      description: t('support.deleteTicketConfirm', 'Are you sure you want to delete this ticket? This cannot be undone.'),
+      confirmText: t('common.delete', 'Delete'),
+      destructive: true,
+    });
+    if (!ok) return;
+    setDeletingTicketId(ticketId);
+    try {
+      const apiUrl = getApiUrl().replace(/\/$/, '');
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+      const res = await fetch(`${apiUrl}/support-tickets/${ticketId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showNotification('error', data.error || 'Failed to delete ticket');
+        return;
+      }
+      showNotification('success', t('support.ticketDeleted', 'Ticket deleted'));
+      const tenantId = Object.keys(ticketsByTenant).find((tid) =>
+        ticketsByTenant[tid].some((t) => t.id === ticketId)
+      );
+      if (tenantId) fetchTicketsForTenant(tenantId);
+      fetchOverview();
+    } catch (e: any) {
+      showNotification('error', e.message || 'Failed to delete ticket');
+    } finally {
+      setDeletingTicketId(null);
     }
   }
 
@@ -458,19 +495,31 @@ export function SupportTicketsPage() {
                                       {new Date(ticket.created_at).toLocaleString(i18n.language === 'ar' ? 'ar-SA' : 'en-US')}
                                     </td>
                                     <td className="py-2 pl-3">
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={() => handleLoginAs(ticket.created_by_user_id)}
-                                        disabled={loggingInAsUserId !== null}
-                                        loading={loggingInAsUserId === ticket.created_by_user_id}
-                                        className="text-blue-600"
-                                      >
-                                        <LogIn className="w-4 h-4 mr-1" />
-                                        {loggingInAsUserId === ticket.created_by_user_id
-                                          ? t('support.loggingIn', 'Logging in…')
-                                          : t('support.loginAs', 'Login As')}
-                                      </Button>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => handleLoginAs(ticket.created_by_user_id)}
+                                          disabled={loggingInAsUserId !== null}
+                                          loading={loggingInAsUserId === ticket.created_by_user_id}
+                                          className="text-blue-600"
+                                        >
+                                          <LogIn className="w-4 h-4 mr-1" />
+                                          {loggingInAsUserId === ticket.created_by_user_id
+                                            ? t('support.loggingIn', 'Logging in…')
+                                            : t('support.loginAs', 'Login As')}
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => deleteTicket(ticket.id)}
+                                          disabled={deletingTicketId !== null}
+                                          loading={deletingTicketId === ticket.id}
+                                          className="text-red-600 hover:text-red-800"
+                                          icon={<Trash2 className="w-4 h-4" />}
+                                          title={t('support.deleteTicket', 'Delete ticket')}
+                                        />
+                                      </div>
                                     </td>
                                   </tr>
                                 ))}
@@ -637,19 +686,31 @@ export function SupportTicketsPage() {
                                       {new Date(ticket.created_at).toLocaleString(i18n.language === 'ar' ? 'ar-SA' : 'en-US')}
                                     </td>
                                     <td className="py-2">
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={() => handleLoginAs(ticket.created_by_user_id)}
-                                        disabled={loggingInAsUserId !== null}
-                                        loading={loggingInAsUserId === ticket.created_by_user_id}
-                                        className="text-blue-600"
-                                      >
-                                        <LogIn className="w-4 h-4 mr-1" />
-                                        {loggingInAsUserId === ticket.created_by_user_id
-                                          ? t('support.loggingIn', 'Logging in…')
-                                          : t('support.loginAs', 'Login As')}
-                                      </Button>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => handleLoginAs(ticket.created_by_user_id)}
+                                          disabled={loggingInAsUserId !== null}
+                                          loading={loggingInAsUserId === ticket.created_by_user_id}
+                                          className="text-blue-600"
+                                        >
+                                          <LogIn className="w-4 h-4 mr-1" />
+                                          {loggingInAsUserId === ticket.created_by_user_id
+                                            ? t('support.loggingIn', 'Logging in…')
+                                            : t('support.loginAs', 'Login As')}
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => deleteTicket(ticket.id)}
+                                          disabled={deletingTicketId !== null}
+                                          loading={deletingTicketId === ticket.id}
+                                          className="text-red-600 hover:text-red-800"
+                                          icon={<Trash2 className="w-4 h-4" />}
+                                          title={t('support.deleteTicket', 'Delete ticket')}
+                                        />
+                                      </div>
                                     </td>
                                   </tr>
                                         ))}
