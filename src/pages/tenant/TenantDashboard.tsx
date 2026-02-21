@@ -104,11 +104,12 @@ export function TenantDashboard() {
     });
 
     // Redirect cashier and receptionist to reception page (not admin dashboard)
-    // Exception: allow receptionist to access /admin/visitors when linked from reception
+    // Exceptions: allow /admin/visitors and /admin/assign-fixing-ticket (receptionists need Assign Fixing Ticket)
     const pathname = window.location.pathname || '';
     const isVisitorsPage = pathname.includes('/admin/visitors');
+    const isAssignFixingTicketPage = pathname.includes('/admin/assign-fixing-ticket');
     if (userProfile.role === 'cashier' || userProfile.role === 'receptionist') {
-      if (!isVisitorsPage) {
+      if (!isVisitorsPage && !isAssignFixingTicketPage) {
         console.log('[TenantDashboard] Cashier/Receptionist detected, redirecting to reception page', {
           role: userProfile.role,
         });

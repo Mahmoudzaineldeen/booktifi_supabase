@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
-import { Calendar, LogOut, LanguageToggle, Building2, Ticket, ChevronDown, ChevronUp, LogIn } from 'lucide-react';
+import { Calendar, LogOut, Building2, Ticket, ChevronDown, ChevronUp, LogIn } from 'lucide-react';
+import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { getApiUrl } from '../../lib/apiUrl';
 import { showNotification } from '../../contexts/NotificationContext';
 import { SupportTicket } from '../../types';
@@ -29,6 +30,7 @@ export function SupportTicketsPage() {
   const [ticketsByTenant, setTicketsByTenant] = useState<Record<string, SupportTicket[]>>({});
   const [loadingTickets, setLoadingTickets] = useState<Record<string, boolean>>({});
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+  const [loggingInAsUserId, setLoggingInAsUserId] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -123,11 +125,13 @@ export function SupportTicketsPage() {
   }
 
   async function handleLoginAs(userId: string) {
+    setLoggingInAsUserId(userId);
     try {
       const apiUrl = getApiUrl().replace(/\/$/, '');
       const token = localStorage.getItem('auth_token');
       if (!token) {
         showNotification('error', t('auth.sessionExpired', 'Session expired. Please log in again.'));
+        setLoggingInAsUserId(null);
         return;
       }
       const originalSession = {
@@ -146,6 +150,7 @@ export function SupportTicketsPage() {
       const data = await res.json();
       if (!res.ok) {
         showNotification('error', data.error || 'Impersonation failed');
+        setLoggingInAsUserId(null);
         return;
       }
       applyImpersonation({
@@ -157,9 +162,13 @@ export function SupportTicketsPage() {
       });
       showNotification('success', t('support.impersonationStarted', 'Logged in as employee. Use "Exit Impersonation" to return.'));
       const slug = data.tenant?.slug;
-      navigate(slug ? `/${slug}/admin` : '/');
+      // Full page redirect so the app bootstraps with the new token from localStorage
+      // and avoids React state/navigate races that could send the user to login
+      const path = slug ? `/${slug}/admin` : '/';
+      window.location.href = `${window.location.origin}${path}`;
     } catch (e: any) {
       showNotification('error', e.message || 'Impersonation failed');
+      setLoggingInAsUserId(null);
     }
   }
 
@@ -300,10 +309,14 @@ export function SupportTicketsPage() {
                                         size="sm"
                                         variant="ghost"
                                         onClick={() => handleLoginAs(ticket.created_by_user_id)}
+                                        disabled={loggingInAsUserId !== null}
+                                        loading={loggingInAsUserId === ticket.created_by_user_id}
                                         className="text-blue-600"
                                       >
                                         <LogIn className="w-4 h-4 mr-1" />
-                                        {t('support.loginAs', 'Login As')}
+                                        {loggingInAsUserId === ticket.created_by_user_id
+                                          ? t('support.loggingIn', 'Logging in…')
+                                          : t('support.loginAs', 'Login As')}
                                       </Button>
                                     </td>
                                   </tr>

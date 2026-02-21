@@ -50,11 +50,37 @@ function requireSolutionOwner(req: express.Request, res: express.Response, next:
   next();
 }
 
+/** Get current user's branch name (for ticket form display). Path is literal to avoid conflict with /:id or /by-tenant/:id. */
+router.get('/current-user-branch', authenticateJWT, async (req, res) => {
+  try {
+    const branch_id = req.user!.branch_id;
+    if (!branch_id) {
+      return res.json({ branch_id: null, branch_name: null });
+    }
+    const { data: branch, error } = await supabase
+      .from('branches')
+      .select('id, name')
+      .eq('id', branch_id)
+      .maybeSingle();
+    if (error) throw error;
+    res.json({
+      branch_id: branch?.id ?? null,
+      branch_name: branch?.name ?? null,
+    });
+  } catch (err: any) {
+    console.error('Support tickets current-user-branch error:', err);
+    res.status(500).json({ error: err.message || 'Failed to load branch' });
+  }
+});
+
 /** Create ticket — all roles except Solution Owner */
 router.post('/', authenticateJWT, async (req, res) => {
   try {
     if (req.user!.role === 'solution_owner') {
       return res.status(403).json({ error: 'Solution Owner cannot create support tickets.' });
+    }
+    if (['customer', 'customer_admin'].includes(req.user!.role || '')) {
+      return res.status(403).json({ error: 'Customers cannot create support tickets.' });
     }
     const tenant_id = req.user!.tenant_id;
     if (!tenant_id) {

@@ -142,15 +142,10 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       href: `/${tenantSlug}/admin/assign-fixing-ticket`,
       icon: Wrench,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/assign-fixing-ticket`),
-      visible: userProfile?.role !== 'solution_owner' && [
-        'tenant_admin',
-        'receptionist',
-        'cashier',
-        'employee',
-        'coordinator',
-        'admin_user',
-        'customer_admin',
-      ].includes(userProfile?.role || ''),
+      // Visible to all roles except super admin (Solution Owner) and customers
+      visible: !!userProfile?.role &&
+        userProfile.role !== 'solution_owner' &&
+        !['customer', 'customer_admin'].includes(userProfile.role),
     },
   ];
 

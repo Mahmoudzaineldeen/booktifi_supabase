@@ -87,8 +87,9 @@ function AppContent() {
         <Route path="debug/navigation" element={<NavigationTest />} />
       </Route>
 
-      {/* Reception: /reception and /reception/visitors both render ReceptionPage (reception layout, no admin) */}
+      {/* Reception: /reception, /reception/visitors, /reception/assign-fixing-ticket all use ReceptionPage (reception layout, no admin sidebar) */}
       <Route path="/:tenantSlug/reception/visitors" element={<ReceptionPage />} />
+      <Route path="/:tenantSlug/reception/assign-fixing-ticket" element={<ReceptionPage />} />
       <Route path="/:tenantSlug/reception" element={<ReceptionPage />} />
       <Route path="/:tenantSlug/cashier" element={<CashierPage />} />
       {/* ARCHIVED: <Route path="/:tenantSlug/employee" element={<EmployeePage />} /> */}

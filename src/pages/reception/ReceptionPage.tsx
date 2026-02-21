@@ -11,7 +11,7 @@ import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
-import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Edit, CalendarClock, Users, Ban } from 'lucide-react';
+import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Edit, CalendarClock, Users, Ban, Wrench } from 'lucide-react';
 import { ReceptionPackagesPage } from './ReceptionPackagesPage';
 import { ReceptionVisitorsPage } from './ReceptionVisitorsPage';
 import { QRScanner } from '../../components/qr/QRScanner';
@@ -31,6 +31,7 @@ import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 import { useCustomerPhoneSearch, type CustomerSuggestion } from '../../hooks/useCustomerPhoneSearch';
 import { CustomerPhoneSuggestionsDropdown } from '../../components/reception/CustomerPhoneSuggestionsDropdown';
+import { AssignFixingTicketForm } from '../../components/support/AssignFixingTicketForm';
 import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
 
 interface Booking {
@@ -147,6 +148,7 @@ export function ReceptionPage() {
   const { tenantSlug: routeTenantSlug } = useParams<{ tenantSlug?: string }>();
   const tenantSlugForNav = routeTenantSlug || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : '');
   const isVisitorsPath = location.pathname.includes('/reception/visitors');
+  const isAssignFixingTicketPath = location.pathname.includes('/reception/assign-fixing-ticket');
   const tenantDefaultCountry = useTenantDefaultCountry();
   const { features: tenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
   const schedulingMode = (tenantFeatures?.scheduling_mode ?? 'service_slot_based') as 'employee_based' | 'service_slot_based';
@@ -3865,6 +3867,14 @@ export function ReceptionPage() {
                 <span className="hidden sm:inline">{t('navigation.visitors', 'Visitors')}</span>
               </Button>
               <Button
+                variant={isAssignFixingTicketPath ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => tenantSlugForNav && navigate(`/${tenantSlugForNav}/reception/assign-fixing-ticket`)}
+              >
+                <Wrench className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">{t('navigation.assignFixingTicket', 'Assign Fixing Ticket')}</span>
+              </Button>
+              <Button
                 variant="outline"
                 size="sm"
                 icon={<Package className="w-4 h-4" />}
@@ -3890,18 +3900,23 @@ export function ReceptionPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Assign Fixing Ticket View (reception layout, no admin sidebar) */}
+        {isAssignFixingTicketPath && (
+          <AssignFixingTicketForm />
+        )}
+
         {/* Visitors View (reception layout, same APIs as admin) */}
-        {isVisitorsPath && (
+        {!isAssignFixingTicketPath && isVisitorsPath && (
           <ReceptionVisitorsPage />
         )}
 
         {/* Packages View */}
-        {!isVisitorsPath && currentView === 'packages' && (
+        {!isAssignFixingTicketPath && !isVisitorsPath && currentView === 'packages' && (
           <ReceptionPackagesPage />
         )}
 
         {/* Bookings View */}
-        {!isVisitorsPath && currentView === 'bookings' && (
+        {!isAssignFixingTicketPath && !isVisitorsPath && currentView === 'bookings' && (
           <>
         {/* Search Bar with Type Selector */}
         <div className="mb-6 space-y-3">
