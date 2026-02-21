@@ -19,6 +19,7 @@ export interface SupportTicket {
   created_by_name?: string;
   created_by_email?: string | null;
   branch_name?: string;
+  screenshot_url?: string | null;
 }
 
 export type BookingStatus = 'pending' | 'confirmed' | 'checked_in' | 'completed' | 'cancelled';

@@ -682,6 +682,23 @@ export function SupportTicketsPage() {
           <div className="space-y-3">
             <p className="text-sm font-medium text-gray-700">{t('support.description', 'Description')}</p>
             <p className="text-sm text-gray-800 whitespace-pre-wrap">{descriptionModalTicket.description || '—'}</p>
+            {descriptionModalTicket.screenshot_url && (
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">{t('support.screenshot', 'Screenshot')}</p>
+                <a href={descriptionModalTicket.screenshot_url} target="_blank" rel="noopener noreferrer" className="inline-block">
+                  <img
+                    src={descriptionModalTicket.screenshot_url}
+                    alt={t('support.screenshot', 'Screenshot')}
+                    className="max-w-full max-h-80 rounded-lg border border-gray-200 object-contain"
+                  />
+                </a>
+                <p className="text-xs text-gray-500 mt-1">
+                  <a href={descriptionModalTicket.screenshot_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                    {t('support.openFullSize', 'Open full size')}
+                  </a>
+                </p>
+              </div>
+            )}
             <Button variant="secondary" onClick={() => setDescriptionModalTicket(null)}>
               {t('common.close', 'Close')}
             </Button>

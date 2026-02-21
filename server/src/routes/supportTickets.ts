@@ -4,6 +4,9 @@ import { supabase } from '../db';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
+const SCREENSHOT_BUCKET = 'support-ticket-screenshots';
+const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024; // 5MB decoded
 
 declare global {
   namespace Express {
@@ -73,6 +76,55 @@ router.get('/current-user-branch', authenticateJWT, async (req, res) => {
   }
 });
 
+/** Upload screenshot for a ticket — returns URL to pass to POST / */
+router.post('/upload-screenshot', authenticateJWT, async (req, res) => {
+  try {
+    if (req.user!.role === 'solution_owner') {
+      return res.status(403).json({ error: 'Solution Owner cannot create support tickets.' });
+    }
+    if (['customer', 'customer_admin'].includes(req.user!.role || '')) {
+      return res.status(403).json({ error: 'Customers cannot upload screenshots for tickets.' });
+    }
+    const tenant_id = req.user!.tenant_id;
+    if (!tenant_id) {
+      return res.status(400).json({ error: 'No tenant associated with your account.' });
+    }
+    const { base64, filename } = req.body;
+    if (!base64 || typeof base64 !== 'string') {
+      return res.status(400).json({ error: 'base64 image data is required.' });
+    }
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > MAX_SCREENSHOT_BYTES) {
+      return res.status(400).json({ error: 'Screenshot is too large. Maximum size is 5MB.' });
+    }
+    const ext = (typeof filename === 'string' ? filename.split('.').pop() : 'png')?.toLowerCase() || 'png';
+    const contentType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'gif' ? 'image/gif' : 'image/png';
+    const safeName = (typeof filename === 'string' ? filename.replace(/[^a-zA-Z0-9._-]/g, '_') : 'screenshot') || 'screenshot';
+    const path = `${tenant_id}/${req.user!.id}/${Date.now()}-${safeName}`;
+
+    const { data: buckets } = await supabase.storage.listBuckets();
+    if (!buckets?.some((b: any) => b.name === SCREENSHOT_BUCKET)) {
+      const { error: bucketErr } = await supabase.storage.createBucket(SCREENSHOT_BUCKET, { public: true });
+      if (bucketErr) console.warn('Support ticket screenshot bucket create:', bucketErr.message);
+    }
+
+    const { error: uploadError } = await supabase.storage
+      .from(SCREENSHOT_BUCKET)
+      .upload(path, buffer, { contentType, upsert: false });
+
+    if (uploadError) {
+      console.error('Support ticket screenshot upload error:', uploadError);
+      return res.status(500).json({ error: uploadError.message || 'Failed to upload screenshot' });
+    }
+
+    const url = `${SUPABASE_URL}/storage/v1/object/public/${SCREENSHOT_BUCKET}/${path}`;
+    res.json({ url });
+  } catch (err: any) {
+    console.error('Support ticket upload screenshot error:', err);
+    res.status(500).json({ error: err.message || 'Failed to upload screenshot' });
+  }
+});
+
 /** Create ticket — all roles except Solution Owner */
 router.post('/', authenticateJWT, async (req, res) => {
   try {
@@ -86,13 +138,14 @@ router.post('/', authenticateJWT, async (req, res) => {
     if (!tenant_id) {
       return res.status(400).json({ error: 'No tenant associated with your account.' });
     }
-    const { title, description } = req.body;
+    const { title, description, screenshot_url } = req.body;
     if (!title || typeof title !== 'string' || !title.trim()) {
       return res.status(400).json({ error: 'Title is required.' });
     }
     if (!description || typeof description !== 'string' || !description.trim()) {
       return res.status(400).json({ error: 'Problem description is required.' });
     }
+    const screenshotUrl = typeof screenshot_url === 'string' && screenshot_url.trim() ? screenshot_url.trim() : null;
 
     const { data, error } = await supabase
       .from('support_tickets')
@@ -104,6 +157,7 @@ router.post('/', authenticateJWT, async (req, res) => {
         title: title.trim(),
         description: description.trim(),
         status: 'open',
+        screenshot_url: screenshotUrl,
       })
       .select('id, tenant_id, branch_id, created_by_user_id, role, title, status, created_at')
       .single();
@@ -171,7 +225,7 @@ router.get('/by-tenant/:tenantId', authenticateJWT, requireSolutionOwner, async 
     const { data: tickets, error } = await supabase
       .from('support_tickets')
       .select(`
-        id, tenant_id, branch_id, created_by_user_id, role, title, description, status, created_at, updated_at, updated_by
+        id, tenant_id, branch_id, created_by_user_id, role, title, description, status, created_at, updated_at, updated_by, screenshot_url
       `)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });

@@ -1,20 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 import { Input } from '../ui/Input';
-import { Wrench } from 'lucide-react';
+import { Wrench, ImagePlus, X } from 'lucide-react';
 import { getApiUrl } from '../../lib/apiUrl';
 import { showNotification } from '../../contexts/NotificationContext';
+
+const MAX_SCREENSHOT_MB = 5;
 
 export function AssignFixingTicketForm() {
   const { t, i18n } = useTranslation();
   const { userProfile, tenant } = useAuth();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+  const [uploadingScreenshot, setUploadingScreenshot] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [branchName, setBranchName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!userProfile?.branch_id) {
@@ -35,6 +40,61 @@ export function AssignFixingTicketForm() {
       .catch(() => setBranchName(null));
   }, [userProfile?.branch_id]);
 
+  async function uploadScreenshot(file: File): Promise<string | null> {
+    const apiUrl = getApiUrl().replace(/\/$/, '');
+    const token = localStorage.getItem('auth_token');
+    if (!token) return null;
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : '';
+        if (!base64) {
+          resolve(null);
+          return;
+        }
+        fetch(`${apiUrl}/support-tickets/upload-screenshot`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ base64, filename: file.name }),
+        })
+          .then((r) => r.json())
+          .then((data) => (data.url ? resolve(data.url) : resolve(null)))
+          .catch(() => resolve(null));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showNotification('error', t('support.screenshotImageOnly', 'Please select an image file (PNG, JPG, GIF).'));
+      return;
+    }
+    if (file.size > MAX_SCREENSHOT_MB * 1024 * 1024) {
+      showNotification('error', t('support.screenshotTooLarge', 'Screenshot must be under {{max}}MB.', { max: MAX_SCREENSHOT_MB }));
+      return;
+    }
+    setUploadingScreenshot(true);
+    try {
+      const url = await uploadScreenshot(file);
+      if (url) {
+        setScreenshotUrl(url);
+        showNotification('success', t('support.screenshotAdded', 'Screenshot added.'));
+      } else {
+        showNotification('error', t('support.screenshotUploadFailed', 'Failed to upload screenshot.'));
+      }
+    } finally {
+      setUploadingScreenshot(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !description.trim() || !userProfile) return;
@@ -52,7 +112,11 @@ export function AssignFixingTicketForm() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ title: title.trim(), description: description.trim() }),
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim(),
+          ...(screenshotUrl ? { screenshot_url: screenshotUrl } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -61,6 +125,7 @@ export function AssignFixingTicketForm() {
       }
       setTitle('');
       setDescription('');
+      setScreenshotUrl(null);
       showNotification('success', t('support.ticketSubmittedSuccess', 'Ticket submitted successfully. The solution team has been notified.'));
     } catch (err: any) {
       showNotification('error', err.message || 'Failed to submit ticket');
@@ -126,9 +191,51 @@ export function AssignFixingTicketForm() {
                 {createdAt}
               </div>
             </div>
-            <p className="text-xs text-gray-500">
-              {t('support.screenshotFuture', 'Optional screenshot upload will be available in a future update.')}
-            </p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('support.screenshot', 'Screenshot')} <span className="text-gray-500 font-normal">({t('support.optional', 'optional')})</span>
+              </label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+                onChange={handleFileChange}
+                disabled={uploadingScreenshot}
+                className="hidden"
+              />
+              {!screenshotUrl ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={uploadingScreenshot}
+                  onClick={() => fileInputRef.current?.click()}
+                  icon={<ImagePlus className="w-4 h-4" />}
+                >
+                  {uploadingScreenshot ? t('support.uploading', 'Uploading…') : t('support.uploadScreenshot', 'Upload screenshot')}
+                </Button>
+              ) : (
+                <div className="flex items-center gap-3 p-2 border border-gray-200 rounded-lg bg-gray-50">
+                  <img src={screenshotUrl} alt="Screenshot" className="h-20 w-auto rounded object-contain border border-gray-200" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-600 truncate">{t('support.screenshotAdded', 'Screenshot added.')}</p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setScreenshotUrl(null)}
+                      className="text-red-600 hover:text-red-800 mt-1"
+                      icon={<X className="w-4 h-4" />}
+                    >
+                      {t('support.removeScreenshot', 'Remove')}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-gray-500 mt-1">
+                {t('support.screenshotHint', 'PNG, JPG, GIF or WebP. Max {{max}}MB.', { max: MAX_SCREENSHOT_MB })}
+              </p>
+            </div>
             <Button type="submit" loading={submitting} disabled={!title.trim() || !description.trim()}>
               {t('support.submitTicket', 'Submit Ticket')}
             </Button>
