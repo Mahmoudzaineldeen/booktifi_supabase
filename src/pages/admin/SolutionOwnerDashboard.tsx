@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
@@ -9,11 +9,23 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
-import { Building2, Users, Calendar, LogOut, Plus, Settings, Edit, Trash2, UserPlus, Shield } from 'lucide-react';
+import { Building2, Users, Calendar, LogOut, Plus, Settings, Edit, Trash2, UserPlus, Shield, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Tenant } from '../../types';
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { showNotification } from '../../contexts/NotificationContext';
+
+// Minimal columns for list view (smaller payload, faster load)
+const TENANTS_LIST_SELECT = 'id,name,name_ar,industry,contact_email,contact_phone,address,is_active,subscription_end,created_at,updated_at,slug,tenant_time_zone,announced_time_zone,subscription_start,public_page_enabled,maintenance_mode,theme_preset';
+
+const INDUSTRY_OPTIONS = ['restaurant', 'salon', 'clinic', 'parking', 'venue', 'other'] as const;
+const MAIN_INDUSTRIES = ['restaurant', 'salon', 'clinic', 'parking', 'venue'];
+function isOtherIndustry(industry: string | undefined): boolean {
+  const ind = (industry || '').trim();
+  return !ind || !MAIN_INDUSTRIES.includes(ind);
+}
+const PAGE_SIZE_OPTIONS = [10, 20, 50];
+const DEFAULT_PAGE_SIZE = 10;
 
 export function SolutionOwnerDashboard() {
   const { userProfile, signOut, hasRole, loading: authLoading } = useAuth();
@@ -21,6 +33,11 @@ export function SolutionOwnerDashboard() {
   const { t, i18n } = useTranslation();
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
+  const tenantsFetchedRef = useRef(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -86,22 +103,20 @@ export function SolutionOwnerDashboard() {
       return;
     }
 
-    // User is solution_owner, fetch tenants
-    fetchTenants();
+    // User is solution_owner, fetch tenants once
+    if (!tenantsFetchedRef.current) {
+      tenantsFetchedRef.current = true;
+      fetchTenants();
+    }
   }, [authLoading, userProfile, hasRole, navigate]);
 
   async function fetchTenants() {
     try {
-      // Use regular client (solution owner uses regular auth)
       const client = db;
-
       const { data, error } = await client
         .from('tenants')
-        .select('*')
+        .select(TENANTS_LIST_SELECT)
         .order('created_at', { ascending: false });
-
-      console.log('Fetched tenants:', data);
-      console.log('Error:', error);
 
       if (error) throw error;
       setTenants(data || []);
@@ -111,6 +126,41 @@ export function SolutionOwnerDashboard() {
       setLoading(false);
     }
   }
+
+  const filteredTenants = useMemo(() => {
+    let list = tenants;
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (tenant) =>
+          (tenant.name || '').toLowerCase().includes(q) ||
+          (tenant.name_ar || '').toLowerCase().includes(q) ||
+          (tenant.contact_email || '').toLowerCase().includes(q) ||
+          (tenant.contact_phone || '').toLowerCase().includes(q) ||
+          (tenant.address || '').toLowerCase().includes(q) ||
+          (tenant.industry || '').toLowerCase().includes(q) ||
+          (q === 'other' && isOtherIndustry(tenant.industry))
+      );
+    }
+    if (categoryFilter) {
+      if (categoryFilter === 'other') {
+        list = list.filter((tenant) => isOtherIndustry(tenant.industry));
+      } else {
+        list = list.filter((tenant) => (tenant.industry || '') === categoryFilter);
+      }
+    }
+    return list;
+  }, [tenants, searchQuery, categoryFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTenants.length / pageSize));
+  const paginatedTenants = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredTenants.slice(start, start + pageSize);
+  }, [filteredTenants, currentPage, pageSize]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(1);
+  }, [currentPage, totalPages]);
 
   async function handleCreateTenant(e: React.FormEvent) {
     e.preventDefault();
@@ -366,7 +416,18 @@ export function SolutionOwnerDashboard() {
     navigate('/login');
   }
 
-  if (loading) {
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">{t('common.loading')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (userProfile && userProfile.role !== 'solution_owner') {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -484,7 +545,67 @@ export function SolutionOwnerDashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            {tenants.length === 0 ? (
+            {/* Search and category filter */}
+            {!loading && tenants.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3 mb-4">
+                <div className="relative flex-1 min-w-[200px] max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Input
+                    type="text"
+                    placeholder={t('admin.searchTenants', 'Search by name, email or industry...')}
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="pl-9"
+                  />
+                </div>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => {
+                    setCategoryFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white min-w-[140px]"
+                >
+                  <option value="">{t('admin.allCategories', 'All categories')}</option>
+                  {INDUSTRY_OPTIONS.map((ind) => (
+                    <option key={ind} value={ind}>
+                      {safeTranslateNested(t, 'admin.industries', ind, ind)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {loading && tenants.length === 0 ? (
+              <div className="overflow-x-auto animate-pulse" dir={i18n.language === 'ar' ? 'rtl' : 'ltr'}>
+                <table className="w-full table-auto">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-start text-sm font-medium text-gray-600">{t('admin.tenantName')}</th>
+                      <th className="px-4 py-3 text-start text-sm font-medium text-gray-600">{t('tenant.industry')}</th>
+                      <th className="px-4 py-3 text-start text-sm font-medium text-gray-600">{t('admin.contact')}</th>
+                      <th className="px-4 py-3 text-start text-sm font-medium text-gray-600">{t('admin.status')}</th>
+                      <th className="px-4 py-3 text-start text-sm font-medium text-gray-600">{t('admin.subscription')}</th>
+                      <th className="px-4 py-3 text-start text-sm font-medium text-gray-600">{t('admin.actions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <tr key={i} className="h-12">
+                        <td className="px-4 py-3 text-start"><div className="h-4 bg-gray-200 rounded w-32" /></td>
+                        <td className="px-4 py-3 text-start"><div className="h-4 bg-gray-200 rounded w-20" /></td>
+                        <td className="px-4 py-3 text-start"><div className="h-4 bg-gray-200 rounded w-40" /></td>
+                        <td className="px-4 py-3 text-start"><div className="h-5 bg-gray-200 rounded-full w-16" /></td>
+                        <td className="px-4 py-3 text-start"><div className="h-4 bg-gray-200 rounded w-24" /></td>
+                        <td className="px-4 py-3 text-start"><div className="h-8 bg-gray-200 rounded w-28" /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : tenants.length === 0 ? (
               <div className="text-center py-12">
                 <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-600 mb-4">{t('admin.noTenantsYet')}</p>
@@ -492,33 +613,42 @@ export function SolutionOwnerDashboard() {
                   {t('admin.createFirstTenant')}
                 </Button>
               </div>
+            ) : filteredTenants.length === 0 ? (
+              <div className="text-center py-12">
+                <Search className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600 mb-4">{t('admin.noTenantsMatchFilter', 'No tenants match your search or category.')}</p>
+                <Button variant="secondary" onClick={() => { setSearchQuery(''); setCategoryFilter(''); setCurrentPage(1); }}>
+                  {t('admin.clearFilters', 'Clear filters')}
+                </Button>
+              </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              <>
+              <div className="overflow-x-auto" dir={i18n.language === 'ar' ? 'rtl' : 'ltr'}>
+                <table className="w-full table-auto">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t('admin.tenantName')}</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t('tenant.industry')}</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t('admin.contact')}</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t('admin.status')}</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t('admin.subscription')}</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t('admin.actions')}</th>
+                      <th className="px-4 py-3 text-start text-sm font-medium text-gray-600">{t('admin.tenantName')}</th>
+                      <th className="px-4 py-3 text-start text-sm font-medium text-gray-600">{t('tenant.industry')}</th>
+                      <th className="px-4 py-3 text-start text-sm font-medium text-gray-600">{t('admin.contact')}</th>
+                      <th className="px-4 py-3 text-start text-sm font-medium text-gray-600">{t('admin.status')}</th>
+                      <th className="px-4 py-3 text-start text-sm font-medium text-gray-600">{t('admin.subscription')}</th>
+                      <th className="px-4 py-3 text-start text-sm font-medium text-gray-600">{t('admin.actions')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {tenants.map((tenant) => (
+                    {paginatedTenants.map((tenant) => (
                       <tr key={tenant.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                        <td className="px-4 py-3 text-start text-sm font-medium text-gray-900">
                           <div>{i18n.language === 'ar' && tenant.name_ar ? tenant.name_ar : tenant.name}</div>
                           {tenant.name_ar && <div className="text-xs text-gray-500">{i18n.language === 'ar' ? tenant.name : tenant.name_ar}</div>}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-600 capitalize">
+                        <td className="px-4 py-3 text-start text-sm text-gray-600 capitalize">
                           {safeTranslateNested(t, 'admin.industries', tenant.industry, tenant.industry)}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
+                        <td className="px-4 py-3 text-start text-sm text-gray-600">
                           {tenant.contact_email || tenant.contact_phone || '-'}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 text-start">
                           <span
                             className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
                               tenant.is_active
@@ -529,13 +659,13 @@ export function SolutionOwnerDashboard() {
                             {tenant.is_active ? t('tenant.active') : t('tenant.inactive')}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
+                        <td className="px-4 py-3 text-start text-sm text-gray-600">
                           {tenant.subscription_end
                             ? new Date(tenant.subscription_end).toLocaleDateString(i18n.language === 'ar' ? 'ar-SA' : 'en-US')
                             : t('admin.noExpiry')}
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
+                        <td className="px-4 py-3 text-start">
+                          <div className="flex items-center gap-2 flex-wrap justify-start">
                             <Button
                               size="sm"
                               variant="ghost"
@@ -567,6 +697,52 @@ export function SolutionOwnerDashboard() {
                   </tbody>
                 </table>
               </div>
+              {/* Pagination */}
+              <div className="flex flex-wrap items-center justify-between gap-4 mt-4 pt-4 border-t border-gray-200">
+                <div className="flex items-center gap-4">
+                  <span className="text-sm text-gray-600">
+                    {t('admin.showingTenants', 'Showing {{start}}–{{end}} of {{total}}', {
+                      start: (currentPage - 1) * pageSize + 1,
+                      end: Math.min(currentPage * pageSize, filteredTenants.length),
+                      total: filteredTenants.length,
+                    })}
+                  </span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
+                  >
+                    {PAGE_SIZE_OPTIONS.map((n) => (
+                      <option key={n} value={n}>{n} {t('admin.perPage', 'per page')}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <span className="text-sm text-gray-600 px-2">
+                    {t('admin.pageOf', 'Page {{current}} of {{total}}', { current: currentPage, total: totalPages })}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage >= totalPages}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+              </>
             )}
           </CardContent>
         </Card>

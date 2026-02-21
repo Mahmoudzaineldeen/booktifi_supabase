@@ -23,6 +23,7 @@ export function CustomerLandingPage() {
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<any>({});
+  const [landingPageEnabled, setLandingPageEnabled] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (tenantSlug) {
@@ -44,14 +45,22 @@ export function CustomerLandingPage() {
         .select('id, name, name_ar, slug, landing_page_settings')
         .eq('slug', tenantSlug)
         .maybeSingle();
-      
+
       if (data) {
         setTenant(data);
-        
         setSettings(normalizeLandingPageSettings(data?.landing_page_settings));
+        const { data: features } = await db
+          .from('tenant_features')
+          .select('landing_page_enabled')
+          .eq('tenant_id', data.id)
+          .maybeSingle();
+        setLandingPageEnabled(features?.landing_page_enabled ?? true);
+      } else {
+        setLandingPageEnabled(false);
       }
     } catch (err) {
       console.error('Error fetching tenant:', err);
+      setLandingPageEnabled(true);
     } finally {
       setLoading(false);
     }
@@ -74,6 +83,25 @@ export function CustomerLandingPage() {
             style={{ borderColor: primaryColor }}
           ></div>
           <p className="text-gray-600" style={{ color: primaryColor }}>{t('common.loading')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (tenant && landingPageEnabled === false) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="text-center max-w-md">
+          <h1 className="text-xl font-semibold text-gray-900 mb-2">
+            {t('customer.landingNotAvailable', 'Landing page is not available')}
+          </h1>
+          <p className="text-gray-600 mb-6">
+            {t('customer.landingDisabledByAdmin', 'This page has been disabled. You can still book services below.')}
+          </p>
+          <Button onClick={() => navigate(`/${tenantSlug}/book`)}>
+            <Calendar className="w-4 h-4 mr-2 inline" />
+            {t('customer.goToBooking', 'Go to booking')}
+          </Button>
         </div>
       </div>
     );

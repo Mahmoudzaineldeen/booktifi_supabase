@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { safeTranslateNested } from '../../lib/safeTranslation';
@@ -123,11 +124,20 @@ function normalizeEmployeeShiftForInsert(
 
 export function EmployeesPage() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const { tenantSlug } = useParams<{ tenantSlug?: string }>();
   const { userProfile } = useAuth();
-  const { features: tenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
+  const { features: tenantFeatures, loading: featuresLoading } = useTenantFeatures(userProfile?.tenant_id);
   const globalSchedulingMode = tenantFeatures?.scheduling_mode ?? 'service_slot_based';
   const hideServiceShiftSelection = globalSchedulingMode === 'employee_based';
   const [employees, setEmployees] = useState<Employee[]>([]);
+
+  useEffect(() => {
+    if (featuresLoading || !tenantSlug) return;
+    if (tenantFeatures?.employees_enabled === false) {
+      navigate(`/${tenantSlug}/admin`, { replace: true });
+    }
+  }, [tenantFeatures?.employees_enabled, featuresLoading, tenantSlug, navigate]);
   const [services, setServices] = useState<Service[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
@@ -665,6 +675,9 @@ export function EmployeesPage() {
     setEmployeeShifts(prev => prev.filter(s => s.id !== id));
   }
 
+  if (featuresLoading || tenantFeatures?.employees_enabled === false) {
+    return null;
+  }
   if (loading) {
     return (
       <div className="p-4 md:p-8">

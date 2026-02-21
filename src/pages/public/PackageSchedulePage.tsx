@@ -132,6 +132,17 @@ export function PackageSchedulePage() {
         return;
       }
 
+      const { data: features } = await db
+        .from('tenant_features')
+        .select('packages_enabled')
+        .eq('tenant_id', tenantData.id)
+        .maybeSingle();
+      if (features?.packages_enabled === false) {
+        showNotification('info', t('packages.packagesDisabled', 'Packages are not available for this provider.'));
+        navigate(`/${tenantSlug}/book`);
+        return;
+      }
+
       setTenant(tenantData);
 
       // Fetch package - filter by tenant_id and is_active for security

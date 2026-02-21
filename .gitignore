@@ -23,6 +23,11 @@ dist-ssr
 # Test export artifacts (Excel/PDF saved by SAVE_EXCEL=1)
 tests/output/
 
+# Dev helper script (sets user passwords - keep out of repo)
+server/scripts/set-user-password.ts
+# Stored dev passwords (used by set-password retrieve)
+server/scripts/.dev-passwords.json
+
 # Allow both .env files to be tracked
 # Note: These files may contain sensitive data - ensure they don't contain production secrets
 #/.env

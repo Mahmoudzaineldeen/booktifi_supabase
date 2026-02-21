@@ -152,6 +152,7 @@ function PublicBookingPage() {
   const isBlockedByMaintenance = isMaintenanceMode && isCustomer;
   const [services, setServices] = useState<Service[]>([]);
   const [packages, setPackages] = useState<any[]>([]);
+  const [packagesEnabled, setPackagesEnabled] = useState(true);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [aggregatedSlots, setAggregatedSlots] = useState<AggregatedSlot[]>([]);
   const [selectedAggregatedSlot, setSelectedAggregatedSlot] = useState<AggregatedSlot | null>(null);
@@ -370,6 +371,13 @@ function PublicBookingPage() {
 
       setTenant(tenantData);
 
+      const { data: features } = await db
+        .from('tenant_features')
+        .select('packages_enabled')
+        .eq('tenant_id', tenantData.id)
+        .maybeSingle();
+      setPackagesEnabled(features?.packages_enabled ?? true);
+
       // Try to select all fields, but handle missing columns gracefully
       const { data: servicesData, error: servicesError } = await db
         .from('services')
@@ -497,7 +505,8 @@ function PublicBookingPage() {
       const regularServices = parsedServices.filter((s: any) => !s.is_offer);
       setServices(regularServices);
 
-      // Fetch packages
+      // Fetch packages only when packages feature is enabled (respects /management/features)
+      if ((features?.packages_enabled ?? true) !== false) {
       try {
         const { data: packagesData, error: packagesError } = await db
           .from('service_packages')
@@ -589,6 +598,9 @@ function PublicBookingPage() {
         }
       } catch (packagesErr: any) {
         console.warn('Error fetching packages:', packagesErr);
+        setPackages([]);
+      }
+      } else {
         setPackages([]);
       }
     } catch (err: any) {

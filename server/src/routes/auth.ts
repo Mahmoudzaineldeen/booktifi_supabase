@@ -2440,5 +2440,64 @@ router.post('/create-solution-owner', authenticateSolutionOwner, async (req, res
   }
 });
 
+// ============================================================================
+// Admin impersonation: system admin can get a session as another user (for support)
+// ============================================================================
+router.post('/admin/impersonate', authenticateSolutionOwner, async (req, res) => {
+  try {
+    const { user_id, email } = req.body;
+    if (!user_id && !email) {
+      return res.status(400).json({ error: 'Provide user_id or email to impersonate.' });
+    }
+
+    let query = supabase.from('users').select('id, email, username, full_name, full_name_ar, role, tenant_id, branch_id, is_active').limit(1);
+    if (user_id) {
+      query = query.eq('id', user_id);
+    } else {
+      query = query.eq('email', email);
+    }
+    const { data: targetUser, error: userError } = await query.maybeSingle();
+
+    if (userError) {
+      return res.status(500).json({ error: 'Failed to look up user', details: userError.message });
+    }
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    if ((targetUser as any).is_active === false) {
+      return res.status(403).json({ error: 'Cannot impersonate a deactivated user.' });
+    }
+
+    const user = targetUser as any;
+    const tokenPayload = {
+      id: user.id,
+      email: user.email ?? null,
+      role: user.role ?? 'employee',
+      tenant_id: user.tenant_id ?? null,
+      branch_id: user.branch_id ?? null,
+    };
+    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+
+    let tenant = null;
+    if (user.tenant_id) {
+      const { data: tenantData } = await supabase.from('tenants').select('*').eq('id', user.tenant_id).maybeSingle();
+      tenant = tenantData || null;
+    }
+
+    const { password_hash, ...userWithoutPassword } = user;
+    res.json({
+      user: userWithoutPassword,
+      tenant,
+      session: {
+        access_token: token,
+        user: { id: user.id, email: user.email },
+      },
+    });
+  } catch (error: any) {
+    console.error('Impersonate error:', error);
+    res.status(500).json({ error: error.message || 'Impersonation failed' });
+  }
+});
+
 export { router as authRoutes };
 

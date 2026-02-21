@@ -31,17 +31,18 @@ organization id=910540679
 
 customer email:healingtouches_sa@hotmail.com
 password:King@123
+
 done 10 or least
 done Arabic
 done  performance is sucks
 done remove all alerts
 done full disable the the fully customer if the 
 
-change email info@kingdomcentre.com.sa to healingtouches_sa@hotmail.com
+done change email info@kingdomcentre.com.sa to healingtouches_sa@hotmail.com
 
 done make the system time 12 hour not 24 
 
-add branches tab in admin page 
+done add branches tab in admin page (each service and package must be assigned to a branch or more (we cant create a package from services not on the smae branch) and when creating any new receptionist ,cashier employee or any role must be assigned to a branch when creating and employee or receptionst we choose a branch and depending on choosed bracnh appears the available services we can assign the employee to it for this branch) and each receptionist  assigned to a branch must see the his branch data only from booking ,when creating a booking can create for only the available services in his branch,same for packages and pages subscribers,etcand each branch has a displayed data the name and location and there is see more button so we can see the assigned data for this branch(employees , receptionts and services,packages) and we can edit in it and add in visitor page to select the branch to see its income and there is an option to see the income from all branches 
 
 pricing (number of branches and users and WhatsApp number messages)
 https://www.daftra.com/plans

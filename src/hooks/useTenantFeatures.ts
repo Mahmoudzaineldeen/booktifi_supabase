@@ -14,12 +14,6 @@ export function useTenantFeatures(tenantId: string | undefined) {
   const [features, setFeatures] = useState<TenantFeatures | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (tenantId) {
-      loadFeatures();
-    }
-  }, [tenantId]);
-
   const loadFeatures = async () => {
     if (!tenantId) return;
 
@@ -58,6 +52,20 @@ export function useTenantFeatures(tenantId: string | undefined) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (tenantId) {
+      loadFeatures();
+    }
+  }, [tenantId]);
+
+  // Refetch when user returns to the tab so solution-owner changes on /management/features take effect
+  useEffect(() => {
+    if (!tenantId) return;
+    const onFocus = () => loadFeatures();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [tenantId]);
 
   return { features, loading, reload: loadFeatures };
 }

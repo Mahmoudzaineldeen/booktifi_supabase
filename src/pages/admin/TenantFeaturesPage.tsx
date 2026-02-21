@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Settings, Save, AlertCircle, Check, ArrowLeft } from 'lucide-react';
+import { Settings, Save, AlertCircle, Check, ArrowLeft, Search } from 'lucide-react';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
+import { Input } from '../../components/ui/Input';
+import { safeTranslateNested } from '../../lib/safeTranslation';
 
 interface TenantFeatures {
   id: string;
@@ -20,6 +22,15 @@ interface Tenant {
   id: string;
   name: string;
   name_ar: string | null;
+  industry?: string;
+  contact_email?: string | null;
+}
+
+const INDUSTRY_OPTIONS = ['restaurant', 'salon', 'clinic', 'parking', 'venue', 'other'] as const;
+const MAIN_INDUSTRIES = ['restaurant', 'salon', 'clinic', 'parking', 'venue'];
+function isOtherIndustry(industry: string | undefined): boolean {
+  const ind = (industry || '').trim();
+  return !ind || !MAIN_INDUSTRIES.includes(ind);
 }
 
 export function TenantFeaturesPage() {
@@ -31,28 +42,36 @@ export function TenantFeaturesPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
+  const featuresCacheRef = React.useRef<Record<string, TenantFeatures | null>>({});
 
   useEffect(() => {
     loadTenants();
   }, []);
 
   useEffect(() => {
-    if (selectedTenantId) {
-      loadFeatures(selectedTenantId);
+    if (!selectedTenantId) {
+      setFeatures(null);
+      return;
     }
+    const cached = featuresCacheRef.current[selectedTenantId];
+    if (cached !== undefined) {
+      setFeatures(cached);
+      setLoading(false);
+      return;
+    }
+    loadFeatures(selectedTenantId);
   }, [selectedTenantId]);
 
-  const getClient = () => {
-    // Use regular client (solution owner uses regular auth)
-    return db;
-  };
+  const getClient = () => db;
 
   const loadTenants = async () => {
     try {
       const client = getClient();
       const { data, error } = await client
         .from('tenants')
-        .select('id, name, name_ar')
+        .select('id, name, name_ar, industry, contact_email')
         .order('name');
 
       if (error) throw error;
@@ -67,6 +86,35 @@ export function TenantFeaturesPage() {
     }
   };
 
+  const filteredTenants = useMemo(() => {
+    let list = tenants;
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (tenant) =>
+          (tenant.name || '').toLowerCase().includes(q) ||
+          (tenant.name_ar || '').toLowerCase().includes(q) ||
+          (tenant.contact_email || '').toLowerCase().includes(q) ||
+          (tenant.industry || '').toLowerCase().includes(q) ||
+          (q === 'other' && isOtherIndustry(tenant.industry))
+      );
+    }
+    if (categoryFilter) {
+      if (categoryFilter === 'other') {
+        list = list.filter((tenant) => isOtherIndustry(tenant.industry));
+      } else {
+        list = list.filter((tenant) => (tenant.industry || '') === categoryFilter);
+      }
+    }
+    return list;
+  }, [tenants, searchQuery, categoryFilter]);
+
+  useEffect(() => {
+    if (filteredTenants.length > 0 && selectedTenantId && !filteredTenants.some((t) => t.id === selectedTenantId)) {
+      setSelectedTenantId(filteredTenants[0].id);
+    }
+  }, [filteredTenants, selectedTenantId]);
+
   const loadFeatures = async (tenantId: string) => {
     setLoading(true);
     try {
@@ -78,7 +126,9 @@ export function TenantFeaturesPage() {
         .maybeSingle();
 
       if (error) throw error;
-      setFeatures(data ? { ...data, scheduling_mode: (data as any).scheduling_mode ?? 'service_slot_based' } : null);
+      const resolved = data ? { ...data, scheduling_mode: (data as any).scheduling_mode ?? 'service_slot_based' } : null;
+      featuresCacheRef.current[tenantId] = resolved;
+      setFeatures(resolved);
     } catch (error) {
       console.error('Error loading features:', error);
       setMessage({ type: 'error', text: 'Failed to load tenant features' });
@@ -106,16 +156,23 @@ export function TenantFeaturesPage() {
         })
         .eq('tenant_id', selectedTenantId);
 
-      if (error) throw error;
+      if (error) {
+        const msg = (error as { message?: string })?.message || String(error);
+        throw new Error(msg);
+      }
 
       setMessage({ type: 'success', text: 'Features updated successfully' });
-
+      if (selectedTenantId && features) {
+        featuresCacheRef.current[selectedTenantId] = features;
+      }
+      await loadFeatures(selectedTenantId);
       setTimeout(() => {
         setMessage(null);
       }, 3000);
-    } catch (error) {
-      console.error('Error saving features:', error);
-      setMessage({ type: 'error', text: 'Failed to save features' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to save features';
+      console.error('Error saving features:', err);
+      setMessage({ type: 'error', text: msg });
     } finally {
       setSaving(false);
     }
@@ -158,6 +215,34 @@ export function TenantFeaturesPage() {
           </p>
         </div>
 
+        {/* Search and category filter */}
+        {tenants.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Input
+                type="text"
+                placeholder={t('admin.searchTenants', 'Search by name, email or industry...')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white min-w-[140px]"
+            >
+              <option value="">{t('admin.allCategories', 'All categories')}</option>
+              {INDUSTRY_OPTIONS.map((ind) => (
+                <option key={ind} value={ind}>
+                  {safeTranslateNested(t, 'admin.industries', ind, ind)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* Tenant Selection */}
         <Card className="mb-6">
           <div className="p-6">
@@ -169,12 +254,22 @@ export function TenantFeaturesPage() {
               onChange={(e) => setSelectedTenantId(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              {tenants.map((tenant) => (
-                <option key={tenant.id} value={tenant.id}>
-                  {tenant.name} {tenant.name_ar ? `(${tenant.name_ar})` : ''}
-                </option>
-              ))}
+              {filteredTenants.length === 0 ? (
+                <option value="">{t('admin.noTenantsMatchFilter', 'No tenants match your search or category.')}</option>
+              ) : (
+                filteredTenants.map((tenant) => (
+                  <option key={tenant.id} value={tenant.id}>
+                    {tenant.name} {tenant.name_ar ? `(${tenant.name_ar})` : ''}
+                    {tenant.industry ? ` · ${safeTranslateNested(t, 'admin.industries', tenant.industry, tenant.industry)}` : ''}
+                  </option>
+                ))
+              )}
             </select>
+            {filteredTenants.length < tenants.length && (
+              <p className="text-xs text-gray-500 mt-2">
+                {t('admin.showingFiltered', 'Showing {{count}} of {{total}} tenants', { count: filteredTenants.length, total: tenants.length })}
+              </p>
+            )}
           </div>
         </Card>
 
@@ -193,10 +288,17 @@ export function TenantFeaturesPage() {
         )}
 
         {/* Features Configuration */}
-        {loading ? (
+        {loading && !features ? (
           <Card>
-            <div className="p-8 text-center text-gray-600">
-              Loading features...
+            <div className="p-6 space-y-6 animate-pulse">
+              <div className="h-6 bg-gray-200 rounded w-48" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="h-10 bg-gray-200 rounded" />
+                <div className="h-10 bg-gray-200 rounded" />
+                <div className="h-10 bg-gray-200 rounded" />
+                <div className="h-10 bg-gray-200 rounded" />
+              </div>
+              <div className="h-10 bg-gray-200 rounded w-24" />
             </div>
           </Card>
         ) : features ? (

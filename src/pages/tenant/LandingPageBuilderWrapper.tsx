@@ -1,11 +1,13 @@
 import { useParams, Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { TenantLayout } from '../../components/layout/TenantLayout';
 import { LandingPageBuilder } from './LandingPageBuilder';
 
 export function LandingPageBuilderWrapper() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { userProfile, loading } = useAuth();
+  const { features, loading: featuresLoading } = useTenantFeatures(userProfile?.tenant_id);
 
   if (loading) {
     return (
@@ -45,6 +47,10 @@ export function LandingPageBuilderWrapper() {
 
   if (userProfile.role !== 'tenant_admin') {
     return <Navigate to="/login" replace />;
+  }
+
+  if (!featuresLoading && features?.landing_page_enabled === false) {
+    return <Navigate to={tenantSlug ? `/${tenantSlug}/admin` : '/login'} replace />;
   }
 
   return (

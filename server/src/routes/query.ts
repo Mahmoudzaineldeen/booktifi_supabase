@@ -620,36 +620,65 @@ router.post('/update/:table', async (req, res) => {
     data = cleanRequestBody(data);
     console.log('[Update] AFTER cleaning - Cleaned data:', JSON.stringify(data, null, 2));
 
-    // Start building the update query
-    let query = supabase.from(table).update(data);
+    let result: any;
 
-    // Apply WHERE conditions
-    Object.entries(where).forEach(([key, value]) => {
-      query = query.eq(key, value);
-    });
-
-    // Return all columns
-    query = query.select();
-
-    console.log(`[Update] Updating table "${table}" with data:`, data);
-    console.log(`[Update] Where conditions:`, where);
-
-    const { data: result, error } = await query;
-
-    if (error) {
-      console.error('[Update] Supabase error:', error);
-      // Return a clear message when column is missing (migration not run on this DB)
-      const msg = error.message || '';
-      if (msg.includes('does not exist') && msg.includes('column')) {
-        return res.status(500).json({
-          error: msg,
-          hint: 'A required database column may be missing. Run Supabase migrations (e.g. scheduling_mode on tenant_features).',
-        });
+    // tenant_features: use upsert so save works when no row exists (e.g. tenant created before trigger)
+    if (table === 'tenant_features' && where && typeof where.tenant_id === 'string') {
+      const tenantId = where.tenant_id;
+      const payload = {
+        tenant_id: tenantId,
+        employees_enabled: data.employees_enabled ?? true,
+        employee_assignment_mode: data.employee_assignment_mode ?? 'both',
+        packages_enabled: data.packages_enabled ?? true,
+        landing_page_enabled: data.landing_page_enabled ?? true,
+        scheduling_mode: data.scheduling_mode ?? 'service_slot_based',
+      };
+      const { data: upserted, error: upsertError } = await supabase
+        .from('tenant_features')
+        .upsert(payload, { onConflict: 'tenant_id', ignoreDuplicates: false })
+        .select()
+        .single();
+      if (upsertError) {
+        console.error('[Update] tenant_features upsert error:', upsertError);
+        const msg = upsertError.message || '';
+        if (msg.includes('does not exist') && msg.includes('column')) {
+          return res.status(500).json({
+            error: msg,
+            hint: 'A required database column may be missing. Run Supabase migrations (e.g. scheduling_mode on tenant_features).',
+          });
+        }
+        throw upsertError;
       }
-      throw error;
-    }
+      result = upserted;
+      console.log('[Update] tenant_features upserted successfully');
+    } else {
+      // Standard update
+      let query = supabase.from(table).update(data);
+      Object.entries(where).forEach(([key, value]) => {
+        query = query.eq(key, value);
+      });
+      query = query.select();
 
-    console.log(`[Update] Successfully updated ${result?.length || 0} record(s)`);
+      console.log(`[Update] Updating table "${table}" with data:`, data);
+      console.log(`[Update] Where conditions:`, where);
+
+      const { data: updateResult, error } = await query;
+
+      if (error) {
+        console.error('[Update] Supabase error:', error);
+        const msg = error.message || '';
+        if (msg.includes('does not exist') && msg.includes('column')) {
+          return res.status(500).json({
+            error: msg,
+            hint: 'A required database column may be missing. Run Supabase migrations (e.g. scheduling_mode on tenant_features).',
+          });
+        }
+        throw error;
+      }
+
+      result = updateResult;
+      console.log(`[Update] Successfully updated ${Array.isArray(result) ? result.length : 1} record(s)`);
+    }
 
     // Invalidate employee-based availability cache when employee_shifts or employee_services change
     if ((table === 'employee_shifts' || table === 'employee_services') && result && (Array.isArray(result) ? result.length > 0 : result)) {

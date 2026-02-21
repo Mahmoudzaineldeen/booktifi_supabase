@@ -17,6 +17,8 @@ interface AuthContextType {
   signUp: (email: string, password: string, fullName: string, role: UserRole, tenantId?: string) => Promise<{ error?: Error }>;
   signOut: () => Promise<void>;
   hasRole: (roles: UserRole[]) => boolean;
+  /** Apply session from admin impersonation (sets token + user + tenant and redirect can be done by caller) */
+  applyImpersonation: (data: { user: User; tenant: Tenant | null; session: { access_token: string } }) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -518,6 +520,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return roles.includes(userProfile.role);
   }
 
+  function applyImpersonation(data: { user: User; tenant: Tenant | null; session: { access_token: string } }) {
+    const { user: userProfileData, tenant: tenantData, session } = data;
+    if (!session?.access_token) return;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('auth_token', session.access_token);
+      localStorage.setItem('auth_session', JSON.stringify({ access_token: session.access_token, user: { id: userProfileData.id, email: userProfileData.email } }));
+    }
+    setUser({ id: userProfileData.id, email: userProfileData.email, username: userProfileData.username });
+    setUserProfile(userProfileData);
+    setTenant(tenantData || null);
+    userProfileRef.current = userProfileData;
+    startTokenRefreshInterval();
+  }
+
   const value = {
     user,
     userProfile,
@@ -527,6 +543,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUp,
     signOut,
     hasRole,
+    applyImpersonation,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
