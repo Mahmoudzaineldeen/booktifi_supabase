@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
+import { Modal } from '../../components/ui/Modal';
 import { Calendar, LogOut, Building2, Ticket, ChevronDown, ChevronUp, LogIn } from 'lucide-react';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { getApiUrl } from '../../lib/apiUrl';
@@ -31,6 +32,7 @@ export function SupportTicketsPage() {
   const [loadingTickets, setLoadingTickets] = useState<Record<string, boolean>>({});
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
   const [loggingInAsUserId, setLoggingInAsUserId] = useState<string | null>(null);
+  const [descriptionModalTicket, setDescriptionModalTicket] = useState<SupportTicket | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -162,9 +164,11 @@ export function SupportTicketsPage() {
       });
       showNotification('success', t('support.impersonationStarted', 'Logged in as employee. Use "Exit Impersonation" to return.'));
       const slug = data.tenant?.slug;
-      // Full page redirect so the app bootstraps with the new token from localStorage
-      // and avoids React state/navigate races that could send the user to login
-      const path = slug ? `/${slug}/admin` : '/';
+      // Redirect to reception for receptionist/cashier so they land on Reception Desk directly (no admin layout + loading then redirect)
+      const role = data.user?.role;
+      const path = slug
+        ? (role === 'receptionist' || role === 'cashier' ? `/${slug}/reception` : `/${slug}/admin`)
+        : '/';
       window.location.href = `${window.location.origin}${path}`;
     } catch (e: any) {
       showNotification('error', e.message || 'Impersonation failed');
@@ -276,6 +280,7 @@ export function SupportTicketsPage() {
                                   <th className="pb-2 pr-4">{t('support.employeeName', 'Employee Name')}</th>
                                   <th className="pb-2 pr-4">{t('support.role', 'Role')}</th>
                                   <th className="pb-2 pr-4">{t('support.title', 'Title')}</th>
+                                  <th className="pb-2 pr-4">{t('support.description', 'Description')}</th>
                                   <th className="pb-2 pr-4">{t('support.status', 'Status')}</th>
                                   <th className="pb-2 pr-4">{t('support.createdAt', 'Created At')}</th>
                                   <th className="pb-2">{t('support.actions', 'Actions')}</th>
@@ -289,6 +294,18 @@ export function SupportTicketsPage() {
                                     <td className="py-2 pr-4">{ticket.created_by_name || '—'}</td>
                                     <td className="py-2 pr-4">{ticket.role}</td>
                                     <td className="py-2 pr-4 max-w-[180px] truncate" title={ticket.title}>{ticket.title}</td>
+                                    <td className="py-2 pr-4 max-w-[220px]">
+                                      <span className="line-clamp-2 text-gray-700">{ticket.description || '—'}</span>
+                                      {ticket.description && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setDescriptionModalTicket(ticket)}
+                                          className="text-blue-600 hover:text-blue-800 text-xs font-medium mt-1"
+                                        >
+                                          {t('support.showMore', 'Show more')}
+                                        </button>
+                                      )}
+                                    </td>
                                     <td className="py-2 pr-4">
                                       <select
                                         value={ticket.status}
@@ -333,6 +350,24 @@ export function SupportTicketsPage() {
             )}
           </CardContent>
         </Card>
+
+      {/* Full description modal */}
+      <Modal
+        isOpen={!!descriptionModalTicket}
+        onClose={() => setDescriptionModalTicket(null)}
+        title={descriptionModalTicket ? descriptionModalTicket.title : ''}
+        size="lg"
+      >
+        {descriptionModalTicket && (
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-gray-700">{t('support.description', 'Description')}</p>
+            <p className="text-sm text-gray-800 whitespace-pre-wrap">{descriptionModalTicket.description || '—'}</p>
+            <Button variant="secondary" onClick={() => setDescriptionModalTicket(null)}>
+              {t('common.close', 'Close')}
+            </Button>
+          </div>
+        )}
+      </Modal>
       </main>
     </div>
   );

@@ -107,7 +107,7 @@ export function AssignFixingTicketForm() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-600 bg-gray-50 rounded-lg p-3">
               <div>
                 <span className="font-medium text-gray-700">{t('support.userName', 'User name')}:</span>{' '}
-                {userProfile?.full_name || userProfile?.email || '—'}
+                {(userProfile?.full_name?.trim() || userProfile?.email || (userProfile as { username?: string })?.username || '—')}
               </div>
               <div>
                 <span className="font-medium text-gray-700">{t('support.role', 'Role')}:</span>{' '}
@@ -115,11 +115,11 @@ export function AssignFixingTicketForm() {
               </div>
               <div>
                 <span className="font-medium text-gray-700">{t('support.branch', 'Branch')}:</span>{' '}
-                {(branchName && branchName.trim()) ? branchName : '—'}
+                {(branchName && branchName.trim()) ? branchName : t('support.notAssigned', 'Not assigned')}
               </div>
               <div>
                 <span className="font-medium text-gray-700">{t('support.tenant', 'Tenant')}:</span>{' '}
-                {tenant?.name || '—'}
+                {tenant?.name || tenant?.slug || '—'}
               </div>
               <div className="sm:col-span-2">
                 <span className="font-medium text-gray-700">{t('support.timestamp', 'Timestamp')}:</span>{' '}

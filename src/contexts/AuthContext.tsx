@@ -53,7 +53,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userProfile, setUserProfile] = useState<User | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isImpersonating, setIsImpersonating] = useState(false);
+  const [isImpersonating, setIsImpersonating] = useState(() => {
+    if (typeof localStorage === 'undefined') return false;
+    return !!(localStorage.getItem(IMPERSONATION_LOG_ID_KEY) && localStorage.getItem(IMPERSONATION_ORIGINAL_SESSION_KEY));
+  });
   const fetchingProfileRef = React.useRef<string | null>(null);
   const userProfileRef = React.useRef<User | null>(null);
 

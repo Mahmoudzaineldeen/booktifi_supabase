@@ -744,6 +744,8 @@
     "payment": "Payment"
   },
   "cashier": {
+    "title": "Cashier Desk",
+    "welcomeCashier": "Welcome, cashier",
     "paymentStatusUpdatedSuccessfully": "Payment status updated successfully"
   },
   "packages": {

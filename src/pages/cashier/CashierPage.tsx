@@ -9,11 +9,11 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
-import { QrCode, Scan, LogOut, User, Phone, Mail, Clock, CheckCircle, XCircle, DollarSign, Calendar, FileText } from 'lucide-react';
+import { QrCode, Scan, LogOut, User, Phone, Mail, Clock, CheckCircle, XCircle, DollarSign, Calendar, FileText, Wrench } from 'lucide-react';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { format, parseISO } from 'date-fns';
 import { formatTimeTo12Hour } from '../../lib/timeFormat';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { getApiUrl } from '../../lib/apiUrl';
 import { extractBookingIdFromQR } from '../../lib/qrUtils';
 import { showNotification } from '../../contexts/NotificationContext';
@@ -47,6 +47,8 @@ export function CashierPage() {
   const { userProfile, tenant, signOut, loading: authLoading } = useAuth();
   const { formatPrice } = useCurrency();
   const navigate = useNavigate();
+  const { tenantSlug } = useParams<{ tenantSlug?: string }>();
+  const tenantSlugForNav = tenantSlug || tenant?.slug || '';
   const [scannedBooking, setScannedBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
@@ -290,13 +292,21 @@ export function CashierPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-xl md:text-2xl font-bold text-gray-900">
-                {t('cashier.title')}
+                {t('cashier.title', 'Cashier Desk')}
               </h1>
               <p className="text-xs md:text-sm text-gray-600">
-                {i18n.language === 'ar' ? 'مرحباً، الصراف' : 'Welcome, Cashier'} {i18n.language === 'ar' ? userProfile?.full_name_ar : userProfile?.full_name}
+                {t('cashier.welcomeCashier', 'Welcome, cashier')} {i18n.language === 'ar' ? userProfile?.full_name_ar : userProfile?.full_name}
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => tenantSlugForNav && navigate(`/${tenantSlugForNav}/admin/assign-fixing-ticket`)}
+              >
+                <Wrench className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">{t('navigation.assignFixingTicket', 'Assign Fixing Ticket')}</span>
+              </Button>
               <LanguageToggle />
               <Button
                 variant="secondary"
