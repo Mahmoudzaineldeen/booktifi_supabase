@@ -998,7 +998,7 @@
     "totalPrice": "السعر الإجمالي",
     "markAsPaid": "تحديد كمدفوع",
     "noBookingDetails": "لا توجد تفاصيل حجز",
-    "scanQRCodeOrEnterId": "امسح رمز QR أو أدخل رقم الحجز لعرض التفاصيل",
+    "scanQRCodeOrEnterBookingId": "امسح رمز QR أو أدخل رقم الحجز لعرض التفاصيل",
     "invalidServerResponse": "خطأ في الاستجابة من الخادم",
     "qrValidationFailed": "فشل التحقق من QR",
     "qrValidatedSuccessfully": "تم التحقق بنجاح",

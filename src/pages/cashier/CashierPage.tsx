@@ -13,10 +13,11 @@ import { QrCode, Scan, LogOut, User, Phone, Mail, Clock, CheckCircle, XCircle, D
 import { QRScanner } from '../../components/qr/QRScanner';
 import { format, parseISO } from 'date-fns';
 import { formatTimeTo12Hour } from '../../lib/timeFormat';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { getApiUrl } from '../../lib/apiUrl';
 import { extractBookingIdFromQR } from '../../lib/qrUtils';
 import { showNotification } from '../../contexts/NotificationContext';
+import { AssignFixingTicketForm } from '../../components/support/AssignFixingTicketForm';
 
 interface Booking {
   id: string;
@@ -47,8 +48,10 @@ export function CashierPage() {
   const { userProfile, tenant, signOut, loading: authLoading } = useAuth();
   const { formatPrice } = useCurrency();
   const navigate = useNavigate();
+  const location = useLocation();
   const { tenantSlug } = useParams<{ tenantSlug?: string }>();
   const tenantSlugForNav = tenantSlug || tenant?.slug || '';
+  const isAssignFixingTicketPath = location.pathname.includes('/cashier/assign-fixing-ticket');
   const [scannedBooking, setScannedBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
@@ -300,9 +303,9 @@ export function CashierPage() {
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Button
-                variant="secondary"
+                variant={isAssignFixingTicketPath ? 'primary' : 'secondary'}
                 size="sm"
-                onClick={() => tenantSlugForNav && navigate(`/${tenantSlugForNav}/admin/assign-fixing-ticket`)}
+                onClick={() => tenantSlugForNav && navigate(`/${tenantSlugForNav}/cashier/assign-fixing-ticket`)}
               >
                 <Wrench className="w-4 h-4 mr-2" />
                 <span className="hidden sm:inline">{t('navigation.assignFixingTicket', 'Assign Fixing Ticket')}</span>
@@ -328,8 +331,10 @@ export function CashierPage() {
       )}
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* QR Scanner Section - only when tickets are enabled */}
-        {tenant?.tickets_enabled !== false ? (
+        {/* Assign Fixing Ticket view - same cashier header, no admin sidebar */}
+        {isAssignFixingTicketPath ? (
+          <AssignFixingTicketForm />
+        ) : tenant?.tickets_enabled !== false ? (
           <Card className="mb-6">
             <CardContent className="py-6">
               <div className="text-center mb-6">
@@ -416,8 +421,8 @@ export function CashierPage() {
           </Card>
         )}
 
-        {/* Scanned Booking Details */}
-        {scannedBooking && (
+        {/* Scanned Booking Details - only on main cashier view */}
+        {!isAssignFixingTicketPath && scannedBooking && (
           <Card>
             <CardContent className="py-6">
               <div className="flex items-center justify-between mb-6">
@@ -574,8 +579,8 @@ export function CashierPage() {
           </Card>
         )}
 
-        {/* Empty State */}
-        {!scannedBooking && !qrValidationResult && (
+        {/* Empty State - only on main cashier view */}
+        {!isAssignFixingTicketPath && !scannedBooking && !qrValidationResult && (
           <Card>
             <CardContent className="py-12 text-center">
               <QrCode className="w-16 h-16 text-gray-400 mx-auto mb-4" />
@@ -583,9 +588,7 @@ export function CashierPage() {
                 {t('cashier.noBookingDetails')}
               </h3>
               <p className="text-gray-600">
-                {i18n.language === 'ar' 
-                  ? 'امسح رمز QR أو أدخل رقم الحجز لعرض التفاصيل'
-                  : t('cashier.scanQRCodeOrEnterId')}
+                {t('cashier.scanQRCodeOrEnterBookingId')}
               </p>
             </CardContent>
           </Card>

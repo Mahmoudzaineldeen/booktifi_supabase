@@ -91,6 +91,7 @@ function AppContent() {
       <Route path="/:tenantSlug/reception/visitors" element={<ReceptionPage />} />
       <Route path="/:tenantSlug/reception/assign-fixing-ticket" element={<ReceptionPage />} />
       <Route path="/:tenantSlug/reception" element={<ReceptionPage />} />
+      <Route path="/:tenantSlug/cashier/assign-fixing-ticket" element={<CashierPage />} />
       <Route path="/:tenantSlug/cashier" element={<CashierPage />} />
       {/* ARCHIVED: <Route path="/:tenantSlug/employee" element={<EmployeePage />} /> */}
 
