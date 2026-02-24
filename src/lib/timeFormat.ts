@@ -24,6 +24,9 @@ export function formatTimeTo12Hour(time: string | Date): string {
     const parts = time.trim().split(':');
     hours = parseInt(parts[0] ?? '0', 10);
     minutes = parseInt(parts[1] ?? '0', 10);
+    if (hours === 24 && minutes === 0) {
+      hours = 0; // 24:00 = midnight = 12:00 AM
+    }
     if (isNaN(hours) || hours < 0 || hours > 23 || isNaN(minutes) || minutes < 0 || minutes > 59) {
       return time; // fallback to original if invalid
     }

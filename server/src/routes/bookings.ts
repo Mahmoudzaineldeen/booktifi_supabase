@@ -913,55 +913,53 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       .in('employee_id', availableEmployeeIds)
       .eq('is_active', true);
 
-    const employeesWithCustomShifts = new Set((empShifts || []).map((s: any) => s.employee_id));
-    const employeesWithoutCustomShifts = availableEmployeeIds.filter((eid: string) => !employeesWithCustomShifts.has(eid));
-
-    // Employees assigned to a branch (users.branch_id) inherit that branch's default shifts when they have no custom employee_shifts.
+    // Employees with a branch use ONLY branch default shifts (no custom). Employees without a branch use custom employee_shifts.
+    const employeesWithBranch = availableEmployeeIds.filter((eid: string) => Boolean(employeeBranchId.get(eid)));
+    const branchIds = [...new Set(employeesWithBranch.map((eid: string) => employeeBranchId.get(eid)).filter(Boolean))];
     let branchShiftsList: any[] = [];
-    if (employeesWithoutCustomShifts.length > 0) {
-      const branchIds = [...new Set(employeesWithoutCustomShifts.map((eid: string) => employeeBranchId.get(eid)).filter(Boolean))];
-      if (branchIds.length > 0) {
-        const { data: bShifts } = await supabase
-          .from('branch_shifts')
-          .select('id, branch_id, days_of_week, start_time, end_time')
-          .in('branch_id', branchIds);
-        branchShiftsList = bShifts || [];
-        logger.info('ensure-employee-based-slots: applying branch default shifts', {
-          serviceId,
-          dateStr,
-          employeesWithoutCustomShifts: employeesWithoutCustomShifts.length,
-          branchIds,
-          branchShiftsCount: branchShiftsList.length,
-        });
-      }
-    }
-
-    // Build effective shifts per employee: either employee_shifts (custom) or branch_shifts (branch default for assigned branch)
-    type EffectiveShift = { employee_id: string; start_time_utc: string; end_time_utc: string; days_of_week: number[] };
-    const effectiveShifts: EffectiveShift[] = [];
-    for (const es of empShifts || []) {
-      const days = toDaysArray(es.days_of_week);
-      if (days.length === 0) continue;
-      effectiveShifts.push({
-        employee_id: es.employee_id,
-        start_time_utc: toTimeStr(es.start_time_utc),
-        end_time_utc: toTimeStr(es.end_time_utc),
-        days_of_week: days,
+    if (branchIds.length > 0) {
+      const { data: bShifts } = await supabase
+        .from('branch_shifts')
+        .select('id, branch_id, days_of_week, start_time, end_time')
+        .in('branch_id', branchIds);
+      branchShiftsList = bShifts || [];
+      logger.info('ensure-employee-based-slots: applying branch default shifts', {
+        serviceId,
+        dateStr,
+        employeesWithBranch: employeesWithBranch.length,
+        branchIds,
+        branchShiftsCount: branchShiftsList.length,
       });
     }
-    for (const eid of employeesWithoutCustomShifts) {
+
+    type EffectiveShift = { employee_id: string; start_time_utc: string; end_time_utc: string; days_of_week: number[] };
+    const effectiveShifts: EffectiveShift[] = [];
+    for (const eid of availableEmployeeIds) {
       const branchId = employeeBranchId.get(eid);
-      if (!branchId) continue;
-      for (const bs of branchShiftsList) {
-        if (bs.branch_id !== branchId) continue;
-        const days = toDaysArray(bs.days_of_week);
-        if (days.length === 0) continue;
-        effectiveShifts.push({
-          employee_id: eid,
-          start_time_utc: toTimeStr(bs.start_time),
-          end_time_utc: toTimeStr(bs.end_time),
-          days_of_week: days,
-        });
+      if (branchId) {
+        for (const bs of branchShiftsList) {
+          if (bs.branch_id !== branchId) continue;
+          const days = toDaysArray(bs.days_of_week);
+          if (days.length === 0) continue;
+          effectiveShifts.push({
+            employee_id: eid,
+            start_time_utc: toTimeStr(bs.start_time),
+            end_time_utc: toTimeStr(bs.end_time),
+            days_of_week: days,
+          });
+        }
+      } else {
+        const customShifts = (empShifts || []).filter((s: any) => s.employee_id === eid);
+        for (const es of customShifts) {
+          const days = toDaysArray(es.days_of_week);
+          if (days.length === 0) continue;
+          effectiveShifts.push({
+            employee_id: eid,
+            start_time_utc: toTimeStr(es.start_time_utc),
+            end_time_utc: toTimeStr(es.end_time_utc),
+            days_of_week: days,
+          });
+        }
       }
     }
 
@@ -997,23 +995,32 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       });
     }
 
-    // 3) Existing employee-based slots (virtual shift, this date) — avoid duplicate inserts
+    // 3) Existing employee-based slots (virtual shift, this date) — remove slots with no bookings so we can regenerate from current branch shifts only
     const { data: existingSlots } = await supabase
       .from('slots')
-      .select('employee_id, start_time')
+      .select('id, employee_id, start_time')
       .eq('shift_id', virtualShiftId)
       .in('employee_id', employeeIdsFromShifts)
       .eq('slot_date', dateStr);
     const existingSlotKeys = new Set((existingSlots || []).map((s: any) => `${s.employee_id}:${s.start_time}`));
+    const slotIdsWithBookings = new Set(Object.keys(bookingCountBySlotId));
+    const toDelete = (existingSlots || []).filter((s: any) => !slotIdsWithBookings.has(s.id));
+    const slotIdsToDelete = toDelete.map((s: any) => s.id);
+    if (slotIdsToDelete.length > 0) {
+      await supabase.from('slots').delete().in('id', slotIdsToDelete);
+      toDelete.forEach((s: any) => existingSlotKeys.delete(`${s.employee_id}:${s.start_time}`));
+    }
 
     const startTimeStr = (t: string) => (t || '').slice(0, 8);
     const toMinutes = (t: string) => {
       const parts = (t || '00:00').split(':').map(Number);
       return (parts[0] || 0) * 60 + (parts[1] || 0);
     };
+    const MINUTES_PER_DAY = 24 * 60;
     const toTime = (mins: number) => {
-      const h = Math.floor(mins / 60);
-      const m = mins % 60;
+      const normalized = mins >= MINUTES_PER_DAY ? mins % MINUTES_PER_DAY : mins;
+      const h = Math.floor(normalized / 60);
+      const m = normalized % 60;
       return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
     };
 
@@ -1022,8 +1029,6 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     const NO_AVAILABILITY_END_M = 20 * 60;     // 8:00 PM
     const slotStartsInForbiddenWindow = (slotStartM: number) =>
       slotStartM >= NO_AVAILABILITY_START_M && slotStartM < NO_AVAILABILITY_END_M;
-
-    const MINUTES_PER_DAY = 24 * 60;
 
     // --- Build availability in memory: for each (shift, time window) compute overlap count and decide insert ---
     type SlotRow = {
