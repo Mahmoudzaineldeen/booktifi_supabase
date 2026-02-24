@@ -5196,6 +5196,7 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
       totalPrice > 0 &&
       (isBecomingPaid || (payMethod === 'transfer' && refNum));
 
+    let invoiceCreateError: string | undefined;
     if (!invoiceId && totalPrice > 0 && shouldCreateInvoiceAndRecordPayment) {
       try {
         const { zohoService } = await import('../services/zohoService.js');
@@ -5204,9 +5205,12 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
           invoiceId = invoiceResult.invoiceId;
           const { data: refetch } = await supabase.from('bookings').select('zoho_invoice_id').eq('id', bookingId).single();
           if (refetch?.zoho_invoice_id) invoiceId = refetch.zoho_invoice_id;
+        } else {
+          invoiceCreateError = invoiceResult.error || 'Invoice creation failed';
         }
       } catch (e: any) {
-        logger.error('Create invoice on mark paid failed (non-blocking)', { bookingId, error: e?.message });
+        invoiceCreateError = e?.message || 'Invoice creation failed';
+        logger.error('Create invoice on mark paid failed (non-blocking)', { bookingId, error: invoiceCreateError });
       }
     }
 
@@ -5267,10 +5271,13 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
       }
     }
 
+    const zohoSyncPayload = zohoSyncResult ?? (shouldCreateInvoiceAndRecordPayment && !invoiceId
+      ? { success: false as const, error: invoiceCreateError || 'Invoice could not be created. Check Zoho configuration in Settings → Zoho Integration (Connect Zoho and complete OAuth).' }
+      : { success: false as const, error: invoiceId ? 'Zoho sync failed. Check Settings → Zoho Integration.' : 'No invoice to sync. Create an invoice first or check Zoho setup in Settings.' });
     const responsePayload: Record<string, unknown> = {
       success: true,
       booking: updatedBooking,
-      zoho_sync: zohoSyncResult || { success: false, error: invoiceId ? undefined : 'No invoice to sync' },
+      zoho_sync: zohoSyncPayload,
       message: payment_status === 'paid' || payment_status === 'paid_manual'
         ? 'Payment status updated. Invoice sent via WhatsApp when applicable.'
         : 'Payment status updated',
