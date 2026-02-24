@@ -306,7 +306,6 @@ router.get('/shifts-page-data', async (req, res) => {
         .select('id, full_name, full_name_ar, role, branch_id')
         .eq('tenant_id', tenantId)
         .in('role', ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'])
-        .eq('is_active', true)
         .order('full_name'),
       supabase
         .from('employee_shifts')
@@ -319,7 +318,7 @@ router.get('/shifts-page-data', async (req, res) => {
         .eq('tenant_id', tenantId),
       supabase
         .from('branches')
-        .select('id, name, name_ar')
+        .select('id, name')
         .eq('tenant_id', tenantId),
     ]);
 
