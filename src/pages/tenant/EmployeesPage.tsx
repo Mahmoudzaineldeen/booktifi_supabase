@@ -79,6 +79,14 @@ interface EmployeeShift {
   is_active: boolean;
 }
 
+/** Branch default shift for display only (read-only in Work Schedule) */
+interface BranchDefaultShift {
+  id: string;
+  days_of_week: number[];
+  start_time_utc: string;
+  end_time_utc: string;
+}
+
 /** Normalize one shift for insert so server always receives valid days_of_week (array) and HH:MM:SS times. */
 function normalizeEmployeeShiftForInsert(
   sh: { days_of_week?: number[] | string | null; start_time_utc?: string | null; end_time_utc?: string | null; is_active?: boolean },
@@ -162,6 +170,7 @@ export function EmployeesPage() {
   const [selectedRole, setSelectedRole] = useState<'all' | 'employee' | 'cashier' | 'receptionist' | 'coordinator' | 'customer_admin' | 'admin_user'>('all');
   const [isPausedUntil, setIsPausedUntil] = useState<string>('');
   const [employeeShifts, setEmployeeShifts] = useState<EmployeeShift[]>([]);
+  const [branchDefaultShifts, setBranchDefaultShifts] = useState<BranchDefaultShift[]>([]);
   const [employeeShiftForm, setEmployeeShiftForm] = useState({
     days_of_week: [] as number[],
     start_time: '09:00',
@@ -476,15 +485,27 @@ export function EmployeesPage() {
       serviceShiftMap.push({ serviceId, shiftIds });
     }
 
-    // Load service shifts and employee shifts in parallel for faster modal open
-    const [shiftsDataResult, employeeShiftsResult] = await Promise.all([
+    // Load service shifts, employee shifts, and branch default shifts (when employee has a branch)
+    const [shiftsDataResult, employeeShiftsResult, branchShiftsResult] = await Promise.all([
       assignedServices.length > 0
         ? db.from('shifts').select('*').in('service_id', assignedServices).eq('is_active', true).order('start_time_utc')
         : Promise.resolve({ data: [] }),
       db.from('employee_shifts').select('*').eq('employee_id', employee.id).order('created_at'),
+      employee.branch_id
+        ? db.from('branch_shifts').select('id, days_of_week, start_time, end_time').eq('branch_id', employee.branch_id)
+        : Promise.resolve({ data: [] }),
     ]);
     setShifts(shiftsDataResult.data || []);
     setEmployeeShifts(employeeShiftsResult.data || []);
+    const branchShifts = branchShiftsResult.data || [];
+    setBranchDefaultShifts(
+      branchShifts.map((bs: { id: string; days_of_week: number[]; start_time?: string; end_time?: string }) => ({
+        id: `branch-${bs.id}`,
+        days_of_week: Array.isArray(bs.days_of_week) ? bs.days_of_week : [],
+        start_time_utc: (bs.start_time || '00:00').slice(0, 8),
+        end_time_utc: (bs.end_time || '23:59').slice(0, 8),
+      }))
+    );
     setEmployeeShiftForm({ days_of_week: [], start_time: '09:00', end_time: '18:00', is_active: true });
 
     setFormData({
@@ -522,6 +543,7 @@ export function EmployeesPage() {
     setShifts([]);
     setIsPausedUntil('');
     setEmployeeShifts([]);
+    setBranchDefaultShifts([]);
     setEmployeeShiftForm({ days_of_week: [], start_time: '09:00', end_time: '18:00', is_active: true });
   }
 
@@ -1122,8 +1144,23 @@ export function EmployeesPage() {
               <p className="text-xs text-gray-500 mb-3">
                 {t('employee.workScheduleHelp', 'Define when this employee is working. Slots are generated from service duration and these shifts. Capacity = number of employees available at each time.')}
               </p>
-              {employeeShifts.length > 0 && (
+              {(branchDefaultShifts.length > 0 || employeeShifts.length > 0) && (
                 <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
+                  {branchDefaultShifts.map((sh) => (
+                    <div key={sh.id} className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200 text-sm">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-medium text-blue-700">
+                          {t('employee.branchDefault', 'Branch default')}
+                        </span>
+                        <span className="font-medium text-gray-800">
+                          {formatTimeTo12Hour(sh.start_time_utc ?? '')} – {formatTimeTo12Hour(sh.end_time_utc ?? '')}
+                        </span>
+                        <span className="text-xs text-gray-600">
+                          {[...(sh.days_of_week || [])].sort().map(d => (i18n.language === 'ar' ? dayNamesAr[d] : dayNames[d])).join(', ')}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                   {employeeShifts.map((sh) => (
                     <div key={sh.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 text-sm">
                       <div className="flex flex-col gap-0.5">

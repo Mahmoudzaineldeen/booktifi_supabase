@@ -38,6 +38,7 @@
     "test:multi-branch": "node tests/backend/12-multi-branch-system.test.js",
     "test:branch-shifts": "node tests/backend/13-branch-shifts-overnight.test.js",
     "test:branch-shifts:unit": "node tests/unit/branch-shifts-validation.test.js",
+    "test:branch-shifts-assigned": "node tests/backend/14-branch-shifts-assigned-to-employees.test.js",
     "test:frontend-booking-time-change": "node tests/test-frontend-booking-time-change.js",
     "test:package-invoice-create-send": "node tests/test-package-subscription-invoice-create-and-send.js",
     "test:package-partial-coverage-cap": "node tests/test-package-partial-coverage-cap.js"

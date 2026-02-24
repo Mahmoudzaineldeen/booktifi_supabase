@@ -49,15 +49,17 @@ async function runBranchShiftsTests() {
     return { message: 'OK' };
   });
 
-  await test('GET /branches — get first branch', async () => {
+  await test('GET /branches — find Main Branch', async () => {
     const res = await apiRequest('/branches', {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     if (!res.ok) throw new Error(`${res.status}: ${JSON.stringify(res.data)}`);
     const list = res.data?.data || [];
     if (list.length === 0) throw new Error('No branches; create one in admin first');
-    branchId = list[0].id;
-    return { message: `branch_id=${branchId}` };
+    const mainBranch = list.find((b) => (b.name || '').toLowerCase() === 'main branch');
+    branchId = mainBranch ? mainBranch.id : list[0].id;
+    const branchName = mainBranch ? mainBranch.name : (list[0]?.name || 'first branch');
+    return { message: `branch="${branchName}" id=${branchId}` };
   });
 
   // --- Overnight: 9 PM to 12 AM (21:00 - 00:00) — must succeed

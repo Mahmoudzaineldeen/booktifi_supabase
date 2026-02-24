@@ -1017,6 +1017,14 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
     };
 
+    // Branch rule: employees must not have shifts from 5 PM to 8 PM (no availability in that window).
+    const NO_AVAILABILITY_START_M = 17 * 60;   // 5:00 PM
+    const NO_AVAILABILITY_END_M = 20 * 60;     // 8:00 PM
+    const slotStartsInForbiddenWindow = (slotStartM: number) =>
+      slotStartM >= NO_AVAILABILITY_START_M && slotStartM < NO_AVAILABILITY_END_M;
+
+    const MINUTES_PER_DAY = 24 * 60;
+
     // --- Build availability in memory: for each (shift, time window) compute overlap count and decide insert ---
     type SlotRow = {
       tenant_id: string;
@@ -1038,51 +1046,65 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     for (const es of shiftsForDay as any[]) {
       const startM = toMinutes(startTimeStr(es.start_time_utc));
       const endM = toMinutes(startTimeStr(es.end_time_utc));
-      let slotStartM = startM;
-      while (slotStartM + durationMinutes <= endM) {
-        const slotEndM = slotStartM + durationMinutes;
-        const startTime = toTime(slotStartM);
-        const endTime = toTime(slotEndM);
-        const key = `${es.employee_id}:${startTime}`;
-        if (existingSlotKeys.has(key)) {
+      const isOvernight = endM <= startM;
+      const ranges: { start: number; end: number }[] = isOvernight
+        ? [
+            { start: startM, end: MINUTES_PER_DAY },
+            { start: 0, end: endM },
+          ]
+        : [{ start: startM, end: endM }];
+
+      for (const range of ranges) {
+        let slotStartM = range.start;
+        while (slotStartM + durationMinutes <= range.end) {
+          if (slotStartsInForbiddenWindow(slotStartM)) {
+            slotStartM += durationMinutes;
+            continue;
+          }
+          const slotEndM = slotStartM + durationMinutes;
+          const startTime = toTime(slotStartM);
+          const endTime = toTime(slotEndM);
+          const key = `${es.employee_id}:${startTime}`;
+          if (existingSlotKeys.has(key)) {
+            slotStartM += durationMinutes;
+            continue;
+          }
+          // Overlapping slots (same employee, time overlap) — in memory from allSlotsForDate
+          const overlapping = (allSlotsForDate || []).filter((s: any) => {
+            if (s.employee_id !== es.employee_id) return false;
+            const sStart = (s.start_time || '').slice(0, 8);
+            const sEnd = (s.end_time || '').slice(0, 8);
+            return sStart < endTime && sEnd > startTime;
+          });
+          let overlapCount = 0;
+          overlapping.forEach((s: any) => {
+            overlapCount += bookingCountBySlotId[s.id] || 0;
+          });
+          const availableCapacity = Math.max(0, 1 - overlapCount);
+          if (availableCapacity === 0) {
+            slotStartM += durationMinutes;
+            continue;
+          }
+          const startTs = `${dateStr}T${startTime}`;
+          const endTs = `${dateStr}T${endTime}`;
+          const slotRow: SlotRow = {
+            tenant_id: tenantId,
+            shift_id: virtualShiftId,
+            employee_id: es.employee_id,
+            slot_date: dateStr,
+            start_time: startTime,
+            end_time: endTime,
+            start_time_utc: startTs,
+            end_time_utc: endTs,
+            original_capacity: 1,
+            available_capacity: availableCapacity,
+            booked_count: overlapCount,
+            is_available: true,
+            is_overbooked: false,
+          };
+          rowsToInsert.push(slotRow);
           slotStartM += durationMinutes;
-          continue;
         }
-        // Overlapping slots (same employee, time overlap) — in memory from allSlotsForDate
-        const overlapping = (allSlotsForDate || []).filter((s: any) => {
-          if (s.employee_id !== es.employee_id) return false;
-          const sStart = (s.start_time || '').slice(0, 8);
-          const sEnd = (s.end_time || '').slice(0, 8);
-          return sStart < endTime && sEnd > startTime;
-        });
-        let overlapCount = 0;
-        overlapping.forEach((s: any) => {
-          overlapCount += bookingCountBySlotId[s.id] || 0;
-        });
-        const availableCapacity = Math.max(0, 1 - overlapCount);
-        if (availableCapacity === 0) {
-          slotStartM += durationMinutes;
-          continue;
-        }
-        const startTs = `${dateStr}T${startTime}`;
-        const endTs = `${dateStr}T${endTime}`;
-        const slotRow: SlotRow = {
-          tenant_id: tenantId,
-          shift_id: virtualShiftId,
-          employee_id: es.employee_id,
-          slot_date: dateStr,
-          start_time: startTime,
-          end_time: endTime,
-          start_time_utc: startTs,
-          end_time_utc: endTs,
-          original_capacity: 1,
-          available_capacity: availableCapacity,
-          booked_count: overlapCount,
-          is_available: true,
-          is_overbooked: false,
-        };
-        rowsToInsert.push(slotRow);
-        slotStartM += durationMinutes;
       }
     }
 

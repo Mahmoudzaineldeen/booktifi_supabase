@@ -510,6 +510,7 @@
     "availabilityFromWorkSchedule": "Availability comes from your Work Schedule below. Service duration is set in Services.",
     "workSchedule": "Work Schedule",
     "workScheduleHelp": "Define when this employee is working. Slots are generated from service duration and these shifts. Capacity = number of employees available at each time.",
+    "branchDefault": "Branch default",
     "selectShifts": "Select shifts",
     "noShiftsConfigured": "No shifts configured for this service",
     "pausedUntil": "Paused until",
