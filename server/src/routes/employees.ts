@@ -309,7 +309,7 @@ router.get('/shifts-page-data', async (req, res) => {
         .from('users')
         .select('id, full_name, full_name_ar, role, branch_id')
         .eq('tenant_id', tenantId)
-        .in('role', ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'])
+        .eq('role', 'employee')
         .order('full_name'),
       supabase
         .from('employee_shifts')
