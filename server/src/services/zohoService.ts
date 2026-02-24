@@ -2758,14 +2758,45 @@ Note: The booking payment status was updated successfully in the database. Only 
       return { success: false, error: 'Invoice has no customer_id' };
     }
 
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const balanceRaw = invoice.balance ?? invoice.balance_due ?? invoice.unpaid_amount;
+    const paymentMade = invoice.payment_made !== undefined && invoice.payment_made !== null && invoice.payment_made !== ''
+      ? Number(invoice.payment_made)
+      : 0;
+    const invoiceTotal = invoice.total !== undefined && invoice.total !== null && invoice.total !== ''
+      ? Number(invoice.total)
+      : undefined;
+    let balanceDue: number | undefined =
+      balanceRaw !== undefined && balanceRaw !== null && balanceRaw !== ''
+        ? Number(balanceRaw)
+        : undefined;
+    if (balanceDue === undefined && Number.isFinite(invoiceTotal)) {
+      balanceDue = round2(Math.max(0, invoiceTotal - paymentMade));
+    }
+    if (balanceDue !== undefined && Number.isFinite(balanceDue)) {
+      balanceDue = round2(balanceDue);
+    }
+    if (balanceDue !== undefined && Number.isFinite(balanceDue) && balanceDue <= 0) {
+      return { success: true, paymentId: undefined };
+    }
+    const amountNum = round2(Number(amount));
+    const amountToApply =
+      balanceDue !== undefined && Number.isFinite(balanceDue) && balanceDue > 0
+        ? round2(Math.min(amountNum, balanceDue))
+        : amountNum;
+
+    if (amountToApply <= 0) {
+      return { success: false, error: 'Invoice has no balance due to apply payment to.' };
+    }
+
     // Zoho Invoice API expects payment_mode: "Cash" or "Bank Transfer"
     const zohoPaymentMode = paymentMode === 'banktransfer' ? 'Bank Transfer' : 'Cash';
     const payload: Record<string, unknown> = {
       customer_id: customerId,
       payment_mode: zohoPaymentMode,
-      amount: Number(amount),
+      amount: amountToApply,
       date: paymentDate,
-      invoices: [{ invoice_id: invoiceId, amount_applied: Number(amount) }],
+      invoices: [{ invoice_id: invoiceId, amount_applied: amountToApply }],
     };
     const ref = referenceNumber?.trim() || (paymentMode === 'cash' ? 'Paid On Site' : undefined);
     if (ref) payload.reference_number = ref;
