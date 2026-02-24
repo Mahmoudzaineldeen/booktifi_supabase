@@ -1,4 +1,4 @@
--- Allow overnight shifts (e.g. 9 PM–12 AM): end_time = midnight is valid.
+-- Allow overnight shifts (e.g. 9 PM–12 AM or 9 PM–2 AM): only disallow start = end.
 DO $$
 DECLARE
   conname text;
@@ -16,7 +16,7 @@ BEGIN
   END IF;
   ALTER TABLE branch_shifts
     ADD CONSTRAINT branch_shifts_time_range_check
-    CHECK (end_time > start_time OR end_time = '00:00:00'::time);
+    CHECK (end_time <> start_time);
 EXCEPTION
   WHEN duplicate_object THEN NULL; -- constraint already exists (e.g. from fresh migrate)
 END $$;

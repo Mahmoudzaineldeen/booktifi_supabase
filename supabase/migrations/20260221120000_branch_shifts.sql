@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS branch_shifts (
   end_time time NOT NULL,
   created_at timestamptz DEFAULT now() NOT NULL,
   CHECK (array_length(days_of_week, 1) > 0),
-  CHECK (end_time > start_time OR end_time = '00:00:00'::time)
+  CHECK (end_time <> start_time)
 );
 
 CREATE INDEX IF NOT EXISTS idx_branch_shifts_branch_id ON branch_shifts(branch_id);
