@@ -1,6 +1,7 @@
 import express from 'express';
 import { supabase } from '../db';
 import jwt from 'jsonwebtoken';
+import { invalidateEmployeeAvailabilityForTenant } from '../utils/employeeAvailabilityCache';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -237,7 +238,7 @@ router.get('/:id', authenticateAdmin, async (req, res) => {
       return res.status(403).json({ error: 'Access denied to this branch' });
     }
 
-    const [servicesRes, packagesRes, employeesRes, receptionistsRes, cashiersRes, incomeBookings, incomeSubs] = await Promise.all([
+    const [servicesRes, packagesRes, employeesRes, receptionistsRes, cashiersRes, incomeBookings, incomeSubs, branchShiftsRes] = await Promise.all([
       supabase.from('service_branches').select('service_id, services(id, name, name_ar)').eq('branch_id', branchId),
       supabase.from('package_branches').select('package_id, service_packages(id, name, name_ar)').eq('branch_id', branchId),
       supabase.from('users').select('id, full_name, full_name_ar, email, username').eq('branch_id', branchId).eq('role', 'employee'),
@@ -245,6 +246,7 @@ router.get('/:id', authenticateAdmin, async (req, res) => {
       supabase.from('users').select('id, full_name, full_name_ar, email, username').eq('branch_id', branchId).eq('role', 'cashier'),
       supabase.from('bookings').select('total_price, status, payment_status').eq('branch_id', branchId),
       supabase.from('package_subscriptions').select('id, service_packages(total_price)').eq('branch_id', branchId).eq('payment_status', 'paid'),
+      supabase.from('branch_shifts').select('id, branch_id, days_of_week, start_time, end_time, created_at').eq('branch_id', branchId).order('start_time'),
     ]);
 
     const assignedServices = (servicesRes.data || []).map((r: any) => ({
@@ -273,6 +275,15 @@ router.get('/:id', authenticateAdmin, async (req, res) => {
       incomeFromSubscriptions += Number(s.service_packages?.total_price) || 0;
     });
 
+    const branchShifts = (branchShiftsRes.data || []).map((s: any) => ({
+      id: s.id,
+      branch_id: s.branch_id,
+      days_of_week: s.days_of_week,
+      start_time: s.start_time,
+      end_time: s.end_time,
+      created_at: s.created_at,
+    }));
+
     res.json({
       data: {
         ...branch,
@@ -282,6 +293,7 @@ router.get('/:id', authenticateAdmin, async (req, res) => {
         assigned_employees: employees,
         assigned_receptionists: receptionists,
         assigned_cashiers: cashiers,
+        branch_shifts: branchShifts,
         income_summary: {
           from_bookings: incomeFromBookings,
           from_subscriptions: incomeFromSubscriptions,
@@ -439,6 +451,103 @@ router.put('/:id/services', authenticateAdmin, async (req, res) => {
     res.json({ success: true, assigned_count: ids.length });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update assigned services' });
+  }
+});
+
+// ========== Branch shifts (admin only) ==========
+/** List branch shifts is included in GET /branches/:id. Add shift. */
+router.post('/:id/shifts', authenticateAdmin, async (req, res) => {
+  try {
+    const branchId = req.params.id;
+    const tenantId = req.user!.tenant_id;
+    const { days_of_week, start_time, end_time } = req.body;
+
+    const { data: existing } = await supabase.from('branches').select('id, tenant_id').eq('id', branchId).maybeSingle();
+    if (!existing) return res.status(404).json({ error: 'Branch not found' });
+    if (tenantId && existing.tenant_id !== tenantId) return res.status(403).json({ error: 'Access denied' });
+
+    const days = Array.isArray(days_of_week) ? days_of_week : (typeof days_of_week === 'string' ? days_of_week.replace(/[{}]/g, '').split(',').map((x: string) => parseInt(x.trim(), 10)) : []);
+    const validDays = days.filter((d: number) => !Number.isNaN(d) && d >= 0 && d <= 6);
+    if (validDays.length === 0) return res.status(400).json({ error: 'days_of_week must be a non-empty array of 0-6' });
+    const start = (start_time && String(start_time).trim()) || '09:00';
+    const end = (end_time && String(end_time).trim()) || '17:00';
+    const startNorm = start.length === 5 ? `${start}:00` : start.slice(0, 8);
+    const endNorm = end.length === 5 ? `${end}:00` : end.slice(0, 8);
+    if (endNorm <= startNorm) return res.status(400).json({ error: 'end_time must be after start_time' });
+
+    const { data: row, error } = await supabase
+      .from('branch_shifts')
+      .insert({ branch_id: branchId, days_of_week: validDays, start_time: startNorm, end_time: endNorm })
+      .select()
+      .single();
+    if (error) throw error;
+    if (existing.tenant_id) invalidateEmployeeAvailabilityForTenant(existing.tenant_id);
+    res.status(201).json({ data: row });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to add branch shift' });
+  }
+});
+
+/** Update branch shift */
+router.patch('/:id/shifts/:shiftId', authenticateAdmin, async (req, res) => {
+  try {
+    const { id: branchId, shiftId } = req.params;
+    const tenantId = req.user!.tenant_id;
+    const { days_of_week, start_time, end_time } = req.body;
+
+    const { data: branch } = await supabase.from('branches').select('id, tenant_id').eq('id', branchId).maybeSingle();
+    if (!branch) return res.status(404).json({ error: 'Branch not found' });
+    if (tenantId && branch.tenant_id !== tenantId) return res.status(403).json({ error: 'Access denied' });
+
+    const { data: shift } = await supabase.from('branch_shifts').select('id').eq('id', shiftId).eq('branch_id', branchId).maybeSingle();
+    if (!shift) return res.status(404).json({ error: 'Branch shift not found' });
+
+    const updates: Record<string, any> = {};
+    if (Array.isArray(days_of_week) && days_of_week.length > 0) {
+      const valid = days_of_week.filter((d: number) => !Number.isNaN(Number(d)) && Number(d) >= 0 && Number(d) <= 6);
+      if (valid.length > 0) updates.days_of_week = valid;
+    }
+    if (start_time != null && String(start_time).trim()) {
+      const s = String(start_time).trim();
+      updates.start_time = s.length === 5 ? `${s}:00` : s.slice(0, 8);
+    }
+    if (end_time != null && String(end_time).trim()) {
+      const e = String(end_time).trim();
+      updates.end_time = e.length === 5 ? `${e}:00` : e.slice(0, 8);
+    }
+    if (updates.end_time && updates.start_time && updates.end_time <= updates.start_time) {
+      return res.status(400).json({ error: 'end_time must be after start_time' });
+    }
+    if (Object.keys(updates).length === 0) {
+      const { data: current } = await supabase.from('branch_shifts').select('*').eq('id', shiftId).single();
+      return res.json({ data: current });
+    }
+
+    const { data: updated, error } = await supabase.from('branch_shifts').update(updates).eq('id', shiftId).select().single();
+    if (error) throw error;
+    if (branch.tenant_id) invalidateEmployeeAvailabilityForTenant(branch.tenant_id);
+    res.json({ data: updated });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update branch shift' });
+  }
+});
+
+/** Delete branch shift */
+router.delete('/:id/shifts/:shiftId', authenticateAdmin, async (req, res) => {
+  try {
+    const { id: branchId, shiftId } = req.params;
+    const tenantId = req.user!.tenant_id;
+
+    const { data: branch } = await supabase.from('branches').select('id, tenant_id').eq('id', branchId).maybeSingle();
+    if (!branch) return res.status(404).json({ error: 'Branch not found' });
+    if (tenantId && branch.tenant_id !== tenantId) return res.status(403).json({ error: 'Access denied' });
+
+    const { error } = await supabase.from('branch_shifts').delete().eq('id', shiftId).eq('branch_id', branchId);
+    if (error) throw error;
+    if (branch.tenant_id) invalidateEmployeeAvailabilityForTenant(branch.tenant_id);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to delete branch shift' });
   }
 });
 

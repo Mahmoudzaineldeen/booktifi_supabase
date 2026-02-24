@@ -1144,7 +1144,16 @@ export function EmployeesPage() {
                 <div className="text-xs font-medium text-gray-700">
                   {t('employee.addShift', 'Add shift')}
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="text-xs shrink-0"
+                    onClick={() => setEmployeeShiftForm(prev => ({ ...prev, days_of_week: [0, 1, 2, 3, 4, 5, 6] }))}
+                  >
+                    {t('employee.selectAllWeekDays', 'Select all week days')}
+                  </Button>
                   {(i18n.language === 'ar' ? dayNamesAr : dayNames).map((name, day) => (
                     <label key={day} className="flex items-center gap-1.5 cursor-pointer text-xs">
                       <input

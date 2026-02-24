@@ -154,7 +154,9 @@ export function ReceptionPage() {
   const schedulingMode = (tenantFeatures?.scheduling_mode ?? 'service_slot_based') as 'employee_based' | 'service_slot_based';
   const isEmployeeBasedMode = schedulingMode === 'employee_based';
   const tenantAssignmentMode = (tenantFeatures?.employee_assignment_mode ?? 'both') as 'automatic' | 'manual' | 'both';
+  const RECEPTION_ALL_BOOKINGS_LIMIT = 2000;
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [allBookingsTruncated, setAllBookingsTruncated] = useState(false);
   const [todayBookings, setTodayBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -1046,7 +1048,7 @@ export function ReceptionPage() {
         `)
         .eq('tenant_id', userProfile!.tenant_id)
         .order('created_at', { ascending: false })
-        .limit(100);
+        .limit(RECEPTION_ALL_BOOKINGS_LIMIT);
       if (branchId) {
         query = query.eq('branch_id', branchId);
       }
@@ -1090,6 +1092,7 @@ export function ReceptionPage() {
 
       const allBookings = Array.from(bookingGroups.values());
       console.log('Grouped bookings:', allBookings.length, 'booking groups');
+      setAllBookingsTruncated(rawBookings.length >= RECEPTION_ALL_BOOKINGS_LIMIT);
       setBookings(allBookings);
 
       // Filter today's bookings - handle both date formats
@@ -1148,6 +1151,7 @@ export function ReceptionPage() {
     } catch (err) {
       console.error('Error fetching bookings:', err);
       setBookings([]);
+      setAllBookingsTruncated(false);
       setTodayBookings([]);
     }
     // Note: setLoading(false) is now handled in the useEffect that calls this function
@@ -4075,7 +4079,7 @@ export function ReceptionPage() {
               }}
               disabled={showSearchResults}
             >
-              {t('reception.allBookings')} ({bookings.length})
+              {t('reception.allBookings')} ({allBookingsTruncated ? `${RECEPTION_ALL_BOOKINGS_LIMIT}+` : bookings.length})
             </Button>
           </div>
           <div className="flex gap-2 flex-wrap">

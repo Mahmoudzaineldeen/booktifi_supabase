@@ -1992,6 +1992,16 @@ export function ServicesPage() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 {t('service.daysOfWeek')} *
               </label>
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShiftForm(prev => ({ ...prev, days_of_week: [0, 1, 2, 3, 4, 5, 6] }))}
+                >
+                  {t('service.selectAllWeekDays', 'Select all week days')}
+                </Button>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 {dayNames.map((day, index) => (
                   <label key={index} className="flex items-center gap-2 p-2 border rounded cursor-pointer hover:bg-gray-50">

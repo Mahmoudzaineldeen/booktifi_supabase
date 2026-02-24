@@ -25,7 +25,19 @@ import {
   Trash2,
   Power,
   PowerOff,
+  Clock,
+  Plus,
 } from 'lucide-react';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
+
+export interface BranchShift {
+  id: string;
+  branch_id: string;
+  days_of_week: number[];
+  start_time: string;
+  end_time: string;
+  created_at: string;
+}
 
 interface BranchDetail {
   id: string;
@@ -40,6 +52,7 @@ interface BranchDetail {
   assigned_employees: Array<{ id: string; full_name: string; full_name_ar?: string; email?: string }>;
   assigned_receptionists: Array<{ id: string; full_name: string; full_name_ar?: string; email?: string }>;
   assigned_cashiers: Array<{ id: string; full_name: string; full_name_ar?: string; email?: string }>;
+  branch_shifts?: BranchShift[];
   income_summary: { from_bookings: number; from_subscriptions: number; total: number };
 }
 
@@ -59,6 +72,12 @@ export function BranchDetailPage() {
   const [saving, setSaving] = useState(false);
   const [allServices, setAllServices] = useState<Array<{ id: string; name: string; name_ar?: string }>>([]);
   const [selectedServiceIds, setSelectedServiceIds] = useState<Set<string>>(new Set());
+  const [shiftModalOpen, setShiftModalOpen] = useState(false);
+  const [shiftModalMode, setShiftModalMode] = useState<'add' | 'edit'>('add');
+  const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
+  const [shiftDays, setShiftDays] = useState<number[]>([]);
+  const [shiftStartTime, setShiftStartTime] = useState('09:00');
+  const [shiftEndTime, setShiftEndTime] = useState('17:00');
 
   useEffect(() => {
     if (!branchId) return;
@@ -157,6 +176,129 @@ export function BranchDetailPage() {
       else next.add(id);
       return next;
     });
+  };
+
+  const DAY_NAMES = i18n.language?.startsWith('ar')
+    ? ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+    : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const formatShiftDays = (days: number[]) =>
+    (days || []).filter((d) => d >= 0 && d <= 6).sort((a, b) => a - b).map((d) => DAY_NAMES[d]).join(', ');
+
+  const openAddShift = () => {
+    setShiftModalMode('add');
+    setEditingShiftId(null);
+    setShiftDays([0, 1, 2, 3, 4]); // Sun–Thu default
+    setShiftStartTime('09:00');
+    setShiftEndTime('17:00');
+    setShiftModalOpen(true);
+  };
+
+  const openEditShift = (shift: BranchShift) => {
+    setShiftModalMode('edit');
+    setEditingShiftId(shift.id);
+    setShiftDays(Array.isArray(shift.days_of_week) ? [...shift.days_of_week] : []);
+    const st = (shift.start_time || '').slice(0, 5);
+    const et = (shift.end_time || '').slice(0, 5);
+    setShiftStartTime(st || '09:00');
+    setShiftEndTime(et || '17:00');
+    setShiftModalOpen(true);
+  };
+
+  const toggleShiftDay = (d: number) => {
+    setShiftDays((prev) =>
+      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort((a, b) => a - b)
+    );
+  };
+
+  const selectAllWeekDays = () => setShiftDays([0, 1, 2, 3, 4, 5, 6]);
+
+  const handleSaveShift = async () => {
+    if (!branchId) return;
+    if (shiftDays.length === 0) {
+      showNotification('error', t('branches.shiftDaysRequired', 'Select at least one day'));
+      return;
+    }
+    const start = shiftStartTime.length === 5 ? shiftStartTime : shiftStartTime.slice(0, 5);
+    const end = shiftEndTime.length === 5 ? shiftEndTime : shiftEndTime.slice(0, 5);
+    if (end <= start) {
+      showNotification('error', t('branches.shiftEndAfterStart', 'End time must be after start time'));
+      return;
+    }
+    setSaving(true);
+    try {
+      if (shiftModalMode === 'edit' && editingShiftId) {
+        const res = await apiFetch(`/branches/${branchId}/shifts/${editingShiftId}`, {
+          method: 'PATCH',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ days_of_week: shiftDays, start_time: start, end_time: end }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to update shift');
+        setDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                branch_shifts: (prev.branch_shifts || []).map((s) =>
+                  s.id === editingShiftId ? { ...s, days_of_week: shiftDays, start_time: start, end_time: end } : s
+                ),
+              }
+            : null
+        );
+        showNotification('success', t('common.saved', 'Saved'));
+      } else {
+        const res = await apiFetch(`/branches/${branchId}/shifts`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ days_of_week: shiftDays, start_time: start, end_time: end }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to add shift');
+        setDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                branch_shifts: [...(prev.branch_shifts || []), data.data],
+              }
+            : null
+        );
+        showNotification('success', t('branches.shiftAdded', 'Shift added'));
+      }
+      setShiftModalOpen(false);
+    } catch (e: any) {
+      showNotification('error', e.message || 'Failed to save shift');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteShift = async (shift: BranchShift) => {
+    if (!branchId) return;
+    const ok = await showConfirm({
+      title: t('common.confirm'),
+      description: t('branches.deleteShiftConfirm', 'Delete this working shift?'),
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
+      destructive: true,
+    });
+    if (!ok) return;
+    setSaving(true);
+    try {
+      const res = await apiFetch(`/branches/${branchId}/shifts/${shift.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete shift');
+      setDetail((prev) =>
+        prev ? { ...prev, branch_shifts: (prev.branch_shifts || []).filter((s) => s.id !== shift.id) } : null
+      );
+      showNotification('success', t('branches.shiftDeleted', 'Shift deleted'));
+    } catch (e: any) {
+      showNotification('error', e.message || 'Failed to delete shift');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDeactivateToggle = async () => {
@@ -407,6 +549,53 @@ export function BranchDetailPage() {
         </Card>
       </div>
 
+      <Card className="mb-6">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Clock className="w-4 h-4" />
+            {t('branches.workingShifts', 'Branch Working Shifts')}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-gray-500 mb-3">
+            {t('branches.workingShiftsDescription', 'Default working hours for this branch. Employees without custom shifts will use these.')}
+          </p>
+          {(detail.branch_shifts || []).length === 0 ? (
+            <p className="text-sm text-gray-500">{t('branches.noShifts', 'No shifts defined')}</p>
+          ) : (
+            <ul className="space-y-2">
+              {(detail.branch_shifts || []).map((s) => (
+                <li
+                  key={s.id}
+                  className="flex items-center justify-between gap-2 py-2 px-3 rounded-lg bg-gray-50 border border-gray-100"
+                >
+                  <span className="text-sm">
+                    {formatShiftDays(s.days_of_week)} • {formatTimeTo12Hour(s.start_time)} – {formatTimeTo12Hour(s.end_time)}
+                  </span>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => openEditShift(s)}>
+                      {t('common.edit', 'Edit')}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-600 hover:bg-red-50"
+                      onClick={() => handleDeleteShift(s)}
+                      disabled={saving}
+                    >
+                      {t('common.delete', 'Delete')}
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Button variant="outline" size="sm" className="mt-3" onClick={openAddShift} icon={<Plus className="w-4 h-4" />}>
+            {t('branches.addShift', 'Add shift')}
+          </Button>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
@@ -483,6 +672,55 @@ export function BranchDetailPage() {
           <Button onClick={handleSaveAssignedServices} disabled={saving}>
             {saving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
           </Button>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={shiftModalOpen}
+        onClose={() => setShiftModalOpen(false)}
+        title={shiftModalMode === 'edit' ? t('branches.editShift', 'Edit shift') : t('branches.addShift', 'Add shift')}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('branches.daysOfWeek', 'Days of week')}</label>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {[0, 1, 2, 3, 4, 5, 6].map((d) => (
+                <label key={d} className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={shiftDays.includes(d)}
+                    onChange={() => toggleShiftDay(d)}
+                  />
+                  <span className="text-sm">{DAY_NAMES[d]}</span>
+                </label>
+              ))}
+            </div>
+            <Button variant="outline" size="sm" onClick={selectAllWeekDays}>
+              {t('branches.selectAllWeekDays', 'Select all week days')}
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label={t('branches.startTime', 'Start time')}
+              type="time"
+              value={shiftStartTime}
+              onChange={(e) => setShiftStartTime(e.target.value)}
+            />
+            <Input
+              label={t('branches.endTime', 'End time')}
+              type="time"
+              value={shiftEndTime}
+              onChange={(e) => setShiftEndTime(e.target.value)}
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShiftModalOpen(false)}>
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button onClick={handleSaveShift} disabled={saving || shiftDays.length === 0}>
+              {saving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

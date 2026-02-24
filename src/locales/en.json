@@ -312,7 +312,11 @@
     "discountPercentagePlaceholder": "e.g., 16",
     "serviceImagesMultiple": "Service Images (Multiple)",
     "currentPriceSave": "Current price: {{price}} (Save {{percent}}%)",
-    "serviceCapacityPerSlotRequired": "Service Capacity per Slot *"
+    "serviceCapacityPerSlotRequired": "Service Capacity per Slot *",
+    "daysOfWeek": "Days of week",
+    "addShift": "Add shift",
+    "updateShift": "Update shift",
+    "selectAllWeekDays": "Select all week days"
   },
   "booking": {
     "booking": "Booking",
@@ -498,6 +502,7 @@
     "workingShifts": "Working Shifts",
     "workingShiftsHelp": "Define when this employee is available. Used for employee-based services.",
     "addShift": "Add shift",
+    "selectAllWeekDays": "Select all week days",
     "selectAtLeastOneDay": "Select at least one day",
     "startTime": "Start",
     "endTime": "End",
@@ -509,7 +514,9 @@
     "noShiftsConfigured": "No shifts configured for this service",
     "pausedUntil": "Paused until",
     "invalidShiftData": "Each shift must have at least one day and end time after start time.",
-    "errorSavingShift": "Failed to save shift: {{message}}"
+    "errorSavingShift": "Failed to save shift: {{message}}",
+    "usingCustomShifts": "Using Custom Shifts",
+    "usingBranchDefaultShifts": "Using Branch Default Shifts"
   },
   "employeeShifts": {
     "title": "Employee Shifts & Assignments",
@@ -522,7 +529,8 @@
     "tryDifferentSearch": "Try a different search term.",
     "configureInEmployees": "Add employees and assign shifts in Settings → Employees.",
     "noServices": "No services assigned",
-    "noShifts": "No shifts defined"
+    "noShifts": "No shifts defined",
+    "usingBranchShifts": "Using branch default shifts (configure in Branches → branch → Working Shifts)"
   },
   "admin": {
     "platformManagement": "Platform Management",
@@ -949,7 +957,21 @@
     "activated": "Branch activated",
     "deleted": "Branch deleted",
     "deleteConfirmTitle": "Delete branch?",
-    "deleteConfirmDescription": "This will remove the branch. Bookings and subscriptions will keep their data but will no longer be linked to this branch. Employees and receptionists assigned to this branch will be unassigned. This cannot be undone."
+    "deleteConfirmDescription": "This will remove the branch. Bookings and subscriptions will keep their data but will no longer be linked to this branch. Employees and receptionists assigned to this branch will be unassigned. This cannot be undone.",
+    "workingShifts": "Branch Working Shifts",
+    "workingShiftsDescription": "Default working hours for this branch. Employees without custom shifts will use these.",
+    "noShifts": "No shifts defined",
+    "addShift": "Add shift",
+    "editShift": "Edit shift",
+    "daysOfWeek": "Days of week",
+    "startTime": "Start time",
+    "endTime": "End time",
+    "selectAllWeekDays": "Select all week days",
+    "shiftDaysRequired": "Select at least one day",
+    "shiftEndAfterStart": "End time must be after start time",
+    "shiftAdded": "Shift added",
+    "shiftDeleted": "Shift deleted",
+    "deleteShiftConfirm": "Delete this working shift?"
   },
   "offers": {
     "title": "Service Offers",

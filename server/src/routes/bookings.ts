@@ -867,13 +867,15 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
 
     const { data: users, error: usersError } = await supabase
       .from('users')
-      .select('id')
+      .select('id, branch_id')
       .in('id', employeeIds)
       .eq('is_active', true);
     if (usersError || !users) {
       return res.json({ shiftIds: [virtualShiftId] });
     }
     const activeEmployeeIds = new Set(users.map((u: any) => u.id));
+    const employeeBranchId = new Map<string, string | null>();
+    users.forEach((u: any) => { employeeBranchId.set(u.id, u.branch_id ?? null); });
     const { data: paused } = await supabase
       .from('users')
       .select('id, is_paused_until')
@@ -889,29 +891,77 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       return res.json({ shiftIds: [virtualShiftId] });
     }
 
-    const { data: empShifts, error: empShiftsError } = await supabase
-      .from('employee_shifts')
-      .select('id, employee_id, start_time_utc, end_time_utc, days_of_week')
-      .eq('tenant_id', tenantId)
-      .in('employee_id', availableEmployeeIds)
-      .eq('is_active', true);
-    if (empShiftsError || !empShifts || empShifts.length === 0) {
-      logger.warn('ensure-employee-based-slots: no employee_shifts for employees', { serviceId, dateStr, employeeCount: availableEmployeeIds.length });
-      return res.json({ shiftIds: [virtualShiftId] });
-    }
     // Normalize days_of_week: PostgreSQL can return array or string like "{0,1,2,3,4,5,6}"
     const toDaysArray = (d: any): number[] => {
       if (Array.isArray(d)) return d.map((x: any) => Number(x)).filter((n: number) => !Number.isNaN(n) && n >= 0 && n <= 6);
       if (typeof d === 'string') return d.replace(/[{}]/g, '').split(',').map((x: string) => Number(x.trim())).filter((n: number) => !Number.isNaN(n) && n >= 0 && n <= 6);
       return [];
     };
-    const shiftsForDay = (empShifts as any[]).filter((es: any) => {
+    const toTimeStr = (t: any): string => {
+      if (t == null) return '00:00:00';
+      const s = String(t);
+      if (s.length >= 8) return s.slice(0, 8);
+      if (s.length === 5) return `${s}:00`;
+      return s;
+    };
+
+    // Fetch employee_shifts (custom shifts) for all available employees
+    const { data: empShifts, error: empShiftsError } = await supabase
+      .from('employee_shifts')
+      .select('id, employee_id, start_time_utc, end_time_utc, days_of_week')
+      .eq('tenant_id', tenantId)
+      .in('employee_id', availableEmployeeIds)
+      .eq('is_active', true);
+
+    const employeesWithCustomShifts = new Set((empShifts || []).map((s: any) => s.employee_id));
+    const employeesWithoutCustomShifts = availableEmployeeIds.filter((eid: string) => !employeesWithCustomShifts.has(eid));
+
+    // For employees without custom shifts: use branch_shifts for their branch
+    let branchShiftsList: any[] = [];
+    if (employeesWithoutCustomShifts.length > 0) {
+      const branchIds = [...new Set(employeesWithoutCustomShifts.map((eid: string) => employeeBranchId.get(eid)).filter(Boolean))];
+      if (branchIds.length > 0) {
+        const { data: bShifts } = await supabase
+          .from('branch_shifts')
+          .select('id, branch_id, days_of_week, start_time, end_time')
+          .in('branch_id', branchIds);
+        branchShiftsList = bShifts || [];
+      }
+    }
+
+    // Build effective shifts per employee: either employee_shifts or branch_shifts (same shape: employee_id, start_time_utc, end_time_utc, days_of_week)
+    type EffectiveShift = { employee_id: string; start_time_utc: string; end_time_utc: string; days_of_week: number[] };
+    const effectiveShifts: EffectiveShift[] = [];
+    for (const es of empShifts || []) {
       const days = toDaysArray(es.days_of_week);
-      return days.length > 0 && days.includes(dayOfWeek);
-    });
+      if (days.length === 0) continue;
+      effectiveShifts.push({
+        employee_id: es.employee_id,
+        start_time_utc: toTimeStr(es.start_time_utc),
+        end_time_utc: toTimeStr(es.end_time_utc),
+        days_of_week: days,
+      });
+    }
+    for (const eid of employeesWithoutCustomShifts) {
+      const branchId = employeeBranchId.get(eid);
+      if (!branchId) continue;
+      for (const bs of branchShiftsList) {
+        if (bs.branch_id !== branchId) continue;
+        const days = toDaysArray(bs.days_of_week);
+        if (days.length === 0) continue;
+        effectiveShifts.push({
+          employee_id: eid,
+          start_time_utc: toTimeStr(bs.start_time),
+          end_time_utc: toTimeStr(bs.end_time),
+          days_of_week: days,
+        });
+      }
+    }
+
+    const shiftsForDay = effectiveShifts.filter((es: EffectiveShift) => es.days_of_week.includes(dayOfWeek));
     if (shiftsForDay.length === 0) {
       const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      logger.warn('ensure-employee-based-slots: no shifts for this day of week', { serviceId, dateStr, dayOfWeek, dayName: dayNames[dayOfWeek], employeeShiftsCount: empShifts.length });
+      logger.warn('ensure-employee-based-slots: no shifts for this day of week', { serviceId, dateStr, dayOfWeek, dayName: dayNames[dayOfWeek], effectiveShiftsCount: effectiveShifts.length });
       return res.json({ shiftIds: [virtualShiftId] });
     }
 

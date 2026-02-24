@@ -315,9 +315,20 @@ export function EmployeeShiftsPage() {
                 <CardContent className="py-4">
                   <div className="flex flex-col md:flex-row md:items-start gap-4">
                     <div className="md:w-48 shrink-0">
-                      <div className="flex items-center gap-2">
-                        <Users className="w-5 h-5 text-gray-500" />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Users className="w-5 h-5 text-gray-500 shrink-0" />
                         <span className="font-semibold text-gray-900">{displayName}</span>
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                            shifts.length > 0
+                              ? 'bg-indigo-100 text-indigo-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {shifts.length > 0
+                            ? (t('employee.usingCustomShifts', 'Using Custom Shifts'))
+                            : (t('employee.usingBranchDefaultShifts', 'Using Branch Default Shifts'))}
+                        </span>
                       </div>
                     </div>
                     <div className="flex-1 min-w-0 space-y-3">
@@ -358,7 +369,7 @@ export function EmployeeShiftsPage() {
                             ))}
                           </ul>
                         ) : (
-                          <p className="text-sm text-gray-500">{t('employeeShifts.noShifts', 'No shifts defined')}</p>
+                          <p className="text-sm text-gray-500">{t('employeeShifts.usingBranchShifts', 'Using branch default shifts (configure in Branches → branch → Working Shifts)')}</p>
                         )}
                       </div>
                     </div>
