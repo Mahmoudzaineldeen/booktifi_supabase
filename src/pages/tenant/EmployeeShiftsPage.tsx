@@ -28,6 +28,7 @@ interface EmployeeWithShiftsAndServices {
   full_name: string;
   full_name_ar: string;
   role: string;
+  branch_id: string | null;
   employee_shifts: EmployeeShiftRow[];
   employee_services: ServiceRow[];
 }
@@ -57,6 +58,7 @@ export function EmployeeShiftsPage() {
   const { userProfile } = useAuth();
   const { features, loading: featuresLoading } = useTenantFeatures(userProfile?.tenant_id);
   const [employees, setEmployees] = useState<EmployeeWithShiftsAndServices[]>([]);
+  const [branchesById, setBranchesById] = useState<Map<string, { name: string; name_ar?: string }>>(new Map());
   const [loading, setLoading] = useState(true);
 
   // Mode-dependent: only visible in Employee-Based Mode; redirect when Service-Based
@@ -100,6 +102,7 @@ export function EmployeeShiftsPage() {
         const users = json.users ?? [];
         const shifts = (json.employee_shifts ?? []) as EmployeeShiftRow[];
         const empServices = json.employee_services ?? [];
+        const branches = (json.branches ?? []) as Array<{ id: string; name?: string; name_ar?: string }>;
         const shiftByEmployee = new Map<string, EmployeeShiftRow[]>();
         for (const s of shifts) {
           const list = shiftByEmployee.get(s.employee_id) || [];
@@ -112,15 +115,19 @@ export function EmployeeShiftsPage() {
           list.push({ service_id: es.service_id, services: es.services || { name: '', name_ar: '' } });
           servicesByEmployee.set(es.employee_id, list);
         }
+        const branchById = new Map<string, { name: string; name_ar?: string }>();
+        branches.forEach((b: any) => { branchById.set(b.id, { name: b.name || '', name_ar: b.name_ar }); });
         const rows: EmployeeWithShiftsAndServices[] = users.map((row: any) => ({
           id: row.id,
           full_name: row.full_name || '',
           full_name_ar: row.full_name_ar || '',
           role: row.role || '',
+          branch_id: row.branch_id ?? null,
           employee_shifts: shiftByEmployee.get(row.id) || [],
           employee_services: (servicesByEmployee.get(row.id) || []).map((es) => ({ service_id: es.service_id, services: es.services })),
         }));
         setEmployees(rows);
+        setBranchesById(branchById);
       } catch (e) {
         if (!cancelled) {
           console.error('Error fetching employees for shifts:', e);
@@ -327,7 +334,13 @@ export function EmployeeShiftsPage() {
                         >
                           {shifts.length > 0
                             ? (t('employee.usingCustomShifts', 'Using Custom Shifts'))
-                            : (t('employee.usingBranchDefaultShifts', 'Using Branch Default Shifts'))}
+                            : (() => {
+                                const branch = emp.branch_id ? branchesById.get(emp.branch_id) : null;
+                                const branchName = branch ? (i18n.language === 'ar' ? (branch.name_ar || branch.name) : branch.name) : null;
+                                return branchName
+                                  ? (t('employee.usingBranchDefaultShiftsNamed', 'Using {{branchName}} default shifts', { branchName }) || `Using ${branchName} default shifts`)
+                                  : (t('employee.usingBranchDefaultShifts', 'Using Branch Default Shifts'));
+                              })()}
                         </span>
                       </div>
                     </div>
@@ -369,7 +382,11 @@ export function EmployeeShiftsPage() {
                             ))}
                           </ul>
                         ) : (
-                          <p className="text-sm text-gray-500">{t('employeeShifts.usingBranchShifts', 'Using branch default shifts (configure in Branches → branch → Working Shifts)')}</p>
+                          <p className="text-sm text-gray-500">
+                          {emp.branch_id && branchesById.has(emp.branch_id)
+                            ? (t('employeeShifts.usingBranchShiftsFrom', 'Using assigned branch default shifts (Branches → branch → Working Shifts)') || 'Using assigned branch default shifts. Configure in Branches → branch → Working Shifts.')
+                            : t('employeeShifts.usingBranchShifts', 'Using branch default shifts (assign employee to a branch and configure in Branches → branch → Working Shifts)')}
+                        </p>
                         )}
                       </div>
                     </div>

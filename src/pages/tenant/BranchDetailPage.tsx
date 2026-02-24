@@ -221,7 +221,7 @@ export function BranchDetailPage() {
     }
     const start = shiftStartTime.length === 5 ? shiftStartTime : shiftStartTime.slice(0, 5);
     const end = shiftEndTime.length === 5 ? shiftEndTime : shiftEndTime.slice(0, 5);
-    if (end <= start) {
+    if (end === start) {
       showNotification('error', t('branches.shiftEndAfterStart', 'End time must be after start time'));
       return;
     }

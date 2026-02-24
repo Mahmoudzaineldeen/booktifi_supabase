@@ -516,7 +516,8 @@
     "invalidShiftData": "Each shift must have at least one day and end time after start time.",
     "errorSavingShift": "Failed to save shift: {{message}}",
     "usingCustomShifts": "Using Custom Shifts",
-    "usingBranchDefaultShifts": "Using Branch Default Shifts"
+    "usingBranchDefaultShifts": "Using Branch Default Shifts",
+    "usingBranchDefaultShiftsNamed": "Using {{branchName}} default shifts"
   },
   "employeeShifts": {
     "title": "Employee Shifts & Assignments",
@@ -530,7 +531,8 @@
     "configureInEmployees": "Add employees and assign shifts in Settings → Employees.",
     "noServices": "No services assigned",
     "noShifts": "No shifts defined",
-    "usingBranchShifts": "Using branch default shifts (configure in Branches → branch → Working Shifts)"
+    "usingBranchShifts": "Using branch default shifts (assign employee to a branch and configure in Branches → branch → Working Shifts)",
+    "usingBranchShiftsFrom": "Using assigned branch default shifts. Configure in Branches → branch → Working Shifts."
   },
   "admin": {
     "platformManagement": "Platform Management",

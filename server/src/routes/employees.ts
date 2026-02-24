@@ -300,10 +300,10 @@ router.get('/shifts-page-data', async (req, res) => {
       return res.status(400).json({ error: 'tenant_id is required' });
     }
 
-    const [usersRes, shiftsRes, servicesRes] = await Promise.all([
+    const [usersRes, shiftsRes, servicesRes, branchesRes] = await Promise.all([
       supabase
         .from('users')
-        .select('id, full_name, full_name_ar, role')
+        .select('id, full_name, full_name_ar, role, branch_id')
         .eq('tenant_id', tenantId)
         .eq('role', 'employee')
         .order('full_name'),
@@ -316,16 +316,22 @@ router.get('/shifts-page-data', async (req, res) => {
         .from('employee_services')
         .select('employee_id, service_id, services(name, name_ar)')
         .eq('tenant_id', tenantId),
+      supabase
+        .from('branches')
+        .select('id, name, name_ar')
+        .eq('tenant_id', tenantId),
     ]);
 
     if (usersRes.error) throw usersRes.error;
     if (shiftsRes.error) throw shiftsRes.error;
     if (servicesRes.error) throw servicesRes.error;
+    if (branchesRes.error) throw branchesRes.error;
 
     res.json({
       users: usersRes.data ?? [],
       employee_shifts: shiftsRes.data ?? [],
       employee_services: servicesRes.data ?? [],
+      branches: branchesRes.data ?? [],
     });
   } catch (error: any) {
     console.error('Shifts page data error:', error);

@@ -916,7 +916,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     const employeesWithCustomShifts = new Set((empShifts || []).map((s: any) => s.employee_id));
     const employeesWithoutCustomShifts = availableEmployeeIds.filter((eid: string) => !employeesWithCustomShifts.has(eid));
 
-    // For employees without custom shifts: use branch_shifts for their branch
+    // Employees assigned to a branch (users.branch_id) inherit that branch's default shifts when they have no custom employee_shifts.
     let branchShiftsList: any[] = [];
     if (employeesWithoutCustomShifts.length > 0) {
       const branchIds = [...new Set(employeesWithoutCustomShifts.map((eid: string) => employeeBranchId.get(eid)).filter(Boolean))];
@@ -926,10 +926,17 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
           .select('id, branch_id, days_of_week, start_time, end_time')
           .in('branch_id', branchIds);
         branchShiftsList = bShifts || [];
+        logger.info('ensure-employee-based-slots: applying branch default shifts', {
+          serviceId,
+          dateStr,
+          employeesWithoutCustomShifts: employeesWithoutCustomShifts.length,
+          branchIds,
+          branchShiftsCount: branchShiftsList.length,
+        });
       }
     }
 
-    // Build effective shifts per employee: either employee_shifts or branch_shifts (same shape: employee_id, start_time_utc, end_time_utc, days_of_week)
+    // Build effective shifts per employee: either employee_shifts (custom) or branch_shifts (branch default for assigned branch)
     type EffectiveShift = { employee_id: string; start_time_utc: string; end_time_utc: string; days_of_week: number[] };
     const effectiveShifts: EffectiveShift[] = [];
     for (const es of empShifts || []) {

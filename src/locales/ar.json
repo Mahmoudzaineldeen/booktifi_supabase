@@ -776,7 +776,8 @@
     "invalidShiftData": "يجب أن تحتوي كل وردية على يوم واحد على الأقل وأن يكون وقت النهاية بعد وقت البداية.",
     "errorSavingShift": "فشل حفظ الوردية: {{message}}",
     "usingCustomShifts": "ورديات مخصصة",
-    "usingBranchDefaultShifts": "ورديات الفرع الافتراضية"
+    "usingBranchDefaultShifts": "ورديات الفرع الافتراضية",
+    "usingBranchDefaultShiftsNamed": "استخدام ورديات {{branchName}} الافتراضية"
   },
   "employeeShifts": {
     "title": "ورديات الموظفين والتعيينات",
@@ -790,7 +791,8 @@
     "configureInEmployees": "أضف الموظفين وعيّن الورديات من الإعدادات → الموظفون.",
     "noServices": "لا توجد خدمات معينة",
     "noShifts": "لا توجد ورديات محددة",
-    "usingBranchShifts": "استخدام ورديات الفرع الافتراضية (من الفروع → الفرع → ورديات العمل)"
+    "usingBranchShifts": "استخدام ورديات الفرع الافتراضية (عيّن الموظف لفرع وضبط من الفروع → الفرع → ورديات العمل)",
+    "usingBranchShiftsFrom": "استخدام ورديات الفرع المعيّن الافتراضية. الضبط من الفروع → الفرع → ورديات العمل."
   },
   "admin": {
     "platformManagement": "إدارة المنصة",
