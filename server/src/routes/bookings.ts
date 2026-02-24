@@ -932,7 +932,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       });
     }
 
-    type EffectiveShift = { employee_id: string; start_time_utc: string; end_time_utc: string; days_of_week: number[] };
+    type EffectiveShift = { employee_id: string; start_time_utc: string; end_time_utc: string; days_of_week: number[]; is_custom?: boolean };
     const effectiveShifts: EffectiveShift[] = [];
     for (const eid of availableEmployeeIds) {
       const branchId = employeeBranchId.get(eid);
@@ -946,20 +946,24 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
             start_time_utc: toTimeStr(bs.start_time),
             end_time_utc: toTimeStr(bs.end_time),
             days_of_week: days,
+            is_custom: false,
           });
         }
-      } else {
-        const customShifts = (empShifts || []).filter((s: any) => s.employee_id === eid);
-        for (const es of customShifts) {
-          const days = toDaysArray(es.days_of_week);
-          if (days.length === 0) continue;
-          effectiveShifts.push({
-            employee_id: eid,
-            start_time_utc: toTimeStr(es.start_time_utc),
-            end_time_utc: toTimeStr(es.end_time_utc),
-            days_of_week: days,
-          });
-        }
+      }
+      const customShifts = (empShifts || []).filter((s: any) => s.employee_id === eid);
+      for (const es of customShifts) {
+        const days = toDaysArray(es.days_of_week);
+        if (days.length === 0) continue;
+        effectiveShifts.push({
+          employee_id: eid,
+          start_time_utc: toTimeStr(es.start_time_utc),
+          end_time_utc: toTimeStr(es.end_time_utc),
+          days_of_week: days,
+          is_custom: true,
+        });
+      }
+      if (!branchId && customShifts.length === 0) {
+        // employee without branch and no custom shifts: no slots
       }
     }
 
@@ -1062,7 +1066,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       for (const range of ranges) {
         let slotStartM = range.start;
         while (slotStartM + durationMinutes <= range.end) {
-          if (slotStartsInForbiddenWindow(slotStartM)) {
+          if (!(es as any).is_custom && slotStartsInForbiddenWindow(slotStartM)) {
             slotStartM += durationMinutes;
             continue;
           }
