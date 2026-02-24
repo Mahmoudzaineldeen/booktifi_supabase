@@ -804,8 +804,11 @@ export function BookingsPage() {
       const result = await response.json();
       await fetchBookings(); // Refresh list
       setEditingBooking(null);
-      
-      showNotification('success', t('bookings.bookingUpdatedSuccessfully'));
+
+      const message = result.invoice_created
+        ? (t('bookings.bookingUpdatedAndInvoiceSent') || 'Booking updated. A new invoice has been created and sent to the customer.')
+        : t('bookings.bookingUpdatedSuccessfully');
+      showNotification('success', message);
     } catch (error: any) {
       console.error('Error updating booking:', error);
       showNotification('error', t('bookings.failedToUpdateBooking', { message: error.message }));

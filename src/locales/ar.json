@@ -1808,6 +1808,7 @@
     "refundedOption": "مسترد",
     "failedToDownloadInvoice": "فشل تنزيل الفاتورة: {{message}}. يرجى المحاولة مرة أخرى.",
     "bookingUpdatedSuccessfully": "تم تحديث الحجز بنجاح",
+    "bookingUpdatedAndInvoiceSent": "تم تحديث الحجز. تم إنشاء فاتورة جديدة وإرسالها إلى العميل.",
     "failedToUpdateBooking": "فشل تحديث الحجز: {{message}}",
     "confirmDeletePaid": "هذا الحجز مدفوع بالفعل. هل أنت متأكد من حذفه؟ لا يمكن التراجع عن هذا الإجراء.",
     "confirmDelete": "هل أنت متأكد من حذف هذا الحجز؟ لا يمكن التراجع عن هذا الإجراء.",

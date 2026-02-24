@@ -1316,6 +1316,7 @@
     "refundedOption": "Refunded",
     "failedToDownloadInvoice": "Failed to download invoice: {{message}}. Please try again.",
     "bookingUpdatedSuccessfully": "Booking updated successfully",
+    "bookingUpdatedAndInvoiceSent": "Booking updated. A new invoice has been created and sent to the customer.",
     "failedToUpdateBooking": "Failed to update booking: {{message}}",
     "confirmDeletePaid": "This booking is already paid. Are you sure you want to delete it? This action cannot be undone.",
     "confirmDelete": "Are you sure you want to delete this booking? This action cannot be undone.",

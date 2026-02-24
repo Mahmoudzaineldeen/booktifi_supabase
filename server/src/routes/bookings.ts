@@ -3892,6 +3892,23 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
       }
     }
 
+    // Satisfy bookings_package_price_check: (package_covered_quantity < visitor_count) OR (total_price = 0)
+    // When setting a non-zero total_price, ensure the booking is not fully package-covered.
+    const newTotalPrice = updatePayload.total_price !== undefined ? Number(updatePayload.total_price) : undefined;
+    const visitorCount = updatePayload.visitor_count ?? currentBooking.visitor_count;
+    const currentPackageCovered = currentBooking.package_covered_quantity ?? 0;
+    if (newTotalPrice !== undefined && newTotalPrice > 0 && visitorCount > 0 && currentPackageCovered >= visitorCount) {
+      updatePayload.package_covered_quantity = 0;
+      updatePayload.paid_quantity = visitorCount;
+    }
+
+    // When price is edited to a new non-zero value, we will create a new invoice and send it after update.
+    const priceChanged = newTotalPrice !== undefined && Number(currentBooking.total_price) !== newTotalPrice && newTotalPrice > 0;
+    if (priceChanged) {
+      updatePayload.zoho_invoice_id = null;
+      updatePayload.zoho_invoice_created_at = null;
+    }
+
     // TASK 8: Validate slot_id change (rescheduling) - only for tenant_admin
     let slotChanged = false;
     let oldSlotId: string | null = null;
@@ -4111,6 +4128,26 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
       });
     }
 
+    // When price was edited to a new non-zero value: create new invoice and send to customer
+    if (priceChanged && updatedBooking && Number(updatedBooking.total_price) > 0) {
+      Promise.resolve().then(async () => {
+        try {
+          const { zohoService } = await import('../services/zohoService.js');
+          logger.info('Booking price edited: creating new invoice and sending', { bookingId });
+          const result = await zohoService.generateReceipt(bookingId);
+          if (result.success && result.invoiceId) {
+            logger.info('New invoice created and sent after price edit', { bookingId, invoiceId: result.invoiceId });
+          } else {
+            logger.warn('Invoice creation after price edit failed (non-blocking)', { bookingId, error: result.error });
+          }
+        } catch (e: any) {
+          logger.error('Invoice creation after price edit error (non-blocking)', { bookingId, error: e?.message });
+        }
+      }).catch(err => {
+        logger.error('Unhandled error in invoice-after-price-edit promise', { bookingId, error: err?.message });
+      });
+    }
+
     // Log audit trail
     await logBookingChange(
       'update',
@@ -4128,6 +4165,7 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
       booking: updatedBooking,
       message: slotChanged ? 'Booking rescheduled successfully. New ticket has been sent to customer.' : 'Booking updated successfully',
       slot_changed: slotChanged,
+      invoice_created: priceChanged && Number(updatedBooking?.total_price) > 0,
     });
   } catch (error: any) {
     const context = logger.extractContext(req);

@@ -473,7 +473,8 @@ router.post('/:id/shifts', authenticateAdmin, async (req, res) => {
     const end = (end_time && String(end_time).trim()) || '17:00';
     const startNorm = start.length === 5 ? `${start}:00` : start.slice(0, 8);
     const endNorm = end.length === 5 ? `${end}:00` : end.slice(0, 8);
-    if (endNorm <= startNorm) return res.status(400).json({ error: 'end_time must be after start_time' });
+    const isMidnightEnd = endNorm === '00:00:00' || endNorm === '00:00';
+    if (!isMidnightEnd && endNorm <= startNorm) return res.status(400).json({ error: 'end_time must be after start_time' });
 
     const { data: row, error } = await supabase
       .from('branch_shifts')
@@ -515,7 +516,8 @@ router.patch('/:id/shifts/:shiftId', authenticateAdmin, async (req, res) => {
       const e = String(end_time).trim();
       updates.end_time = e.length === 5 ? `${e}:00` : e.slice(0, 8);
     }
-    if (updates.end_time && updates.start_time && updates.end_time <= updates.start_time) {
+    const endIsMidnight = updates.end_time === '00:00:00' || updates.end_time === '00:00';
+    if (updates.end_time && updates.start_time && !endIsMidnight && updates.end_time <= updates.start_time) {
       return res.status(400).json({ error: 'end_time must be after start_time' });
     }
     if (Object.keys(updates).length === 0) {

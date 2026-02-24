@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS branch_shifts (
   end_time time NOT NULL,
   created_at timestamptz DEFAULT now() NOT NULL,
   CHECK (array_length(days_of_week, 1) > 0),
-  CHECK (end_time > start_time)
+  CHECK (end_time > start_time OR end_time = '00:00:00'::time)
 );
 
 CREATE INDEX IF NOT EXISTS idx_branch_shifts_branch_id ON branch_shifts(branch_id);
@@ -18,6 +18,7 @@ COMMENT ON TABLE branch_shifts IS 'Default working shifts per branch. Used for s
 -- RLS: tenant users can read; only tenant_admin/solution_owner can insert/update/delete
 ALTER TABLE branch_shifts ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Tenant users can view branch shifts" ON branch_shifts;
 CREATE POLICY "Tenant users can view branch shifts"
   ON branch_shifts FOR SELECT TO authenticated
   USING (
@@ -25,6 +26,7 @@ CREATE POLICY "Tenant users can view branch shifts"
     OR (SELECT role FROM users WHERE id = auth.uid()) = 'solution_owner'
   );
 
+DROP POLICY IF EXISTS "Tenant admins can manage branch shifts" ON branch_shifts;
 CREATE POLICY "Tenant admins can manage branch shifts"
   ON branch_shifts FOR ALL TO authenticated
   USING (
