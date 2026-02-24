@@ -564,11 +564,14 @@ function normalizePaymentStatusForTransition(status: string): string {
 function validatePaymentStatusTransition(oldStatus: string, newStatus: string): { valid: boolean; error?: string } {
   const oldNorm = normalizePaymentStatusForTransition(oldStatus);
   const newNorm = normalizePaymentStatusForTransition(newStatus);
+  if (oldNorm === newNorm) {
+    return { valid: true }; // same status: allow updating payment_method / transaction_reference only
+  }
   // Allowed display states: Unpaid, Paid On Site, Bank Transfer. Stored: unpaid | paid | paid_manual
   const validTransitions: Record<string, string[]> = {
     'unpaid': ['paid', 'paid_manual'],
-    'paid': ['unpaid'],
-    'paid_manual': ['unpaid'],
+    'paid': ['unpaid', 'paid_manual'],
+    'paid_manual': ['unpaid', 'paid'],
   };
 
   const allowed = validTransitions[oldNorm] || [];
