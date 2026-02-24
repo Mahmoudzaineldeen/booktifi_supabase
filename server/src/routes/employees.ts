@@ -300,7 +300,11 @@ router.get('/shifts-page-data', async (req, res) => {
       return res.status(400).json({ error: 'tenant_id is required' });
     }
 
-    const [usersRes, shiftsRes, servicesRes, branchesRes] = await Promise.all([
+    const branchesListRes = await supabase.from('branches').select('id, name').eq('tenant_id', tenantId);
+    if (branchesListRes.error) throw branchesListRes.error;
+    const branchIds = (branchesListRes.data ?? []).map((b: { id: string }) => b.id);
+
+    const [usersRes, shiftsRes, servicesRes, branchShiftsRes] = await Promise.all([
       supabase
         .from('users')
         .select('id, full_name, full_name_ar, role, branch_id')
@@ -316,22 +320,35 @@ router.get('/shifts-page-data', async (req, res) => {
         .from('employee_services')
         .select('employee_id, service_id, services(name, name_ar)')
         .eq('tenant_id', tenantId),
-      supabase
-        .from('branches')
-        .select('id, name')
-        .eq('tenant_id', tenantId),
+      branchIds.length > 0
+        ? supabase.from('branch_shifts').select('branch_id, days_of_week, start_time, end_time').in('branch_id', branchIds)
+        : Promise.resolve({ data: [] as any[], error: null }),
     ]);
 
     if (usersRes.error) throw usersRes.error;
     if (shiftsRes.error) throw shiftsRes.error;
     if (servicesRes.error) throw servicesRes.error;
-    if (branchesRes.error) throw branchesRes.error;
+    if (branchShiftsRes.error) throw branchShiftsRes.error;
+
+    const branchShiftsByBranch = new Map<string, Array<{ days_of_week: number[]; start_time_utc: string; end_time_utc: string }>>();
+    for (const bs of branchShiftsRes.data ?? []) {
+      const list = branchShiftsByBranch.get(bs.branch_id) ?? [];
+      const startTime = typeof bs.start_time === 'string' ? bs.start_time.slice(0, 8) : '00:00:00';
+      const endTime = typeof bs.end_time === 'string' ? bs.end_time.slice(0, 8) : '23:59:00';
+      list.push({
+        days_of_week: Array.isArray(bs.days_of_week) ? bs.days_of_week : [],
+        start_time_utc: startTime,
+        end_time_utc: endTime,
+      });
+      branchShiftsByBranch.set(bs.branch_id, list);
+    }
 
     res.json({
       users: usersRes.data ?? [],
       employee_shifts: shiftsRes.data ?? [],
       employee_services: servicesRes.data ?? [],
-      branches: branchesRes.data ?? [],
+      branches: branchesListRes.data ?? [],
+      branch_shifts_by_branch: Object.fromEntries(branchShiftsByBranch),
     });
   } catch (error: any) {
     console.error('Shifts page data error:', error);

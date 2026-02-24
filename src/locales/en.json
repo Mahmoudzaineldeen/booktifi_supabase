@@ -533,6 +533,7 @@
     "noServices": "No services assigned",
     "noShifts": "No shifts defined",
     "usingBranchShifts": "Using branch default shifts (assign employee to a branch and configure in Branches → branch → Working Shifts)",
+    "customShiftsOverride": "Custom shifts (override)",
     "usingBranchShiftsFrom": "Using assigned branch default shifts. Configure in Branches → branch → Working Shifts."
   },
   "admin": {

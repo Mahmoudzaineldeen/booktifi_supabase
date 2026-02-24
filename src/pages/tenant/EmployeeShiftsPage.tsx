@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { getApiUrl } from '../../lib/apiUrl';
 import { formatTimeTo12Hour } from '../../lib/timeFormat';
+import { safeTranslateNested } from '../../lib/safeTranslation';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Users, Search, X, Clock, Briefcase } from 'lucide-react';
@@ -16,6 +17,13 @@ interface EmployeeShiftRow {
   start_time_utc: string;
   end_time_utc: string;
   is_active: boolean;
+}
+
+/** Branch default shift (from branch_shifts) for display */
+interface BranchDefaultShiftRow {
+  days_of_week: number[];
+  start_time_utc: string;
+  end_time_utc: string;
 }
 
 interface ServiceRow {
@@ -38,7 +46,7 @@ type SearchType = 'employee_name' | 'service_name' | '';
 const DAY_NAMES_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NAMES_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 
-function formatShiftDays(shift: EmployeeShiftRow, isAr: boolean): string {
+function formatShiftDays(shift: EmployeeShiftRow | BranchDefaultShiftRow, isAr: boolean): string {
   const dayNames = isAr ? DAY_NAMES_AR : DAY_NAMES_EN;
   return (shift.days_of_week || [])
     .filter(d => d >= 0 && d <= 6)
@@ -47,7 +55,7 @@ function formatShiftDays(shift: EmployeeShiftRow, isAr: boolean): string {
     .join(', ');
 }
 
-function formatShiftTime(shift: EmployeeShiftRow, _isAr?: boolean): string {
+function formatShiftTime(shift: EmployeeShiftRow | BranchDefaultShiftRow, _isAr?: boolean): string {
   return `${formatTimeTo12Hour(shift.start_time_utc)} – ${formatTimeTo12Hour(shift.end_time_utc)}`;
 }
 
@@ -59,6 +67,7 @@ export function EmployeeShiftsPage() {
   const { features, loading: featuresLoading } = useTenantFeatures(userProfile?.tenant_id);
   const [employees, setEmployees] = useState<EmployeeWithShiftsAndServices[]>([]);
   const [branchesById, setBranchesById] = useState<Map<string, { name: string; name_ar?: string }>>(new Map());
+  const [branchShiftsByBranchId, setBranchShiftsByBranchId] = useState<Map<string, BranchDefaultShiftRow[]>>(new Map());
   const [loading, setLoading] = useState(true);
 
   // Mode-dependent: only visible in Employee-Based Mode; redirect when Service-Based
@@ -103,6 +112,7 @@ export function EmployeeShiftsPage() {
         const shifts = (json.employee_shifts ?? []) as EmployeeShiftRow[];
         const empServices = json.employee_services ?? [];
         const branches = (json.branches ?? []) as Array<{ id: string; name?: string; name_ar?: string }>;
+        const branchShiftsByBranch = (json.branch_shifts_by_branch ?? {}) as Record<string, BranchDefaultShiftRow[]>;
         const shiftByEmployee = new Map<string, EmployeeShiftRow[]>();
         for (const s of shifts) {
           const list = shiftByEmployee.get(s.employee_id) || [];
@@ -117,6 +127,10 @@ export function EmployeeShiftsPage() {
         }
         const branchById = new Map<string, { name: string; name_ar?: string }>();
         branches.forEach((b: any) => { branchById.set(b.id, { name: b.name || '', name_ar: b.name_ar }); });
+        const branchShiftsMap = new Map<string, BranchDefaultShiftRow[]>();
+        Object.entries(branchShiftsByBranch).forEach(([branchId, list]) => {
+          branchShiftsMap.set(branchId, Array.isArray(list) ? list : []);
+        });
         const rows: EmployeeWithShiftsAndServices[] = users.map((row: any) => ({
           id: row.id,
           full_name: row.full_name || '',
@@ -128,6 +142,7 @@ export function EmployeeShiftsPage() {
         }));
         setEmployees(rows);
         setBranchesById(branchById);
+        setBranchShiftsByBranchId(branchShiftsMap);
       } catch (e) {
         if (!cancelled) {
           console.error('Error fetching employees for shifts:', e);
@@ -315,7 +330,8 @@ export function EmployeeShiftsPage() {
             const displayName = i18n.language === 'ar' ? (emp.full_name_ar || emp.full_name) : emp.full_name;
             const services = (emp.employee_services || []).map(es => es.services).filter(Boolean);
             const serviceNames = services.map(s => (i18n.language === 'ar' ? (s?.name_ar || s?.name) : s?.name)).filter(Boolean);
-            const shifts = (emp.employee_shifts || []).filter(s => s.is_active !== false);
+            const customShifts = (emp.employee_shifts || []).filter(s => s.is_active !== false);
+            const branchDefaultShifts = emp.branch_id ? (branchShiftsByBranchId.get(emp.branch_id) ?? []) : [];
             const isAr = i18n.language === 'ar';
             return (
               <Card key={emp.id} className="hover:shadow-md transition-shadow">
@@ -325,14 +341,17 @@ export function EmployeeShiftsPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <Users className="w-5 h-5 text-gray-500 shrink-0" />
                         <span className="font-semibold text-gray-900">{displayName}</span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                          {safeTranslateNested(t, 'employee.roles', emp.role, emp.role)}
+                        </span>
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                            shifts.length > 0
+                            customShifts.length > 0
                               ? 'bg-indigo-100 text-indigo-800'
                               : 'bg-amber-100 text-amber-800'
                           }`}
                         >
-                          {shifts.length > 0
+                          {customShifts.length > 0
                             ? (t('employee.usingCustomShifts', 'Using Custom Shifts'))
                             : (() => {
                                 const branch = emp.branch_id ? branchesById.get(emp.branch_id) : null;
@@ -370,23 +389,48 @@ export function EmployeeShiftsPage() {
                           <Clock className="w-4 h-4" />
                           {t('employee.workingShifts')}
                         </h4>
-                        {shifts.length > 0 ? (
-                          <ul className="text-sm text-gray-700 space-y-2">
-                            {shifts.map((shift) => (
-                              <li key={shift.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                                <span>{formatShiftDays(shift, isAr)}</span>
-                                <span className="font-medium text-gray-900 whitespace-nowrap">
-                                  {formatShiftTime(shift, isAr)}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
+                        {branchDefaultShifts.length > 0 ? (
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-blue-700">
+                              {t('employee.branchDefault', 'Branch default')}
+                            </p>
+                            <ul className="text-sm text-gray-700 space-y-2">
+                              {branchDefaultShifts.map((shift, idx) => (
+                                <li key={`branch-${idx}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                  <span>{formatShiftDays(shift, isAr)}</span>
+                                  <span className="font-medium text-gray-900 whitespace-nowrap">
+                                    {formatShiftTime(shift, isAr)}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {customShifts.length > 0 ? (
+                          <div className={branchDefaultShifts.length > 0 ? 'mt-3 space-y-2' : 'space-y-2'}>
+                            {branchDefaultShifts.length > 0 && (
+                              <p className="text-xs font-medium text-amber-700">
+                                {t('employeeShifts.customShiftsOverride', 'Custom shifts (override)')}
+                              </p>
+                            )}
+                            <ul className="text-sm text-gray-700 space-y-2">
+                              {customShifts.map((shift) => (
+                                <li key={shift.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                  <span>{formatShiftDays(shift, isAr)}</span>
+                                  <span className="font-medium text-gray-900 whitespace-nowrap">
+                                    {formatShiftTime(shift, isAr)}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {branchDefaultShifts.length === 0 && customShifts.length === 0 && (
                           <p className="text-sm text-gray-500">
-                          {emp.branch_id && branchesById.has(emp.branch_id)
-                            ? (t('employeeShifts.usingBranchShiftsFrom', 'Using assigned branch default shifts (Branches → branch → Working Shifts)') || 'Using assigned branch default shifts. Configure in Branches → branch → Working Shifts.')
-                            : t('employeeShifts.usingBranchShifts', 'Using branch default shifts (assign employee to a branch and configure in Branches → branch → Working Shifts)')}
-                        </p>
+                            {emp.branch_id && branchesById.has(emp.branch_id)
+                              ? (t('employeeShifts.usingBranchShiftsFrom', 'Using assigned branch default shifts (Branches → branch → Working Shifts)') || 'Using assigned branch default shifts. Configure in Branches → branch → Working Shifts.')
+                              : t('employeeShifts.usingBranchShifts', 'Using branch default shifts (assign employee to a branch and configure in Branches → branch → Working Shifts)')}
+                          </p>
                         )}
                       </div>
                     </div>
