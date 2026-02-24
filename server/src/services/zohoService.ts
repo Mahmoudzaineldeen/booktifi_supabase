@@ -2725,6 +2725,75 @@ Note: The booking payment status was updated successfully in the database. Only 
   }
 
   /**
+   * Regenerate the Zoho invoice for a booking so it reflects the current payment method and reference.
+   * Voids the existing invoice (if any), creates a new invoice with current payment_method/transaction_reference,
+   * records the payment on the new invoice, and sends via WhatsApp when applicable.
+   * Use when payment method is changed (e.g. Paid On Site ↔ Bank Transfer) or reference is added/updated.
+   */
+  async regenerateInvoiceForBooking(bookingId: string): Promise<{ success: boolean; invoiceId?: string; error?: string }> {
+    const { data: booking, error: bookErr } = await supabase
+      .from('bookings')
+      .select('id, tenant_id, zoho_invoice_id, total_price, payment_method, transaction_reference, customer_phone')
+      .eq('id', bookingId)
+      .single();
+    if (bookErr || !booking) {
+      return { success: false, error: bookErr?.message || 'Booking not found' };
+    }
+    const tenantId = (booking as any).tenant_id;
+    const oldInvoiceId = (booking as any).zoho_invoice_id;
+    const totalPrice = Number((booking as any).total_price) || 0;
+    const phone = ((booking as any).customer_phone || '').trim();
+    const payMethod = (booking as any).payment_method === 'transfer' ? 'transfer' : 'onsite';
+    const refNum = ((booking as any).transaction_reference || '').trim();
+
+    if (oldInvoiceId) {
+      try {
+        const accessToken = await this.getAccessToken(tenantId);
+        const apiBaseUrl = this.normalizeApiBaseUrl(await this.getApiBaseUrlForTenant(tenantId));
+        const orgId = await this.getZohoOrganizationId(tenantId);
+        const voidUrl = `${apiBaseUrl}/invoices/${oldInvoiceId}/void${orgId ? `?organization_id=${encodeURIComponent(orgId)}` : ''}`;
+        await axios.post(voidUrl, {}, {
+          headers: { Authorization: `Zoho-oauthtoken ${accessToken}`, 'Content-Type': 'application/json' },
+        });
+        console.log(`[ZohoService] ✅ Voided old invoice ${oldInvoiceId} for regeneration`);
+      } catch (voidErr: any) {
+        console.warn(`[ZohoService] Void old invoice failed (may already be void): ${voidErr?.message}`);
+      }
+      const { error: clearErr } = await supabase
+        .from('bookings')
+        .update({ zoho_invoice_id: null, zoho_invoice_created_at: null, updated_at: new Date().toISOString() })
+        .eq('id', bookingId);
+      if (clearErr) {
+        return { success: false, error: clearErr.message };
+      }
+    }
+
+    const genResult = await this.generateReceipt(bookingId);
+    if (!genResult.success || !genResult.invoiceId) {
+      return { success: false, error: genResult.error || 'Failed to create new invoice' };
+    }
+    const newInvoiceId = genResult.invoiceId;
+
+    if (totalPrice > 0) {
+      const paymentMode = payMethod === 'transfer' ? 'banktransfer' as const : 'cash' as const;
+      const referenceNumber = payMethod === 'transfer' && refNum ? refNum : 'Paid On Site';
+      const recordResult = await this.recordCustomerPayment(tenantId, newInvoiceId, totalPrice, paymentMode, referenceNumber);
+      if (!recordResult.success) {
+        return { success: true, invoiceId: newInvoiceId, error: recordResult.error };
+      }
+      if (phone) {
+        try {
+          const msg = payMethod === 'transfer' && refNum
+            ? `Your booking invoice is attached. Transfer Reference: ${refNum}. Thank you for your booking!`
+            : 'Your booking invoice is attached. Payment Method: Paid On Site. Thank you for your booking!';
+          await this.sendInvoiceViaWhatsApp(tenantId, newInvoiceId, phone, msg);
+        } catch (_) {}
+      }
+    }
+    return { success: true, invoiceId: newInvoiceId };
+  }
+
+  /**
    * Record a customer payment in Zoho so the invoice is marked as PAID.
    * Zoho marks invoice as paid only when a PAYMENT is recorded (not by updating status).
    * paymentMode: 'cash' = Paid On Site, 'banktransfer' = Bank Transfer.

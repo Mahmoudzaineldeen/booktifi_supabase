@@ -5191,12 +5191,36 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
     const phone = (updatedBooking || currentBooking).customer_phone || '';
 
     const isPaidOrPaidManual = payment_status === 'paid' || payment_status === 'paid_manual';
+    const paymentMethodOrRefChanged =
+      (currentBooking.payment_method !== payMethod) ||
+      (refNum !== ((currentBooking.transaction_reference || '').trim()));
+    const shouldRegenerateInvoice =
+      isPaidOrPaidManual && totalPrice > 0 && invoiceId && paymentMethodOrRefChanged;
     const shouldCreateInvoiceAndRecordPayment =
       isPaidOrPaidManual &&
       totalPrice > 0 &&
-      (isBecomingPaid || (payMethod === 'transfer' && refNum));
+      (isBecomingPaid || (payMethod === 'transfer' && refNum)) &&
+      !shouldRegenerateInvoice;
 
     let invoiceCreateError: string | undefined;
+    if (shouldRegenerateInvoice) {
+      try {
+        const { zohoService } = await import('../services/zohoService.js');
+        const regenResult = await zohoService.regenerateInvoiceForBooking(bookingId);
+        if (regenResult.success) {
+          zohoSyncResult = { success: true, paymentId: undefined };
+          if (regenResult.invoiceId) {
+            const { data: refetch } = await supabase.from('bookings').select('zoho_invoice_id').eq('id', bookingId).single();
+            if (refetch?.zoho_invoice_id) invoiceId = refetch.zoho_invoice_id;
+          }
+        } else {
+          zohoSyncResult = { success: false, error: regenResult.error };
+        }
+      } catch (e: any) {
+        zohoSyncResult = { success: false, error: e?.message || 'Invoice regeneration failed' };
+        logger.error('Regenerate invoice on payment method change failed', { bookingId, error: e?.message });
+      }
+    }
     if (!invoiceId && totalPrice > 0 && shouldCreateInvoiceAndRecordPayment) {
       try {
         const { zohoService } = await import('../services/zohoService.js');
