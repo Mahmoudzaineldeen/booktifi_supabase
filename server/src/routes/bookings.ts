@@ -5149,7 +5149,7 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
     const payMethod = payment_method === 'transfer' ? 'transfer' : (payment_method === 'onsite' ? 'onsite' : (currentBooking as any).payment_method || 'onsite');
     const refNum = (transaction_reference && String(transaction_reference).trim()) || '';
 
-    if (isBecomingPaid && payMethod === 'transfer' && !refNum) {
+    if ((payment_status === 'paid' || payment_status === 'paid_manual') && payMethod === 'transfer' && !refNum) {
       return res.status(400).json({ error: 'transaction_reference is required when payment method is transfer (حوالة)' });
     }
 
@@ -5157,7 +5157,7 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
       payment_status,
       updated_at: new Date().toISOString(),
     };
-    if (isBecomingPaid) {
+    if (payment_status === 'paid' || payment_status === 'paid_manual') {
       updatePayload.payment_method = payMethod;
       updatePayload.transaction_reference = payMethod === 'transfer' ? refNum : null;
     }
@@ -5190,8 +5190,13 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
     const totalPrice = Number((updatedBooking || currentBooking).total_price) || 0;
     const phone = (updatedBooking || currentBooking).customer_phone || '';
 
-    // If marking paid but no invoice yet (e.g. created as unpaid), create invoice first then record payment and send
-    if (isBecomingPaid && !invoiceId && totalPrice > 0) {
+    const isPaidOrPaidManual = payment_status === 'paid' || payment_status === 'paid_manual';
+    const shouldCreateInvoiceAndRecordPayment =
+      isPaidOrPaidManual &&
+      totalPrice > 0 &&
+      (isBecomingPaid || (payMethod === 'transfer' && refNum));
+
+    if (!invoiceId && totalPrice > 0 && shouldCreateInvoiceAndRecordPayment) {
       try {
         const { zohoService } = await import('../services/zohoService.js');
         const invoiceResult = await zohoService.generateReceipt(bookingId);
@@ -5205,7 +5210,7 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
       }
     }
 
-    if (isBecomingPaid && invoiceId && totalPrice > 0) {
+    if (shouldCreateInvoiceAndRecordPayment && invoiceId && totalPrice > 0) {
       const { zohoService } = await import('../services/zohoService.js');
       const paymentMode = payMethod === 'transfer' ? 'banktransfer' as const : 'cash' as const;
       const referenceNumber = payMethod === 'transfer' ? refNum : 'Paid On Site';
@@ -5253,7 +5258,7 @@ router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res
           }
         }
       }
-    } else if (invoiceId && !isBecomingPaid && (payment_status === 'paid' || payment_status === 'paid_manual')) {
+    } else if (invoiceId && !shouldCreateInvoiceAndRecordPayment && isPaidOrPaidManual) {
       try {
         const { zohoService } = await import('../services/zohoService.js');
         zohoSyncResult = await zohoService.updateInvoiceStatus(tenantId, invoiceId, payment_status);
