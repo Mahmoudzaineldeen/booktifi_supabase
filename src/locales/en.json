@@ -907,7 +907,11 @@
     "viewBookingPage": "View Booking Page",
     "viewCustomerPage": "View Customer Page",
     "customerPageDisabledMaintenance": "Customer page is disabled (maintenance mode is on).",
-    "branches": "Branches"
+    "branches": "Branches",
+    "assignFixingTicket": "Assign Fixing Ticket"
+  },
+  "support": {
+    "assignFixingTicket": "Assign Fixing Ticket"
   },
   "branches": {
     "assignedServices": "Assigned Services",

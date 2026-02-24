@@ -622,16 +622,29 @@ router.post('/update/:table', async (req, res) => {
 
     let result: any;
 
-    // tenant_features: use upsert so save works when no row exists (e.g. tenant created before trigger)
+    // tenant_features: use upsert so save works when no row exists (e.g. tenant created before trigger).
+    // Merge with existing row so partial updates (e.g. only employee_assignment_mode) do not overwrite other fields (e.g. scheduling_mode).
     if (table === 'tenant_features' && where && typeof where.tenant_id === 'string') {
       const tenantId = where.tenant_id;
+      const { data: existing } = await supabase
+        .from('tenant_features')
+        .select('employees_enabled, employee_assignment_mode, packages_enabled, landing_page_enabled, scheduling_mode')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      const defaults = {
+        employees_enabled: true,
+        employee_assignment_mode: 'both',
+        packages_enabled: true,
+        landing_page_enabled: true,
+        scheduling_mode: 'service_slot_based',
+      };
       const payload = {
         tenant_id: tenantId,
-        employees_enabled: data.employees_enabled ?? true,
-        employee_assignment_mode: data.employee_assignment_mode ?? 'both',
-        packages_enabled: data.packages_enabled ?? true,
-        landing_page_enabled: data.landing_page_enabled ?? true,
-        scheduling_mode: data.scheduling_mode ?? 'service_slot_based',
+        employees_enabled: data.employees_enabled ?? existing?.employees_enabled ?? defaults.employees_enabled,
+        employee_assignment_mode: data.employee_assignment_mode ?? existing?.employee_assignment_mode ?? defaults.employee_assignment_mode,
+        packages_enabled: data.packages_enabled ?? existing?.packages_enabled ?? defaults.packages_enabled,
+        landing_page_enabled: data.landing_page_enabled ?? existing?.landing_page_enabled ?? defaults.landing_page_enabled,
+        scheduling_mode: data.scheduling_mode ?? existing?.scheduling_mode ?? defaults.scheduling_mode,
       };
       const { data: upserted, error: upsertError } = await supabase
         .from('tenant_features')

@@ -1163,7 +1163,11 @@
     "viewBookingPage": "عرض صفحة الحجز",
     "viewCustomerPage": "عرض صفحة العميل",
     "customerPageDisabledMaintenance": "صفحة العميل معطلة (وضع الصيانة مفعل).",
-    "branches": "الفروع"
+    "branches": "الفروع",
+    "assignFixingTicket": "تعيين تذكرة إصلاح"
+  },
+  "support": {
+    "assignFixingTicket": "تعيين تذكرة إصلاح"
   },
   "branches": {
     "assignedServices": "الخدمات المعينة",
