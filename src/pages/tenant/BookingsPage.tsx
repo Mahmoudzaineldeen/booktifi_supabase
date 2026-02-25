@@ -397,12 +397,12 @@ export function BookingsPage() {
     }
   }
 
-  /** For quantity > 1: pick next slot in this period that is not yet at capacity, so each click adds a distinct slot (no duplicate slot_ids). */
+  /** For quantity > 1: pick next slot in this period that is not yet selected. One selection per slot.id so period with 2 slots allows only 2 clicks. */
   function getNextSlotToAddFromGroup(grouped: Slot[]): Slot | null {
-    for (const slot of grouped) {
-      const cap = slot.available_capacity ?? 1;
-      const selected = createSelectedSlots.filter(s => s.slot_id === slot.id).length;
-      if (selected < cap) return slot;
+    const uniqueBySlotId = grouped.filter((s, i, arr) => arr.findIndex((x) => x.id === s.id) === i);
+    for (const slot of uniqueBySlotId) {
+      const selected = createSelectedSlots.filter((s) => s.slot_id === slot.id).length;
+      if (selected < 1) return slot;
     }
     return null;
   }
@@ -2833,20 +2833,18 @@ export function BookingsPage() {
                       const isManualSingleEmployee = isEmployeeBasedMode && effectiveCreateAssignmentMode === 'manual' && !!createSelectedEmployeeId;
                       const isAutoEmployeeBased = isEmployeeBasedMode && effectiveCreateAssignmentMode === 'automatic';
                       return Array.from(timeMap.entries()).map(([timeKey, grouped]) => {
-                        const first = grouped[0];
+                        const uniqueGrouped = grouped.filter((s, i, arr) => arr.findIndex((x) => x.id === s.id) === i);
+                        const first = uniqueGrouped[0];
                         let totalCap: number;
                         if (isManualSingleEmployee) {
                           totalCap = first.available_capacity;
                         } else if (isAutoEmployeeBased) {
-                          const uniqueEmployeesWithCapacity = new Set(
-                            grouped.filter(s => (s.available_capacity ?? 0) > 0).map(s => s.employee_id).filter(Boolean)
-                          ).size;
-                          totalCap = uniqueEmployeesWithCapacity > 0 ? uniqueEmployeesWithCapacity : grouped.reduce((sum, s) => sum + (s.available_capacity ?? 0), 0);
+                          totalCap = uniqueGrouped.length;
                         } else {
-                          totalCap = grouped.reduce((sum, s) => sum + (s.available_capacity ?? 0), 0);
+                          totalCap = uniqueGrouped.reduce((sum, s) => sum + (s.available_capacity ?? 0), 0);
                         }
                         const slotToUse = (effectiveCreateAssignmentMode === 'automatic' && createNextEmployeeIdForRotation)
-                          ? grouped.find(s => s.employee_id === createNextEmployeeIdForRotation) ?? first
+                          ? uniqueGrouped.find(s => s.employee_id === createNextEmployeeIdForRotation) ?? first
                           : first;
                         const selCount = createSelectedSlots.filter(s => s.start_time === first.start_time && s.end_time === first.end_time).length;
                         const isSelSingle = createForm.visitor_count <= 1 && createSlotId && grouped.some(s => s.id === createSlotId);
@@ -2857,10 +2855,10 @@ export function BookingsPage() {
                             type="button"
                             onClick={(e) => {
                               if (createForm.visitor_count <= 1) {
-                                setCreateSlotId(prev => (grouped.some(s => s.id === prev) && prev === slotToUse.id ? '' : slotToUse.id));
+                                setCreateSlotId(prev => (uniqueGrouped.some(s => s.id === prev) && prev === slotToUse.id ? '' : slotToUse.id));
                                 setCreateSelectedSlots([]);
                               } else {
-                                const nextSlot = getNextSlotToAddFromGroup(grouped);
+                                const nextSlot = getNextSlotToAddFromGroup(uniqueGrouped);
                                 if (nextSlot) handleCreateSlotClick(nextSlot, e);
                                 else showNotification('warning', t('reception.maxCapacityReached', { cap: totalCap }) || t('reception.noMoreSlotsInPeriod', 'No more slots in this period. Choose another time.'));
                               }
@@ -2868,7 +2866,7 @@ export function BookingsPage() {
                             onContextMenu={(e) => {
                               e.preventDefault();
                               if (createForm.visitor_count > 1) {
-                                const lastInPeriod = getLastSelectedSlotInPeriod(grouped);
+                                const lastInPeriod = getLastSelectedSlotInPeriod(uniqueGrouped);
                                 if (lastInPeriod) handleCreateSlotClick(lastInPeriod, { ...e, button: 2 } as React.MouseEvent);
                               }
                             }}

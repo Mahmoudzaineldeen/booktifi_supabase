@@ -165,10 +165,16 @@ async function run() {
 
   await login();
   await findMixService();
-  const dateStr = getNextWeekdayDate();
-  console.log('\n📅 Test date:', dateStr);
-
+  let dateStr = getNextWeekdayDate();
   let slots = await getSlotsForDate(dateStr);
+  for (let tries = 0; tries < 5 && (slots.length === 0 || slots.length < 4); tries++) {
+    const d = new Date(dateStr + 'T12:00:00');
+    d.setDate(d.getDate() + 1);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+    dateStr = d.toISOString().split('T')[0];
+    slots = await getSlotsForDate(dateStr);
+  }
+  console.log('\n📅 Test date:', dateStr);
   if (slots.length === 0) {
     throw new Error('No available slots for ' + dateStr + '. Ensure mix service has employees with shifts.');
   }
@@ -192,26 +198,28 @@ async function run() {
   const periodWithTwo = byTime.find((g) => g.slots.length >= 2);
   const otherSlot = byTime.find((g) => g.slots.length >= 1 && g !== periodWithTwo)?.slots?.[0] || slots.find((s) => s.id !== periodWithTwo?.slots?.[0]?.id);
 
-  let slotIdsForBulk = [];
+  const seen = new Set();
+  const slotIdsForBulk = [];
   if (periodWithTwo && periodWithTwo.slots.length >= 2) {
-    slotIdsForBulk.push(periodWithTwo.slots[0].id, periodWithTwo.slots[1].id);
+    periodWithTwo.slots.forEach((s) => {
+      if (!seen.has(s.id)) { seen.add(s.id); slotIdsForBulk.push(s.id); }
+    });
   }
-  if (slotIdsForBulk.length < 3 && otherSlot) {
+  if (slotIdsForBulk.length < 3 && otherSlot && !seen.has(otherSlot.id)) {
+    seen.add(otherSlot.id);
     slotIdsForBulk.push(otherSlot.id);
   }
-  if (slotIdsForBulk.length < 3) {
-    console.log('   ⚠️ Only', slotIdsForBulk.length, 'slots available for 3-booking test. Using', slotIdsForBulk.length, 'slots.');
-  } else {
-    slotIdsForBulk = slotIdsForBulk.slice(0, 3);
+  // Use any remaining distinct slots from slots array to reach 3 if possible
+  for (const s of slots) {
+    if (slotIdsForBulk.length >= 3) break;
+    if (!seen.has(s.id)) { seen.add(s.id); slotIdsForBulk.push(s.id); }
   }
-
-  if (slotIdsForBulk.length === 0) {
-    throw new Error('No slots left for Test 2.');
+  const uniqueIds = slotIdsForBulk;
+  if (uniqueIds.length < 2) {
+    throw new Error('Not enough distinct slots for bulk test (need at least 2, have ' + uniqueIds.length + '). Try another date or free more slots.');
   }
-
-  const uniqueIds = [...new Set(slotIdsForBulk)];
-  if (uniqueIds.length !== slotIdsForBulk.length) {
-    throw new Error('Duplicate slot IDs in bulk request. Use distinct slots.');
+  if (uniqueIds.length < 3) {
+    console.log('   ⚠️ Only', uniqueIds.length, 'distinct slots available. Bulk booking', uniqueIds.length, 'slots.');
   }
 
   console.log('   Bulk booking', uniqueIds.length, 'slots');
@@ -232,7 +240,7 @@ async function run() {
       `Problem not eliminated: ${missingEmployee.length} of ${bookings.length} bulk bookings missing employee_id. Apply migration and re-run.`
     );
   }
-  console.log('   ✅ Verification: all 3 bulk bookings have employee_id assigned.');
+  console.log('   ✅ Verification: all', bookings.length, 'bulk bookings have employee_id assigned.');
 
   const slotsAfterBulk = await getSlotsForDate(dateStr);
   console.log('   Slots still available after Test 2:', slotsAfterBulk.length);
@@ -240,7 +248,7 @@ async function run() {
   console.log('\n========================================');
   console.log('✅ All tests passed.');
   console.log('   Test 1: 1 single booking created.');
-  console.log('   Test 2: ' + uniqueIds.length + ' bookings created (2 parallel + 1 other).');
+  console.log('   Test 2: ' + uniqueIds.length + ' bookings created (bulk).');
   console.log('   All bulk bookings have employee assigned. Availability decreased as expected.');
   console.log('========================================\n');
 }

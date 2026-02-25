@@ -530,6 +530,16 @@ export function ReceptionPage() {
     }
   }
 
+  /** For quantity > 1: pick next slot in this period that is not yet selected. One selection per slot.id so period with 2 slots allows only 2 clicks. */
+  function getNextSlotFromGroup(groupedSlots: Slot[]): Slot | null {
+    const uniqueBySlotId = groupedSlots.filter((s, i, arr) => arr.findIndex((x) => x.id === s.id) === i);
+    for (const slot of uniqueBySlotId) {
+      const selected = selectedSlots.filter((s) => s.slot_id === slot.id).length;
+      if (selected < 1) return slot;
+    }
+    return null;
+  }
+
   async function fetchServices() {
     if (!userProfile?.tenant_id) {
       console.warn('[ReceptionPage] fetchServices: No tenant_id available', { userProfile });
@@ -5497,29 +5507,39 @@ export function ReceptionPage() {
                           timeSlotMap.get(timeKey)!.push(slot);
                         });
 
-                        // Hide time groups that are already selected so selected slots disappear from the list
+                        // Show period if it still has at least one slot not yet selected (one selection per slot.id)
                         const entries = Array.from(timeSlotMap.entries()).filter(([, groupedSlots]) => {
-                          const first = groupedSlots[0];
-                          return !selectedSlots.some(s => s.start_time === first.start_time && s.end_time === first.end_time);
+                          const uniqueBySlotId = groupedSlots.filter((s, i, arr) => arr.findIndex((x) => x.id === s.id) === i);
+                          for (const slot of uniqueBySlotId) {
+                            const selected = selectedSlots.filter((s) => s.slot_id === slot.id).length;
+                            if (selected < 1) return true;
+                          }
+                          return false;
                         });
 
                         return entries.map(([timeKey, groupedSlots]) => {
-                          const firstSlot = groupedSlots[0];
+                          const uniqueGrouped = groupedSlots.filter((s, i, arr) => arr.findIndex((x) => x.id === s.id) === i);
+                          const firstSlot = uniqueGrouped[0];
                           const slotToUse = nextEmployeeIdForRotation
-                            ? groupedSlots.find((s: Slot) => s.employee_id === nextEmployeeIdForRotation) ?? firstSlot
+                            ? uniqueGrouped.find((s: Slot) => s.employee_id === nextEmployeeIdForRotation) ?? firstSlot
                             : firstSlot;
                           const totalAvailable = isEmployeeBasedMode
-                            ? (() => {
-                                const n = new Set(groupedSlots.filter((s: Slot) => (s.available_capacity ?? 0) > 0).map((s: Slot) => s.employee_id).filter(Boolean)).size;
-                                return n > 0 ? n : groupedSlots.reduce((sum: number, s: Slot) => sum + (s.available_capacity ?? 0), 0);
-                              })()
-                            : groupedSlots.reduce((sum, s) => sum + s.available_capacity, 0);
+                            ? uniqueGrouped.length
+                            : uniqueGrouped.reduce((sum, s) => sum + (s.available_capacity ?? 0), 0);
 
                           return (
                             <button
                               key={timeKey}
                               type="button"
-                              onClick={(e) => handleSlotClick(slotToUse, e)}
+                              onClick={(e) => {
+                                if (bookingForm.visitor_count <= 1) {
+                                  handleSlotClick(slotToUse, e);
+                                } else {
+                                  const nextSlot = getNextSlotFromGroup(uniqueGrouped);
+                                  if (nextSlot) handleSlotClick(nextSlot, e);
+                                  else showNotification('warning', t('reception.noMoreSlotsInPeriod', 'No more slots in this period. Choose another time.'));
+                                }
+                              }}
                               onContextMenu={(e) => {
                                 e.preventDefault();
                                 handleSlotClick(slotToUse, { ...e, button: 2 } as any);
