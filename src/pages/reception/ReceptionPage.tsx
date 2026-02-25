@@ -2462,7 +2462,6 @@ export function ReceptionPage() {
         customer_name: editBookingForm.customer_name,
         customer_phone: editBookingForm.customer_phone,
         customer_email: editBookingForm.customer_email || null,
-        visitor_count: editBookingForm.visitor_count,
         total_price: editBookingForm.total_price,
         notes: editBookingForm.notes || null,
         status: editBookingForm.status,
@@ -6110,17 +6109,6 @@ export function ReceptionPage() {
                     type="email"
                     value={editBookingForm.customer_email}
                     onChange={(e) => setEditBookingForm({ ...editBookingForm, customer_email: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">{t('billing.visitorCount') || 'Visitor Count'}</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={editBookingForm.visitor_count}
-                    onChange={(e) => setEditBookingForm({ ...editBookingForm, visitor_count: parseInt(e.target.value) || 1 })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </div>

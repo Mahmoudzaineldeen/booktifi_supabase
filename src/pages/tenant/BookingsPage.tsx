@@ -2915,17 +2915,6 @@ export function BookingsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">{t('billing.visitorCount')}</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={editingBooking.visitor_count}
-                    onChange={(e) => setEditingBooking({ ...editingBooking, visitor_count: parseInt(e.target.value) || 1 })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  />
-                </div>
-
-                <div>
                   <label className="block text-sm font-medium mb-1">{t('billing.totalPrice')}</label>
                   <input
                     type="number"
@@ -2958,7 +2947,6 @@ export function BookingsPage() {
                   onClick={() => updateBooking(editingBooking.id, {
                     customer_name: editingBooking.customer_name,
                     customer_email: editingBooking.customer_email,
-                    visitor_count: editingBooking.visitor_count,
                     total_price: editingBooking.total_price,
                     status: editingBooking.status,
                   })}
