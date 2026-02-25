@@ -805,9 +805,10 @@ export function BookingsPage() {
       await fetchBookings(); // Refresh list
       setEditingBooking(null);
 
-      const message = result.invoice_created
-        ? (t('bookings.bookingUpdatedAndInvoiceSent') || 'Booking updated. A new invoice has been created and sent to the customer.')
-        : t('bookings.bookingUpdatedSuccessfully');
+      const message = (result.message && String(result.message).trim())
+        || (result.invoice_created
+          ? (t('bookings.bookingUpdatedAndInvoiceSent') || 'Booking updated. A new invoice has been created and sent to the customer.')
+          : t('bookings.bookingUpdatedSuccessfully'));
       showNotification('success', message);
     } catch (error: any) {
       console.error('Error updating booking:', error);

@@ -2482,10 +2482,12 @@ export function ReceptionPage() {
         throw new Error(errorData.error || 'Failed to update booking');
       }
 
+      const result = await response.json().catch(() => ({}));
       await fetchBookings();
       setIsEditBookingModalOpen(false);
       setEditingBooking(null);
-      showNotification('success', t('bookings.bookingUpdatedSuccessfully') || 'Booking updated successfully!');
+      const msg = (result.message && String(result.message).trim()) || t('bookings.bookingUpdatedSuccessfully') || 'Booking updated successfully!';
+      showNotification('success', msg);
     } catch (err: any) {
       console.error('Error updating booking:', err);
       showNotification('error', t('bookings.failedToUpdateBooking', { message: err.message }));

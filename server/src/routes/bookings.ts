@@ -3977,12 +3977,9 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
       updatePayload.paid_quantity = visitorCount;
     }
 
-    // When price is edited to a new non-zero value, we will create a new invoice and send it after update.
+    // When price is edited to a new non-zero value, we regenerate the invoice (void old if any, create new, record payment, send).
+    // Do not clear zoho_invoice_id here so regenerateInvoiceForBooking can void the old invoice.
     const priceChanged = newTotalPrice !== undefined && Number(currentBooking.total_price) !== newTotalPrice && newTotalPrice > 0;
-    if (priceChanged) {
-      updatePayload.zoho_invoice_id = null;
-      updatePayload.zoho_invoice_created_at = null;
-    }
 
     // TASK 8: Validate slot_id change (rescheduling) - only for tenant_admin
     let slotChanged = false;
@@ -4203,23 +4200,33 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
       });
     }
 
-    // When price was edited to a new non-zero value: create new invoice and send to customer
+    // When price was edited to a new non-zero value: regenerate invoice (void old if any, create new with new amount, record payment, send)
     if (priceChanged && updatedBooking && Number(updatedBooking.total_price) > 0) {
-      Promise.resolve().then(async () => {
+      setImmediate(async () => {
         try {
           const { zohoService } = await import('../services/zohoService.js');
-          logger.info('Booking price edited: creating new invoice and sending', { bookingId });
-          const result = await zohoService.generateReceipt(bookingId);
-          if (result.success && result.invoiceId) {
-            logger.info('New invoice created and sent after price edit', { bookingId, invoiceId: result.invoiceId });
+          logger.info('Booking price edited: regenerating invoice and sending', { bookingId });
+          const result = await zohoService.regenerateInvoiceForBooking(bookingId);
+          if (result.success) {
+            await supabase
+              .from('bookings')
+              .update({ zoho_sync_status: 'synced', updated_at: new Date().toISOString() })
+              .eq('id', bookingId);
+            logger.info('Invoice regenerated and sent after price edit', { bookingId, invoiceId: result.invoiceId });
           } else {
-            logger.warn('Invoice creation after price edit failed (non-blocking)', { bookingId, error: result.error });
+            await supabase
+              .from('bookings')
+              .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
+              .eq('id', bookingId);
+            logger.warn('Invoice regeneration after price edit failed (non-blocking)', { bookingId, error: result.error });
           }
         } catch (e: any) {
-          logger.error('Invoice creation after price edit error (non-blocking)', { bookingId, error: e?.message });
+          await supabase
+            .from('bookings')
+            .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
+            .eq('id', bookingId);
+          logger.error('Invoice regeneration after price edit error (non-blocking)', { bookingId, error: e?.message });
         }
-      }).catch(err => {
-        logger.error('Unhandled error in invoice-after-price-edit promise', { bookingId, error: err?.message });
       });
     }
 
@@ -4238,7 +4245,11 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
     res.json({
       success: true,
       booking: updatedBooking,
-      message: slotChanged ? 'Booking rescheduled successfully. New ticket has been sent to customer.' : 'Booking updated successfully',
+      message: slotChanged
+        ? 'Booking rescheduled successfully. New ticket has been sent to customer.'
+        : priceChanged && Number(updatedBooking?.total_price) > 0
+          ? 'Booking updated. Invoice is being regenerated with the new amount and will be sent shortly.'
+          : 'Booking updated successfully',
       slot_changed: slotChanged,
       invoice_created: priceChanged && Number(updatedBooking?.total_price) > 0,
     });

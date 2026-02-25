@@ -20,3 +20,4 @@ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN NULL; -- constraint already exists (e.g. from fresh migrate)
 END $$;
+ 
