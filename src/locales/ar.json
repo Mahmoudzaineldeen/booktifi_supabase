@@ -899,6 +899,8 @@
     "creatingInvoice": "جاري إنشاء الفاتورة...",
     "loadingPackagesList": "جاري تحميل الباقات...",
     "slotNoLongerAvailable": "الفترة المختارة لم تعد متاحة. يرجى اختيار وقت آخر.",
+    "selectDistinctSlots": "يرجى اختيار فترات زمنية مختلفة. لا يمكن استخدام كل فترة إلا مرة واحدة.",
+    "noMoreSlotsInPeriod": "لا توجد فترات إضافية في هذا التوقيت. اختر وقتاً آخر.",
     "yourSelection": "اختيارك",
     "removeSlot": "إزالة",
     "noServicesSelected": "يرجى إضافة خدمة واحدة على الأقل",

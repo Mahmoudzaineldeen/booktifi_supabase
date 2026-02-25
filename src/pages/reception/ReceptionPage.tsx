@@ -218,7 +218,7 @@ export function ReceptionPage() {
     customer_email: '',
     visitor_count: 1,
     notes: '',
-    booking_option: 'consecutive' as 'consecutive' | 'parallel'
+    booking_option: 'parallel' as 'consecutive' | 'parallel'
   });
   const [manualSlotAssignments, setManualSlotAssignments] = useState<Array<{slotIndex: number, employeeId: string, slotId: string}>>([]);
   const [showPreview, setShowPreview] = useState(false);
@@ -3409,7 +3409,7 @@ export function ReceptionPage() {
       customer_email: '',
       visitor_count: 1,
       notes: '',
-      booking_option: 'consecutive'
+      booking_option: 'parallel'
     });
     setManualSlotAssignments([]);
     setShowPreview(false);
@@ -5593,100 +5593,6 @@ export function ReceptionPage() {
               </div>
             </>
           )}
-
-          {(() => {
-            // Show booking options when quantity > 1
-            if (bookingForm.visitor_count <= 1) return null;
-
-            // For automatic mode, we need a selected time slot to check employee availability
-            // For manual mode, we can show options without a selected slot
-            if (assignmentMode === 'automatic' && !selectedTimeSlot) return null;
-
-            let numEmployees = 1;
-            let totalCapacity = 1;
-
-            if (selectedTimeSlot) {
-              const slotsInTimeRange = slots.filter(
-                s => s.start_time === selectedTimeSlot.start_time && s.end_time === selectedTimeSlot.end_time
-              );
-              totalCapacity = slotsInTimeRange.reduce((sum, s) => sum + s.available_capacity, 0);
-              numEmployees = slotsInTimeRange.length;
-            } else if (assignmentMode === 'manual' && selectedEmployee) {
-              // For manual mode, check if selected employee has capacity
-              const employeeSlots = slots.filter(s => s.employee_id === selectedEmployee);
-              numEmployees = employeeSlots.length > 0 ? 1 : 0;
-            } else {
-              // No slot selected yet in manual mode - show all options
-              numEmployees = slots.length > 0 ? 2 : 1; // Assume multiple employees available
-            }
-
-            const needsExtension = bookingForm.visitor_count > numEmployees;
-            const parallelSlots = Math.min(bookingForm.visitor_count, numEmployees);
-            const extensionSlots = needsExtension ? bookingForm.visitor_count - numEmployees : 0;
-
-            // Auto-select consecutive if only 1 employee (but only if we have a selected slot)
-            if (selectedTimeSlot && numEmployees <= 1 && bookingForm.booking_option === 'parallel') {
-              setBookingForm({ ...bookingForm, booking_option: 'consecutive' });
-            }
-
-            return (
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Booking Option *
-                </label>
-                <div className="grid grid-cols-1 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBookingForm({ ...bookingForm, booking_option: 'parallel' });
-                      setManualSlotAssignments([]);
-                    }}
-                    className={`p-3 text-left rounded-lg border ${
-                      bookingForm.booking_option === 'parallel'
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="font-medium">
-                      ✓ Parallel {needsExtension && selectedTimeSlot ? '+ Extension' : ''} - Multiple Employees
-                    </div>
-                    <div className="text-sm text-gray-600">
-                      {selectedTimeSlot ? (
-                        needsExtension ? (
-                          <>
-                            Book {parallelSlots} services simultaneously + {extensionSlots} extended slot{extensionSlots > 1 ? 's' : ''}
-                            <br />
-                            <span className="text-blue-600 font-medium">({numEmployees} employees available, {extensionSlots} will extend to next slot)</span>
-                          </>
-                        ) : (
-                          `Book ${bookingForm.visitor_count} services at the same time with ${bookingForm.visitor_count} different employees (${numEmployees} employees available)`
-                        )
-                      ) : (
-                        `Book ${bookingForm.visitor_count} services at the same time with different employees`
-                      )}
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBookingForm({ ...bookingForm, booking_option: 'consecutive' });
-                      setManualSlotAssignments([]);
-                    }}
-                    className={`p-3 text-left rounded-lg border ${
-                      bookingForm.booking_option === 'consecutive'
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="font-medium">→ Consecutive - Single Employee</div>
-                    <div className="text-sm text-gray-600">
-                      Book {bookingForm.visitor_count} consecutive time slots with one employee
-                    </div>
-                  </button>
-                </div>
-              </div>
-            );
-          })()}
 
           {(() => {
             // Show manual slot assignment UI when:

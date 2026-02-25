@@ -107,7 +107,7 @@ export function BookingsPage() {
     customer_email: '',
     visitor_count: 1,
     notes: '',
-    booking_option: 'consecutive' as 'consecutive' | 'parallel',
+    booking_option: 'parallel' as 'consecutive' | 'parallel',
   });
   const [createServiceId, setCreateServiceId] = useState('');
   const [createDate, setCreateDate] = useState('');
@@ -397,9 +397,28 @@ export function BookingsPage() {
     }
   }
 
+  /** For quantity > 1: pick next slot in this period that is not yet at capacity, so each click adds a distinct slot (no duplicate slot_ids). */
+  function getNextSlotToAddFromGroup(grouped: Slot[]): Slot | null {
+    for (const slot of grouped) {
+      const cap = slot.available_capacity ?? 1;
+      const selected = createSelectedSlots.filter(s => s.slot_id === slot.id).length;
+      if (selected < cap) return slot;
+    }
+    return null;
+  }
+
+  /** For quantity > 1 + right-click: get the slot that was last added in this period so we remove one occurrence. */
+  function getLastSelectedSlotInPeriod(grouped: Slot[]): Slot | null {
+    const first = grouped[0];
+    const inPeriod = createSelectedSlots.filter(s => s.start_time === first.start_time && s.end_time === first.end_time);
+    if (inPeriod.length === 0) return null;
+    const last = inPeriod[inPeriod.length - 1];
+    return grouped.find(s => s.id === last.slot_id) ?? null;
+  }
+
   function resetCreateForm() {
     setCreateCustomerPhoneFull('');
-    setCreateForm({ customer_name: '', customer_phone: '', customer_email: '', visitor_count: 1, notes: '', booking_option: 'consecutive' });
+    setCreateForm({ customer_name: '', customer_phone: '', customer_email: '', visitor_count: 1, notes: '', booking_option: 'parallel' });
     setCreateServiceId('');
     setCreateDate('');
     setCreateSlotId('');
@@ -2841,10 +2860,18 @@ export function BookingsPage() {
                                 setCreateSlotId(prev => (grouped.some(s => s.id === prev) && prev === slotToUse.id ? '' : slotToUse.id));
                                 setCreateSelectedSlots([]);
                               } else {
-                                handleCreateSlotClick(slotToUse, e);
+                                const nextSlot = getNextSlotToAddFromGroup(grouped);
+                                if (nextSlot) handleCreateSlotClick(nextSlot, e);
+                                else showNotification('warning', t('reception.maxCapacityReached', { cap: totalCap }) || t('reception.noMoreSlotsInPeriod', 'No more slots in this period. Choose another time.'));
                               }
                             }}
-                            onContextMenu={(e) => { e.preventDefault(); if (createForm.visitor_count > 1) handleCreateSlotClick(slotToUse, { ...e, button: 2 } as React.MouseEvent); }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              if (createForm.visitor_count > 1) {
+                                const lastInPeriod = getLastSelectedSlotInPeriod(grouped);
+                                if (lastInPeriod) handleCreateSlotClick(lastInPeriod, { ...e, button: 2 } as React.MouseEvent);
+                              }
+                            }}
                             className={`p-3 text-left rounded-lg border relative ${isSel ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
                           >
                             {createForm.visitor_count > 1 && selCount > 0 && (
@@ -2862,30 +2889,6 @@ export function BookingsPage() {
                   </div>
                 );
               })()}
-            </div>
-          )}
-          {/* Booking Option when quantity > 1 — same as Reception */}
-          {createServiceId && createForm.visitor_count > 1 && createSelectedTimeSlot && (
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">{t('reception.bookingOption', 'Booking Option')} *</label>
-              <div className="grid grid-cols-1 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCreateForm(f => ({ ...f, booking_option: 'parallel' }))}
-                  className={`p-3 text-left rounded-lg border ${createForm.booking_option === 'parallel' ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:bg-gray-50'}`}
-                >
-                  <div className="font-medium">✓ Parallel - Multiple Employees</div>
-                  <div className="text-sm text-gray-600">{t('reception.bookMultipleSameTime', 'Book multiple at same time with different employees')}</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCreateForm(f => ({ ...f, booking_option: 'consecutive' }))}
-                  className={`p-3 text-left rounded-lg border ${createForm.booking_option === 'consecutive' ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:bg-gray-50'}`}
-                >
-                  <div className="font-medium">→ Consecutive - Single Employee</div>
-                  <div className="text-sm text-gray-600">{t('reception.bookConsecutiveSlots', 'Book consecutive time slots with one employee')}</div>
-                </button>
-              </div>
             </div>
           )}
           {/* Payment method (payable or package booking — Unpaid option for both) */}

@@ -169,7 +169,7 @@ function PublicBookingPage() {
     customer_email: '',
     visitor_count: 1,
     notes: '',
-    booking_option: 'consecutive' as 'consecutive' | 'parallel'
+    booking_option: 'parallel' as 'consecutive' | 'parallel'
   });
   const [showCreateAccountPrompt, setShowCreateAccountPrompt] = useState(false);
   
@@ -1230,7 +1230,7 @@ function PublicBookingPage() {
       customer_email: '',
       visitor_count: 1,
       notes: '',
-      booking_option: 'consecutive'
+      booking_option: 'parallel'
     });
     setSelectedService(null);
     setSelectedSlot('');
@@ -2626,45 +2626,6 @@ function PublicBookingPage() {
             onChange={(e) => setBookingForm({ ...bookingForm, visitor_count: parseInt(e.target.value) })}
             required
           />
-
-          {bookingForm.visitor_count > 1 && selectedAggregatedSlot && selectedAggregatedSlot.slots.length > 1 && (
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                Booking Option *
-              </label>
-              <div className="grid grid-cols-1 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setBookingForm({ ...bookingForm, booking_option: 'parallel' })}
-                  className={`p-3 text-left rounded-lg border ${
-                    bookingForm.booking_option === 'parallel'
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="font-medium">{t('booking.parallelMultipleEmployees')}</div>
-                  <div className="text-sm text-gray-600">
-                    {t('booking.parallelDescription', { count: bookingForm.visitor_count })}
-                    ({t('booking.employeesAvailable', { count: selectedAggregatedSlot.slots.length })})
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBookingForm({ ...bookingForm, booking_option: 'consecutive' })}
-                  className={`p-3 text-left rounded-lg border ${
-                    bookingForm.booking_option === 'consecutive'
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="font-medium">{t('booking.consecutiveSingleEmployee')}</div>
-                  <div className="text-sm text-gray-600">
-                    {t('booking.consecutiveDescription', { count: bookingForm.visitor_count })}
-                  </div>
-                </button>
-              </div>
-            </div>
-          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
