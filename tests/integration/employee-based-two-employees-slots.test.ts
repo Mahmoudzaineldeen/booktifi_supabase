@@ -101,63 +101,58 @@ describe('Employee-Based Mode: two employees (em2, employee) and mix service', (
       console.warn('Skipping: VITE_API_URL or API_URL not set.');
       return;
     }
-    // Optional: simulate "as of" date/time (e.g. TEST_AS_OF_DATE=2026-02-25 TEST_AS_OF_TIME=22:00 for 25/2 at 10 PM)
-    const asOfDate = process.env.TEST_AS_OF_DATE || todayStr;
-    const asOfTimeStr = process.env.TEST_AS_OF_TIME; // "22:00" or "10:00 PM" -> we parse HH:mm
-    let currentTimeMinutes: number;
-    let timeLabel: string;
-    if (asOfTimeStr) {
-      const match = asOfTimeStr.trim().match(/^(\d{1,2}):(\d{2})(?:\s*(?:AM|PM))?$/i);
-      if (match) {
-        let h = parseInt(match[1], 10);
-        const m = parseInt(match[2], 10);
-        if (/PM/i.test(asOfTimeStr) && h < 12) h += 12;
-        if (/AM/i.test(asOfTimeStr) && h === 12) h = 0;
-        currentTimeMinutes = h * 60 + m;
-        timeLabel = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} (simulated)`;
-      } else {
-        const now = new Date();
-        currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
-        timeLabel = format(now, 'HH:mm');
-      }
-    } else {
-      const now = new Date();
-      currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
-      timeLabel = format(now, 'HH:mm');
-    }
+    // Use SLOT_DATE env (e.g. 2025-03-25 for 25/3) when set; otherwise today
+    const slotDate = process.env.SLOT_DATE && /^\d{4}-\d{2}-\d{2}$/.test(process.env.SLOT_DATE)
+      ? process.env.SLOT_DATE
+      : todayStr;
     const res = await fetch(`${base}/bookings/ensure-employee-based-slots`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantId, serviceId, date: asOfDate }),
+      body: JSON.stringify({ tenantId, serviceId, date: slotDate }),
     });
     expect(res.ok).toBe(true);
     const body = await res.json();
     const allSlots: any[] = body.slots || [];
     const employeeName = (s: any) => (s.users?.full_name_ar || s.users?.full_name || '?').trim();
 
-    // Same time filter as the app: for "today", only slots that start after current time
-    const isToday = asOfDate === todayStr || !!process.env.TEST_AS_OF_DATE;
-    const slotsAfterFilter = isToday
+    // When SLOT_DATE is set: no time filter (show all slots for that date to match UI).
+    // Otherwise for "today" apply same time filter as the app.
+    const now = new Date();
+    const currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
+    const useTimeFilter = !process.env.SLOT_DATE && slotDate === format(now, 'yyyy-MM-dd');
+    const slotsAfterFilter = useTimeFilter
       ? allSlots.filter((s: any) => slotStartMinutes(s.start_time || '') > currentTimeMinutes)
       : allSlots;
 
-    console.log('\n========== الأوقات المتاحة (available slots) for', asOfDate, '==========');
-    console.log('Current time (time filter):', timeLabel, '— only slots starting after this are returned.');
-    if (isToday && allSlots.length !== slotsAfterFilter.length) {
-      console.log('Raw slots from API:', allSlots.length, '→ After time filter:', slotsAfterFilter.length);
+    console.log('\n========== الفترات المتاحة * (available slots) for', slotDate, process.env.SLOT_DATE ? '(no time filter)' : slotDate === todayStr ? '(TODAY)' : '', '==========');
+    if (useTimeFilter) {
+      console.log('Current time (time filter):', format(now, 'HH:mm'));
     }
     if (slotsAfterFilter.length === 0) {
-      console.log('(No slots after time filter — all slots are in the past or none exist.)');
+      console.log('(No slots.)');
     } else {
-      slotsAfterFilter
-        .sort((a: any, b: any) => (a.start_time || '').localeCompare(b.start_time || ''))
-        .forEach((s: any) => {
-          const timeRange = `${formatTime12(s.start_time || '')} - ${formatTime12(s.end_time || '')}`;
-          const name = employeeName(s);
-          const cap = s.available_capacity ?? 0;
-          console.log(`${timeRange}\n${name}\n${cap} متاح`);
-        });
-      console.log('========== Total slots returned by system:', slotsAfterFilter.length, '==========\n');
+      // Group by time (start_time–end_time) and sum capacity to match UI: "X أماكن متبقية"
+      const timeMap = new Map<string, { totalCapacity: number }>();
+      slotsAfterFilter.forEach((s: any) => {
+        const key = `${s.start_time || ''}-${s.end_time || ''}`;
+        const cur = timeMap.get(key) ?? { totalCapacity: 0 };
+        cur.totalCapacity += s.available_capacity ?? 0;
+        timeMap.set(key, cur);
+      });
+      const grouped = Array.from(timeMap.entries())
+        .map(([key, v]) => {
+          const dash = key.indexOf('-');
+          const st = dash >= 0 ? key.slice(0, dash) : key;
+          const et = dash >= 0 ? key.slice(dash + 1) : '';
+          return { start_time: st, end_time: et, totalCapacity: v.totalCapacity };
+        })
+        .sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+      grouped.forEach((g: any) => {
+        console.log(`${formatTime12(g.start_time)} - ${formatTime12(g.end_time)}`);
+        console.log(`${g.totalCapacity} أماكن متبقية`);
+        console.log('');
+      });
+      console.log('========== Total time windows:', grouped.length, '==========\n');
     }
     expect(Array.isArray(body.shiftIds)).toBe(true);
   }, 20000);

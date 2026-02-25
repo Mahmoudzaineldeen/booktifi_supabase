@@ -5508,13 +5508,19 @@ export function ReceptionPage() {
                         });
 
                         // Show period if it still has at least one slot not yet selected (one selection per slot.id)
-                        const entries = Array.from(timeSlotMap.entries()).filter(([, groupedSlots]) => {
+                        let entries = Array.from(timeSlotMap.entries()).filter(([, groupedSlots]) => {
                           const uniqueBySlotId = groupedSlots.filter((s, i, arr) => arr.findIndex((x) => x.id === s.id) === i);
                           for (const slot of uniqueBySlotId) {
                             const selected = selectedSlots.filter((s) => s.slot_id === slot.id).length;
                             if (selected < 1) return true;
                           }
                           return false;
+                        });
+                        // Sort by start_time so order is consistent: 12:00 AM, 1:00 AM, ..., 11:00 PM
+                        entries = entries.sort((a, b) => {
+                          const startA = a[1][0]?.start_time ?? '';
+                          const startB = b[1][0]?.start_time ?? '';
+                          return startA.localeCompare(startB);
                         });
 
                         return entries.map(([timeKey, groupedSlots]) => {
@@ -5523,9 +5529,8 @@ export function ReceptionPage() {
                           const slotToUse = nextEmployeeIdForRotation
                             ? uniqueGrouped.find((s: Slot) => s.employee_id === nextEmployeeIdForRotation) ?? firstSlot
                             : firstSlot;
-                          const totalAvailable = isEmployeeBasedMode
-                            ? uniqueGrouped.length
-                            : uniqueGrouped.reduce((sum, s) => sum + (s.available_capacity ?? 0), 0);
+                          // Total spots = sum of available_capacity (so "X أماكن متبقية" matches UI spec)
+                          const totalAvailable = uniqueGrouped.reduce((sum, s) => sum + (s.available_capacity ?? 0), 0);
 
                           return (
                             <button
