@@ -1,8 +1,9 @@
 /*
-  # Fix payment_status enum cast in create_bulk_booking
+  # Fix create_bulk_booking: payment_status enum cast + created_by_user_id
 
-  Ensures payment_status is cast to the enum type so INSERT works when
-  the column is of type payment_status (enum) and expression is text.
+  - Cast payment_status to enum so INSERT works when column is type payment_status.
+  - Use p_session_id for created_by_user_id (user who created the booking), not p_customer_id,
+    to avoid FK violation on bookings.created_by_user_id -> users(id).
 */
 
 CREATE OR REPLACE FUNCTION public.create_bulk_booking(
@@ -135,7 +136,7 @@ BEGIN
       v_slot_paid := 1;
     END IF;
 
-    SELECT id, available_capacity, is_available, original_capacity, booked_count, tenant_id
+    SELECT id, available_capacity, is_available, original_capacity, booked_count, tenant_id, employee_id
     INTO v_slot_record
     FROM slots
     WHERE id = p_slot_ids[v_slot_index]
@@ -176,7 +177,7 @@ BEGIN
         package_covered_quantity,
         paid_quantity
       ) VALUES (
-        p_tenant_id, p_service_id, p_slot_ids[v_slot_index], p_employee_id,
+        p_tenant_id, p_service_id, p_slot_ids[v_slot_index], COALESCE(v_slot_record.employee_id, p_employee_id),
         p_customer_name, p_customer_phone, p_customer_email,
         1,
         CASE WHEN v_slot_index <= p_adult_count THEN 1 ELSE 0 END,
@@ -185,7 +186,9 @@ BEGIN
         'pending',
         CASE WHEN v_slot_paid > 0 THEN 'unpaid'::payment_status ELSE 'paid'::payment_status END,
         p_notes,
-        p_customer_id, p_customer_id, p_offer_id, p_language,
+        CASE WHEN p_session_id IS NOT NULL AND p_session_id != '' THEN p_session_id::uuid ELSE NULL END,
+        p_customer_id,
+        p_offer_id, p_language,
         v_booking_group_id_final, p_package_subscription_id,
         v_slot_package_covered,
         v_slot_paid

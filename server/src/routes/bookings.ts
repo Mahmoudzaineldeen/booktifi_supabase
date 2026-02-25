@@ -2995,7 +2995,13 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
           createError.message.includes('Not enough tickets')) {
         return res.status(409).json({ error: createError.message });
       }
-      throw createError;
+      // Return 500 with message so client sees DB/RPC errors (e.g. payment_status enum or created_by_user_id FK)
+      return res.status(500).json({
+        error: createError.message || 'Bulk booking failed',
+        hint: (createError.message && (createError.message.includes('payment_status') || createError.message.includes('created_by_user_id') || createError.message.includes('foreign key')))
+          ? 'Apply migration 20260225100000_fix_bulk_booking_payment_status_cast.sql on your database.'
+          : undefined,
+      });
     }
 
     if (!bulkBookingResult) {
@@ -3049,12 +3055,13 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       }
     } catch (_) { /* non-blocking */ }
 
-    // Store payment_method + transaction_reference when provided; set branch_id for income tracking
+    // Store payment_method + transaction_reference + payment_status when provided; set branch_id for income tracking
     if (bookingIds.length > 0) {
       const bulkUpdate: Record<string, any> = { updated_at: new Date().toISOString() };
       if (reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') {
         bulkUpdate.payment_method = reqPaymentMethod;
         bulkUpdate.transaction_reference = reqPaymentMethod === 'transfer' && reqTransactionRef ? String(reqTransactionRef).trim() : null;
+        bulkUpdate.payment_status = 'paid_manual'; // Mark all bulk bookings as paid when user selected Paid On Site or Bank Transfer
       }
       if (req.user?.branch_id) bulkUpdate.branch_id = req.user.branch_id;
       await supabase.from('bookings').update(bulkUpdate).in('id', bookingIds);
