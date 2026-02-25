@@ -11,6 +11,12 @@ import { format } from 'date-fns';
 import { db } from './db';
 import { getApiUrl } from './apiUrl';
 
+/** Calendar date YYYY-MM-DD → weekday (0–6). Noon UTC so the same everywhere (e.g. 2025-02-25 = Wednesday). */
+export function getDayOfWeekFromDateString(dateStr: string): number {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay();
+}
+
 export interface Slot {
   id: string;
   slot_date: string;
@@ -291,11 +297,7 @@ export async function fetchAvailableSlots(
       shiftDaysMap.set(shift.id, shift.days_of_week);
     });
 
-    // Get day of week from the date string to avoid timezone issues
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const normalizedDate = new Date(year, month - 1, day);
-    const dayOfWeek = normalizedDate.getDay();
-    const targetDayOfWeek = dayOfWeek;
+    const targetDayOfWeek = getDayOfWeekFromDateString(dateStr);
 
     // Filter slots: only keep slots where the day matches the shift's days_of_week
     availableSlots = availableSlots.filter((slot: Slot) => {

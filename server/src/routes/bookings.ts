@@ -818,8 +818,9 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     }
     const [y, m, d] = dateStr.split('-').map(Number);
     const slotDate = new Date(y, m - 1, d);
-    // Use UTC for day-of-week so behavior is consistent regardless of server timezone
-    const dayOfWeek = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    // Use noon UTC so the calendar date (YYYY-MM-DD) maps to the same weekday everywhere:
+    // e.g. 2025-02-25 is Wednesday in all timezones; midnight UTC would be Tuesday.
+    const dayOfWeek = new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay();
 
     const { data: service, error: serviceError } = await supabase
       .from('services')

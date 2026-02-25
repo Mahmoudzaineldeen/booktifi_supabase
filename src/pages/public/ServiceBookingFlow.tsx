@@ -14,6 +14,7 @@ import { AnimatedRating } from '../../components/ui/AnimatedRating';
 import { TestimonialForm } from '../../components/reviews/TestimonialForm';
 import { ReviewImageStory } from '../../components/reviews/ReviewImageStory';
 import { getApiUrl } from '../../lib/apiUrl';
+import { getDayOfWeekFromDateString } from '../../lib/bookingAvailability';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
@@ -620,20 +621,10 @@ export function ServiceBookingFlow() {
             return false;
           }
 
-          // Parse the date and get day of week (0 = Sunday, 1 = Monday, etc.)
-          let dateObj: Date;
-          if (typeof slotDate === 'string') {
-            if (slotDate.includes('T') || slotDate.includes('Z')) {
-              dateObj = parseISO(slotDate);
-            } else {
-              dateObj = parseISO(slotDate + 'T00:00:00');
-            }
-          } else {
-            dateObj = new Date(slotDate);
-          }
-
-          const dayOfWeek = dateObj.getDay(); // 0 = Sunday, 1 = Monday, etc.
-          const normalizedDate = format(dateObj, 'yyyy-MM-dd');
+          // Use shared calendar day-of-week (matches server) so slot filtering is accurate
+          const dateOnly = typeof slotDate === 'string' ? slotDate.split('T')[0] : format(new Date(slotDate), 'yyyy-MM-dd');
+          const dayOfWeek = getDayOfWeekFromDateString(dateOnly);
+          const normalizedDate = dateOnly;
           console.log(`[ServiceBookingFlow] Slot ${slot.id}: date="${slotDate}" -> "${normalizedDate}", DOW=${dayOfWeek}, shift_days=[${shiftDays.join(', ')}]`);
 
           // Check if this day matches the shift's days_of_week
