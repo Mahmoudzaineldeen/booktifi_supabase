@@ -642,6 +642,7 @@
     "creatingInvoice": "Creating invoice...",
     "loadingPackagesList": "Loading packages...",
     "slotNoLongerAvailable": "Selected slot is no longer available. Please choose another time.",
+    "noConsecutiveAvailability": "No consecutive availability for the requested number of slots.",
     "yourSelection": "Your selection",
     "removeSlot": "Remove",
     "noServicesSelected": "Please add at least one service",

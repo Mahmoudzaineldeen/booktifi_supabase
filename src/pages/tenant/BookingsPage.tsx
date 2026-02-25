@@ -217,7 +217,10 @@ export function BookingsPage() {
         setCreateNextEmployeeIdForRotation(nextEmployeeIdForRotation ?? null);
       }
     }).catch(() => {
-      if (!cancelled) setCreateSlots([]);
+      if (!cancelled) {
+        setCreateSlots([]);
+        setCreateNextEmployeeIdForRotation(null);
+      }
     }).finally(() => {
       if (!cancelled) setLoadingCreateSlots(false);
     });
@@ -314,8 +317,51 @@ export function BookingsPage() {
 
   function getRequiredSlotsCount(): number {
     if (createForm.visitor_count <= 1) return 1;
-    if (createForm.booking_option === 'consecutive') return createForm.visitor_count;
-    return 1;
+    return createForm.visitor_count;
+  }
+
+  /** Flatten slots by (start_time, end_time, employee_id); take first N from selected time onward. Slot-level only, never full period. */
+  function getParallelSlotsForQuantity(
+    allSlots: Slot[],
+    selectedTime: { start_time: string; end_time: string; slot_date: string } | null,
+    quantity: number
+  ): Slot[] {
+    const available = allSlots
+      .filter(s => (s.available_capacity ?? 0) > 0)
+      .sort((a, b) => {
+        const byTime = a.start_time.localeCompare(b.start_time) || a.end_time.localeCompare(b.end_time);
+        return byTime || (a.employee_id ?? '').localeCompare(b.employee_id ?? '');
+      });
+    if (available.length === 0) return [];
+    let startIndex = 0;
+    if (selectedTime) {
+      const idx = available.findIndex(s => s.start_time === selectedTime.start_time && s.end_time === selectedTime.end_time);
+      if (idx >= 0) startIndex = idx;
+    }
+    return available.slice(startIndex, startIndex + quantity);
+  }
+
+  /** Find one employee with N consecutive time slots. */
+  function getConsecutiveSlotsForQuantity(allSlots: Slot[], quantity: number): Slot[] | null {
+    const byEmployee = new Map<string, Slot[]>();
+    for (const s of allSlots) {
+      if ((s.available_capacity ?? 0) <= 0) continue;
+      const eid = s.employee_id ?? '';
+      if (!byEmployee.has(eid)) byEmployee.set(eid, []);
+      byEmployee.get(eid)!.push(s);
+    }
+    for (const [, empSlots] of byEmployee) {
+      empSlots.sort((a, b) => a.start_time.localeCompare(b.start_time) || a.end_time.localeCompare(b.end_time));
+      for (let i = 0; i <= empSlots.length - quantity; i++) {
+        const run = empSlots.slice(i, i + quantity);
+        const consecutive = run.every((slot, j) => {
+          if (j === 0) return true;
+          return run[j - 1].end_time === slot.start_time;
+        });
+        if (consecutive) return run;
+      }
+    }
+    return null;
   }
 
   function validateSlotSelection(): { valid: boolean; message: string } {
@@ -422,7 +468,24 @@ export function BookingsPage() {
     const fullPhone = createCustomerPhoneFull.trim().startsWith('+') ? createCustomerPhoneFull.trim() : `${createCountryCode}${(createCustomerPhoneFull.trim() || createForm.customer_phone).replace(/^0+/, '')}`;
 
     const slotIds: string[] = [];
-    if (createSelectedSlots.length > 0) {
+    const required = visitorCount;
+    if (createSelectedSlots.length >= required) {
+      slotIds.push(...createSelectedSlots.slice(0, required).map(s => s.slot_id));
+    } else if (createForm.visitor_count > 1 && createForm.booking_option === 'parallel' && createSelectedTimeSlot) {
+      const parallelSlots = getParallelSlotsForQuantity(createSlots, createSelectedTimeSlot, required);
+      if (parallelSlots.length < required) {
+        showNotification('warning', t('common.notEnoughCapacity', { available: parallelSlots.length, requested: required }) || `Not enough slots. Need ${required}, only ${parallelSlots.length} available.`);
+        return;
+      }
+      slotIds.push(...parallelSlots.map(s => s.id));
+    } else if (createForm.visitor_count > 1 && createForm.booking_option === 'consecutive' && createSelectedSlots.length === 0 && createSlots.length > 0) {
+      const consecutiveSlots = getConsecutiveSlotsForQuantity(createSlots, required);
+      if (!consecutiveSlots || consecutiveSlots.length < required) {
+        showNotification('warning', t('reception.noConsecutiveAvailability') || 'No consecutive availability for the requested number of slots.');
+        return;
+      }
+      slotIds.push(...consecutiveSlots.map(s => s.id));
+    } else if (createSelectedSlots.length > 0) {
       slotIds.push(...createSelectedSlots.map(s => s.slot_id));
     } else if (createSlotId) {
       slotIds.push(createSlotId);
@@ -2740,11 +2803,20 @@ export function BookingsPage() {
                         timeMap.get(key)!.push(slot);
                       });
                       const isManualSingleEmployee = isEmployeeBasedMode && effectiveCreateAssignmentMode === 'manual' && !!createSelectedEmployeeId;
+                      const isAutoEmployeeBased = isEmployeeBasedMode && effectiveCreateAssignmentMode === 'automatic';
                       return Array.from(timeMap.entries()).map(([timeKey, grouped]) => {
                         const first = grouped[0];
-                        const totalCap = isManualSingleEmployee
-                          ? first.available_capacity
-                          : grouped.reduce((sum, s) => sum + s.available_capacity, 0);
+                        let totalCap: number;
+                        if (isManualSingleEmployee) {
+                          totalCap = first.available_capacity;
+                        } else if (isAutoEmployeeBased) {
+                          const uniqueEmployeesWithCapacity = new Set(
+                            grouped.filter(s => (s.available_capacity ?? 0) > 0).map(s => s.employee_id).filter(Boolean)
+                          ).size;
+                          totalCap = uniqueEmployeesWithCapacity > 0 ? uniqueEmployeesWithCapacity : grouped.reduce((sum, s) => sum + (s.available_capacity ?? 0), 0);
+                        } else {
+                          totalCap = grouped.reduce((sum, s) => sum + (s.available_capacity ?? 0), 0);
+                        }
                         const slotToUse = (effectiveCreateAssignmentMode === 'automatic' && createNextEmployeeIdForRotation)
                           ? grouped.find(s => s.employee_id === createNextEmployeeIdForRotation) ?? first
                           : first;
@@ -2876,6 +2948,8 @@ export function BookingsPage() {
                 if (createSelectedSlots.length >= req && val.valid) return false;
                 const single = createSlotId ? createSlots.find(s => s.id === createSlotId) : null;
                 if (single && single.available_capacity >= createForm.visitor_count) return false;
+                if (createForm.booking_option === 'parallel' && createSelectedTimeSlot && getParallelSlotsForQuantity(createSlots, createSelectedTimeSlot, req).length >= req) return false;
+                if (createForm.booking_option === 'consecutive' && createSelectedSlots.length === 0 && getConsecutiveSlotsForQuantity(createSlots, req)) return false;
                 return true;
               })()}
             >

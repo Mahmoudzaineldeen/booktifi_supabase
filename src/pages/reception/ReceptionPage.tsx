@@ -377,17 +377,66 @@ export function ReceptionPage() {
     setSelectedSlots([]);
   }, [selectedService, selectedDate, bookingForm.visitor_count, bookingForm.booking_option]);
 
+  // Clear rotation and single-slot selection when service/date change (same as admin create flow)
+  useEffect(() => {
+    setNextEmployeeIdForRotation(null);
+    setSelectedSlot('');
+    setSelectedTimeSlot(null);
+  }, [selectedService, selectedDate]);
+
   // Calculate required slots based on booking mode
+  // Parallel: need N individual (employee, time) slots. Consecutive: need N slots for same employee.
   function getRequiredSlotsCount(): number {
     if (bookingForm.visitor_count <= 1) return 1;
+    if (bookingForm.booking_option === 'consecutive') return bookingForm.visitor_count;
+    // Parallel: each slot = one (employee, time); need exactly quantity slots
+    return bookingForm.visitor_count;
+  }
 
-    if (bookingForm.booking_option === 'consecutive') {
-      // Consecutive: need N slots where N = quantity (same employee, different times)
-      return bookingForm.visitor_count;
-    } else {
-      // Parallel: need only 1 time slot (system will auto-assign multiple employees at same time)
-      return 1;
+  /** Flatten all slots by (start_time, end_time, employee_id) and take first N from selected time onward. Never group by period. */
+  function getParallelSlotsForQuantity(
+    allSlots: Slot[],
+    selectedTime: { start_time: string; end_time: string; slot_date: string } | null,
+    quantity: number
+  ): Slot[] {
+    const available = allSlots
+      .filter(s => (s.available_capacity ?? 0) > 0)
+      .sort((a, b) => {
+        const byTime = a.start_time.localeCompare(b.start_time) || a.end_time.localeCompare(b.end_time);
+        return byTime || (a.employee_id ?? '').localeCompare(b.employee_id ?? '');
+      });
+    if (available.length === 0) return [];
+    let startIndex = 0;
+    if (selectedTime) {
+      const idx = available.findIndex(
+        s => s.start_time === selectedTime.start_time && s.end_time === selectedTime.end_time
+      );
+      if (idx >= 0) startIndex = idx;
     }
+    return available.slice(startIndex, startIndex + quantity);
+  }
+
+  /** Find one employee with N consecutive (adjacent) time slots. Returns those slots or null. */
+  function getConsecutiveSlotsForQuantity(allSlots: Slot[], quantity: number): Slot[] | null {
+    const byEmployee = new Map<string, Slot[]>();
+    for (const s of allSlots) {
+      if ((s.available_capacity ?? 0) <= 0) continue;
+      const eid = s.employee_id ?? '';
+      if (!byEmployee.has(eid)) byEmployee.set(eid, []);
+      byEmployee.get(eid)!.push(s);
+    }
+    for (const [, empSlots] of byEmployee) {
+      empSlots.sort((a, b) => a.start_time.localeCompare(b.start_time) || a.end_time.localeCompare(b.end_time));
+      for (let i = 0; i <= empSlots.length - quantity; i++) {
+        const run = empSlots.slice(i, i + quantity);
+        const consecutive = run.every((slot, j) => {
+          if (j === 0) return true;
+          return run[j - 1].end_time === slot.start_time;
+        });
+        if (consecutive) return run;
+      }
+    }
+    return null;
   }
 
   // Validate slot selection
@@ -437,21 +486,12 @@ export function ReceptionPage() {
       }
     }
 
-    // Parallel mode: validate sufficient employee availability at selected time
-    if (bookingForm.booking_option === 'parallel' && bookingForm.visitor_count > 1 && selectedSlots.length === 1) {
-      const selectedSlot = selectedSlots[0];
-      const slotsAtSameTime = slots.filter(
-        s => s.start_time === selectedSlot.start_time &&
-             s.end_time === selectedSlot.end_time &&
-             s.available_capacity > 0
-      );
-
-      if (slotsAtSameTime.length < bookingForm.visitor_count) {
-        return {
-          valid: false,
-          message: `Not enough employees available. Need ${bookingForm.visitor_count}, only ${slotsAtSameTime.length} available at this time.`
-        };
-      }
+    // Parallel mode: need exactly quantity individual slots (no full-period auto-fill)
+    if (bookingForm.booking_option === 'parallel' && bookingForm.visitor_count > 1 && selectedSlots.length > 0 && selectedSlots.length < bookingForm.visitor_count) {
+      return {
+        valid: false,
+        message: `Select exactly ${bookingForm.visitor_count} slot(s) for parallel booking.`
+      };
     }
 
     return { valid: true, message: 'All required slots selected' };
@@ -1654,15 +1694,60 @@ export function ReceptionPage() {
       }
     }
 
-    // If single slot doesn't have enough capacity, use the existing logic
+    // Parallel: slot-level allocation only (never book full period)
+    if (bookingForm.booking_option === 'parallel') {
+      let slotsToUse: Slot[];
+      if (selectedSlots.length === quantity) {
+        slotsToUse = selectedSlots.map(s => slots.find(slot => slot.id === s.slot_id)).filter(Boolean) as Slot[];
+        if (slotsToUse.length !== quantity) {
+          showNotification('warning', t('reception.slotNoLongerAvailable') || 'Selected slot(s) no longer available.');
+          return;
+        }
+      } else {
+        slotsToUse = getParallelSlotsForQuantity(slots, selectedTimeSlot, quantity);
+        if (slotsToUse.length < quantity) {
+          showNotification('warning', t('common.notEnoughCapacity', { available: slotsToUse.length, requested: quantity }) || `Not enough slots. Need ${quantity}, only ${slotsToUse.length} available.`);
+          return;
+        }
+      }
+      await saveOrUpdateCustomer(fullPhoneNumber);
+      const firstBookingId = await handleParallelBooking(service, slotsToUse, quantity, fullPhoneNumber);
+      setBookingCreationLoadingStep('creating_invoice');
+      await new Promise(r => setTimeout(r, 700));
+      setBookingCreationLoadingStep(null);
+      resetForm();
+      fetchBookings();
+      fetchAvailableSlots();
+      setConfirmationBookingId(firstBookingId);
+      return;
+    }
+
+    // Consecutive: automatic path (no manual slot selection) — find one employee with N consecutive slots
+    if (selectedSlots.length === 0) {
+      const consecutiveSlots = getConsecutiveSlotsForQuantity(slots, quantity);
+      if (!consecutiveSlots || consecutiveSlots.length < quantity) {
+        showNotification('warning', t('reception.noConsecutiveAvailability') || 'No consecutive availability for the requested number of slots.');
+        return;
+      }
+      await saveOrUpdateCustomer(fullPhoneNumber);
+      const firstBookingId = await handleConsecutiveBooking(service, quantity, fullPhoneNumber, consecutiveSlots);
+      setBookingCreationLoadingStep('creating_invoice');
+      await new Promise(r => setTimeout(r, 700));
+      setBookingCreationLoadingStep(null);
+      resetForm();
+      fetchBookings();
+      fetchAvailableSlots();
+      setConfirmationBookingId(firstBookingId);
+      return;
+    }
+
     const totalCapacity = slotsAtTime.reduce((sum, s) => sum + s.available_capacity, 0);
-    
     if (totalCapacity < quantity) {
       showNotification('warning', t('common.notEnoughCapacity', { available: totalCapacity, requested: quantity }));
       return;
     }
 
-    // Save or update customer
+    // Save or update customer (consecutive with manual selection)
     await saveOrUpdateCustomer(fullPhoneNumber);
 
     let firstBookingId: string | null = null;
@@ -1713,46 +1798,32 @@ export function ReceptionPage() {
     }
   }
 
-  async function handleParallelBooking(service: Service, slotsAtTime: Slot[], quantity: number, fullPhoneNumber: string) {
-    // Use manually selected slots
-    if (selectedSlots.length === 0) {
+  async function handleParallelBooking(service: Service, slotsAtTimeOrPrecomputed: Slot[], quantity: number, fullPhoneNumber: string) {
+    // Automatic: caller passes exactly quantity slots. Manual: use selectedSlots.
+    const preComputed = slotsAtTimeOrPrecomputed.length === quantity;
+    if (!preComputed && selectedSlots.length === 0) {
       throw new Error('Please select time slots first');
     }
 
-    const validation = validateSlotSelection();
-    if (!validation.valid) {
-      throw new Error(validation.message);
+    if (!preComputed) {
+      const validation = validateSlotSelection();
+      if (!validation.valid) throw new Error(validation.message);
     }
 
-    // For parallel mode with capacity
-    const required = getRequiredSlotsCount();
-
-    // Generate a group ID for all bookings in this transaction
     const bookingGroupId = crypto.randomUUID();
-
-    // Calculate price
-      let price = service.base_price || 0;
-      if (selectedOffer) {
-        const offer = service.offers?.find(o => o.id === selectedOffer);
-        if (offer) {
-          price = offer.price;
-        }
-      }
+    let price = service.base_price || 0;
+    if (selectedOffer) {
+      const offer = service.offers?.find(o => o.id === selectedOffer);
+      if (offer) price = offer.price;
+    }
     const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
 
-    // Determine which slots to use
-    let slotsToUse: Slot[];
-    if (required === 1) {
-      // Simple case: All bookings at same time with different employees
-      slotsToUse = slotsAtTime.slice(0, quantity);
-    } else {
-      // Parallel + Extension: Use manually selected slots
-      slotsToUse = selectedSlots.map(s => slots.find(slot => slot.id === s.slot_id)).filter(Boolean) as Slot[];
-    }
+    const slotsToUse: Slot[] = preComputed
+      ? slotsAtTimeOrPrecomputed
+      : selectedSlots.map(s => slots.find(slot => slot.id === s.slot_id)).filter(Boolean) as Slot[];
 
-    // Validate slot count matches visitor count
     if (slotsToUse.length !== quantity) {
-      throw new Error(`Number of selected slots (${slotsToUse.length}) must match visitor count (${quantity})`);
+      throw new Error(`Number of slots (${slotsToUse.length}) must match visitor count (${quantity})`);
     }
 
     if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
@@ -1794,35 +1865,27 @@ export function ReceptionPage() {
     }
   }
 
-  async function handleConsecutiveBooking(service: Service, quantity: number, fullPhoneNumber: string) {
-    // Use manually selected slots
-    if (selectedSlots.length === 0) {
+  async function handleConsecutiveBooking(service: Service, quantity: number, fullPhoneNumber: string, preComputedSlots?: Slot[]) {
+    const slotsToUse: Slot[] = preComputedSlots?.length === quantity
+      ? preComputedSlots
+      : selectedSlots.map(s => slots.find(slot => slot.id === s.slot_id)).filter(Boolean) as Slot[];
+
+    if (slotsToUse.length === 0) {
       throw new Error('Please select time slots first');
     }
-
-    const validation = validateSlotSelection();
-    if (!validation.valid) {
-      throw new Error(validation.message);
+    if (!preComputedSlots) {
+      const validation = validateSlotSelection();
+      if (!validation.valid) throw new Error(validation.message);
     }
 
-    // Get employee ID from first selected slot (all should be same employee for consecutive)
-    const employeeId = selectedSlots[0]?.employee_id ?? null;
-
-    // Generate a group ID for all bookings in this transaction
+    const employeeId = slotsToUse[0]?.employee_id ?? null;
     const bookingGroupId = crypto.randomUUID();
-
-    // Calculate prices
-      let price = service.base_price || 0;
-      if (selectedOffer) {
-        const offer = service.offers?.find(o => o.id === selectedOffer);
-        if (offer) {
-          price = offer.price;
-        }
-      }
+    let price = service.base_price || 0;
+    if (selectedOffer) {
+      const offer = service.offers?.find(o => o.id === selectedOffer);
+      if (offer) price = offer.price;
+    }
     const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
-
-    // Get slots from selected slots
-    const slotsToUse = selectedSlots.map(s => slots.find(slot => slot.id === s.slot_id)).filter(Boolean) as Slot[];
 
     // Validate slot count matches visitor count
     if (slotsToUse.length !== quantity) {
@@ -2065,24 +2128,14 @@ export function ReceptionPage() {
                 employeeId: slotWithEnoughCapacity.employee_id || ''
               });
             } else if (selectedSlots.length > 0) {
-              // No single slot has enough capacity, use manually selected slots
-              if (bookingForm.booking_option === 'parallel' && selectedSlots.length === 1) {
-                // Parallel mode: Only 1 slot selected, need to find multiple employees at same time
-                const selectedSlotData = selectedSlots[0];
-                const slotsAtSameTime = slots.filter(
-                  s => s.start_time === selectedSlotData.start_time &&
-                       s.end_time === selectedSlotData.end_time &&
-                       s.available_capacity > 0
-                );
-
-                // Add booking for each available employee (up to quantity)
-                const slotsToUse = slotsAtSameTime.slice(0, bookingForm.visitor_count);
-                for (const slot of slotsToUse) {
-                  servicesToBook.push({
-                    service,
-                    slot,
-                    employeeId: slot.employee_id || ''
-                  });
+              // No single slot has enough capacity, use slot-level allocation (never full period)
+              if (bookingForm.booking_option === 'parallel') {
+                const quantity = bookingForm.visitor_count;
+                const slotsToUse = selectedSlots.length === quantity
+                  ? selectedSlots.map(s => slots.find(slot => slot.id === s.slot_id)).filter(Boolean) as Slot[]
+                  : getParallelSlotsForQuantity(slots, selectedSlots[0] ? { start_time: selectedSlots[0].start_time, end_time: selectedSlots[0].end_time, slot_date: selectedSlots[0].slot_date } : null, quantity);
+                for (const slot of slotsToUse.slice(0, quantity)) {
+                  servicesToBook.push({ service, slot, employeeId: slot.employee_id || '' });
                 }
               } else {
                 // Consecutive mode: Add all manually selected slots
@@ -2099,24 +2152,13 @@ export function ReceptionPage() {
               }
             }
           } else if (selectedSlots.length > 0) {
-            // No time slot selected but slots manually selected
-            if (bookingForm.booking_option === 'parallel' && selectedSlots.length === 1) {
-              // Parallel mode: Only 1 slot selected, need to find multiple employees at same time
-              const selectedSlotData = selectedSlots[0];
-              const slotsAtSameTime = slots.filter(
-                s => s.start_time === selectedSlotData.start_time &&
-                     s.end_time === selectedSlotData.end_time &&
-                     s.available_capacity > 0
-              );
-
-              // Add booking for each available employee (up to quantity)
-              const slotsToUse = slotsAtSameTime.slice(0, bookingForm.visitor_count);
-              for (const slot of slotsToUse) {
-                servicesToBook.push({
-                  service,
-                  slot,
-                  employeeId: slot.employee_id || ''
-                });
+            if (bookingForm.booking_option === 'parallel') {
+              const quantity = bookingForm.visitor_count;
+              const slotsToUse = selectedSlots.length === quantity
+                ? selectedSlots.map(s => slots.find(slot => slot.id === s.slot_id)).filter(Boolean) as Slot[]
+                : getParallelSlotsForQuantity(slots, selectedSlots[0] ? { start_time: selectedSlots[0].start_time, end_time: selectedSlots[0].end_time, slot_date: selectedSlots[0].slot_date } : null, quantity);
+              for (const slot of slotsToUse.slice(0, quantity)) {
+                servicesToBook.push({ service, slot, employeeId: slot.employee_id || '' });
               }
             } else {
               // Consecutive mode: Add all manually selected slots
@@ -2211,8 +2253,9 @@ export function ReceptionPage() {
       let slotId: string;
 
       if (assignmentMode === 'automatic') {
-        // Use the selected time slot info
-        if (!selectedTimeSlot) {
+        // Same as admin: use the exact slot from selection so one booking = one slot (not the whole period)
+        const slotIdFromSelection = selectedSlots.length === 1 ? selectedSlots[0].slot_id : selectedSlot || null;
+        if (!slotIdFromSelection && !selectedTimeSlot) {
           showNotification('warning', t('reception.slotNotSelected'));
           return;
         }
@@ -2222,30 +2265,38 @@ export function ReceptionPage() {
         console.log('=== AUTOMATIC BOOKING DEBUG ===');
         console.log('Selected date:', dateStr);
         console.log('Selected time:', timeSlot);
-        console.log('All available slots:', slots);
-        console.log('Selected service:', selectedService);
-        console.log('Service capacity mode:', service?.capacity_mode);
+        console.log('Selected slot ID (from selection, same as admin):', slotIdFromSelection);
+        console.log('selectedSlots.length:', selectedSlots.length);
+        console.log('All available slots:', slots.length);
 
-        // Find all slots at this time (same start_time and end_time)
-        const slotsAtSelectedTime = slots.filter(
-          s => s.start_time === timeSlot!.start_time &&
-               s.end_time === timeSlot!.end_time &&
-               s.available_capacity > 0
-        );
-
-        console.log('Slots matching time filter:', slotsAtSelectedTime);
-
-        if (slotsAtSelectedTime.length === 0) {
+        // Use the slot from selection (one slot only) — same as admin createSlotId / createSelectedSlots
+        if (slotIdFromSelection) {
+          const chosenSlot = slots.find(s => s.id === slotIdFromSelection);
+          if (chosenSlot && (chosenSlot.available_capacity ?? 0) > 0) {
+            slotId = chosenSlot.id;
+            employeeId = chosenSlot.employee_id || '';
+            console.log('Using selected slot (one booking = one slot):', slotId, 'Employee ID:', employeeId || 'None');
+          }
+        }
+        if (!slotId && timeSlot) {
+          const slotsAtSelectedTime = slots.filter(
+            s => s.start_time === timeSlot!.start_time &&
+                 s.end_time === timeSlot!.end_time &&
+                 s.available_capacity > 0
+          );
+          if (slotsAtSelectedTime.length === 0) {
+            showNotification('warning', t('reception.noSlotsAvailable'));
+            return;
+          }
+          const availableSlot = slotsAtSelectedTime[0];
+          slotId = availableSlot.id;
+          employeeId = availableSlot.employee_id || '';
+          console.log('Fallback to first slot at time:', slotId);
+        }
+        if (!slotId) {
           showNotification('warning', t('reception.noSlotsAvailable'));
           return;
         }
-
-        // ARCHIVED: Employee-based capacity removed - always use service-based
-        // Just pick the first available slot (no employee needed)
-        const availableSlot = slotsAtSelectedTime[0];
-        slotId = availableSlot.id;
-        employeeId = availableSlot.employee_id || ''; // Can be null for service-based
-        console.log('Service-based capacity - Slot ID:', slotId, 'Employee ID:', employeeId || 'None');
       } else {
         // Manual mode
         const manualSlot = slots.find(s => s.id === selectedSlot);
@@ -5489,7 +5540,12 @@ export function ReceptionPage() {
                           const slotToUse = nextEmployeeIdForRotation
                             ? groupedSlots.find((s: Slot) => s.employee_id === nextEmployeeIdForRotation) ?? firstSlot
                             : firstSlot;
-                          const totalAvailable = groupedSlots.reduce((sum, s) => sum + s.available_capacity, 0);
+                          const totalAvailable = isEmployeeBasedMode
+                            ? (() => {
+                                const n = new Set(groupedSlots.filter((s: Slot) => (s.available_capacity ?? 0) > 0).map((s: Slot) => s.employee_id).filter(Boolean)).size;
+                                return n > 0 ? n : groupedSlots.reduce((sum: number, s: Slot) => sum + (s.available_capacity ?? 0), 0);
+                              })()
+                            : groupedSlots.reduce((sum, s) => sum + s.available_capacity, 0);
 
                           return (
                             <button
@@ -5759,23 +5815,21 @@ export function ReceptionPage() {
                   return selectedSlots.length === 0 && !selectedSlot && !selectedTimeSlot;
                 }
 
-                // For quantity > 1, check if single slot has enough capacity first
+                // For quantity > 1: single slot with enough capacity, or enough slots (manual/parallel/consecutive)
                 if (selectedTimeSlot) {
                   const slotsAtTime = slots.filter(
                     s => s.start_time === selectedTimeSlot.start_time &&
                          s.end_time === selectedTimeSlot.end_time &&
                          s.available_capacity > 0
                   );
-                  
                   const slotWithEnoughCapacity = slotsAtTime.find(s => s.available_capacity >= bookingForm.visitor_count);
-                  
-                  if (slotWithEnoughCapacity) {
-                    // Single slot has enough capacity - no need to select multiple slots
-                    return false; // Button enabled
-                  }
+                  if (slotWithEnoughCapacity) return false; // Button enabled
+
+                  // Parallel automatic: need at least quantity slots from flattened list
+                  if (bookingForm.booking_option === 'parallel' && getParallelSlotsForQuantity(slots, selectedTimeSlot, required).length >= required) return false;
+                  // Consecutive automatic: need one employee with N consecutive slots
+                  if (bookingForm.booking_option === 'consecutive' && selectedSlots.length === 0 && getConsecutiveSlotsForQuantity(slots, required)) return false;
                 }
-                
-                // Otherwise, need all required slots selected and valid
                 return selectedSlots.length < required || !validation.valid;
               })()}
             >
