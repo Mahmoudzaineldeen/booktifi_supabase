@@ -2374,16 +2374,23 @@ export function ReceptionPage() {
       return;
     }
     try {
-      const { error } = await db
-        .from('bookings')
-        .update({ payment_status: paymentStatus })
-        .eq('id', bookingId);
-
-      if (error) throw error;
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/bookings/${bookingId}/payment-status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && token.trim() ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ payment_status: paymentStatus }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to update payment status');
       fetchBookings();
+      showNotification('success', t('reception.paymentStatusUpdatedSuccessfully'));
     } catch (err: any) {
       console.error('Error updating payment status:', err);
-      showNotification('error', t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
+      showNotification('error', err.message || t('common.error'));
     }
   }
 
@@ -2397,24 +2404,32 @@ export function ReceptionPage() {
     try {
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
-      const response = await fetch(`${API_URL}/bookings/${markPaidBookingId}/mark-paid`, {
+      const body: Record<string, string> = {
+        payment_status: 'paid_manual',
+        payment_method: markPaidMethod,
+      };
+      if (markPaidMethod === 'transfer' && markPaidReference.trim()) {
+        body.transaction_reference = markPaidReference.trim();
+      }
+      const response = await fetch(`${API_URL}/bookings/${markPaidBookingId}/payment-status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` }),
+          ...(token && token.trim() ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({
-          payment_method: markPaidMethod,
-          transaction_reference: markPaidMethod === 'transfer' ? markPaidReference.trim() : undefined,
-        }),
+        body: JSON.stringify(body),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to mark as paid');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to update payment status');
+      if (data.zoho_sync && !data.zoho_sync.success) {
+        showNotification('warning', t('bookings.paymentStatusUpdatedButZohoFailed', { error: data.zoho_sync.error || 'Zoho sync failed' }));
+      } else {
+        showNotification('success', t('reception.paymentStatusUpdatedSuccessfully'));
+      }
       fetchBookings();
       setMarkPaidBookingId(null);
       setMarkPaidReference('');
       setSelectedBookingForDetails(null);
-      showNotification('success', t('reception.paymentStatusUpdatedSuccessfully'));
     } catch (err: any) {
       console.error('Mark paid error:', err);
       showNotification('error', err.message || t('common.failedToMarkAsPaid'));

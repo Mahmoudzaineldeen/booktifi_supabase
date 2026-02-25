@@ -151,7 +151,7 @@ function authenticate(req: express.Request, res: express.Response, next: express
   }
 }
 
-// Middleware to authenticate tenant admin ONLY (for payment status and booking deletion)
+// Middleware to authenticate tenant admin ONLY (for booking deletion)
 function authenticateTenantAdminOnly(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
     const authHeader = req.headers.authorization;
@@ -188,7 +188,7 @@ function authenticateTenantAdminOnly(req: express.Request, res: express.Response
       });
     }
     
-    // STRICT: Only tenant_admin, customer_admin, and admin_user can manage payment status and delete bookings
+    // STRICT: Only tenant_admin, customer_admin, and admin_user can delete bookings
     const allowedRoles = ['tenant_admin', 'customer_admin', 'admin_user'];
     if (!allowedRoles.includes(decoded.role)) {
       console.error('[Auth] Access denied for booking management:', {
@@ -221,6 +221,40 @@ function authenticateTenantAdminOnly(req: express.Request, res: express.Response
       branch_id: decoded.branch_id ?? null,
     };
     
+    next();
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Authentication error', hint: error.message });
+  }
+}
+
+// Middleware: only receptionist and admin can edit payment status (same flow: regeneration when method/reference changes)
+function authenticateAdminOrReceptionistForPaymentStatus(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authorization header required', hint: 'Provide a valid Bearer token' });
+    }
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (!token) return res.status(401).json({ error: 'Token is required' });
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (jwtError: any) {
+      if (jwtError.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token has expired', hint: 'Please log in again' });
+      return res.status(401).json({ error: 'Invalid token', hint: jwtError.message || 'Please log in again' });
+    }
+    const allowedRoles = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user'];
+    if (!decoded.role || !allowedRoles.includes(decoded.role)) {
+      return res.status(403).json({
+        error: 'Only receptionist and admin can edit payment status.',
+        userRole: decoded.role,
+        hint: 'Cashiers can only mark unpaid as paid via the mark-paid action.',
+      });
+    }
+    if (!decoded.tenant_id) {
+      return res.status(403).json({ error: 'Access denied. No tenant associated with your account.' });
+    }
+    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null };
     next();
   } catch (error: any) {
     return res.status(500).json({ error: 'Authentication error', hint: error.message });
@@ -5097,7 +5131,7 @@ router.delete('/:id', authenticateTenantAdminOnly, async (req, res) => {
 // ============================================================================
 // Update payment status (Service Provider only) with Zoho synchronization
 // ============================================================================
-router.patch('/:id/payment-status', authenticateTenantAdminOnly, async (req, res) => {
+router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentStatus, async (req, res) => {
   try {
     const bookingId = req.params.id;
     const { payment_status, payment_method, transaction_reference } = req.body;
