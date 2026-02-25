@@ -219,6 +219,21 @@ async function run() {
   const bookings = bulkResult?.bookings || [];
   console.log('   ✅ Bulk booking created. Bookings:', bookings.length);
 
+  // Verify each bulk booking has employee_id (fix for "no employee assigned")
+  const missingEmployee = (bookings || []).filter((b) => !b.employee_id);
+  if (missingEmployee.length > 0) {
+    console.error(
+      `   ❌ Verification failed: ${missingEmployee.length} of ${bookings.length} bulk bookings have no employee_id.`
+    );
+    console.error(
+      '   Apply migration 20260225100000_fix_bulk_booking_payment_status_cast.sql on your database and re-run this test.'
+    );
+    throw new Error(
+      `Problem not eliminated: ${missingEmployee.length} of ${bookings.length} bulk bookings missing employee_id. Apply migration and re-run.`
+    );
+  }
+  console.log('   ✅ Verification: all 3 bulk bookings have employee_id assigned.');
+
   const slotsAfterBulk = await getSlotsForDate(dateStr);
   console.log('   Slots still available after Test 2:', slotsAfterBulk.length);
 
@@ -226,7 +241,7 @@ async function run() {
   console.log('✅ All tests passed.');
   console.log('   Test 1: 1 single booking created.');
   console.log('   Test 2: ' + uniqueIds.length + ' bookings created (2 parallel + 1 other).');
-  console.log('   Availability decreased as expected.');
+  console.log('   All bulk bookings have employee assigned. Availability decreased as expected.');
   console.log('========================================\n');
 }
 
