@@ -1281,15 +1281,6 @@ class ZohoService {
       // Build line items
       const lineItems: ZohoInvoiceData['line_items'] = [];
 
-      // Determine price: use offer price if offer exists, otherwise use base_price
-      let pricePerTicket: number;
-      if (booking.offer_id && booking.offer_price) {
-        pricePerTicket = parseFloat(booking.offer_price.toString());
-        console.log(`[ZohoService] Using offer price for invoice: ${pricePerTicket} (Offer ID: ${booking.offer_id})`);
-      } else {
-        pricePerTicket = parseFloat(booking.base_price?.toString() || '0');
-      }
-
       // Use paid_quantity for invoice (only invoice the paid portion)
       // If paid_quantity is null/undefined, fallback to visitor_count (for backward compatibility)
       const paidQty = booking.paid_quantity !== null && booking.paid_quantity !== undefined 
@@ -1303,10 +1294,10 @@ class ZohoService {
       console.log(`   Paid quantity: ${paidQty}`);
       
       // ============================================================================
-      // STRICT BILLING: Only create invoice line items if there's a paid portion
+      // STRICT BILLING: Use booking.total_price so edited/custom prices are reflected on the invoice
       // ============================================================================
       if (paidQty > 0) {
-        // Use the actual total_price from booking (which already accounts for paid portion)
+        // Use the actual total_price from booking (supports admin/receptionist price edits)
         const totalPrice = parseFloat(booking.total_price.toString());
         
         // DOUBLE-CHECK: Ensure total_price > 0 (should never happen if paidQty > 0, but safety check)
@@ -1341,15 +1332,18 @@ class ZohoService {
             : coverageNote.trim();
         }
 
+        // Use booking total_price so custom/edited prices (e.g. 300) appear correctly on the invoice.
+        // Single line: rate = totalPrice, quantity = 1 so invoice total is exactly total_price (no rounding).
+        const qtyNote = paidQty > 1 ? (language === 'ar' ? ` (${paidQty} تذاكر)` : ` (${paidQty} tickets)`) : '';
         lineItems.push({
           name: itemName,
-          description: itemDescription,
-          rate: pricePerTicket,
-          quantity: paidQty, // Only invoice paid tickets
+          description: [itemDescription, qtyNote].filter(Boolean).join(' ').trim() || undefined,
+          rate: Math.round(totalPrice * 100) / 100,
+          quantity: 1,
           unit: 'ticket',
         });
         
-        console.log(`[ZohoService] ✅ Invoice line item created for ${paidQty} paid ticket(s) at ${pricePerTicket} each = ${totalPrice}`);
+        console.log(`[ZohoService] ✅ Invoice line item created, total = ${totalPrice} ${booking.tenant_currency_code || 'SAR'}`);
       } else {
         // This should never happen if the check above works, but add safety
         console.warn(`[ZohoService] ⚠️ WARNING: No paid quantity but reached line item creation`);
