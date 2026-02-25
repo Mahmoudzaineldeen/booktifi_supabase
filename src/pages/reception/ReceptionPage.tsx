@@ -5508,7 +5508,7 @@ export function ReceptionPage() {
                         });
                       })()
                     ) : (
-                      // For manual mode: show slots for selected employee only. In employee-based mode show only the first (earliest) slot per employee so user sees 1 option.
+                      // For manual mode: show slots for selected employee only. Show only the earliest slot so user sees 1 option.
                       (() => {
                         const byEmployee = slots
                           .filter(slot => slot.employee_id === selectedEmployee && !selectedSlots.some(s => s.slot_id === slot.id));
@@ -5521,7 +5521,8 @@ export function ReceptionPage() {
                           timeSlotMap.get(timeKey)!.push(slot);
                         });
                         let entries = Array.from(timeSlotMap.entries());
-                        if (isEmployeeBasedMode && entries.length > 1) {
+                        // In manual mode with one employee selected: show only the earliest slot (one option)
+                        if (entries.length > 1) {
                           entries = entries.sort((a, b) => {
                             const startA = a[1][0]?.start_time ?? '';
                             const startB = b[1][0]?.start_time ?? '';

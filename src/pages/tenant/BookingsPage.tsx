@@ -2736,9 +2736,12 @@ export function BookingsPage() {
                         if (!timeMap.has(key)) timeMap.set(key, []);
                         timeMap.get(key)!.push(slot);
                       });
+                      const isManualSingleEmployee = isEmployeeBasedMode && effectiveCreateAssignmentMode === 'manual' && !!createSelectedEmployeeId;
                       return Array.from(timeMap.entries()).map(([timeKey, grouped]) => {
                         const first = grouped[0];
-                        const totalCap = grouped.reduce((sum, s) => sum + s.available_capacity, 0);
+                        const totalCap = isManualSingleEmployee
+                          ? first.available_capacity
+                          : grouped.reduce((sum, s) => sum + s.available_capacity, 0);
                         const selCount = createSelectedSlots.filter(s => s.start_time === first.start_time && s.end_time === first.end_time).length;
                         const isSelSingle = createForm.visitor_count <= 1 && createSlotId && grouped.some(s => s.id === createSlotId);
                         const isSel = selCount > 0 || isSelSingle;
