@@ -1792,6 +1792,7 @@
     "markComplete": "تحديد كمكتمل",
     "updating": "جاري التحديث...",
     "zohoSynced": "Zoho متزامن",
+    "zohoRegenerating": "جاري إعادة إنشاء الفاتورة…",
     "zohoFailed": "فشل Zoho",
     "paidManual": "مدفوع يدوياً",
     "awaitingPayment": "في انتظار الدفع",

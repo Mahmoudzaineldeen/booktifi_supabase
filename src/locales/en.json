@@ -1302,6 +1302,7 @@
     "markComplete": "Mark Complete",
     "updating": "Updating...",
     "zohoSynced": "Zoho synced",
+    "zohoRegenerating": "Invoice regenerating…",
     "zohoFailed": "Zoho failed",
     "paidManual": "Paid manually",
     "awaitingPayment": "Awaiting payment",

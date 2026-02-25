@@ -145,7 +145,7 @@ export function BookingsPage() {
   const [updatingBookingTime, setUpdatingBookingTime] = useState(false);
   const [deletingBooking, setDeletingBooking] = useState<string | null>(null);
   const [updatingPaymentStatus, setUpdatingPaymentStatus] = useState<string | null>(null);
-  const [zohoSyncStatus, setZohoSyncStatus] = useState<Record<string, { success: boolean; error?: string }>>({});
+  const [zohoSyncStatus, setZohoSyncStatus] = useState<Record<string, { success: boolean; error?: string; pending?: boolean; message?: string }>>({});
   const [paymentStatusModal, setPaymentStatusModal] = useState<{ bookingId: string } | null>(null);
   const [paymentStatusModalMethod, setPaymentStatusModalMethod] = useState<'onsite' | 'transfer'>('onsite');
   const [paymentStatusModalReference, setPaymentStatusModalReference] = useState('');
@@ -914,12 +914,14 @@ export function BookingsPage() {
 
       await fetchBookings(); // Refresh list
       setUpdatingPaymentStatus(null);
-      
-      // Show sync status if available
-      if (result.zoho_sync && !result.zoho_sync.success) {
-        showNotification('warning', t('bookings.paymentStatusUpdatedButZohoFailed', { error: result.zoho_sync.error }));
+
+      // Show message: use API message when present (e.g. pending regeneration), else success or Zoho warning
+      const zoho = result.zoho_sync;
+      if (zoho && !zoho.success) {
+        showNotification('warning', t('bookings.paymentStatusUpdatedButZohoFailed', { error: zoho.error }));
       } else {
-        showNotification('success', t('bookings.paymentStatusUpdatedSuccessfully'));
+        const msg = (result.message && String(result.message).trim()) || t('bookings.paymentStatusUpdatedSuccessfully');
+        showNotification('success', msg);
       }
     } catch (error: any) {
       console.error('Error updating payment status:', error);
@@ -1839,7 +1841,12 @@ export function BookingsPage() {
                         {/* Zoho Sync Status */}
                         {zohoSyncStatus[booking.id] && (
                           <div className="flex items-center gap-1 text-xs">
-                            {zohoSyncStatus[booking.id].success ? (
+                            {zohoSyncStatus[booking.id].pending ? (
+                              <span className="text-amber-600 flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" />
+                                {t('bookings.zohoRegenerating', 'Invoice regenerating…')}
+                              </span>
+                            ) : zohoSyncStatus[booking.id].success ? (
                               <span className="text-green-600 flex items-center gap-1">
                                 <CheckCircle className="w-3 h-3" />
                                 {t('bookings.zohoSynced')}

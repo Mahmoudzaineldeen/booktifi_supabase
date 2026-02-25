@@ -2424,7 +2424,8 @@ export function ReceptionPage() {
       if (data.zoho_sync && !data.zoho_sync.success) {
         showNotification('warning', t('bookings.paymentStatusUpdatedButZohoFailed', { error: data.zoho_sync.error || 'Zoho sync failed' }));
       } else {
-        showNotification('success', t('reception.paymentStatusUpdatedSuccessfully'));
+        const msg = (data.message && String(data.message).trim()) || t('reception.paymentStatusUpdatedSuccessfully');
+        showNotification('success', msg);
       }
       fetchBookings();
       setMarkPaidBookingId(null);

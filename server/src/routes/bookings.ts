@@ -5238,22 +5238,32 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
 
     let invoiceCreateError: string | undefined;
     if (shouldRegenerateInvoice) {
-      try {
-        const { zohoService } = await import('../services/zohoService.js');
-        const regenResult = await zohoService.regenerateInvoiceForBooking(bookingId);
-        if (regenResult.success) {
-          zohoSyncResult = { success: true, paymentId: undefined };
-          if (regenResult.invoiceId) {
-            const { data: refetch } = await supabase.from('bookings').select('zoho_invoice_id').eq('id', bookingId).single();
-            if (refetch?.zoho_invoice_id) invoiceId = refetch.zoho_invoice_id;
+      // Run regeneration in background so the response returns immediately (better UX).
+      zohoSyncResult = { success: true, pending: true, message: 'Invoice is being regenerated and will be sent when ready.' };
+      setImmediate(async () => {
+        try {
+          const { zohoService } = await import('../services/zohoService.js');
+          const regenResult = await zohoService.regenerateInvoiceForBooking(bookingId);
+          if (regenResult.success) {
+            await supabase
+              .from('bookings')
+              .update({ zoho_sync_status: 'synced', updated_at: new Date().toISOString() })
+              .eq('id', bookingId);
+          } else {
+            await supabase
+              .from('bookings')
+              .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
+              .eq('id', bookingId);
+            logger.error('Background invoice regeneration failed', { bookingId, error: regenResult.error });
           }
-        } else {
-          zohoSyncResult = { success: false, error: regenResult.error };
+        } catch (e: any) {
+          await supabase
+            .from('bookings')
+            .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
+            .eq('id', bookingId);
+          logger.error('Background invoice regeneration threw', { bookingId, error: e?.message });
         }
-      } catch (e: any) {
-        zohoSyncResult = { success: false, error: e?.message || 'Invoice regeneration failed' };
-        logger.error('Regenerate invoice on payment method change failed', { bookingId, error: e?.message });
-      }
+      });
     }
     if (!invoiceId && totalPrice > 0 && shouldCreateInvoiceAndRecordPayment) {
       try {
@@ -5332,13 +5342,16 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
     const zohoSyncPayload = zohoSyncResult ?? (shouldCreateInvoiceAndRecordPayment && !invoiceId
       ? { success: false as const, error: invoiceCreateError || 'Invoice could not be created. Check Zoho configuration in Settings → Zoho Integration (Connect Zoho and complete OAuth).' }
       : { success: false as const, error: invoiceId ? 'Zoho sync failed. Check Settings → Zoho Integration.' : 'No invoice to sync. Create an invoice first or check Zoho setup in Settings.' });
+    const isPendingRegen = (zohoSyncPayload as { pending?: boolean }).pending === true;
     const responsePayload: Record<string, unknown> = {
       success: true,
       booking: updatedBooking,
       zoho_sync: zohoSyncPayload,
-      message: payment_status === 'paid' || payment_status === 'paid_manual'
-        ? 'Payment status updated. Invoice sent via WhatsApp when applicable.'
-        : 'Payment status updated',
+      message: isPendingRegen
+        ? 'Payment updated. Invoice is being regenerated and will be sent shortly.'
+        : payment_status === 'paid' || payment_status === 'paid_manual'
+          ? 'Payment status updated. Invoice sent via WhatsApp when applicable.'
+          : 'Payment status updated',
     };
     if (invoiceSendWarning) responsePayload.invoice_send_warning = invoiceSendWarning;
     res.json(responsePayload);
