@@ -33,6 +33,7 @@ import { useCustomerPhoneSearch, type CustomerSuggestion } from '../../hooks/use
 import { CustomerPhoneSuggestionsDropdown } from '../../components/reception/CustomerPhoneSuggestionsDropdown';
 import { AssignFixingTicketForm } from '../../components/support/AssignFixingTicketForm';
 import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
+import { getParallelSlotsForQuantity as getParallelSlotsForQuantityLib, getConsecutiveSlotsForQuantity as getConsecutiveSlotsForQuantityLib } from '../../lib/bookingSlotAllocation';
 
 interface Booking {
   id: string;
@@ -393,50 +394,16 @@ export function ReceptionPage() {
     return bookingForm.visitor_count;
   }
 
-  /** Flatten all slots by (start_time, end_time, employee_id) and take first N from selected time onward. Never group by period. */
   function getParallelSlotsForQuantity(
     allSlots: Slot[],
     selectedTime: { start_time: string; end_time: string; slot_date: string } | null,
     quantity: number
   ): Slot[] {
-    const available = allSlots
-      .filter(s => (s.available_capacity ?? 0) > 0)
-      .sort((a, b) => {
-        const byTime = a.start_time.localeCompare(b.start_time) || a.end_time.localeCompare(b.end_time);
-        return byTime || (a.employee_id ?? '').localeCompare(b.employee_id ?? '');
-      });
-    if (available.length === 0) return [];
-    let startIndex = 0;
-    if (selectedTime) {
-      const idx = available.findIndex(
-        s => s.start_time === selectedTime.start_time && s.end_time === selectedTime.end_time
-      );
-      if (idx >= 0) startIndex = idx;
-    }
-    return available.slice(startIndex, startIndex + quantity);
+    return getParallelSlotsForQuantityLib(allSlots, selectedTime, quantity) as Slot[];
   }
 
-  /** Find one employee with N consecutive (adjacent) time slots. Returns those slots or null. */
   function getConsecutiveSlotsForQuantity(allSlots: Slot[], quantity: number): Slot[] | null {
-    const byEmployee = new Map<string, Slot[]>();
-    for (const s of allSlots) {
-      if ((s.available_capacity ?? 0) <= 0) continue;
-      const eid = s.employee_id ?? '';
-      if (!byEmployee.has(eid)) byEmployee.set(eid, []);
-      byEmployee.get(eid)!.push(s);
-    }
-    for (const [, empSlots] of byEmployee) {
-      empSlots.sort((a, b) => a.start_time.localeCompare(b.start_time) || a.end_time.localeCompare(b.end_time));
-      for (let i = 0; i <= empSlots.length - quantity; i++) {
-        const run = empSlots.slice(i, i + quantity);
-        const consecutive = run.every((slot, j) => {
-          if (j === 0) return true;
-          return run[j - 1].end_time === slot.start_time;
-        });
-        if (consecutive) return run;
-      }
-    }
-    return null;
+    return getConsecutiveSlotsForQuantityLib(allSlots, quantity) as Slot[] | null;
   }
 
   // Validate slot selection
@@ -1715,9 +1682,9 @@ export function ReceptionPage() {
       setBookingCreationLoadingStep('creating_invoice');
       await new Promise(r => setTimeout(r, 700));
       setBookingCreationLoadingStep(null);
+      await fetchBookings();
+      await fetchAvailableSlots();
       resetForm();
-      fetchBookings();
-      fetchAvailableSlots();
       setConfirmationBookingId(firstBookingId);
       return;
     }
@@ -1734,9 +1701,9 @@ export function ReceptionPage() {
       setBookingCreationLoadingStep('creating_invoice');
       await new Promise(r => setTimeout(r, 700));
       setBookingCreationLoadingStep(null);
+      await fetchBookings();
+      await fetchAvailableSlots();
       resetForm();
-      fetchBookings();
-      fetchAvailableSlots();
       setConfirmationBookingId(firstBookingId);
       return;
     }
@@ -1760,9 +1727,9 @@ export function ReceptionPage() {
     setBookingCreationLoadingStep('creating_invoice');
     await new Promise(r => setTimeout(r, 700));
     setBookingCreationLoadingStep(null);
+    await fetchBookings();
+    await fetchAvailableSlots();
     resetForm();
-    fetchBookings();
-    fetchAvailableSlots();
     setConfirmationBookingId(firstBookingId);
   }
 
@@ -3457,6 +3424,7 @@ export function ReceptionPage() {
     setSelectedEmployee('');
     setSelectedTimeSlot(null);
     setSelectedDate(new Date());
+    setSlots([]); // Clear slot list so next load shows fresh availability
     setAssignmentMode('automatic');
     setShowFullCalendar(false);
     setSelectedServices([]);
