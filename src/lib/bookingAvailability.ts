@@ -45,6 +45,8 @@ export interface AvailabilityResult {
   slots: Slot[];
   shifts: Shift[];
   lockedSlotIds: string[];
+  /** When in employee-based + automatic assignment: preferred employee for next booking (rotation). Use when picking one slot from a time group. */
+  nextEmployeeIdForRotation?: string | null;
 }
 
 /**
@@ -359,7 +361,8 @@ export async function fetchAvailableSlots(
     availableSlots = availableSlots.map((slot: Slot) => ({ ...slot, isPast: false }));
   }
 
-  // For employee-based + auto_assign: show one slot per time (the next employee in rotation)
+  // For employee-based + auto_assign: keep all slots so UI can show total capacity per time; expose next employee in rotation so UI can pick that slot when user selects a time
+  let nextEmployeeIdForRotation: string | null = null;
   const effectiveEmployeeBased = useEmployeeBasedAvailability || schedulingType === 'employee_based';
   const useAutoAssign = useEmployeeBasedAvailability
     ? (tenantAssignmentMode === 'automatic' || tenantAssignmentMode === 'both')
@@ -370,19 +373,7 @@ export async function fetchAvailableSlots(
     const { data: empServices } = await db.from('employee_services').select('employee_id').eq('service_id', serviceId).eq('shift_id', null);
     const employeeIds = [...new Set((empServices || []).map((es: any) => es.employee_id))].sort();
     const nextIndex = lastAssignedId ? (employeeIds.indexOf(lastAssignedId) + 1) % Math.max(1, employeeIds.length) : 0;
-    const nextEmployeeId = employeeIds[nextIndex] ?? employeeIds[0];
-    const byStartTime = new Map<string, Slot[]>();
-    for (const slot of availableSlots) {
-      const key = slot.start_time || '';
-      if (!byStartTime.has(key)) byStartTime.set(key, []);
-      byStartTime.get(key)!.push(slot);
-    }
-    availableSlots = [];
-    for (const [, slotsAtTime] of byStartTime) {
-      const rotated = slotsAtTime.find(s => s.employee_id === nextEmployeeId) ?? slotsAtTime[0];
-      availableSlots.push(rotated);
-    }
-    availableSlots.sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+    nextEmployeeIdForRotation = employeeIds[nextIndex] ?? employeeIds[0] ?? null;
   }
 
   console.log('[bookingAvailability] ========================================');
@@ -390,6 +381,9 @@ export async function fetchAvailableSlots(
   console.log(`[bookingAvailability]    Total slots returned: ${availableSlots.length}`);
   console.log(`[bookingAvailability]    Shifts found: ${shifts?.length || 0}`);
   console.log(`[bookingAvailability]    Locked slot IDs: ${lockedSlotIds.length}`);
+  if (nextEmployeeIdForRotation) {
+    console.log(`[bookingAvailability]    Next employee for rotation: ${nextEmployeeIdForRotation}`);
+  }
   if (availableSlots.length > 0) {
     console.log(`[bookingAvailability]    Slot times: ${availableSlots.map(s => s.start_time).join(', ')}`);
   }
@@ -399,5 +393,6 @@ export async function fetchAvailableSlots(
     slots: availableSlots,
     shifts: shifts || [],
     lockedSlotIds,
+    nextEmployeeIdForRotation: nextEmployeeIdForRotation ?? undefined,
   };
 }

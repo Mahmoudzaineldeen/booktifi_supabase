@@ -185,6 +185,7 @@ export function ReceptionPage() {
   const [assignmentMode, setAssignmentMode] = useState<'automatic' | 'manual'>('automatic');
   const [selectedEmployee, setSelectedEmployee] = useState<string>('');
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<{start_time: string, end_time: string, slot_date: string} | null>(null);
+  const [nextEmployeeIdForRotation, setNextEmployeeIdForRotation] = useState<string | null>(null);
   const [availableEmployees, setAvailableEmployees] = useState<Array<{id: string, name: string, name_ar: string, bookingCount: number}>>([]);
   const [isLookingUpCustomer, setIsLookingUpCustomer] = useState(false);
   const [countryCode, setCountryCode] = useState(tenantDefaultCountry); // Use tenant's default country code
@@ -1240,11 +1241,13 @@ export function ReceptionPage() {
       const nonConflictingSlots = filterConflictingSlots(slotsToShow);
 
       setSlots(nonConflictingSlots);
+      setNextEmployeeIdForRotation(result.nextEmployeeIdForRotation ?? null);
 
       await fetchEmployeeBookingCounts(dateStr, shiftIds);
     } catch (err) {
       console.error('Error in fetchAvailableSlots:', err);
       setSlots([]);
+      setNextEmployeeIdForRotation(null);
     } finally {
       setLoadingTimeSlots(false);
     }
@@ -5483,16 +5486,19 @@ export function ReceptionPage() {
 
                         return entries.map(([timeKey, groupedSlots]) => {
                           const firstSlot = groupedSlots[0];
+                          const slotToUse = nextEmployeeIdForRotation
+                            ? groupedSlots.find((s: Slot) => s.employee_id === nextEmployeeIdForRotation) ?? firstSlot
+                            : firstSlot;
                           const totalAvailable = groupedSlots.reduce((sum, s) => sum + s.available_capacity, 0);
 
                           return (
                             <button
                               key={timeKey}
                               type="button"
-                              onClick={(e) => handleSlotClick(firstSlot, e)}
+                              onClick={(e) => handleSlotClick(slotToUse, e)}
                               onContextMenu={(e) => {
                                 e.preventDefault();
-                                handleSlotClick(firstSlot, { ...e, button: 2 } as any);
+                                handleSlotClick(slotToUse, { ...e, button: 2 } as any);
                               }}
                               className="p-3 text-left rounded-lg border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                             >

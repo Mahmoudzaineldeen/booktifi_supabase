@@ -131,6 +131,7 @@ export function BookingsPage() {
   const [createSelectedServices, setCreateSelectedServices] = useState<Array<{ service: AdminService; slot: Slot; employeeId: string }>>([]);
   const [createAssignmentMode, setCreateAssignmentMode] = useState<'automatic' | 'manual'>('automatic');
   const [createSelectedEmployeeId, setCreateSelectedEmployeeId] = useState<string>('');
+  const [createNextEmployeeIdForRotation, setCreateNextEmployeeIdForRotation] = useState<string | null>(null);
   const [confirmationBookingId, setConfirmationBookingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -209,10 +210,11 @@ export function BookingsPage() {
       includePastSlots: false, // Same as reception: filter out past slots (customer-facing behavior)
       includeZeroCapacity: false, // Same as reception: filter out fully booked slots
       includeLockedSlots: false, // Same as reception: filter out locked slots
-    }).then(({ slots }) => {
+    }).then(({ slots, nextEmployeeIdForRotation }) => {
       if (!cancelled) {
         setCreateSlots(slots.filter(s => s.available_capacity > 0));
         setCreateSlotId('');
+        setCreateNextEmployeeIdForRotation(nextEmployeeIdForRotation ?? null);
       }
     }).catch(() => {
       if (!cancelled) setCreateSlots([]);
@@ -232,6 +234,7 @@ export function BookingsPage() {
   useEffect(() => {
     setCreateSelectedEmployeeId('');
     setCreateSlotId('');
+    setCreateNextEmployeeIdForRotation(null);
   }, [createServiceId, createDate]);
 
   // Look up customer by phone and auto-fill name/email + package (same as reception)
@@ -2742,6 +2745,9 @@ export function BookingsPage() {
                         const totalCap = isManualSingleEmployee
                           ? first.available_capacity
                           : grouped.reduce((sum, s) => sum + s.available_capacity, 0);
+                        const slotToUse = (effectiveCreateAssignmentMode === 'automatic' && createNextEmployeeIdForRotation)
+                          ? grouped.find(s => s.employee_id === createNextEmployeeIdForRotation) ?? first
+                          : first;
                         const selCount = createSelectedSlots.filter(s => s.start_time === first.start_time && s.end_time === first.end_time).length;
                         const isSelSingle = createForm.visitor_count <= 1 && createSlotId && grouped.some(s => s.id === createSlotId);
                         const isSel = selCount > 0 || isSelSingle;
@@ -2751,13 +2757,13 @@ export function BookingsPage() {
                             type="button"
                             onClick={(e) => {
                               if (createForm.visitor_count <= 1) {
-                                setCreateSlotId(prev => (grouped.some(s => s.id === prev) && prev === first.id ? '' : first.id));
+                                setCreateSlotId(prev => (grouped.some(s => s.id === prev) && prev === slotToUse.id ? '' : slotToUse.id));
                                 setCreateSelectedSlots([]);
                               } else {
-                                handleCreateSlotClick(first, e);
+                                handleCreateSlotClick(slotToUse, e);
                               }
                             }}
-                            onContextMenu={(e) => { e.preventDefault(); if (createForm.visitor_count > 1) handleCreateSlotClick(first, { ...e, button: 2 } as React.MouseEvent); }}
+                            onContextMenu={(e) => { e.preventDefault(); if (createForm.visitor_count > 1) handleCreateSlotClick(slotToUse, { ...e, button: 2 } as React.MouseEvent); }}
                             className={`p-3 text-left rounded-lg border relative ${isSel ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
                           >
                             {createForm.visitor_count > 1 && selCount > 0 && (
