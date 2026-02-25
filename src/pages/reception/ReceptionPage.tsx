@@ -420,7 +420,7 @@ export function ReceptionPage() {
       const slotWithEnoughCapacity = slotsAtTime.find(s => s.available_capacity >= bookingForm.visitor_count);
       if (slotWithEnoughCapacity) {
         // Can book all tickets in one slot - no need to select multiple slots
-        return { valid: true, message: 'All tickets can be booked in the same time slot' };
+        return { valid: true, message: t('reception.allTicketsSameSlot') };
       }
     }
 
@@ -429,14 +429,14 @@ export function ReceptionPage() {
     if (selectedSlots.length < required) {
       return {
         valid: false,
-        message: `${required - selectedSlots.length} more slot(s) required`
+        message: t('reception.moreSlotsRequired', { count: required - selectedSlots.length })
       };
     }
 
     if (selectedSlots.length > required) {
       return {
         valid: false,
-        message: `Too many slots selected. Only ${required} needed.`
+        message: t('reception.tooManySlotsSelected', { count: required })
       };
     }
 
@@ -448,20 +448,20 @@ export function ReceptionPage() {
       if (!allSameEmployee) {
         return {
           valid: false,
-          message: 'Please select slots from the same employee for consecutive booking'
+          message: t('reception.sameEmployeeRequired')
         };
       }
     }
 
-    // Parallel mode: need exactly quantity individual slots (no full-period auto-fill)
+    // Parallel mode: need exactly quantity individual slots (one click per slot)
     if (bookingForm.booking_option === 'parallel' && bookingForm.visitor_count > 1 && selectedSlots.length > 0 && selectedSlots.length < bookingForm.visitor_count) {
       return {
         valid: false,
-        message: `Select exactly ${bookingForm.visitor_count} slot(s) for parallel booking.`
+        message: t('reception.selectExactSlotsParallel', { count: bookingForm.visitor_count })
       };
     }
 
-    return { valid: true, message: 'All required slots selected' };
+    return { valid: true, message: t('reception.allSlotsSelected') };
   }
 
   // Handle slot click for multi-selection
@@ -5372,7 +5372,7 @@ export function ReceptionPage() {
                             isPartial ? 'text-yellow-900' :
                             'text-gray-900'
                           }>
-                            Slot Selection
+                            {t('reception.slotSelection', 'Slot Selection')}
                           </span>
                         </div>
                         <div className={`text-sm font-bold ${

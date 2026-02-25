@@ -358,7 +358,7 @@ export function BookingsPage() {
         return { valid: false, message: t('reception.sameEmployeeConsecutive', 'Please select slots from the same employee for consecutive booking') };
       }
     }
-    return { valid: true, message: t('reception.allRequiredSlotsSelected', 'All required slots selected') };
+    return { valid: true, message: t('reception.allSlotsSelected') };
   }
 
   function handleCreateSlotClick(slot: Slot, event?: React.MouseEvent) {

@@ -157,3 +157,45 @@ describe('getConsecutiveSlotsForQuantity', () => {
     expect(result).toBeNull();
   });
 });
+
+/**
+ * One selection per slot per period: a period with 2 distinct slots must not allow 3 selections.
+ * (Mirrors UI logic: getNextSlotToAddFromGroup with uniqueBySlotId and selected < 1.)
+ */
+describe('period max selections (one per slot)', () => {
+  function getNextSlotFromGroup(
+    grouped: AllocationSlot[],
+    selectedSlotIds: string[]
+  ): AllocationSlot | null {
+    const uniqueBySlotId = grouped.filter((s, i, arr) => arr.findIndex((x) => x.id === s.id) === i);
+    for (const slot of uniqueBySlotId) {
+      const selected = selectedSlotIds.filter((id) => id === slot.id).length;
+      if (selected < 1) return slot;
+    }
+    return null;
+  }
+
+  it('period with 2 slots allows at most 2 selections; 3rd returns null', () => {
+    const periodSlots: AllocationSlot[] = [
+      slot('id1', '22:00', '23:00', 'em2'),
+      slot('id2', '22:00', '23:00', 'employee 1111'),
+    ];
+    const selected1: string[] = [];
+    const selected2: string[] = ['id1'];
+    const selected3: string[] = ['id1', 'id2'];
+
+    expect(getNextSlotFromGroup(periodSlots, selected1)).not.toBeNull();
+    expect(getNextSlotFromGroup(periodSlots, selected2)).not.toBeNull();
+    expect(getNextSlotFromGroup(periodSlots, selected3)).toBeNull();
+  });
+
+  it('period with 2 slots (with duplicate in array) still allows only 2 selections', () => {
+    const periodSlots: AllocationSlot[] = [
+      slot('id1', '22:00', '23:00', 'em2'),
+      slot('id2', '22:00', '23:00', 'employee 1111'),
+      slot('id1', '22:00', '23:00', 'em2'),
+    ];
+    const selected: string[] = ['id1', 'id2'];
+    expect(getNextSlotFromGroup(periodSlots, selected)).toBeNull();
+  });
+});
