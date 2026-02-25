@@ -26,6 +26,7 @@ describe('Employee-Based Mode: two employees (em2, employee) and mix service', (
   let em2Id: string;
   let employeeId: string;
   let mondayDate: string;
+  let todayStr: string;
 
   beforeAll(async () => {
     const tenant = await createTestTenant('Two Employees Tenant', 'two-employees-tenant');
@@ -65,7 +66,26 @@ describe('Employee-Based Mode: two employees (em2, employee) and mix service', (
 
     const monday = nextMonday(addDays(new Date(), -1));
     mondayDate = format(monday, 'yyyy-MM-dd');
+    todayStr = format(new Date(), 'yyyy-MM-dd');
   }, 30000);
+
+  /** Format "HH:MM:SS" or "HH:MM" as 12-hour (match UI). */
+  function formatTime12(t: string): string {
+    if (!t) return '?';
+    const [h, m] = (t.slice(0, 5) || '00:00').split(':').map(Number);
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const ampm = h < 12 ? 'AM' : 'PM';
+    return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+  }
+
+  /** Slot start_time to minutes since midnight (same as bookingAvailability.ts). */
+  function slotStartMinutes(startTime: string): number {
+    if (!startTime) return 0;
+    const parts = startTime.split(':');
+    const h = parseInt(parts[0] || '0', 10);
+    const m = parseInt(parts[1] || '0', 10);
+    return h * 60 + m;
+  }
 
   afterAll(async () => {
     await db.from('bookings').delete().eq('tenant_id', tenantId);
@@ -74,6 +94,73 @@ describe('Employee-Based Mode: two employees (em2, employee) and mix service', (
     await db.from('employee_shifts').delete().eq('tenant_id', tenantId);
     await cleanupTestData(tenantId);
   });
+
+  it('Slots for today: fetch and print (compare with UI الأوقات المتاحة)', async () => {
+    const base = getApiBase();
+    if (!base) {
+      console.warn('Skipping: VITE_API_URL or API_URL not set.');
+      return;
+    }
+    // Optional: simulate "as of" date/time (e.g. TEST_AS_OF_DATE=2026-02-25 TEST_AS_OF_TIME=22:00 for 25/2 at 10 PM)
+    const asOfDate = process.env.TEST_AS_OF_DATE || todayStr;
+    const asOfTimeStr = process.env.TEST_AS_OF_TIME; // "22:00" or "10:00 PM" -> we parse HH:mm
+    let currentTimeMinutes: number;
+    let timeLabel: string;
+    if (asOfTimeStr) {
+      const match = asOfTimeStr.trim().match(/^(\d{1,2}):(\d{2})(?:\s*(?:AM|PM))?$/i);
+      if (match) {
+        let h = parseInt(match[1], 10);
+        const m = parseInt(match[2], 10);
+        if (/PM/i.test(asOfTimeStr) && h < 12) h += 12;
+        if (/AM/i.test(asOfTimeStr) && h === 12) h = 0;
+        currentTimeMinutes = h * 60 + m;
+        timeLabel = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} (simulated)`;
+      } else {
+        const now = new Date();
+        currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
+        timeLabel = format(now, 'HH:mm');
+      }
+    } else {
+      const now = new Date();
+      currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
+      timeLabel = format(now, 'HH:mm');
+    }
+    const res = await fetch(`${base}/bookings/ensure-employee-based-slots`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId, serviceId, date: asOfDate }),
+    });
+    expect(res.ok).toBe(true);
+    const body = await res.json();
+    const allSlots: any[] = body.slots || [];
+    const employeeName = (s: any) => (s.users?.full_name_ar || s.users?.full_name || '?').trim();
+
+    // Same time filter as the app: for "today", only slots that start after current time
+    const isToday = asOfDate === todayStr || !!process.env.TEST_AS_OF_DATE;
+    const slotsAfterFilter = isToday
+      ? allSlots.filter((s: any) => slotStartMinutes(s.start_time || '') > currentTimeMinutes)
+      : allSlots;
+
+    console.log('\n========== الأوقات المتاحة (available slots) for', asOfDate, '==========');
+    console.log('Current time (time filter):', timeLabel, '— only slots starting after this are returned.');
+    if (isToday && allSlots.length !== slotsAfterFilter.length) {
+      console.log('Raw slots from API:', allSlots.length, '→ After time filter:', slotsAfterFilter.length);
+    }
+    if (slotsAfterFilter.length === 0) {
+      console.log('(No slots after time filter — all slots are in the past or none exist.)');
+    } else {
+      slotsAfterFilter
+        .sort((a: any, b: any) => (a.start_time || '').localeCompare(b.start_time || ''))
+        .forEach((s: any) => {
+          const timeRange = `${formatTime12(s.start_time || '')} - ${formatTime12(s.end_time || '')}`;
+          const name = employeeName(s);
+          const cap = s.available_capacity ?? 0;
+          console.log(`${timeRange}\n${name}\n${cap} متاح`);
+        });
+      console.log('========== Total slots returned by system:', slotsAfterFilter.length, '==========\n');
+    }
+    expect(Array.isArray(body.shiftIds)).toBe(true);
+  }, 20000);
 
   it('Test Case 1: ensure-employee-based-slots creates 3 slots for em2 (09–12) and 12 for employee (09–21) on Monday', async () => {
     const base = getApiBase();
