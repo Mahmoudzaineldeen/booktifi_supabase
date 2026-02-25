@@ -856,6 +856,7 @@
     "showFullCalendar": "عرض التقويم الكامل",
     "hideCalendar": "إخفاء التقويم",
     "availableSlots": "الفترات المتاحة",
+    "spotsLeftCount": "{{count}} أماكن متبقية",
     "noSlotsAvailable": "لا توجد فترات متاحة لهذه الخدمة",
     "selectServiceAndDateFirst": "اختر الخدمة والتاريخ لرؤية الأوقات المتاحة.",
     "selectEmployeeFirst": "اختر الموظف أولاً.",
@@ -1778,6 +1779,7 @@
   "bookings": {
     "title": "الحجوزات",
     "subtitle": "عرض وإدارة جميع الحجوزات",
+    "bookingDetails": "تفاصيل الحجز",
     "coveredByPackage": "مغطى بالباقة",
     "listView": "عرض القائمة",
     "calendarView": "عرض التقويم",

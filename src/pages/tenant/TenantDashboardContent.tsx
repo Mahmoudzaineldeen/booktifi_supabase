@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
@@ -50,13 +50,15 @@ export function TenantDashboardContent() {
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [dashboardBookings, setDashboardBookings] = useState<any[]>([]);
   const [selectedBookingForDetails, setSelectedBookingForDetails] = useState<any | null>(null);
+  const isInitialLoadRef = useRef(true);
 
   useEffect(() => {
     // Don't redirect during initial load - let TenantDashboard handle auth checks
     if (!userProfile) {
       return;
     }
-    fetchStats();
+    const isDateRangeChange = !isInitialLoadRef.current;
+    fetchStats(isDateRangeChange);
     if (viewMode === 'calendar') {
       fetchCalendarBookings();
     } else {
@@ -91,10 +93,13 @@ export function TenantDashboardContent() {
     }
   }
 
-  async function fetchStats() {
+  async function fetchStats(skipFullLoading = false) {
     if (!userProfile?.tenant_id) return;
 
-    setLoading(true);
+    // Only show full-page loading on initial load; when user changes date range, refresh in place
+    if (!skipFullLoading) {
+      setLoading(true);
+    }
     const { start, end } = getDateRange();
 
     try {
@@ -207,6 +212,7 @@ export function TenantDashboardContent() {
     } catch (err) {
       console.error('Error fetching stats:', err);
     } finally {
+      isInitialLoadRef.current = false;
       setLoading(false);
     }
   }
@@ -550,6 +556,7 @@ export function TenantDashboardContent() {
         </div>
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
           <button
+            type="button"
             onClick={() => setViewMode('dashboard')}
             className={`px-3 md:px-4 py-2 rounded-md text-sm md:text-base font-medium transition-colors ${
               viewMode === 'dashboard'
@@ -561,6 +568,7 @@ export function TenantDashboardContent() {
             <span className="hidden sm:inline">{t('dashboard.viewMode.dashboard', 'Dashboard')}</span>
           </button>
           <button
+            type="button"
             onClick={() => setViewMode('calendar')}
             className={`px-3 md:px-4 py-2 rounded-md text-sm md:text-base font-medium transition-colors ${
               viewMode === 'calendar'

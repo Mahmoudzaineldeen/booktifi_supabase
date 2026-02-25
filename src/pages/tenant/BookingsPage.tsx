@@ -136,7 +136,6 @@ export function BookingsPage() {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
-  const [editingBookingTime, setEditingBookingTime] = useState<Booking | null>(null);
   const [editingTimeDate, setEditingTimeDate] = useState<Date>(new Date());
   const [availableTimeSlots, setAvailableTimeSlots] = useState<Slot[]>([]);
   const [loadingTimeSlots, setLoadingTimeSlots] = useState(false);
@@ -782,7 +781,7 @@ export function BookingsPage() {
     }
   }
 
-  async function updateBooking(bookingId: string, updateData: Partial<Booking>) {
+  async function updateBooking(bookingId: string, updateData: Partial<Booking>, keepModalOpen = false) {
     try {
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
@@ -802,17 +801,53 @@ export function BookingsPage() {
       }
 
       const result = await response.json();
-      await fetchBookings(); // Refresh list
-      setEditingBooking(null);
+      await fetchBookings();
+      if (!keepModalOpen) setEditingBooking(null);
 
       const message = (result.message && String(result.message).trim())
         || (result.invoice_created
           ? (t('bookings.bookingUpdatedAndInvoiceSent') || 'Booking updated. A new invoice has been created and sent to the customer.')
           : t('bookings.bookingUpdatedSuccessfully'));
       showNotification('success', message);
+      return result;
     } catch (error: any) {
       console.error('Error updating booking:', error);
       showNotification('error', t('bookings.failedToUpdateBooking', { message: error.message }));
+      throw error;
+    }
+  }
+
+  /** Save combined edit modal: details and optionally new time in one action */
+  async function handleSaveEditBooking() {
+    if (!editingBooking) return;
+    const timeChanged = selectedNewSlotId && selectedNewSlotId !== editingBooking.slot_id;
+    if (timeChanged) {
+      const ok = await showConfirm({
+        title: t('common.confirm'),
+        description: safeTranslate(t, 'bookings.confirmChangeBookingTime', 'Are you sure you want to change the booking time? Old tickets will be cancelled and new tickets will be created.'),
+        destructive: false,
+        confirmText: t('common.confirm'),
+        cancelText: t('common.cancel'),
+      });
+      if (!ok) return;
+    }
+    try {
+      await updateBooking(editingBooking.id, {
+        customer_name: editingBooking.customer_name,
+        customer_email: editingBooking.customer_email,
+        total_price: editingBooking.total_price,
+        status: editingBooking.status,
+      }, true);
+      if (timeChanged) {
+        await updateBookingTime(editingBooking, true);
+      } else {
+        setEditingBooking(null);
+        setSelectedNewSlotId('');
+        setChangeTimeEmployeeId('');
+        setAvailableTimeSlots([]);
+      }
+    } catch {
+      // Error already shown by updateBooking / updateBookingTime
     }
   }
 
@@ -931,41 +966,24 @@ export function BookingsPage() {
     }
   }
 
-  async function handleEditTimeClick(booking: Booking) {
-    console.log('[BookingsPage] ========================================');
-    console.log('[BookingsPage] EDIT TIME CLICK - Booking details:');
-    console.log('   Booking ID:', booking.id);
-    console.log('   Customer:', booking.customer_name);
-    console.log('   Service ID:', booking.service_id);
-    console.log('   Service Name:', booking.services?.name);
-    console.log('   Current slot date:', booking.slots?.slot_date);
-    console.log('[BookingsPage] ========================================');
-    
+  /** Open combined Edit modal: details + change time in one place */
+  async function handleEditBookingClick(booking: Booking) {
     if (!userProfile?.tenant_id || !booking.service_id) {
       showNotification('warning', t('bookings.cannotEditBookingTime'));
       return;
     }
-
-    setEditingBookingTime(booking);
-    // Set initial date to current booking date
-    // FIX: Parse date string directly to avoid timezone issues with parseISO
+    setEditingBooking(booking);
     let initialDate: Date;
     if (booking.slots?.slot_date) {
       const [year, month, day] = booking.slots.slot_date.split('-').map(Number);
       initialDate = new Date(year, month - 1, day);
       setEditingTimeDate(initialDate);
-      console.log('[BookingsPage] Edit time click - date set:', {
-        slotDate: booking.slots.slot_date,
-        parsedDate: initialDate,
-        dayOfWeek: initialDate.getDay(),
-        dayName: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][initialDate.getDay()]
-      });
     } else {
       initialDate = new Date();
       setEditingTimeDate(initialDate);
     }
     setSelectedNewSlotId('');
-    // Pass date directly to avoid race condition with state update
+    setChangeTimeEmployeeId('');
     await fetchTimeSlots(booking.service_id, userProfile.tenant_id, initialDate);
   }
 
@@ -1056,33 +1074,35 @@ export function BookingsPage() {
     setEditingTimeDate(newDate);
     setSelectedNewSlotId('');
     setChangeTimeEmployeeId('');
-    if (editingBookingTime && userProfile?.tenant_id) {
-      // Pass date directly to avoid race condition
-      await fetchTimeSlots(editingBookingTime.service_id, userProfile.tenant_id, newDate);
+    if (editingBooking && userProfile?.tenant_id) {
+      await fetchTimeSlots(editingBooking.service_id, userProfile.tenant_id, newDate);
     }
   }
 
-  async function updateBookingTime() {
-    if (!editingBookingTime || !selectedNewSlotId || !userProfile?.tenant_id) {
+  async function updateBookingTime(bookingRef?: Booking | null, skipConfirm = false) {
+    const target = bookingRef ?? editingBooking;
+    if (!target || !selectedNewSlotId || !userProfile?.tenant_id) {
       showNotification('warning', safeTranslate(t, 'bookings.pleaseSelectNewTimeSlot', 'Please select a new time slot'));
       return;
     }
 
-    const ok = await showConfirm({
-      title: t('common.confirm'),
-      description: safeTranslate(t, 'bookings.confirmChangeBookingTime', 'Are you sure you want to change the booking time? Old tickets will be cancelled and new tickets will be created.'),
-      destructive: false,
-      confirmText: t('common.confirm'),
-      cancelText: t('common.cancel'),
-    });
-    if (!ok) return;
+    if (!skipConfirm) {
+      const ok = await showConfirm({
+        title: t('common.confirm'),
+        description: safeTranslate(t, 'bookings.confirmChangeBookingTime', 'Are you sure you want to change the booking time? Old tickets will be cancelled and new tickets will be created.'),
+        destructive: false,
+        confirmText: t('common.confirm'),
+        cancelText: t('common.cancel'),
+      });
+      if (!ok) return;
+    }
 
     setUpdatingBookingTime(true);
     try {
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
 
-      const response = await fetch(`${API_URL}/bookings/${editingBookingTime.id}/time`, {
+      const response = await fetch(`${API_URL}/bookings/${target.id}/time`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -1099,8 +1119,7 @@ export function BookingsPage() {
       const result = await response.json();
       console.log('[BookingsPage] ✅ Booking time update response:', result);
       
-      // Store booking ID for verification
-      const updatedBookingId = editingBookingTime.id;
+      const updatedBookingId = target.id;
       
       // Store the selected slot ID before clearing state
       const newSlotIdToVerify = selectedNewSlotId;
@@ -1138,8 +1157,7 @@ export function BookingsPage() {
         );
       }
       
-      // Close modal first
-      setEditingBookingTime(null);
+      setEditingBooking(null);
       setSelectedNewSlotId('');
       setAvailableTimeSlots([]);
       
@@ -1863,24 +1881,13 @@ export function BookingsPage() {
 
                         {/* Edit Button */}
                         <Button
-                          onClick={() => setEditingBooking(booking)}
+                          onClick={() => handleEditBookingClick(booking)}
                           variant="ghost"
                           size="sm"
                           className="flex items-center gap-1 text-sm"
                         >
                           <Edit className="w-4 h-4" />
                           {t('common.edit')}
-                        </Button>
-
-                        {/* Change Time Button */}
-                        <Button
-                          onClick={() => handleEditTimeClick(booking)}
-                          variant="ghost"
-                          size="sm"
-                          className="flex items-center gap-1 text-sm"
-                        >
-                          <Clock className="w-4 h-4" />
-                          {t('bookings.changeTime')}
                         </Button>
 
                         {/* Delete Button */}
@@ -2757,7 +2764,7 @@ export function BookingsPage() {
                               <Clock className="w-4 h-4" />
                               <span className="font-medium">{formatTimeTo12Hour(first.start_time)} - {formatTimeTo12Hour(first.end_time)}</span>
                             </div>
-                            <div className="text-xs">{totalCap} spots left</div>
+                            <div className="text-xs">{t('reception.spotsLeftCount', { count: totalCap })}</div>
                           </button>
                         );
                       });
@@ -2886,14 +2893,16 @@ export function BookingsPage() {
         ticketsEnabled={tenant?.tickets_enabled !== false}
       />
 
-      {/* Edit Booking Modal */}
+      {/* Edit Booking Modal (details + change time in one place) */}
       {editingBooking && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md">
+          <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <CardContent className="p-6">
               <h2 className="text-xl font-bold mb-4">{t('billing.editBooking')}</h2>
-              
-              <div className="space-y-4">
+
+              {/* Section 1: Booking details */}
+              <div className="space-y-4 mb-6">
+                <h3 className="text-sm font-semibold text-gray-700 border-b pb-1">{t('bookings.bookingDetails') || 'Booking details'}</h3>
                 <div>
                   <label className="block text-sm font-medium mb-1">{t('billing.customerName')}</label>
                   <input
@@ -2903,7 +2912,6 @@ export function BookingsPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium mb-1">{t('billing.email')}</label>
                   <input
@@ -2913,7 +2921,6 @@ export function BookingsPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium mb-1">{t('billing.totalPrice')}</label>
                   <input
@@ -2925,7 +2932,6 @@ export function BookingsPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium mb-1">{t('billing.status')}</label>
                   <select
@@ -2942,87 +2948,41 @@ export function BookingsPage() {
                 </div>
               </div>
 
-              <div className="flex gap-2 mt-6">
-                <Button
-                  onClick={() => updateBooking(editingBooking.id, {
-                    customer_name: editingBooking.customer_name,
-                    customer_email: editingBooking.customer_email,
-                    total_price: editingBooking.total_price,
-                    status: editingBooking.status,
-                  })}
-                  className="flex-1"
-                >
-                  {t('billing.saveChanges')}
-                </Button>
-                <Button
-                  onClick={() => setEditingBooking(null)}
-                  variant="ghost"
-                  className="flex-1"
-                >
-                  {t('common.cancel')}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Edit Booking Time Modal */}
-      {editingBookingTime && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <CardContent className="p-6">
-              <h2 className="text-xl font-bold mb-4">{t('bookings.changeBookingTime')}</h2>
-              
-              <div className="space-y-4">
-                {/* Current Booking Info */}
+              {/* Section 2: Change time (optional) */}
+              <div className="space-y-4 mb-6 pt-4 border-t">
+                <h3 className="text-sm font-semibold text-gray-700 border-b pb-1">{t('bookings.changeTime')}</h3>
                 <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <h3 className="text-sm font-semibold mb-2">{t('bookings.currentTime')}</h3>
-                  <div className="text-sm text-gray-600">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Calendar className="w-4 h-4" />
-                      <span>
-                        {editingBookingTime.slots?.slot_date 
-                          ? format(parseISO(editingBookingTime.slots.slot_date), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })
-                          : 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4" />
-                      <span>
-                        {editingBookingTime.slots?.start_time 
-                          ? `${formatTimeTo12Hour(editingBookingTime.slots.start_time)} - ${formatTimeTo12Hour(editingBookingTime.slots.end_time)}`
-                          : 'N/A'}
-                      </span>
-                    </div>
+                  <p className="text-xs text-gray-600 mb-2">{t('bookings.currentTime')}</p>
+                  <div className="text-sm text-gray-700 flex items-center gap-2 flex-wrap">
+                    <Calendar className="w-4 h-4" />
+                    <span>
+                      {editingBooking.slots?.slot_date
+                        ? format(parseISO(editingBooking.slots.slot_date), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })
+                        : 'N/A'}
+                    </span>
+                    <Clock className="w-4 h-4 ml-2" />
+                    <span>
+                      {editingBooking.slots?.start_time
+                        ? `${formatTimeTo12Hour(editingBooking.slots.start_time)} - ${formatTimeTo12Hour(editingBooking.slots.end_time)}`
+                        : 'N/A'}
+                    </span>
                   </div>
                 </div>
-
-                {/* New Date Selection */}
                 <div>
                   <label className="block text-sm font-medium mb-1">{t('bookings.newDate')}</label>
                   <input
                     type="date"
                     value={format(editingTimeDate, 'yyyy-MM-dd')}
-                    onChange={(e) => {
-                      const newDate = parseISO(e.target.value);
-                      handleTimeDateChange(newDate);
-                    }}
-                    // Allow past dates for rescheduling (includePastSlots is true)
+                    onChange={(e) => handleTimeDateChange(parseISO(e.target.value))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </div>
-
-                {/* Employee-based + manual: Choose employee (same as creating bookings) */}
                 {isEmployeeBasedMode && (tenantAssignmentMode === 'manual' || tenantAssignmentMode === 'both') && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t('reception.selectEmployee')} *</label>
                     <select
                       value={changeTimeEmployeeId}
-                      onChange={(e) => {
-                        setChangeTimeEmployeeId(e.target.value);
-                        setSelectedNewSlotId('');
-                      }}
+                      onChange={(e) => { setChangeTimeEmployeeId(e.target.value); setSelectedNewSlotId(''); }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required={tenantAssignmentMode === 'manual'}
                     >
@@ -3048,107 +3008,89 @@ export function BookingsPage() {
                     </select>
                   </div>
                 )}
-
-                {/* Available Time Slots */}
                 <div>
-                  <label className="block text-sm font-medium mb-1">
-                    {t('bookings.availableTimeSlots')}
-                  </label>
+                  <label className="block text-sm font-medium mb-1">{t('bookings.availableTimeSlots')}</label>
                   {loadingTimeSlots ? (
-                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4" role="status" aria-label={t('reception.loadingSlots') || 'Loading available times...'}>
-                      <div className="flex items-center justify-center gap-3 py-6">
-                        <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent" />
-                        <p className="text-sm font-medium text-gray-600">{t('bookings.loadingAvailableSlots')}</p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 mt-2">
-                        {[1, 2, 3, 4].map((i) => (
-                          <div key={i} className="h-16 rounded-lg bg-gray-200/80 animate-pulse" />
-                        ))}
-                      </div>
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 flex items-center justify-center gap-3 py-6">
+                      <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent" />
+                      <p className="text-sm text-gray-600">{t('bookings.loadingAvailableSlots')}</p>
                     </div>
                   ) : (() => {
                     const requireEmployeeFirst = isEmployeeBasedMode && (tenantAssignmentMode === 'manual' || tenantAssignmentMode === 'both');
                     const slotsToShow = changeTimeEmployeeId
                       ? availableTimeSlots.filter((s) => (s as any).employee_id === changeTimeEmployeeId)
-                      : requireEmployeeFirst
-                        ? []
-                        : availableTimeSlots;
+                      : requireEmployeeFirst ? [] : availableTimeSlots;
                     if (requireEmployeeFirst && !changeTimeEmployeeId) {
                       return (
-                        <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                          <p className="text-sm text-blue-800">
-                            {t('bookings.selectEmployeeFirst') || 'Please select an employee above to see available time slots.'}
-                          </p>
-                        </div>
+                        <p className="text-sm text-blue-800 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                          {t('bookings.selectEmployeeFirst') || 'Please select an employee above to see available time slots.'}
+                        </p>
                       );
                     }
-                    return slotsToShow.length === 0 ? (
-                      <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                        <p className="text-sm text-yellow-800">
+                    if (slotsToShow.length === 0) {
+                      return (
+                        <p className="text-sm text-yellow-800 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                           {changeTimeEmployeeId ? (t('bookings.noSlotsForSelectedEmployee') || 'No slots for selected employee on this date') : t('bookings.noAvailableTimeSlots')}
                         </p>
-                        <p className="text-xs text-yellow-700 mt-2">
-                          {t('bookings.makeSureShiftsAndSlotsExist')}
-                        </p>
+                      );
+                    }
+                    const timeMap = new Map<string, typeof slotsToShow>();
+                    slotsToShow.forEach((s) => {
+                      const key = `${s.start_time}-${s.end_time}`;
+                      if (!timeMap.has(key)) timeMap.set(key, []);
+                      timeMap.get(key)!.push(s);
+                    });
+                    const grouped = Array.from(timeMap.entries()).map(([timeKey, group]) => {
+                      const first = group[0];
+                      const totalCap = group.reduce((sum, s) => sum + s.available_capacity, 0);
+                      return { timeKey, first, totalCap, slotIds: group.map((s) => s.id) };
+                    });
+                    return (
+                      <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto p-2 border border-gray-200 rounded-md">
+                        {grouped.map(({ timeKey, first, totalCap, slotIds }) => (
+                          <button
+                            key={timeKey}
+                            type="button"
+                            onClick={() => setSelectedNewSlotId(first.id)}
+                            className={`px-3 py-2 text-sm rounded-md border transition-colors ${
+                              slotIds.includes(selectedNewSlotId) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            <div className="font-medium">{formatTimeTo12Hour(first.start_time)} - {formatTimeTo12Hour(first.end_time)}</div>
+                            {isEmployeeBasedMode && (first as any).users && (
+                              <div className="text-xs truncate">
+                                {isAr ? (first as any).users?.full_name_ar || (first as any).users?.full_name : (first as any).users?.full_name || (first as any).users?.full_name_ar}
+                              </div>
+                            )}
+                            <div className="text-xs opacity-75">{totalCap} {t('common.available') || 'Available'}</div>
+                          </button>
+                        ))}
                       </div>
-                    ) : (
-                    <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto p-2 border border-gray-200 rounded-md">
-                      {slotsToShow.map((slot) => (
-                        <button
-                          key={slot.id}
-                          onClick={() => setSelectedNewSlotId(slot.id)}
-                          className={`px-3 py-2 text-sm rounded-md border transition-colors ${
-                            selectedNewSlotId === slot.id
-                              ? 'bg-blue-600 text-white border-blue-600'
-                              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                          }`}
-                        >
-                          <div className="font-medium">{formatTimeTo12Hour(slot.start_time)}</div>
-                          {isEmployeeBasedMode && (slot as any).users && (
-                            <div className="text-xs truncate" title={isAr ? (slot as any).users?.full_name_ar : (slot as any).users?.full_name}>
-                              {isAr ? (slot as any).users?.full_name_ar || (slot as any).users?.full_name : (slot as any).users?.full_name || (slot as any).users?.full_name_ar}
-                            </div>
-                          )}
-                          <div className="text-xs opacity-75">
-                            {slot.available_capacity} {t('common.available') || 'Available'}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
                     );
                   })()}
                 </div>
-
-                {/* Warning Message - Only show if tickets are enabled */}
                 {tenant?.tickets_enabled !== false && (
-                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <p className="text-xs text-blue-800">
-                      {t('common.oldTicketsInvalidated')}
-                    </p>
-                  </div>
+                  <p className="text-xs text-blue-800 p-3 bg-blue-50 rounded-lg border border-blue-200">{t('common.oldTicketsInvalidated')}</p>
                 )}
               </div>
 
               <div className="flex gap-2 mt-6">
                 <Button
-                  onClick={updateBookingTime}
-                  disabled={!selectedNewSlotId || updatingBookingTime}
+                  onClick={handleSaveEditBooking}
+                  disabled={updatingBookingTime}
                   className="flex-1"
                 >
-                  {updatingBookingTime 
-                    ? safeTranslate(t, 'bookings.updating', 'Updating...')
-                    : safeTranslate(t, 'bookings.updateTime', 'Update Time')}
+                  {updatingBookingTime ? safeTranslate(t, 'bookings.updating', 'Updating...') : t('billing.saveChanges')}
                 </Button>
                 <Button
                   onClick={() => {
-                    setEditingBookingTime(null);
+                    setEditingBooking(null);
                     setSelectedNewSlotId('');
                     setChangeTimeEmployeeId('');
                     setAvailableTimeSlots([]);
                   }}
                   variant="ghost"
                   className="flex-1"
-                  disabled={updatingBookingTime}
                 >
                   {t('common.cancel')}
                 </Button>

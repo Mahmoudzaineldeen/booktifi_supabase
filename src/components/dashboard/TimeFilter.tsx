@@ -42,6 +42,7 @@ export function TimeFilter({
         {ranges.map((range) => (
           <Button
             key={range.value}
+            type="button"
             size="sm"
             variant={selectedRange === range.value ? 'primary' : 'secondary'}
             onClick={() => onRangeChange(range.value)}
@@ -52,7 +53,10 @@ export function TimeFilter({
       </div>
 
       {selectedRange === 'custom' && onCustomDateChange && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
+        <form
+          onSubmit={(e) => e.preventDefault()}
+          className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t"
+        >
           <Input
             type="date"
             label={t('dashboard.startDate')}
@@ -65,7 +69,7 @@ export function TimeFilter({
             value={customEndDate || ''}
             onChange={(e) => onCustomDateChange(customStartDate || '', e.target.value)}
           />
-        </div>
+        </form>
       )}
     </div>
   );

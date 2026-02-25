@@ -599,6 +599,7 @@
     "showFullCalendar": "Show Full Calendar",
     "hideCalendar": "Hide Calendar",
     "availableSlots": "Available Slots",
+    "spotsLeftCount": "{{count}} spots left",
     "noSlotsAvailable": "No available slots for this service",
     "createBookingFirst": "Please select a service first",
     "selectServiceAndDateFirst": "Please select a service and date to see available times.",
@@ -1288,6 +1289,7 @@
   "bookings": {
     "title": "Bookings",
     "subtitle": "View and manage all bookings",
+    "bookingDetails": "Booking details",
     "coveredByPackage": "Covered by Package",
     "listView": "List View",
     "calendarView": "Calendar View",
