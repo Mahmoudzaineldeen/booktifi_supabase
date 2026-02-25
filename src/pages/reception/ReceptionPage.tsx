@@ -346,7 +346,7 @@ export function ReceptionPage() {
     if (selectedService && selectedDate) {
       fetchAvailableSlots();
     }
-  }, [selectedService, selectedDate]);
+  }, [selectedService, selectedDate, selectedServices.length]);
 
   // Populate employee dropdown as soon as a service is selected (so "Select employee" has options before date is picked)
   useEffect(() => {
@@ -1198,6 +1198,38 @@ export function ReceptionPage() {
       });
 
       let slotsToShow = result.slots as Slot[];
+
+      // Employee-based + mix service: only show slots where ONE employee can do ALL selected services at that time
+      if (isEmployeeBasedMode && selectedServices.length > 0) {
+        const mixServiceIds = [...new Set([selectedService, ...selectedServices.map((s) => s.service.id)])];
+        if (mixServiceIds.length > 1) {
+          const allResults = await Promise.all(
+            mixServiceIds.map((sid) =>
+              fetchAvailableSlotsUtil({
+                tenantId: userProfile.tenant_id,
+                serviceId: sid,
+                date: selectedDate,
+                includePastSlots: false,
+                includeLockedSlots: false,
+                includeZeroCapacity: false,
+              })
+            )
+          );
+          const slotKey = (s: Slot) => `${s.employee_id ?? ''}|${s.start_time}|${s.end_time}`;
+          let intersectionKeys: Set<string> | null = null;
+          for (const res of allResults) {
+            const keys = new Set((res.slots as Slot[]).map(slotKey));
+            if (intersectionKeys === null) intersectionKeys = keys;
+            else intersectionKeys = new Set([...intersectionKeys].filter((k) => keys.has(k)));
+          }
+          if (intersectionKeys && intersectionKeys.size > 0) {
+            slotsToShow = slotsToShow.filter((s) => intersectionKeys!.has(slotKey(s)));
+          } else {
+            slotsToShow = [];
+          }
+        }
+      }
+
       if (branchEmployeeIds !== null) {
         slotsToShow = slotsToShow.filter((s) => s.employee_id && branchEmployeeIds!.has(s.employee_id));
       }
@@ -5476,21 +5508,29 @@ export function ReceptionPage() {
                         });
                       })()
                     ) : (
-                      // For manual mode, show slots filtered by selected employee
+                      // For manual mode: show slots for selected employee only. In employee-based mode show only the first (earliest) slot per employee so user sees 1 option.
                       (() => {
-                        // Group slots by time for manual mode too
+                        const byEmployee = slots
+                          .filter(slot => slot.employee_id === selectedEmployee && !selectedSlots.some(s => s.slot_id === slot.id));
                         const timeSlotMap = new Map<string, Slot[]>();
-                        slots
-                          .filter(slot => slot.employee_id === selectedEmployee && !selectedSlots.some(s => s.slot_id === slot.id))
-                          .forEach(slot => {
-                            const timeKey = `${slot.slot_date}-${slot.start_time}-${slot.end_time}`;
-                            if (!timeSlotMap.has(timeKey)) {
-                              timeSlotMap.set(timeKey, []);
-                            }
-                            timeSlotMap.get(timeKey)!.push(slot);
+                        byEmployee.forEach(slot => {
+                          const timeKey = `${slot.slot_date}-${slot.start_time}-${slot.end_time}`;
+                          if (!timeSlotMap.has(timeKey)) {
+                            timeSlotMap.set(timeKey, []);
+                          }
+                          timeSlotMap.get(timeKey)!.push(slot);
+                        });
+                        let entries = Array.from(timeSlotMap.entries());
+                        if (isEmployeeBasedMode && entries.length > 1) {
+                          entries = entries.sort((a, b) => {
+                            const startA = a[1][0]?.start_time ?? '';
+                            const startB = b[1][0]?.start_time ?? '';
+                            return startA.localeCompare(startB);
                           });
+                          entries = [entries[0]];
+                        }
 
-                        return Array.from(timeSlotMap.entries()).map(([timeKey, groupedSlots]) => {
+                        return entries.map(([timeKey, groupedSlots]) => {
                           const slot = groupedSlots[0];
 
                           return (
