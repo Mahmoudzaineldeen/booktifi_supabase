@@ -524,10 +524,13 @@
   "employeeShifts": {
     "title": "Employee Shifts & Assignments",
     "subtitle": "View working shifts and assigned services per employee",
+    "branch": "Branch",
     "searchByEmployee": "Employee Name",
     "searchByService": "Service Name",
+    "searchByBranch": "Branch",
     "placeholderEmployee": "Enter employee name...",
     "placeholderService": "Enter service name...",
+    "placeholderBranch": "Enter branch name...",
     "noEmployees": "No employees to display",
     "tryDifferentSearch": "Try a different search term.",
     "configureInEmployees": "Add employees and assign shifts in Settings → Employees.",

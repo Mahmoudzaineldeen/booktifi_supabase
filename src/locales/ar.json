@@ -782,10 +782,13 @@
   "employeeShifts": {
     "title": "ورديات الموظفين والتعيينات",
     "subtitle": "عرض الورديات والخدمات المعينة لكل موظف",
+    "branch": "الفرع",
     "searchByEmployee": "اسم الموظف",
     "searchByService": "اسم الخدمة",
+    "searchByBranch": "الفرع",
     "placeholderEmployee": "أدخل اسم الموظف...",
     "placeholderService": "أدخل اسم الخدمة...",
+    "placeholderBranch": "أدخل اسم الفرع...",
     "noEmployees": "لا يوجد موظفون للعرض",
     "tryDifferentSearch": "جرّب مصطلح بحث آخر.",
     "configureInEmployees": "أضف الموظفين وعيّن الورديات من الإعدادات → الموظفون.",

@@ -8,7 +8,7 @@ import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import { safeTranslateNested } from '../../lib/safeTranslation';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
-import { Users, Search, X, Clock, Briefcase } from 'lucide-react';
+import { Users, Search, X, Clock, Briefcase, MapPin } from 'lucide-react';
 
 interface EmployeeShiftRow {
   id: string;
@@ -41,7 +41,7 @@ interface EmployeeWithShiftsAndServices {
   employee_services: ServiceRow[];
 }
 
-type SearchType = 'employee_name' | 'service_name' | '';
+type SearchType = 'employee_name' | 'service_name' | 'branch_name' | '';
 
 const DAY_NAMES_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NAMES_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
@@ -175,8 +175,18 @@ export function EmployeeShiftsPage() {
         })
       );
     }
+    if (searchType === 'branch_name') {
+      return employees.filter(emp => {
+        if (!emp.branch_id) return false;
+        const branch = branchesById.get(emp.branch_id);
+        if (!branch) return false;
+        const name = (isAr ? (branch.name_ar || branch.name) : branch.name).toLowerCase();
+        const nameAr = (branch.name_ar || '').toLowerCase();
+        return name.includes(q) || nameAr.includes(q);
+      });
+    }
     return employees;
-  }, [employees, searchQuery, searchType, i18n.language]);
+  }, [employees, searchQuery, searchType, i18n.language, branchesById]);
 
   const hasActiveSearch = Boolean(searchQuery.trim() && searchType);
   const effectiveList = hasActiveSearch ? displayEmployees : employees;
@@ -248,6 +258,7 @@ export function EmployeeShiftsPage() {
               <option value="">{t('reception.selectSearchType') || 'Select search type...'}</option>
               <option value="employee_name">{t('employeeShifts.searchByEmployee', 'Employee Name')}</option>
               <option value="service_name">{t('employeeShifts.searchByService', 'Service Name')}</option>
+              <option value="branch_name">{t('employeeShifts.searchByBranch', 'Branch')}</option>
             </select>
           </div>
           <div className="flex-1">
@@ -269,6 +280,8 @@ export function EmployeeShiftsPage() {
                     ? (t('employeeShifts.placeholderEmployee', 'Enter employee name...'))
                     : searchType === 'service_name'
                     ? (t('employeeShifts.placeholderService', 'Enter service name...'))
+                    : searchType === 'branch_name'
+                    ? (t('employeeShifts.placeholderBranch', 'Enter branch name...'))
                     : (t('reception.selectSearchTypeFirst') || 'Select search type first...')
                 }
                 className={`pl-10 pr-10 ${!searchType ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -297,6 +310,7 @@ export function EmployeeShiftsPage() {
               <span>
                 {searchType === 'employee_name' && (t('employeeShifts.searchByEmployee', 'Employee Name'))}
                 {searchType === 'service_name' && (t('employeeShifts.searchByService', 'Service Name'))}
+                {searchType === 'branch_name' && (t('employeeShifts.searchByBranch', 'Branch'))}
               </span>
             </p>
             <p className="text-gray-600">
@@ -344,6 +358,16 @@ export function EmployeeShiftsPage() {
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
                           {safeTranslateNested(t, 'employee.roles', emp.role, emp.role)}
                         </span>
+                        {emp.branch_id && (() => {
+                          const branch = branchesById.get(emp.branch_id);
+                          const branchName = branch ? (isAr ? (branch.name_ar || branch.name) : branch.name) : null;
+                          return branchName ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700" title={t('employeeShifts.branch', 'Branch')}>
+                              <MapPin className="w-3.5 h-3.5" />
+                              {branchName}
+                            </span>
+                          ) : null;
+                        })()}
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                             customShifts.length > 0
