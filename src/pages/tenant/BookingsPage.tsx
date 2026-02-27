@@ -2875,11 +2875,10 @@ export function BookingsPage() {
                             {createForm.visitor_count > 1 && selCount > 0 && (
                               <div className="absolute -top-2 -right-2 bg-blue-800 text-white text-xs min-w-[24px] h-6 rounded-full font-bold flex items-center justify-center px-1">{selCount}</div>
                             )}
-                            <div className="flex items-center gap-2 mb-1">
-                              <Clock className="w-4 h-4" />
-                              <span className="font-medium">{formatTimeTo12Hour(first.start_time)} - {formatTimeTo12Hour(first.end_time)}</span>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium">{formatTimeTo12Hour(first.start_time)}</span>
+                              <span className="text-xs">{t('reception.spotsLeftCount', { count: totalCap })}</span>
                             </div>
-                            <div className="text-xs">{t('reception.spotsLeftCount', { count: totalCap })}</div>
                           </button>
                         );
                       });
@@ -3149,7 +3148,7 @@ export function BookingsPage() {
                               slotIds.includes(selectedNewSlotId) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                             }`}
                           >
-                            <div className="font-medium">{formatTimeTo12Hour(first.start_time)} - {formatTimeTo12Hour(first.end_time)}</div>
+                            <div className="font-medium">{formatTimeTo12Hour(first.start_time)}</div>
                             {isEmployeeBasedMode && (first as any).users && (
                               <div className="text-xs truncate">
                                 {isAr ? (first as any).users?.full_name_ar || (first as any).users?.full_name : (first as any).users?.full_name || (first as any).users?.full_name_ar}

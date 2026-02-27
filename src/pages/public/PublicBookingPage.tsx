@@ -2581,12 +2581,9 @@ function PublicBookingPage() {
                     }`}
                     style={selectedAggregatedSlot?.timeRange === aggSlot.timeRange ? { backgroundColor: primaryColor } : {}}
                   >
-                    <div className="flex items-center gap-2 mb-1">
-                      <Clock className="w-4 h-4" />
-                      <span className="font-medium">{formatTimeTo12Hour(aggSlot.start_time)} - {formatTimeTo12Hour(aggSlot.end_time)}</span>
-                    </div>
-                    <div className="text-xs opacity-90">
-                      {aggSlot.totalCapacity} {t('booking.spotsLeft')}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{formatTimeTo12Hour(aggSlot.start_time)}</span>
+                      <span className="text-xs opacity-90">{aggSlot.totalCapacity} {t('booking.spotsLeft')}</span>
                     </div>
                   </button>
                 ))}

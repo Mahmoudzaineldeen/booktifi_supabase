@@ -5551,12 +5551,9 @@ export function ReceptionPage() {
                               }}
                               className="p-3 text-left rounded-lg border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                             >
-                              <div className="flex items-center gap-2 mb-1">
-                                <Clock className="w-4 h-4" />
-                                <span className="font-medium">{formatTimeTo12Hour(firstSlot.start_time)} - {formatTimeTo12Hour(firstSlot.end_time)}</span>
-                              </div>
-                              <div className="text-xs">
-                                {t('reception.spotsLeftCount', { count: totalAvailable })}
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium">{formatTimeTo12Hour(firstSlot.start_time)}</span>
+                                <span className="text-xs">{t('reception.spotsLeftCount', { count: totalAvailable })}</span>
                               </div>
                             </button>
                           );
@@ -5600,12 +5597,9 @@ export function ReceptionPage() {
                               }}
                               className="p-3 text-left rounded-lg border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                             >
-                              <div className="flex items-center gap-2 mb-1">
-                                <Clock className="w-4 h-4" />
-                                <span className="font-medium">{formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}</span>
-                              </div>
-                              <div className="text-xs">
-                                {t('reception.spotsLeftCount', { count: slot.available_capacity })}
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium">{formatTimeTo12Hour(slot.start_time)}</span>
+                                <span className="text-xs">{t('reception.spotsLeftCount', { count: slot.available_capacity })}</span>
                               </div>
                             </button>
                           );
