@@ -50,13 +50,13 @@ done ensure when editing the total price the invoice is regenerated and sent
 
 done find a way to merge edit and change time
 
-add disable default shifts
+add disable default shifts so we can add custom shifts for employee
 
-fix the time rang so in booking it dont show 1pm 3pm make it just 1pm
+done fix the time rang so in booking it dont show 1pm 3pm make it just 1pm
 
 add edit all in services
 
-add enable and disable landingpage from superadmin
+add enable and disable landing page from superadmin
 
 add login as button 
 

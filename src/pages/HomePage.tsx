@@ -21,6 +21,7 @@ import {
   Gift
 } from 'lucide-react';
 import { LanguageToggle } from '../components/layout/LanguageToggle';
+import { SaudiLogo } from '../components/layout/SaudiLogo';
 import { Button } from '../components/ui/Button';
 
 export function HomePage() {
@@ -41,6 +42,7 @@ export function HomePage() {
               <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
                 Bookati
               </span>
+              <SaudiLogo className="h-8" />
             </div>
             <div className="flex items-center gap-4">
               <LanguageToggle />
@@ -382,6 +384,7 @@ export function HomePage() {
                 <Calendar className="w-5 h-5 text-white" />
               </div>
               <span className="text-xl font-bold text-gray-900">Bookati</span>
+              <SaudiLogo className="h-8" />
             </div>
             <div className="text-center md:text-right text-gray-600">
               <p>&copy; 2025 Bookati. {t('landingPage.allRightsReserved')}</p>

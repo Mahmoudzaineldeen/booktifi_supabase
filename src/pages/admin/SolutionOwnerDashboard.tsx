@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
-import { Building2, Users, Calendar, LogOut, Plus, Settings, Edit, Trash2, UserPlus, Shield, Search, ChevronLeft, ChevronRight, Ticket } from 'lucide-react';
+import { Building2, Users, Calendar, LogOut, Plus, Settings, Edit, Trash2, UserPlus, Shield, Search, ChevronLeft, ChevronRight, Ticket, LogIn } from 'lucide-react';
 import { Tenant } from '../../types';
 import { getApiUrl } from '../../lib/apiUrl';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
@@ -28,7 +28,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50];
 const DEFAULT_PAGE_SIZE = 10;
 
 export function SolutionOwnerDashboard() {
-  const { userProfile, signOut, hasRole, loading: authLoading } = useAuth();
+  const { userProfile, signOut, hasRole, loading: authLoading, applyImpersonation } = useAuth();
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -65,6 +65,11 @@ export function SolutionOwnerDashboard() {
     password: '',
     full_name: '',
   });
+
+  const [showLoginAsModal, setShowLoginAsModal] = useState(false);
+  const [loginAsEmail, setLoginAsEmail] = useState('');
+  const [loginAsLoading, setLoginAsLoading] = useState(false);
+  const [loginAsError, setLoginAsError] = useState('');
 
   useEffect(() => {
     // Wait for auth to finish loading
@@ -416,6 +421,65 @@ export function SolutionOwnerDashboard() {
     navigate('/login');
   }
 
+  async function handleLoginAsByEmail(e: React.FormEvent) {
+    e.preventDefault();
+    const emailToUse = loginAsEmail.trim();
+    if (!emailToUse) {
+      setLoginAsError(t('auth.emailRequired', 'Email is required'));
+      return;
+    }
+    setLoginAsError('');
+    setLoginAsLoading(true);
+    try {
+      const apiUrl = getApiUrl().replace(/\/$/, '');
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        showNotification('error', t('auth.sessionExpired', 'Session expired. Please log in again.'));
+        setLoginAsLoading(false);
+        return;
+      }
+      const originalSession = {
+        access_token: token,
+        userProfile: userProfile!,
+        tenant: null as any,
+      };
+      const res = await fetch(`${apiUrl}/auth/admin/impersonate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email: emailToUse }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginAsError(data.error || 'Impersonation failed');
+        setLoginAsLoading(false);
+        return;
+      }
+      applyImpersonation({
+        user: data.user,
+        tenant: data.tenant || null,
+        session: data.session,
+        impersonation_log_id: data.impersonation_log_id,
+        originalSession,
+      });
+      showNotification('success', t('support.impersonationStarted', 'Logged in as user. Use "Exit Impersonation" to return.'));
+      setShowLoginAsModal(false);
+      setLoginAsEmail('');
+      const slug = data.tenant?.slug;
+      const role = data.user?.role;
+      const path = slug
+        ? (role === 'receptionist' || role === 'cashier' ? `/${slug}/reception` : `/${slug}/admin`)
+        : '/';
+      window.location.href = `${window.location.origin}${path}`;
+    } catch (err: any) {
+      setLoginAsError(err.message || 'Impersonation failed');
+    } finally {
+      setLoginAsLoading(false);
+    }
+  }
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -468,6 +532,16 @@ export function SolutionOwnerDashboard() {
               >
                 <Ticket className="w-4 h-4 mr-2" />
                 Support Tickets
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setShowLoginAsModal(true); setLoginAsError(''); setLoginAsEmail(''); }}
+                className="text-amber-600 hover:text-amber-700"
+                title={t('support.loginAs', 'Login as another user (by email)')}
+              >
+                <LogIn className="w-4 h-4 mr-2" />
+                Login as
               </Button>
               <Button
                 variant="ghost"
@@ -1111,6 +1185,57 @@ export function SolutionOwnerDashboard() {
                   password: '',
                   full_name: '',
                 });
+              }}
+            >
+              {t('common.cancel')}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Login as (impersonate) Modal - Super Admin only */}
+      <Modal
+        isOpen={showLoginAsModal}
+        onClose={() => {
+          setShowLoginAsModal(false);
+          setLoginAsError('');
+          setLoginAsEmail('');
+        }}
+        title={t('support.loginAs', 'Login as')}
+        size="md"
+      >
+        <form onSubmit={handleLoginAsByEmail} className="space-y-4">
+          <p className="text-sm text-gray-600">
+            {t('support.loginAsDescription', 'Enter the email of the account you want to log in as. You will be signed in as that user until you use "Exit Impersonation".')}
+          </p>
+          {loginAsError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+              {loginAsError}
+            </div>
+          )}
+          <Input
+            type="email"
+            label={t('auth.email', 'Email')}
+            value={loginAsEmail}
+            onChange={(e) => setLoginAsEmail(e.target.value)}
+            required
+            placeholder="user@example.com"
+            autoComplete="email"
+            disabled={loginAsLoading}
+          />
+          <div className="flex gap-3 pt-4">
+            <Button type="submit" fullWidth loading={loginAsLoading}>
+              <LogIn className="w-4 h-4 mr-2" />
+              {t('support.loginAs', 'Login as')}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              fullWidth
+              onClick={() => {
+                setShowLoginAsModal(false);
+                setLoginAsError('');
+                setLoginAsEmail('');
               }}
             >
               {t('common.cancel')}
