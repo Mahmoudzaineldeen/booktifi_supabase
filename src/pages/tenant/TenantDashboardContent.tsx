@@ -410,8 +410,9 @@ export function TenantDashboardContent() {
 
   if (loading) {
     return (
-      <div className="p-8 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="p-12 flex flex-col items-center justify-center gap-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-2 border-blue-200 border-t-blue-600"></div>
+        <p className="text-sm text-gray-500">{t('common.loading', 'Loading...')}</p>
       </div>
     );
   }
@@ -552,9 +553,9 @@ export function TenantDashboardContent() {
                 : (userProfile?.full_name || '')
             })}
           </h1>
-          <p className="text-sm md:text-base text-gray-600">{t('dashboard.subtitle', 'View your business analytics and manage bookings')}</p>
+          <p className="text-sm md:text-base text-slate-600">{t('dashboard.subtitle', 'View your business analytics and manage bookings')}</p>
         </div>
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+        <div className="flex gap-1 bg-slate-100 rounded-xl p-1.5 shadow-inner">
           <button
             type="button"
             onClick={() => setViewMode('dashboard')}

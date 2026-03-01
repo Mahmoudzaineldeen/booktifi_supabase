@@ -712,8 +712,13 @@ export function EmployeesPage() {
     <div className="p-4 md:p-8">
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('employee.employees')}</h1>
-          <p className="text-sm md:text-base text-gray-600 mt-1">{t('employee.manageTeam')}</p>
+          <div className="flex items-center gap-3 mb-1">
+            <div className="bg-indigo-100 p-2.5 rounded-xl">
+              <Users className="w-6 h-6 text-indigo-600" />
+            </div>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('employee.employees')}</h1>
+          </div>
+          <p className="text-sm md:text-base text-slate-600 mt-1">{t('employee.manageTeam')}</p>
         </div>
         <Button
           onClick={() => setIsModalOpen(true)}
@@ -821,9 +826,9 @@ export function EmployeesPage() {
 
         if (filteredEmployees.length === 0) {
           return (
-            <Card>
+            <Card className="shadow-sm border border-gray-200/80">
               <CardContent className="py-12 text-center">
-                <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <Users className="w-16 h-16 text-slate-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">
                   {searchQuery || selectedRole !== 'all' 
                     ? t('employee.noResultsFound')
@@ -847,7 +852,7 @@ export function EmployeesPage() {
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredEmployees.map((employee) => (
-            <Card key={employee.id}>
+            <Card key={employee.id} className="shadow-sm border border-gray-200/80 hover:shadow-md transition-shadow">
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span className="truncate">

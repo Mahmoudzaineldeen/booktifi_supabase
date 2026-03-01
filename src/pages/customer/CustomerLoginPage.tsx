@@ -185,9 +185,9 @@ export function CustomerLoginPage() {
           background: `linear-gradient(135deg, ${primaryColor}08 0%, ${secondaryColor}08 100%)`
         }}
       >
-        <div className="w-full max-w-md">
+        <div className="w-full max-w-md animate-[modalAppear_0.35s_ease-out]">
 
-        <Card>
+        <Card className="shadow-xl border-0 ring-1 ring-black/5">
           <CardHeader>
             <div className="flex items-center gap-2 mb-2">
               <Button

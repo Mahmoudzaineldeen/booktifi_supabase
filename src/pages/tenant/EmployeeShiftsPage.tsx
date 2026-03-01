@@ -226,7 +226,9 @@ export function EmployeeShiftsPage() {
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <Clock className="w-8 h-8 text-blue-600" />
+            <div className="bg-blue-100 p-2.5 rounded-xl">
+              <Clock className="w-6 h-6 text-blue-600" />
+            </div>
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
                 {t('employeeShifts.title', 'Employee Shifts & Assignments')}
@@ -323,7 +325,7 @@ export function EmployeeShiftsPage() {
       </div>
 
       {effectiveList.length === 0 ? (
-        <Card>
+        <Card className="shadow-sm border border-gray-200/80">
           <CardContent className="py-12 text-center">
             <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
@@ -348,7 +350,7 @@ export function EmployeeShiftsPage() {
             const branchDefaultShifts = emp.branch_id ? (branchShiftsByBranchId.get(emp.branch_id) ?? []) : [];
             const isAr = i18n.language === 'ar';
             return (
-              <Card key={emp.id} className="hover:shadow-md transition-shadow">
+              <Card key={emp.id} className="shadow-sm border border-gray-200/80 hover:shadow-md transition-shadow">
                 <CardContent className="py-4">
                   <div className="flex flex-col md:flex-row md:items-start gap-4">
                     <div className="md:w-48 shrink-0">

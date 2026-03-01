@@ -20,11 +20,15 @@ import {
   X,
   Ban,
   CheckCircle,
-  Package,
   DollarSign,
+  Mail,
+  Phone,
+  Calendar,
+  Package as PackageIcon,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { safeTranslateStatus } from '../../lib/safeTranslation';
+import { formatTimeTo12Hour } from '../../lib/timeFormat';
 
 export interface VisitorRow {
   id: string;
@@ -682,92 +686,138 @@ export function VisitorsPage() {
       </div>
 
       {/* Table */}
-      <Card>
+      <Card className="overflow-hidden">
         <CardContent className="p-0">
-          <div className="flex items-center justify-between px-4 py-3 border-b">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-gradient-to-r from-slate-50 to-gray-50">
             <h2 className="font-semibold text-gray-900">{t('visitors.visitorList', 'Visitor List')}</h2>
-            <span className="text-sm text-gray-500">
+            <span className="text-sm font-medium text-gray-500 bg-white/80 px-3 py-1 rounded-full border border-gray-200">
               {pagination.total} {t('visitors.records', 'records')}
             </span>
           </div>
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+            <div className="flex justify-center py-16">
+              <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-600 border-t-transparent" />
             </div>
           ) : visitors.length === 0 ? (
-            <p className="text-center py-12 text-gray-500">
-              {t('visitors.noVisitors', 'No visitors found matching your filters')}
-            </p>
+            <div className="text-center py-16">
+              <UserCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500 font-medium">{t('visitors.noVisitors', 'No visitors found matching your filters')}</p>
+            </div>
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[900px]">
                   <thead>
-                    <tr className="bg-gray-50 text-left text-xs uppercase text-gray-500 tracking-wider">
-                      <th className="px-4 py-3 w-10" title={t('visitors.selectForExport', 'Select for export')}>
+                    <tr className="bg-slate-100/80 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider border-b border-slate-200">
+                      <th className="px-4 py-3.5 w-12" title={t('visitors.selectForExport', 'Select for export')}>
                         <span className="sr-only">{t('visitors.selectForExport', 'Select for export')}</span>
                       </th>
-                      <th className="px-4 py-3">{t('visitors.customerName', 'Customer Name')}</th>
-                      <th className="px-4 py-3">{t('visitors.phone', 'Phone')}</th>
-                      <th className="px-4 py-3">{t('visitors.email', 'Email')}</th>
-                      <th className="px-4 py-3">{t('visitors.totalBookings', 'Total Bookings')}</th>
-                      <th className="px-4 py-3">{t('visitors.totalSpent', 'Total Spent')}</th>
-                      <th className="px-4 py-3">{t('visitors.packageBookings', 'Package')}</th>
-                      <th className="px-4 py-3">{t('visitors.paidBookings', 'Paid')}</th>
-                      <th className="px-4 py-3">{t('visitors.lastBooking', 'Last Booking')}</th>
-                      <th className="px-4 py-3">{t('visitors.status', 'Status')}</th>
+                      <th className="px-4 py-3.5">{t('visitors.customerId', 'Customer ID')}</th>
+                      <th className="px-4 py-3.5">{t('visitors.customerName', 'Visitor Name')}</th>
+                      <th className="px-4 py-3.5">{t('visitors.phone', 'Phone')}</th>
+                      <th className="px-4 py-3.5">{t('visitors.email', 'Email')}</th>
+                      <th className="px-4 py-3.5 text-right">{t('visitors.totalBookings', 'Total Bookings')}</th>
+                      <th className="px-4 py-3.5 text-right">{t('visitors.totalSpent', 'Total Spent')}</th>
+                      <th className="px-4 py-3.5 text-center">{t('visitors.packageBookings', 'Package')}</th>
+                      <th className="px-4 py-3.5 text-center">{t('visitors.paidBookings', 'Paid')}</th>
+                      <th className="px-4 py-3.5">{t('visitors.lastBooking', 'Last Booking')}</th>
+                      <th className="px-4 py-3.5">{t('visitors.status', 'Status')}</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {visitors.map((row) => (
-                      <tr
-                        key={row.id}
-                        onClick={() => openDetail(row)}
-                        className={`border-t hover:bg-blue-50/50 cursor-pointer ${selectedVisitorId === row.id ? 'bg-blue-50' : ''}`}
-                      >
-                        <td className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
-                          <label className="flex items-center cursor-pointer">
-                            <input
-                              type="radio"
-                              name="export-visitor"
-                              checked={selectedVisitorId === row.id}
-                              onChange={() => setSelectedVisitorId(selectedVisitorId === row.id ? null : row.id)}
-                              className="rounded-full border-gray-300 text-blue-600"
-                            />
-                          </label>
-                        </td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{row.customer_name || '—'}</td>
-                        <td className="px-4 py-3 text-gray-700">{row.phone}</td>
-                        <td className="px-4 py-3 text-gray-600">{row.email || '—'}</td>
-                        <td className="px-4 py-3">{row.total_bookings}</td>
-                        <td className="px-4 py-3">{formatPrice(row.total_spent)}</td>
-                        <td className="px-4 py-3">{row.package_bookings_count}</td>
-                        <td className="px-4 py-3">{row.paid_bookings_count}</td>
-                        <td className="px-4 py-3 text-gray-600">
-                          {row.last_booking_date
-                            ? format(parseISO(row.last_booking_date), 'MMM d, yyyy')
-                            : '—'}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
-                              row.status === 'blocked'
-                                ? 'bg-red-100 text-red-800'
-                                : 'bg-green-100 text-green-800'
-                            }`}
-                          >
-                            {row.status === 'blocked'
-                              ? t('visitors.blocked', 'Blocked')
-                              : t('visitors.active', 'Active')}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                  <tbody className="divide-y divide-gray-100">
+                    {visitors.map((row, index) => {
+                      const initial = (row.customer_name || row.phone || '?').trim().charAt(0).toUpperCase();
+                      const isGuest = row.type === 'guest';
+                      return (
+                        <tr
+                          key={row.id}
+                          onClick={() => openDetail(row)}
+                          className={`group cursor-pointer transition-colors duration-150 ${
+                            selectedVisitorId === row.id ? 'bg-blue-50 hover:bg-blue-100/80' : 'hover:bg-slate-50/80'
+                          } ${index % 2 === 1 ? 'bg-gray-50/40' : ''}`}
+                        >
+                          <td className="px-4 py-3 w-12 align-middle" onClick={(e) => e.stopPropagation()}>
+                            <label className="flex items-center cursor-pointer">
+                              <input
+                                type="radio"
+                                name="export-visitor"
+                                checked={selectedVisitorId === row.id}
+                                onChange={() => setSelectedVisitorId(selectedVisitorId === row.id ? null : row.id)}
+                                className="rounded-full border-gray-300 text-blue-600 focus:ring-blue-500"
+                              />
+                            </label>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            {isGuest ? (
+                              <span className="text-gray-400 text-xs">—</span>
+                            ) : (
+                              <span className="inline-block font-mono text-xs text-slate-600 bg-slate-100 px-2 py-1 rounded max-w-[140px] truncate" title={row.id}>
+                                {row.id}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-700 font-semibold text-sm">
+                                {initial}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-medium text-gray-900 truncate">{row.customer_name || '—'}</p>
+                                {isGuest && (
+                                  <span className="inline-flex mt-0.5 text-[10px] font-medium text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                                    {t('visitors.guest', 'Guest')}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                              <Phone className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                              <span className="truncate max-w-[120px]">{row.phone}</span>
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <span className="inline-flex items-center gap-1.5 text-sm text-gray-600 truncate max-w-[160px]" title={row.email || undefined}>
+                              <Mail className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                              {row.email || '—'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 align-middle text-right font-medium text-gray-900 tabular-nums">{row.total_bookings}</td>
+                          <td className="px-4 py-3 align-middle text-right font-medium text-gray-900 tabular-nums">{formatPrice(row.total_spent)}</td>
+                          <td className="px-4 py-3 align-middle text-center">
+                            <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-sm font-medium tabular-nums">
+                              {row.package_bookings_count}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 align-middle text-center">
+                            <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-sm font-medium tabular-nums">
+                              {row.paid_bookings_count}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <span className="inline-flex items-center gap-1.5 text-sm text-gray-600">
+                              <Calendar className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                              {row.last_booking_date ? format(parseISO(row.last_booking_date), 'MMM d, yyyy') : '—'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <span
+                              className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                                row.status === 'blocked' ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              {row.status === 'blocked' ? t('visitors.blocked', 'Blocked') : t('visitors.active', 'Active')}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
               {pagination.totalPages > 1 && (
-                <div className="flex items-center justify-between px-4 py-3 border-t">
+                <div className="flex items-center justify-between px-5 py-4 border-t border-gray-200 bg-gray-50/50">
                   <span className="text-sm text-gray-600">
                     {t('common.page', 'Page')} {pagination.page} {t('common.of', 'of')} {pagination.totalPages}
                   </span>
@@ -801,45 +851,60 @@ export function VisitorsPage() {
         isOpen={!!detailVisitor || detailLoading}
         onClose={closeDetail}
         title={detailVisitor ? detailVisitor.visitor.customer_name || detailVisitor.visitor.phone : (t('visitors.details', 'Visitor Details') as string)}
+        size="xl"
       >
         {detailLoading ? (
-          <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+          <div className="flex justify-center py-16">
+            <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-600 border-t-transparent" />
           </div>
         ) : detailVisitor ? (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">{t('visitors.visitorInfo', 'Visitor Info')}</h3>
-              <dl className="grid grid-cols-2 gap-2 text-sm">
-                <dt className="text-gray-500">{t('visitors.name', 'Name')}</dt>
-                <dd className="font-medium">{detailVisitor.visitor.customer_name || '—'}</dd>
-                <dt className="text-gray-500">{t('visitors.phone', 'Phone')}</dt>
-                <dd>{detailVisitor.visitor.phone}</dd>
-                <dt className="text-gray-500">{t('visitors.email', 'Email')}</dt>
-                <dd>{detailVisitor.visitor.email || '—'}</dd>
-                <dt className="text-gray-500">{t('visitors.totalBookings', 'Total Bookings')}</dt>
-                <dd>{detailVisitor.visitor.total_bookings}</dd>
-                <dt className="text-gray-500">{t('visitors.totalSpent', 'Total Spent')}</dt>
-                <dd>{formatPrice(detailVisitor.visitor.total_spent)}</dd>
-                <dt className="text-gray-500">{t('visitors.packageBookings', 'Package Bookings')}</dt>
-                <dd>{detailVisitor.visitor.package_bookings_count}</dd>
-                <dt className="text-gray-500">{t('visitors.paidBookings', 'Paid Bookings')}</dt>
-                <dd>{detailVisitor.visitor.paid_bookings_count}</dd>
+          <div className="animate-[modalAppear_0.3s_ease-out] space-y-6">
+            {/* Visitor Info card */}
+            <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-slate-50 to-gray-50/50 p-5 shadow-sm">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-4">
+                <UserCircle className="h-4 w-4 text-slate-500" />
+                {t('visitors.visitorInfo', 'Visitor Info')}
+              </h3>
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                {detailVisitor.visitor.type === 'customer' && (
+                  <>
+                    <dt className="text-gray-500 font-medium">{t('visitors.customerId', 'Customer ID')}</dt>
+                    <dd className="font-mono text-xs text-slate-700 break-all bg-white/80 px-2 py-1 rounded border border-gray-100">{detailVisitor.visitor.id}</dd>
+                  </>
+                )}
+                <dt className="text-gray-500 font-medium">{t('visitors.name', 'Name')}</dt>
+                <dd className="font-semibold text-gray-900">{detailVisitor.visitor.customer_name || '—'}</dd>
+                <dt className="text-gray-500 font-medium flex items-center gap-1.5">{t('visitors.phone', 'Phone')}</dt>
+                <dd className="flex items-center gap-1.5 text-gray-700"><Phone className="h-3.5 w-3.5 text-slate-400" />{detailVisitor.visitor.phone}</dd>
+                <dt className="text-gray-500 font-medium flex items-center gap-1.5">{t('visitors.email', 'Email')}</dt>
+                <dd className="flex items-center gap-1.5 text-gray-700"><Mail className="h-3.5 w-3.5 text-slate-400" />{detailVisitor.visitor.email || '—'}</dd>
+                <dt className="text-gray-500 font-medium">{t('visitors.totalBookings', 'Total Bookings')}</dt>
+                <dd className="font-medium text-gray-900 tabular-nums">{detailVisitor.visitor.total_bookings}</dd>
+                <dt className="text-gray-500 font-medium">{t('visitors.totalSpent', 'Total Spent')}</dt>
+                <dd className="font-semibold text-gray-900">{formatPrice(detailVisitor.visitor.total_spent)}</dd>
+                <dt className="text-gray-500 font-medium">{t('visitors.packageBookings', 'Package Bookings')}</dt>
+                <dd className="tabular-nums">{detailVisitor.visitor.package_bookings_count}</dd>
+                <dt className="text-gray-500 font-medium">{t('visitors.paidBookings', 'Paid Bookings')}</dt>
+                <dd className="tabular-nums">{detailVisitor.visitor.paid_bookings_count}</dd>
               </dl>
               {detailVisitor.visitor.active_packages?.length > 0 && (
-                <div className="mt-2">
-                  <p className="text-xs font-medium text-gray-500">{t('visitors.activePackages', 'Active packages')}</p>
-                  <ul className="text-sm text-gray-700 mt-1">
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <p className="flex items-center gap-2 text-xs font-semibold text-amber-800 mb-2">
+                    <PackageIcon className="h-3.5 w-3.5" />
+                    {t('visitors.activePackages', 'Active packages')}
+                  </p>
+                  <ul className="space-y-1.5">
                     {detailVisitor.visitor.active_packages.map((p: any, i: number) => (
-                      <li key={i}>
-                        {p.package_name || 'Package'} — {Array.isArray(p.usage) ? p.usage.map((u: any) => `${u.remaining_quantity || 0} left`).join(', ') : ''}
+                      <li key={i} className="text-sm text-amber-900 bg-amber-50/80 px-3 py-2 rounded-lg border border-amber-100">
+                        <span className="font-medium">{p.package_name || 'Package'}</span>
+                        <span className="text-amber-700"> — {Array.isArray(p.usage) ? p.usage.map((u: any) => `${u.remaining_quantity || 0} left`).join(', ') : ''}</span>
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
               {canBlockUnblock && detailVisitor.visitor.type === 'customer' && (
-                <div className="mt-4 flex gap-2">
+                <div className="mt-4 pt-4 border-t border-gray-200 flex gap-2">
                   {detailVisitor.visitor.status === 'blocked' ? (
                     <Button
                       variant="primary"
@@ -847,6 +912,7 @@ export function VisitorsPage() {
                       icon={<CheckCircle className="w-4 h-4" />}
                       onClick={() => handleUnblock({ ...detailVisitor.visitor, id: detailVisitor.visitor.id } as VisitorRow)}
                       disabled={blockingId === detailVisitor.visitor.id}
+                      className="rounded-lg"
                     >
                       {t('visitors.unblock', 'Unblock Visitor')}
                     </Button>
@@ -857,6 +923,7 @@ export function VisitorsPage() {
                       icon={<Ban className="w-4 h-4" />}
                       onClick={() => handleBlock({ ...detailVisitor.visitor, id: detailVisitor.visitor.id } as VisitorRow)}
                       disabled={blockingId === detailVisitor.visitor.id}
+                      className="rounded-lg border-red-200 text-red-700 hover:bg-red-50"
                     >
                       {t('visitors.block', 'Block Visitor')}
                     </Button>
@@ -864,47 +931,47 @@ export function VisitorsPage() {
                 </div>
               )}
             </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">{t('visitors.bookingHistory', 'Booking History')}</h3>
-              <div className="overflow-x-auto max-h-80 overflow-y-auto border rounded-lg">
+            {/* Booking History */}
+            <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 px-5 py-4 bg-slate-50 border-b border-gray-200">
+                <Calendar className="h-4 w-4 text-slate-500" />
+                {t('visitors.bookingHistory', 'Booking History')}
+              </h3>
+              <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 sticky top-0">
+                  <thead className="bg-slate-100/80 sticky top-0 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     <tr>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.bookingId', 'Booking ID')}</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.serviceName', 'Service')}</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.date', 'Date')}</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.time', 'Time')}</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.visitorsCount', 'Visitors')}</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.paymentType', 'Payment type')}</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.amountPaid', 'Amount')}</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.status', 'Status')}</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.createdBy', 'Created By')}</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.paymentMethod', 'Payment Method')}</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">{t('visitors.transactionReference', 'Transaction Reference')}</th>
+                      <th className="px-3 py-2.5 text-left">{t('visitors.bookingId', 'Booking ID')}</th>
+                      <th className="px-3 py-2.5 text-left">{t('visitors.serviceName', 'Service')}</th>
+                      <th className="px-3 py-2.5 text-left">{t('visitors.date', 'Date')}</th>
+                      <th className="px-3 py-2.5 text-left">{t('visitors.time', 'Time')}</th>
+                      <th className="px-3 py-2.5 text-left">{t('visitors.visitorsCount', 'Visitors')}</th>
+                      <th className="px-3 py-2.5 text-left">{t('visitors.paymentType', 'Payment type')}</th>
+                      <th className="px-3 py-2.5 text-right">{t('visitors.amountPaid', 'Amount')}</th>
+                      <th className="px-3 py-2.5 text-left">{t('visitors.status', 'Status')}</th>
+                      <th className="px-3 py-2.5 text-left">{t('visitors.createdBy', 'Created By')}</th>
+                      <th className="px-3 py-2.5 text-left">{t('visitors.paymentMethod', 'Payment Method')}</th>
+                      <th className="px-3 py-2.5 text-left">{t('visitors.transactionReference', 'Transaction Reference')}</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-gray-100">
                     {detailVisitor.bookings.map((b) => (
-                      <tr key={b.id} className="border-t">
-                        <td className="px-3 py-2 font-mono text-xs">{b.id.slice(0, 8)}…</td>
-                        <td className="px-3 py-2">{b.service_name}</td>
-                        <td className="px-3 py-2">{b.date || '—'}</td>
-                        <td className="px-3 py-2">{b.time || '—'}</td>
-                        <td className="px-3 py-2">{b.visitors_count}</td>
+                      <tr key={b.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-3 py-2 font-mono text-xs text-slate-600">{b.id.slice(0, 8)}…</td>
+                        <td className="px-3 py-2 font-medium text-gray-900">{b.service_name}</td>
+                        <td className="px-3 py-2 text-gray-700">{b.date || '—'}</td>
+                        <td className="px-3 py-2 text-gray-700 tabular-nums">{b.time ? formatTimeTo12Hour(b.time) : '—'}</td>
+                        <td className="px-3 py-2 text-gray-700 tabular-nums">{b.visitors_count}</td>
                         <td className="px-3 py-2">
-                          <span
-                            className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
-                              b.booking_type === 'PACKAGE' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
-                            }`}
-                          >
+                          <span className={`inline-flex px-2 py-0.5 rounded-md text-xs font-medium ${b.booking_type === 'PACKAGE' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
                             {b.booking_type}
                           </span>
                         </td>
-                        <td className="px-3 py-2">{formatPrice(b.amount_paid)}</td>
+                        <td className="px-3 py-2 text-right font-medium text-gray-900 tabular-nums">{formatPrice(b.amount_paid)}</td>
                         <td className="px-3 py-2">{safeTranslateStatus(t, b.status)}</td>
-                        <td className="px-3 py-2">{b.created_by === 'staff' ? t('visitors.staff', 'Admin/Receptionist') : t('visitors.customer', 'Customer')}</td>
-                        <td className="px-3 py-2">{b.payment_method || '—'}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{b.transaction_reference || '—'}</td>
+                        <td className="px-3 py-2 text-gray-600">{b.created_by === 'staff' ? t('visitors.staff', 'Admin/Receptionist') : t('visitors.customer', 'Customer')}</td>
+                        <td className="px-3 py-2 text-gray-600">{b.payment_method || '—'}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-gray-500">{b.transaction_reference || '—'}</td>
                       </tr>
                     ))}
                   </tbody>

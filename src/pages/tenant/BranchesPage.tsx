@@ -195,7 +195,7 @@ export function BranchesPage() {
           ))}
         </div>
       ) : (
-        <Card className="border-2 border-dashed border-gray-200 bg-gray-50/50">
+        <Card className="border-2 border-dashed border-gray-200 bg-gray-50/50 rounded-xl shadow-sm">
           <CardContent className="py-16 px-6 text-center">
             <div className="inline-flex p-4 rounded-full bg-blue-100 text-blue-600 mb-4">
               <Building2 className="w-12 h-12" />

@@ -194,23 +194,25 @@ export function TenantFeaturesPage() {
   const selectedTenant = tenants.find(t => t.id === selectedTenantId);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
           <Button
             variant="ghost"
             onClick={() => navigate('/solution-admin')}
-            className="mb-4"
+            className="mb-4 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Dashboard
           </Button>
           <div className="flex items-center gap-3 mb-2">
-            <Settings className="w-8 h-8 text-blue-600" />
+            <div className="bg-blue-100 p-2.5 rounded-xl">
+              <Settings className="w-7 h-7 text-blue-600" />
+            </div>
             <h1 className="text-3xl font-bold text-gray-900">Tenant Features Management</h1>
           </div>
-          <p className="text-gray-600">
+          <p className="text-slate-600">
             Enable or disable features for individual tenants
           </p>
         </div>
@@ -219,7 +221,7 @@ export function TenantFeaturesPage() {
         {tenants.length > 0 && (
           <div className="flex flex-wrap items-center gap-3 mb-4">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
                 type="text"
                 placeholder={t('admin.searchTenants', 'Search by name, email or industry...')}
@@ -244,9 +246,9 @@ export function TenantFeaturesPage() {
         )}
 
         {/* Tenant Selection */}
-        <Card className="mb-6">
+        <Card className="mb-6 shadow-sm border border-gray-200/80">
           <div className="p-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
               Select Tenant
             </label>
             <select
@@ -275,15 +277,15 @@ export function TenantFeaturesPage() {
 
         {/* Message */}
         {message && (
-          <div className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
-            message.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+          <div className={`mb-6 p-4 rounded-xl flex items-center gap-3 border ${
+            message.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-800 border-red-200'
           }`}>
             {message.type === 'success' ? (
-              <Check className="w-5 h-5" />
+              <Check className="w-5 h-5 flex-shrink-0" />
             ) : (
-              <AlertCircle className="w-5 h-5" />
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
             )}
-            <span>{message.text}</span>
+            <span className="font-medium">{message.text}</span>
           </div>
         )}
 
@@ -303,7 +305,7 @@ export function TenantFeaturesPage() {
           </Card>
         ) : features ? (
           <div className="space-y-6">
-            <Card>
+            <Card className="shadow-sm border border-gray-200/80">
               <div className="p-6">
                 <h2 className="text-xl font-semibold text-gray-900 mb-6">
                   Feature Settings for {selectedTenant?.name}

@@ -361,8 +361,13 @@ export function OffersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('offers.title')}</h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <div className="flex items-center gap-3 mb-1">
+            <div className="bg-amber-100 p-2.5 rounded-xl">
+              <Gift className="w-6 h-6 text-amber-700" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('offers.title')}</h1>
+          </div>
+          <p className="text-sm text-slate-600 mt-1">
             {t('offers.description')}
           </p>
         </div>
@@ -377,7 +382,7 @@ export function OffersPage() {
       {/* Filter and Search */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Filter by Service */}
-        <Card>
+        <Card className="shadow-sm border border-gray-200/80">
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
               <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
@@ -400,7 +405,7 @@ export function OffersPage() {
         </Card>
 
         {/* Search Bar */}
-        <Card>
+        <Card className="shadow-sm border border-gray-200/80">
           <CardContent className="pt-6">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -422,9 +427,9 @@ export function OffersPage() {
           <div className="text-gray-500">{t('common.loading') || 'Loading...'}</div>
         </div>
       ) : filteredOffers.length === 0 && offers.length > 0 ? (
-        <Card>
+        <Card className="shadow-sm border border-gray-200/80">
           <CardContent className="py-12 text-center">
-            <Search className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <Search className="w-12 h-12 text-slate-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
               {t('common.noResultsFound')}
             </h3>
@@ -439,9 +444,9 @@ export function OffersPage() {
           </CardContent>
         </Card>
       ) : filteredOffers.length === 0 ? (
-        <Card>
+        <Card className="shadow-sm border border-gray-200/80">
           <CardContent className="py-12 text-center">
-            <Gift className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <Gift className="w-12 h-12 text-slate-400 mx-auto mb-4" />
             <p className="text-gray-500">{t('offers.noOffers')}</p>
             <Button
               onClick={() => openCreateOffer()}
@@ -458,7 +463,7 @@ export function OffersPage() {
           {filteredOffers.map((offer) => {
             const service = offer.services || services.find(s => s.id === offer.service_id);
             return (
-              <Card key={offer.id} className="relative">
+              <Card key={offer.id} className="relative shadow-sm border border-gray-200/80 hover:shadow-md transition-shadow">
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">

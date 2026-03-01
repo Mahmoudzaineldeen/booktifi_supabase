@@ -1085,8 +1085,13 @@ export function ServicesPage() {
     <div className="p-4 md:p-8">
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('service.services', 'Services')}</h1>
-          <p className="text-sm md:text-base text-gray-600 mt-1">{t('service.manageServices', 'Manage your services and categories')}</p>
+          <div className="flex items-center gap-3 mb-1">
+            <div className="bg-blue-100 p-2.5 rounded-xl">
+              <Briefcase className="w-6 h-6 text-blue-600" />
+            </div>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('service.services', 'Services')}</h1>
+          </div>
+          <p className="text-sm md:text-base text-slate-600 mt-1">{t('service.manageServices', 'Manage your services and categories')}</p>
         </div>
         <div className="flex gap-3">
           <Button
@@ -1136,9 +1141,9 @@ export function ServicesPage() {
 
         if (filteredServices.length === 0 && services.length > 0) {
           return (
-            <Card>
+            <Card className="shadow-sm border border-gray-200/80">
               <CardContent className="py-12 text-center">
-                <Search className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <Search className="w-16 h-16 text-slate-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">
                   {t('common.noResultsFound')}
                 </h3>
@@ -1157,9 +1162,9 @@ export function ServicesPage() {
 
         if (filteredServices.length === 0) {
           return (
-            <Card>
+            <Card className="shadow-sm border border-gray-200/80">
               <CardContent className="py-12 text-center">
-                <Briefcase className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <Briefcase className="w-16 h-16 text-slate-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">{t('service.noServicesYet', 'No services yet')}</h3>
                 <p className="text-gray-600 mb-6">{t('service.getStarted', 'Get started by adding your first service')}</p>
                 <Button onClick={() => setIsServiceModalOpen(true)} icon={<Plus className="w-4 h-4" />}>
@@ -1173,7 +1178,7 @@ export function ServicesPage() {
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredServices.map((service) => (
-            <Card key={service.id}>
+            <Card key={service.id} className="shadow-sm border border-gray-200/80 hover:shadow-md transition-shadow">
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span className="truncate">

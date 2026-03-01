@@ -309,13 +309,18 @@ export function CashierPage() {
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h1 className="text-xl md:text-2xl font-bold text-gray-900">
-                {t('cashier.title', 'Cashier Desk')}
-              </h1>
-              <p className="text-xs md:text-sm text-gray-600">
+            <div className="flex items-center gap-3">
+              <div className="bg-emerald-100 p-2.5 rounded-xl shrink-0">
+                <DollarSign className="w-6 h-6 text-emerald-600" />
+              </div>
+              <div>
+                <h1 className="text-xl md:text-2xl font-bold text-gray-900">
+                  {t('cashier.title', 'Cashier Desk')}
+                </h1>
+                <p className="text-xs md:text-sm text-slate-600">
                 {t('cashier.welcomeCashier', 'Welcome, cashier')} {i18n.language === 'ar' ? userProfile?.full_name_ar : userProfile?.full_name}
-              </p>
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Button

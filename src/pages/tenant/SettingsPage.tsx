@@ -1179,16 +1179,21 @@ export function SettingsPage() {
   return (
     <div className="p-4 md:p-8">
       <div className="mb-6 md:mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('navigation.settings')}</h1>
-        <p className="text-sm md:text-base text-gray-600 mt-1">{t('settings.manageSettings')}</p>
+        <div className="flex items-center gap-3 mb-1">
+          <div className="bg-slate-100 p-2.5 rounded-xl">
+            <Settings className="w-6 h-6 text-slate-600" />
+          </div>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('navigation.settings')}</h1>
+        </div>
+        <p className="text-sm md:text-base text-slate-600 mt-1">{t('settings.manageSettings')}</p>
       </div>
 
       <div className="max-w-3xl">
         <div className="space-y-6">
           {/* Business Information Form */}
           <form onSubmit={handleSubmit}>
-          <Card className="shadow-lg">
-            <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50">
+          <Card className="shadow-sm border border-gray-200/80">
+            <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-t-xl">
               <CardTitle className="flex items-center gap-2 text-xl">
                 <Building2 className="w-6 h-6 text-blue-600" />
                 {t('tenant.businessInformation')}

@@ -407,7 +407,9 @@ title: t('common.confirm'),
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <Package className="w-8 h-8 text-blue-600" />
+            <div className="bg-blue-100 p-2.5 rounded-xl">
+              <Package className="w-6 h-6 text-blue-600" />
+            </div>
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
                 {t('packages.subscribers.title', 'Package Subscribers')}
@@ -430,7 +432,7 @@ title: t('common.confirm'),
       </div>
 
       {/* Search Section */}
-      <Card className="mb-6">
+      <Card className="mb-6 shadow-sm border border-gray-200/80">
         <CardContent className="p-6">
           <div className="flex flex-col md:flex-row gap-6">
             <div className="flex-1">
@@ -507,9 +509,9 @@ title: t('common.confirm'),
 
       {/* Subscribers List */}
       {displayData.length === 0 ? (
-        <Card>
+        <Card className="shadow-sm border border-gray-200/80">
           <CardContent className="p-8 text-center">
-            <Package className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <Package className="w-16 h-16 text-slate-400 mx-auto mb-4" />
             <p className="text-gray-600 text-lg">
               {showSearchResults 
                 ? t('packages.subscribers.noResults', 'No subscribers found matching your search')
@@ -520,7 +522,7 @@ title: t('common.confirm'),
       ) : (
         <div className="space-y-4">
           {displayData.map((subscriber) => (
-            <Card key={subscriber.id}>
+            <Card key={subscriber.id} className="shadow-sm border border-gray-200/80 hover:shadow-md transition-shadow">
               <CardContent className="p-6">
                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4">
                   <div className="flex-1">

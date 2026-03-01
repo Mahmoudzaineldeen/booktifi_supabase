@@ -331,7 +331,7 @@ export function SupportTicketsPage() {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <Card>
+        <Card className="shadow-sm border border-gray-200/80">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Ticket className="w-5 h-5" />
@@ -341,7 +341,7 @@ export function SupportTicketsPage() {
           <CardContent>
             {loading ? (
               <div className="flex justify-center py-12">
-                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+                <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-200 border-t-blue-600" />
               </div>
             ) : overview.tenants.length === 0 ? (
               <div className="text-center py-12 text-gray-600">
@@ -351,7 +351,7 @@ export function SupportTicketsPage() {
             ) : (
               <div className="space-y-6">
                 {/* Top-level: Select tenant then search/filter tickets */}
-                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="p-4 bg-slate-50 rounded-xl border border-gray-200">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     {t('support.selectTenant', 'Select tenant')}
                   </label>

@@ -420,19 +420,21 @@ export function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-white flex items-center justify-center p-4">
+      <div className="w-full max-w-md animate-[modalAppear_0.4s_ease-out]">
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <Mail className="w-10 h-10 text-blue-600" />
-            <span className="text-3xl font-bold text-gray-900">Bookati</span>
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <div className="bg-gradient-to-br from-blue-600 to-blue-700 p-2.5 rounded-xl shadow-lg">
+              <Mail className="w-8 h-8 text-white" />
+            </div>
+            <span className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">Bookati</span>
           </div>
           <div className="flex justify-center">
             <LanguageToggle />
           </div>
         </div>
 
-        <Card>
+        <Card className="shadow-xl border-0 ring-1 ring-gray-200/60">
           <CardHeader>
             <div className="flex items-center gap-2">
               <button

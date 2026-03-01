@@ -907,11 +907,19 @@ export function PackagesPage() {
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-6 md:mb-8 gap-4">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('packages.title')}</h1>
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+            <div className="bg-amber-100 p-2.5 rounded-xl">
+              <Package className="w-6 h-6 text-amber-700" />
+            </div>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('packages.title')}</h1>
+          </div>
+          <p className="text-sm text-slate-600 mt-1">{t('packages.subtitle', 'Create and manage service packages')}</p>
+        </div>
       </div>
 
       {/* Available Packages Section */}
-      <Card className="mb-8">
+      <Card className="mb-8 shadow-sm border border-gray-200/80">
         <CardHeader>
           <div className="flex justify-between items-center">
             <CardTitle className="flex items-center gap-2">

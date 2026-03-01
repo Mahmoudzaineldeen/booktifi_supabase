@@ -65,16 +65,18 @@ export function ManagementLoginPage() {
       <div className="absolute top-4 right-4">
         <LanguageToggle />
       </div>
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-md animate-[modalAppear_0.4s_ease-out]">
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <Shield className="w-12 h-12 text-blue-400" />
+          <div className="flex items-center justify-center mb-4">
+            <div className="bg-blue-500/20 border border-blue-400/30 p-3 rounded-xl">
+              <Shield className="w-10 h-10 text-blue-400" />
+            </div>
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">{t('admin.platformManagement')}</h1>
           <p className="text-slate-400 text-sm">{t('admin.solutionOwnerAccess')}</p>
         </div>
 
-        <Card className="bg-slate-800/50 border-slate-700 backdrop-blur">
+        <Card className="bg-slate-800/60 border border-slate-600/50 backdrop-blur-xl shadow-2xl shadow-black/20">
           <CardHeader>
             <CardTitle className="text-center text-white">{t('admin.secureLogin')}</CardTitle>
           </CardHeader>
