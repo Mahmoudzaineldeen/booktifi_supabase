@@ -35,17 +35,21 @@ const app = express();
 // PORT: Railway sets process.env.PORT; must be numeric. Bind to 0.0.0.0 so healthcheck can reach the app.
 const PORT = Number(process.env.PORT) || (process.env.NODE_ENV === 'production' ? 8080 : 3001);
 
-// CORS configuration - Allow all origins for development
-// This fixes CORS issues with localhost and ngrok
+// CORS configuration - Allow all origins (localhost, Railway, Bolt, etc.)
+// Preflight (OPTIONS) must return Access-Control-* headers or browser blocks the request
 const corsOptions = {
-  origin: true, // Allow all origins
-  credentials: true, // Allow cookies and authentication headers
+  origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+    cb(null, true); // Allow any origin
+  },
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'ngrok-skip-browser-warning'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'ngrok-skip-browser-warning', 'Accept'],
   exposedHeaders: ['Content-Range', 'X-Total-Count'],
+  optionsSuccessStatus: 204, // Some clients expect 204 for preflight
 };
-
 app.use(cors(corsOptions));
+// Explicit preflight for all routes so CORS headers are always sent
+app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '250mb' })); // Increased payload limit to support 200MB file uploads for service providers and users
 app.use(express.urlencoded({ extended: true, limit: '250mb' }));
 

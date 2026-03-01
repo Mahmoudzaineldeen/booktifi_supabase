@@ -5,24 +5,24 @@
 
 /**
  * Get the API base URL based on the current environment
- * - Priority: VITE_API_URL environment variable (if set)
- * - Netlify/Production: Uses VITE_API_URL (must be set)
- * - Bolt/WebContainer: Uses Railway backend from VITE_API_URL or fallback
- * - Local development: Uses Railway backend (default) or VITE_API_URL
+ * - Local dev (localhost:5173): returns '/api' so requests are same-origin and Vite proxy forwards to Railway (avoids CORS)
+ * - Otherwise: VITE_API_URL or Railway fallback for direct requests
  */
 export function getApiUrl(): string {
-  // Try VITE_API_URL first
+  // In browser on localhost dev server: use relative /api so Vite proxy is used (no CORS)
+  if (typeof window !== 'undefined') {
+    const { origin, port } = window.location;
+    if (origin.startsWith('http://localhost:') && port === '5173') {
+      return '/api'; // same-origin /api/* → Vite proxy → Railway
+    }
+  }
+
   let apiUrl = import.meta.env.VITE_API_URL;
-  
-  // Fallback to Railway backend if VITE_API_URL is not set
   if (!apiUrl) {
     const railwayUrl = 'https://booktifisupabase-production.up.railway.app/api';
     console.warn('[getApiUrl] ⚠️  VITE_API_URL not set, using Railway backend fallback:', railwayUrl);
-    console.warn('[getApiUrl] To avoid this warning, set VITE_API_URL in your environment variables.');
     apiUrl = railwayUrl;
   }
-  
-  console.log('[getApiUrl] Using API URL:', apiUrl);
   return apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`;
 }
 
