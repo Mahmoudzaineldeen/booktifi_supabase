@@ -1260,7 +1260,7 @@ export function ReceptionPage() {
       setSlots(nonConflictingSlots);
       setNextEmployeeIdForRotation(result.nextEmployeeIdForRotation ?? null);
 
-      await fetchEmployeeBookingCounts(dateStr, shiftIds);
+      await fetchEmployeeBookingCounts(dateStr, shiftIds, nonConflictingSlots);
     } catch (err) {
       console.error('Error in fetchAvailableSlots:', err);
       setSlots([]);
@@ -1270,7 +1270,7 @@ export function ReceptionPage() {
     }
   }
 
-  async function fetchEmployeeBookingCounts(dateStr: string, shiftIds: string[]) {
+  async function fetchEmployeeBookingCounts(dateStr: string, shiftIds: string[], slotsWithAvailability?: Slot[]) {
     if (!userProfile?.tenant_id || !selectedService) return;
 
     const branchId = (userProfile as { branch_id?: string | null }).branch_id ?? null;
@@ -1397,10 +1397,18 @@ export function ReceptionPage() {
         bookingCountMap.set(booking.employee_id, count + 1);
       });
 
-      const employeesWithCounts = Array.from(employeeMap.values()).map(emp => ({
+      let employeesWithCounts = Array.from(employeeMap.values()).map(emp => ({
         ...emp,
         bookingCount: bookingCountMap.get(emp.id) || 0
       })).sort((a, b) => a.bookingCount - b.bookingCount); // Sort by booking count ascending
+
+      // Global employee time lock: in employee-based mode only show employees who have at least one available slot (not booked in another service at that time)
+      if (slotsWithAvailability && slotsWithAvailability.length > 0) {
+        const availableEmployeeIds = new Set(slotsWithAvailability.map((s: Slot) => (s as any).employee_id).filter(Boolean));
+        if (availableEmployeeIds.size > 0) {
+          employeesWithCounts = employeesWithCounts.filter((emp) => availableEmployeeIds.has(emp.id));
+        }
+      }
 
       setAvailableEmployees(employeesWithCounts);
     } catch (err) {

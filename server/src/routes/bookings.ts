@@ -879,9 +879,66 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     }
 
     // Short-term cache: return cached result for same service/date (avoids N+1 and recomputation)
-    const cached = getEmployeeAvailabilityCached<{ shiftIds: string[]; slots?: any[] }>(tenantId, serviceId, dateStr);
+    const cached = getEmployeeAvailabilityCached<{ shiftIds: string[]; slots?: any[]; employees?: any[] }>(tenantId, serviceId, dateStr);
     if (cached && Array.isArray(cached.shiftIds) && cached.shiftIds.length > 0) {
       logger.info('ensure-employee-based-slots: cache hit', { serviceId, dateStr });
+      // Global time lock: on cache hit still filter out slots where employee is busy (bookings may have been created since cache)
+      const cachedSlots = cached.slots || [];
+      if (cachedSlots.length > 0) {
+        const employeeIdsFromCache = [...new Set(cachedSlots.map((s: any) => s.employee_id).filter(Boolean))];
+        const { data: cacheBookings } = await supabase
+          .from('bookings')
+          .select('employee_id, slot_id')
+          .eq('tenant_id', tenantId)
+          .in('employee_id', employeeIdsFromCache)
+          .neq('status', 'cancelled');
+        const slotIdsFromBookings = [...new Set((cacheBookings || []).map((b: any) => b.slot_id).filter(Boolean))];
+        let cacheBusyRanges = new Map<string, { startM: number; endM: number }[]>();
+        if (slotIdsFromBookings.length > 0) {
+          const { data: cacheSlots } = await supabase
+            .from('slots')
+            .select('id, start_time, end_time')
+            .in('id', slotIdsFromBookings)
+            .eq('slot_date', dateStr);
+          const toM = (t: string) => {
+            const parts = (t || '').slice(0, 8).split(':').map(Number);
+            return (parts[0] || 0) * 60 + (parts[1] || 0);
+          };
+          const slotTimeMap = new Map((cacheSlots || []).map((s: any) => [s.id, { startM: toM(s.start_time), endM: toM(s.end_time) }]));
+          (cacheBookings || []).forEach((b: any) => {
+            if (!b.employee_id || !b.slot_id) return;
+            const t = slotTimeMap.get(b.slot_id);
+            if (!t) return;
+            if (!cacheBusyRanges.has(b.employee_id)) cacheBusyRanges.set(b.employee_id, []);
+            cacheBusyRanges.get(b.employee_id)!.push({ startM: t.startM, endM: t.endM });
+          });
+        }
+        const filteredSlots = cachedSlots.filter((s: any) => {
+          if (!s.employee_id) return true;
+          const busyRanges = cacheBusyRanges.get(s.employee_id) || [];
+          const sStart = (s.start_time || '').slice(0, 8);
+          const sEnd = (s.end_time || '').slice(0, 8);
+          const slotStartM = (() => { const p = sStart.split(':').map(Number); return (p[0] || 0) * 60 + (p[1] || 0); })();
+          const slotEndM = (() => { const p = sEnd.split(':').map(Number); return (p[0] || 0) * 60 + (p[1] || 0); })();
+          const isBusy = busyRanges.some((r: { startM: number; endM: number }) => r.startM < slotEndM && r.endM > slotStartM);
+          return !isBusy;
+        });
+        const out = { ...cached, slots: filteredSlots };
+        if (cached.employees && Array.isArray(cached.employees)) {
+          const byEmployee = new Map<string, any[]>();
+          filteredSlots.forEach((s: any) => {
+            if (!s.employee_id) return;
+            if (!byEmployee.has(s.employee_id)) byEmployee.set(s.employee_id, []);
+            byEmployee.get(s.employee_id)!.push(s);
+          });
+          out.employees = Array.from(byEmployee.entries()).map(([id, slots]) => ({
+            id,
+            name: (slots[0]?.users as any)?.full_name || (slots[0]?.users as any)?.full_name_ar || '',
+            available_slots: slots,
+          }));
+        }
+        return res.json(out);
+      }
       return res.json(cached);
     }
 
@@ -1026,14 +1083,54 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     // 2) Booking counts per slot_id (non-cancelled only)
     const slotIdsForBookings = (allSlotsForDate || []).map((s: any) => s.id);
     let bookingCountBySlotId: Record<string, number> = {};
+    // Global employee time lock: busy ranges per employee (any service) for this date
+    const globalBusyRangesByEmployee = new Map<string, { startM: number; endM: number }[]>();
     if (slotIdsForBookings.length > 0) {
       const { data: bookingsList } = await supabase
         .from('bookings')
-        .select('slot_id')
+        .select('slot_id, employee_id')
         .in('slot_id', slotIdsForBookings)
         .neq('status', 'cancelled');
       (bookingsList || []).forEach((b: any) => {
         if (b.slot_id) bookingCountBySlotId[b.slot_id] = (bookingCountBySlotId[b.slot_id] || 0) + 1;
+        if (b.employee_id && b.slot_id) {
+          const slot = (allSlotsForDate || []).find((s: any) => s.id === b.slot_id);
+          if (slot && slot.start_time != null && slot.end_time != null) {
+            const startParts = (slot.start_time || '').slice(0, 8).split(':').map(Number);
+            const endParts = (slot.end_time || '').slice(0, 8).split(':').map(Number);
+            const startM = (startParts[0] || 0) * 60 + (startParts[1] || 0);
+            const endM = (endParts[0] || 0) * 60 + (endParts[1] || 0);
+            if (!globalBusyRangesByEmployee.has(b.employee_id)) globalBusyRangesByEmployee.set(b.employee_id, []);
+            globalBusyRangesByEmployee.get(b.employee_id)!.push({ startM, endM });
+          }
+        }
+      });
+    }
+    // Also fetch bookings for these employees on this date that reference slots NOT in allSlotsForDate (e.g. other services we haven't loaded yet)
+    const { data: otherBookings } = await supabase
+      .from('bookings')
+      .select('employee_id, slot_id')
+      .eq('tenant_id', tenantId)
+      .in('employee_id', employeeIdsFromShifts)
+      .neq('status', 'cancelled');
+    const otherSlotIds = [...new Set((otherBookings || []).map((b: any) => b.slot_id).filter(Boolean))].filter((id: string) => !slotIdsForBookings.includes(id));
+    if (otherSlotIds.length > 0) {
+      const { data: otherSlots } = await supabase
+        .from('slots')
+        .select('id, start_time, end_time')
+        .in('id', otherSlotIds)
+        .eq('slot_date', dateStr);
+      const otherSlotsMap = new Map((otherSlots || []).map((s: any) => [s.id, s]));
+      (otherBookings || []).forEach((b: any) => {
+        if (!b.employee_id || !b.slot_id) return;
+        const slot = otherSlotsMap.get(b.slot_id);
+        if (!slot || slot.start_time == null || slot.end_time == null) return;
+        const startParts = (slot.start_time || '').slice(0, 8).split(':').map(Number);
+        const endParts = (slot.end_time || '').slice(0, 8).split(':').map(Number);
+        const startM = (startParts[0] || 0) * 60 + (startParts[1] || 0);
+        const endM = (endParts[0] || 0) * 60 + (endParts[1] || 0);
+        if (!globalBusyRangesByEmployee.has(b.employee_id)) globalBusyRangesByEmployee.set(b.employee_id, []);
+        globalBusyRangesByEmployee.get(b.employee_id)!.push({ startM, endM });
       });
     }
 
@@ -1116,6 +1213,15 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
             slotStartM += durationMinutes;
             continue;
           }
+          // Global employee time lock: employee must not be booked in this time range in ANY service
+          const busyRanges = globalBusyRangesByEmployee.get(es.employee_id) || [];
+          const isBusyGlobally = busyRanges.some(
+            (r: { startM: number; endM: number }) => r.startM < slotEndM && r.endM > slotStartM
+          );
+          if (isBusyGlobally) {
+            slotStartM += durationMinutes;
+            continue;
+          }
           // Overlapping slots (same employee, time overlap) — in memory from allSlotsForDate
           const overlapping = (allSlotsForDate || []).filter((s: any) => {
             if (s.employee_id !== es.employee_id) return false;
@@ -1174,18 +1280,29 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     logger.info('ensure-employee-based-slots: done', { serviceId, dateStr, slotsCreated, employeesWithShifts: shiftsForDay.length });
 
     // --- Optional: return slots + employees for frontend (reduces round-trips) ---
-    const { data: slotsForResponse } = await supabase
+    const { data: slotsFromDb } = await supabase
       .from('slots')
       .select('id, slot_date, start_time, end_time, available_capacity, booked_count, employee_id, shift_id, users:employee_id(full_name, full_name_ar)')
       .eq('shift_id', virtualShiftId)
       .eq('slot_date', dateStr)
       .eq('is_available', true)
       .order('start_time');
+    // Global time lock: do not return slots where employee is busy in that time (any service)
+    const slotsForResponse = (slotsFromDb || []).filter((s: any) => {
+      if (!s.employee_id) return true;
+      const busyRanges = globalBusyRangesByEmployee.get(s.employee_id) || [];
+      const sStart = (s.start_time || '').slice(0, 8);
+      const sEnd = (s.end_time || '').slice(0, 8);
+      const slotStartM = toMinutes(sStart);
+      const slotEndM = toMinutes(sEnd);
+      const isBusy = busyRanges.some((r: { startM: number; endM: number }) => r.startM < slotEndM && r.endM > slotStartM);
+      return !isBusy;
+    });
     const payload: { shiftIds: string[]; slots?: any[]; employees?: { id: string; name: string; available_slots: any[] }[] } = {
       shiftIds: [virtualShiftId],
-      slots: slotsForResponse || undefined,
+      slots: slotsForResponse.length > 0 ? slotsForResponse : undefined,
     };
-    if (slotsForResponse && slotsForResponse.length > 0) {
+    if (slotsForResponse.length > 0) {
       const byEmployee = new Map<string, any[]>();
       slotsForResponse.forEach((s: any) => {
         const eid = s.employee_id;

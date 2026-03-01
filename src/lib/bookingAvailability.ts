@@ -373,8 +373,13 @@ export async function fetchAvailableSlots(
     const { data: rotationRow } = await db.from('service_rotation_state').select('last_assigned_employee_id').eq('service_id', serviceId).single();
     const lastAssignedId = (rotationRow as any)?.last_assigned_employee_id ?? null;
     const { data: empServices } = await db.from('employee_services').select('employee_id').eq('service_id', serviceId).eq('shift_id', null);
-    const employeeIds = [...new Set((empServices || []).map((es: any) => es.employee_id))].sort();
-    const nextIndex = lastAssignedId ? (employeeIds.indexOf(lastAssignedId) + 1) % Math.max(1, employeeIds.length) : 0;
+    const allAssignedIds = [...new Set((empServices || []).map((es: any) => es.employee_id))].sort();
+    // Global time lock: only consider employees who have at least one available slot (avoids suggesting someone busy in another service)
+    const availableEmployeeIds = [...new Set(availableSlots.map((s) => (s as any).employee_id).filter(Boolean))].sort();
+    const employeeIds = availableEmployeeIds.length > 0 ? availableEmployeeIds : allAssignedIds;
+    const nextIndex = lastAssignedId
+      ? (employeeIds.indexOf(lastAssignedId) + 1) % Math.max(1, employeeIds.length)
+      : 0;
     nextEmployeeIdForRotation = employeeIds[nextIndex] ?? employeeIds[0] ?? null;
   }
 
