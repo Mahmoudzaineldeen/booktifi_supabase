@@ -692,7 +692,7 @@
     "phoneMinLength": "Phone number must be at least 5 digits",
     "nameMinLength": "Name must be at least 2 characters",
     "serviceMinLength": "Service name must be at least 2 characters",
-    "invalidBookingId": "Invalid booking ID format",
+    "invalidBookingId": "Enter full UUID or at least 4 hex characters (e.g. 48AC5182)",
     "searchByCustomerId": "Customer ID",
     "invalidCustomerId": "Invalid customer ID format. Use a valid UUID.",
     "customerIdPlaceholder": "Enter customer ID (UUID)...",

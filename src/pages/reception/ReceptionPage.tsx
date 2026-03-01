@@ -856,13 +856,16 @@ export function ReceptionPage() {
           return { valid: false, error: t('reception.phoneMinLength') || 'Phone number must be at least 5 digits' };
         }
         break;
-      case 'booking_id':
-        // Booking ID must be a valid UUID format
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (!uuidRegex.test(value.trim())) {
-          return { valid: false, error: t('reception.invalidBookingId') || 'Invalid booking ID format' };
+      case 'booking_id': {
+        // Full UUID or short ID (4+ hex chars, e.g. 48AC5182)
+        const trimmed = value.trim().replace(/-/g, '');
+        const fullUuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const hexOnly = /^[0-9a-f]+$/i.test(trimmed);
+        if (!fullUuidRegex.test(value.trim()) && !(hexOnly && trimmed.length >= 4)) {
+          return { valid: false, error: t('reception.invalidBookingId') || 'Enter full UUID or at least 4 hex characters (e.g. 48AC5182)' };
         }
         break;
+      }
       case 'customer_name':
         // Name should be at least 2 characters
         if (value.trim().length < 2) {

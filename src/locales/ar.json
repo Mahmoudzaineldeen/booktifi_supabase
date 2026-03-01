@@ -370,7 +370,7 @@
     "phoneMinLength": "يجب أن يكون رقم الهاتف 5 أرقام على الأقل",
     "nameMinLength": "يجب أن يكون الاسم حرفين على الأقل",
     "serviceMinLength": "يجب أن يكون اسم الخدمة حرفين على الأقل",
-    "invalidBookingId": "تنسيق رقم الحجز غير صحيح",
+    "invalidBookingId": "أدخل UUID كاملاً أو 4 أحرف hex على الأقل (مثل 48AC5182)",
     "searchByCustomerId": "رقم العميل",
     "invalidCustomerId": "تنسيق رقم العميل غير صحيح. استخدم UUID صالحاً.",
     "customerIdPlaceholder": "أدخل رقم العميل (UUID)...",

@@ -5847,24 +5847,49 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
         bookings = []; // No matching services = no bookings
       }
 
-    } else if (booking_id && booking_id.trim().length > 0) {
+    } else if (booking_id != null && String(booking_id).trim().length > 0) {
       searchType = 'booking_id';
-      // Validate UUID format
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(booking_id.trim())) {
-        return res.status(400).json({ 
-          error: 'Invalid booking ID format. Must be a valid UUID',
+      const trimmedId = String(booking_id).trim();
+      const hexOnlyStr = trimmedId.replace(/[^0-9a-f]/gi, '');
+      const fullUuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const isFullUuid = fullUuidRegex.test(trimmedId);
+      const isShortHex = /^[0-9a-f]+$/i.test(hexOnlyStr) && hexOnlyStr.length >= 4;
+
+      if (isFullUuid) {
+        // Full UUID: exact match
+        let idQuery = supabase.from('bookings').select(baseSelect, { count: 'exact' }).eq('tenant_id', tenantId);
+        if (branchId) idQuery = idQuery.eq('branch_id', branchId);
+        const { data, error } = await idQuery.eq('id', trimmedId).limit(limit);
+        if (error) throw error;
+        bookings = data || [];
+      } else if (isShortHex) {
+        // Short ID / prefix (e.g. 48AC5182): search by UUID prefix via RPC
+        const { data: idRows, error: rpcError } = await supabase.rpc('search_booking_ids_by_id_prefix', {
+          p_tenant_id: tenantId,
+          p_branch_id: branchId,
+          p_id_prefix: trimmedId,
+          p_limit: limit
+        });
+        if (rpcError) {
+          logger.warn('Booking ID prefix search RPC failed (apply migration 20260301100000_search_bookings_by_id_prefix.sql if missing)', { error: rpcError.message });
+          throw rpcError;
+        }
+        const ids = (idRows || []).map((r: { id: string }) => r.id).filter(Boolean);
+        if (ids.length > 0) {
+          let prefixQuery = supabase.from('bookings').select(baseSelect).eq('tenant_id', tenantId).in('id', ids);
+          if (branchId) prefixQuery = prefixQuery.eq('branch_id', branchId);
+          const { data: data2, error } = await prefixQuery.order('created_at', { ascending: false }).limit(limit);
+          if (error) throw error;
+          bookings = data2 || [];
+        } else {
+          bookings = [];
+        }
+      } else {
+        return res.status(400).json({
+          error: 'Invalid booking ID. Use a full UUID or at least 4 hex characters (e.g. 48AC5182).',
           searchType: 'booking_id'
         });
       }
-
-      // Search by booking ID (exact match on bookings.id)
-      let idQuery = supabase.from('bookings').select(baseSelect, { count: 'exact' }).eq('tenant_id', tenantId);
-      if (branchId) idQuery = idQuery.eq('branch_id', branchId);
-      const { data, error } = await idQuery.eq('id', booking_id.trim()).limit(limit);
-
-      if (error) throw error;
-      bookings = data || [];
 
     } else if (customer_id && customer_id.trim().length > 0) {
       searchType = 'customer_id';

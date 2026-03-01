@@ -1454,9 +1454,11 @@ export function BookingsPage() {
         }
         break;
       case 'booking_id': {
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (!uuidRegex.test(value.trim())) {
-          return { valid: false, error: isAr ? 'تنسيق رقم الحجز غير صحيح' : (t('reception.invalidBookingId') || 'Invalid booking ID format') };
+        const trimmed = value.trim().replace(/-/g, '');
+        const fullUuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const hexOnly = /^[0-9a-f]+$/i.test(trimmed);
+        if (!fullUuidRegex.test(value.trim()) && !(hexOnly && trimmed.length >= 4)) {
+          return { valid: false, error: isAr ? 'أدخل UUID كاملاً أو 4 أحرف hex على الأقل (مثل 48AC5182)' : (t('reception.invalidBookingId') || 'Enter full UUID or at least 4 hex characters (e.g. 48AC5182)') };
         }
         break;
       }
@@ -1768,7 +1770,7 @@ export function BookingsPage() {
                     searchType === 'phone'
                       ? (isAr ? 'أدخل رقم الهاتف...' : (t('reception.phonePlaceholder') || 'Enter phone number...'))
                       : searchType === 'booking_id'
-                      ? (isAr ? 'أدخل رقم الحجز (UUID)...' : (t('reception.bookingIdPlaceholder') || 'Enter booking ID (UUID)...'))
+                      ? (isAr ? 'أدخل رقم الحجز (UUID أو مثل 48AC5182)...' : (t('reception.bookingIdPlaceholder') || 'Enter booking ID (full UUID or e.g. 48AC5182)...'))
                       : searchType === 'customer_id'
                       ? (isAr ? 'أدخل رقم العميل (UUID)...' : (t('reception.customerIdPlaceholder') || 'Enter customer ID (UUID)...'))
                       : searchType === 'customer_name'
