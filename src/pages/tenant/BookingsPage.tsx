@@ -8,7 +8,7 @@ import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
-import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X, Plus, Package, CalendarDays } from 'lucide-react';
+import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X, Plus, Package, CalendarDays, Mail, Phone } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
@@ -22,6 +22,7 @@ import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { countryCodes } from '../../lib/countryCodes';
 import { BookingConfirmationModal } from '../../components/shared/BookingConfirmationModal';
+import { BookingDetailsModal } from '../../components/shared/BookingDetailsModal';
 import { useCustomerPhoneSearch, type CustomerSuggestion } from '../../hooks/useCustomerPhoneSearch';
 import { CustomerPhoneSuggestionsDropdown } from '../../components/reception/CustomerPhoneSuggestionsDropdown';
 import { showNotification } from '../../contexts/NotificationContext';
@@ -78,12 +79,14 @@ interface Booking {
     end_time: string;
   };
   package_covered_quantity?: number | null;
+  paid_quantity?: number | null;
   package_subscription_id?: string | null;
   employee_id?: string | null;
   users?: { full_name: string; full_name_ar?: string | null } | null;
+  notes?: string | null;
 }
 
-type SearchType = 'phone' | 'customer_name' | 'date' | 'service_name' | 'booking_id' | '';
+type SearchType = 'phone' | 'customer_name' | 'date' | 'service_name' | 'booking_id' | 'customer_id' | '';
 
 export function BookingsPage() {
   const { t, i18n } = useTranslation();
@@ -151,6 +154,7 @@ export function BookingsPage() {
   const [paymentStatusModalMethod, setPaymentStatusModalMethod] = useState<'onsite' | 'transfer'>('onsite');
   const [paymentStatusModalReference, setPaymentStatusModalReference] = useState('');
   const [paymentStatusModalSubmitting, setPaymentStatusModalSubmitting] = useState(false);
+  const [detailsBooking, setDetailsBooking] = useState<Booking | null>(null);
 
   // Search state
   const [searchType, setSearchType] = useState<SearchType>('');
@@ -635,10 +639,12 @@ export function BookingsPage() {
           zoho_invoice_id,
           zoho_invoice_created_at,
           package_covered_quantity,
+          paid_quantity,
           package_subscription_id,
           service_id,
           slot_id,
           employee_id,
+          notes,
           services:service_id (
             name,
             name_ar
@@ -658,8 +664,7 @@ export function BookingsPage() {
 
       if (error) throw error;
 
-      // Filter out cancelled bookings (they should be hard-deleted, but filter as safety measure)
-      const activeBookings = (data || []).filter(booking => booking.status !== 'cancelled');
+      const allBookings = data || [];
 
       if (viewMode === 'calendar') {
         const weekStart = startOfWeek(calendarDate, { weekStartsOn: 0 });
@@ -667,7 +672,7 @@ export function BookingsPage() {
         const weekStartStr = format(weekStart, 'yyyy-MM-dd');
         const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
 
-        const filteredBookings = activeBookings.filter(booking => {
+        const filteredBookings = allBookings.filter(booking => {
           const raw = booking.slots?.slot_date;
           if (raw == null) return false;
           const normalized = normalizeSlotDate(raw);
@@ -675,7 +680,7 @@ export function BookingsPage() {
         });
         setBookings(filteredBookings);
       } else {
-        setBookings(activeBookings.slice(0, 50));
+        setBookings(allBookings.slice(0, 50));
       }
     } catch (err) {
       console.error('Error fetching bookings:', err);
@@ -911,6 +916,10 @@ export function BookingsPage() {
     }
   }
 
+  async function updateBookingStatus(bookingId: string, status: string) {
+    await updateBooking(bookingId, { status });
+  }
+
   /** Save combined edit modal: details and optionally new time in one action */
   async function handleSaveEditBooking() {
     if (!editingBooking) return;
@@ -926,11 +935,12 @@ export function BookingsPage() {
       if (!ok) return;
     }
     try {
+      const status = (editingBooking.status || 'pending').trim();
       await updateBooking(editingBooking.id, {
         customer_name: editingBooking.customer_name,
         customer_email: editingBooking.customer_email,
         total_price: editingBooking.total_price,
-        status: editingBooking.status,
+        status: status || 'pending',
       }, true);
       if (timeChanged) {
         await updateBookingTime(editingBooking, true);
@@ -1443,12 +1453,20 @@ export function BookingsPage() {
           return { valid: false, error: isAr ? 'يجب أن يكون رقم الهاتف 5 أرقام على الأقل' : (t('reception.phoneMinLength') || 'Phone number must be at least 5 digits') };
         }
         break;
-      case 'booking_id':
+      case 'booking_id': {
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         if (!uuidRegex.test(value.trim())) {
           return { valid: false, error: isAr ? 'تنسيق رقم الحجز غير صحيح' : (t('reception.invalidBookingId') || 'Invalid booking ID format') };
         }
         break;
+      }
+      case 'customer_id': {
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(value.trim())) {
+          return { valid: false, error: isAr ? 'تنسيق رقم العميل غير صحيح' : (t('reception.invalidCustomerId') || 'Invalid customer ID format. Use a valid UUID.') };
+        }
+        break;
+      }
       case 'customer_name':
         if (value.trim().length < 2) {
           return { valid: false, error: isAr ? 'يجب أن يكون الاسم حرفين على الأقل' : (t('reception.nameMinLength') || 'Name must be at least 2 characters') };
@@ -1490,7 +1508,11 @@ export function BookingsPage() {
     try {
       const API_URL = getApiUrl();
       const session = await db.auth.getSession();
-      
+      const token = session.data.session?.access_token || localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error(t('auth.pleaseLogIn') || 'Please log in to search.');
+      }
+
       const params = new URLSearchParams();
       params.append(type, value.trim());
       params.append('limit', '50');
@@ -1499,7 +1521,7 @@ export function BookingsPage() {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.data.session?.access_token}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
@@ -1524,10 +1546,12 @@ export function BookingsPage() {
         zoho_invoice_id: b.zoho_invoice_id,
         zoho_invoice_created_at: b.zoho_invoice_created_at,
         package_covered_quantity: b.package_covered_quantity,
+        paid_quantity: b.paid_quantity,
         package_subscription_id: b.package_subscription_id,
         service_id: b.service_id,
         slot_id: b.slot_id,
         employee_id: b.employee_id,
+        notes: b.notes,
         users: b.users || null,
         services: b.services || { name: '', name_ar: '' },
         slots: b.slots || { slot_date: '', start_time: '', end_time: '' }
@@ -1560,8 +1584,8 @@ export function BookingsPage() {
     if (searchType === 'phone') {
       const digitsOnly = value.replace(/\D/g, '');
       setSearchQuery(digitsOnly);
-    } else if (searchType === 'booking_id') {
-      setSearchQuery(value);
+    } else if (searchType === 'booking_id' || searchType === 'customer_id') {
+      setSearchQuery(value.trim());
     } else {
       setSearchQuery(value);
     }
@@ -1714,6 +1738,7 @@ export function BookingsPage() {
               <option value="date">{isAr ? 'تاريخ الحجز' : (t('reception.searchByDate') || 'Booking Date')}</option>
               <option value="service_name">{isAr ? 'اسم الخدمة' : (t('reception.searchByService') || 'Service Name')}</option>
               <option value="booking_id">{isAr ? 'رقم الحجز' : (t('reception.searchByBookingId') || 'Booking ID')}</option>
+              <option value="customer_id">{isAr ? 'رقم العميل' : (t('reception.searchByCustomerId') || 'Customer ID')}</option>
             </select>
           </div>
 
@@ -1744,6 +1769,8 @@ export function BookingsPage() {
                       ? (isAr ? 'أدخل رقم الهاتف...' : (t('reception.phonePlaceholder') || 'Enter phone number...'))
                       : searchType === 'booking_id'
                       ? (isAr ? 'أدخل رقم الحجز (UUID)...' : (t('reception.bookingIdPlaceholder') || 'Enter booking ID (UUID)...'))
+                      : searchType === 'customer_id'
+                      ? (isAr ? 'أدخل رقم العميل (UUID)...' : (t('reception.customerIdPlaceholder') || 'Enter customer ID (UUID)...'))
                       : searchType === 'customer_name'
                       ? (isAr ? 'أدخل اسم العميل...' : (t('reception.namePlaceholder') || 'Enter customer name...'))
                       : searchType === 'service_name'
@@ -1795,6 +1822,7 @@ export function BookingsPage() {
                 {searchType === 'date' && (isAr ? 'تاريخ الحجز' : (t('reception.searchByDate') || 'Booking Date'))}
                 {searchType === 'service_name' && (isAr ? 'اسم الخدمة' : (t('reception.searchByService') || 'Service Name'))}
                 {searchType === 'booking_id' && (isAr ? 'رقم الحجز' : (t('reception.searchByBookingId') || 'Booking ID'))}
+                {searchType === 'customer_id' && (isAr ? 'رقم العميل' : (t('reception.searchByCustomerId') || 'Customer ID'))}
               </span>
             </p>
             <p className="text-gray-600">
@@ -1824,193 +1852,202 @@ export function BookingsPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-4">
-            {displayBookings.map((booking) => (
-              <Card key={booking.id} className="hover:shadow-lg transition-shadow">
-                <CardContent className="py-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-4 mb-2">
-                        <div className="flex items-center gap-2">
-                          <User className="w-4 h-4 text-gray-500" />
-                          <span className="font-medium">{booking.customer_name}</span>
+          <div className="space-y-5">
+            {displayBookings.map((booking) => {
+              const statusBorder =
+                booking.status === 'confirmed' ? 'border-l-green-500' :
+                booking.status === 'pending' ? 'border-l-amber-500' :
+                booking.status === 'cancelled' ? 'border-l-red-400' :
+                booking.status === 'completed' ? 'border-l-blue-500' :
+                'border-l-gray-300';
+              const statusBg =
+                booking.status === 'confirmed' ? 'bg-green-50' :
+                booking.status === 'pending' ? 'bg-amber-50' :
+                booking.status === 'cancelled' ? 'bg-red-50' :
+                booking.status === 'completed' ? 'bg-slate-50' :
+                'bg-gray-50';
+              const initial = (booking.customer_name || '?').trim().charAt(0).toUpperCase();
+              return (
+                <div
+                  key={booking.id}
+                  className={`rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden transition-shadow hover:shadow-md border-l-4 ${statusBorder}`}
+                >
+                  <div className="p-5">
+                    {/* Top row: avatar, customer, time, badges */}
+                    <div className="flex flex-wrap items-start gap-4">
+                      <div className="flex items-center gap-4 min-w-0 flex-1">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700 font-semibold text-lg">
+                          {initial}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-gray-500" />
-                          <span className="text-sm text-gray-600">
-                            {booking.slots ?
-                              `${format(new Date(booking.slots.slot_date), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })} ${formatTimeTo12Hour(booking.slots.start_time)}` :
-                              formatDateTimeTo12Hour(booking.created_at, { locale: isAr ? ar : undefined })
-                            }
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
-                        <span>{isAr ? booking.services?.name_ar : booking.services?.name}</span>
-                        <span>•</span>
-                        <span>{booking.visitor_count} {t('booking.visitorCount')}</span>
-                        <span>•</span>
-                        <span className="font-semibold">{booking.total_price} {t('service.price')}</span>
-                        {booking.users && (
-                          <>
-                            <span>•</span>
-                            <span>{isAr ? (booking.users.full_name_ar || booking.users.full_name) : booking.users.full_name}</span>
-                          </>
-                        )}
-                        {((booking.package_covered_quantity ?? 0) > 0 || booking.package_subscription_id) && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
-                            <Package className="w-3.5 h-3.5" />
-                            {t('bookings.coveredByPackage', 'Covered by Package')}
-                          </span>
-                        )}
-                      </div>
-                      
-                      {/* Invoice Section */}
-                      {booking.zoho_invoice_id ? (
-                        <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                          <div className="flex items-start justify-between gap-4 mb-3">
-                            <div className="flex items-center gap-2">
-                              <FileText className="w-5 h-5 text-blue-600" />
-                              <div>
-                                <h4 className="font-semibold text-blue-900 text-sm">
-                                  {t('billing.invoice')}
-                                </h4>
-                                <p className="text-xs text-blue-700 font-mono mt-1">
-                                  {booking.zoho_invoice_id}
-                                </p>
-                              </div>
-                            </div>
-                            {getPaymentDisplayValue(booking) === 'unpaid' ? (
-                              <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
-                                <XCircle className="w-3 h-3" />
-                                {getPaymentDisplayLabel(booking, t)}
-                              </span>
-                            ) : (
-                              <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                                <CheckCircle className="w-3 h-3" />
-                                {getPaymentDisplayLabel(booking, t)}
-                              </span>
-                            )}
-                          </div>
-                          {booking.zoho_invoice_created_at && (
-                            <p className="text-xs text-blue-600 mb-3">
-                              {t('billing.created')}{' '}
-                              {formatDateTimeTo12Hour(booking.zoho_invoice_created_at, { locale: isAr ? ar : undefined })}
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-900 truncate">{booking.customer_name}</p>
+                          <p className="text-sm text-gray-500 flex items-center gap-1.5 mt-0.5">
+                            <Phone className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">{booking.customer_phone}</span>
+                          </p>
+                          {booking.customer_email && (
+                            <p className="text-xs text-gray-400 flex items-center gap-1.5 mt-0.5 truncate">
+                              <Mail className="h-3 w-3 shrink-0" />
+                              {booking.customer_email}
                             </p>
                           )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium">
+                          <Clock className="h-3.5 w-3.5" />
+                          {formatTimeTo12Hour(booking.slots?.start_time ?? '')} – {formatTimeTo12Hour(booking.slots?.end_time ?? '')}
+                        </span>
+                        <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${statusBg} ${
+                          booking.status === 'confirmed' ? 'text-green-800' :
+                          booking.status === 'pending' ? 'text-amber-800' :
+                          booking.status === 'cancelled' ? 'text-red-800' :
+                          booking.status === 'completed' ? 'text-slate-700' :
+                          'text-gray-700'
+                        }`}>
+                          {safeTranslateStatus(t, booking.status, 'booking')}
+                        </span>
+                        <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                          getPaymentDisplayValue(booking) === 'unpaid' ? 'bg-amber-100 text-amber-800' :
+                          getPaymentDisplayValue(booking) === 'bank_transfer' ? 'bg-blue-100 text-blue-800' :
+                          'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {getPaymentDisplayLabel(booking, t)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Service, date, employee, price */}
+                    <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="rounded-lg bg-gray-50 px-3 py-2">
+                        <p className="text-xs text-gray-500 uppercase tracking-wide">{t('reception.serviceLabel')}</p>
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {isAr ? booking.services?.name_ar : booking.services?.name}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-gray-50 px-3 py-2">
+                        <p className="text-xs text-gray-500 uppercase tracking-wide">{t('reception.dateAndTimeLabel')}</p>
+                        <p className="text-sm font-medium text-gray-900">
+                          {booking.slots?.slot_date
+                            ? format(parseISO(booking.slots.slot_date), 'MMM d', { locale: isAr ? ar : undefined })
+                            : '—'}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-gray-50 px-3 py-2">
+                        <p className="text-xs text-gray-500 uppercase tracking-wide">{t('reception.employeeLabel')}</p>
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {booking.users
+                            ? (isAr ? (booking.users.full_name_ar || booking.users.full_name) : booking.users.full_name)
+                            : '—'}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-gray-50 px-3 py-2">
+                        <p className="text-xs text-gray-500 uppercase tracking-wide">{t('booking.visitorCount')}</p>
+                        <p className="text-sm font-medium text-gray-900">
+                          {booking.visitor_count} × {formatPrice(booking.total_price)}
+                        </p>
+                        {booking.package_covered_quantity !== undefined && booking.package_covered_quantity > 0 && (
+                          <span className="inline-flex items-center gap-0.5 mt-1 text-xs font-medium text-emerald-700">
+                            <Package className="h-3 w-3" />
+                            {booking.package_covered_quantity === booking.visitor_count
+                              ? t('bookings.coveredByPackage', 'Covered by Package')
+                              : t('reception.packagePaidFormat', { package: booking.package_covered_quantity, paid: booking.paid_quantity || 0 })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {booking.notes && (
+                      <div className="mt-3 rounded-lg bg-amber-50/80 border border-amber-100 px-3 py-2">
+                        <p className="text-xs text-amber-800 font-medium">{t('reception.notesLabelWithColon', 'Notes:')}</p>
+                        <p className="text-sm text-amber-900 line-clamp-2">{booking.notes}</p>
+                      </div>
+                    )}
+
+                    {/* Invoice row + actions */}
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-gray-100">
+                      {booking.zoho_invoice_id ? (
+                        <div className="flex items-center gap-2 text-sm">
+                          <FileText className="h-4 w-4 text-blue-600" />
+                          <span className="text-gray-600 font-mono text-xs">{booking.zoho_invoice_id}</span>
                           <Button
                             onClick={() => downloadInvoice(booking.id, booking.zoho_invoice_id!)}
                             disabled={downloadingInvoice === booking.id}
-                            className="flex items-center gap-2 text-sm"
                             variant="ghost"
                             size="sm"
+                            className="h-8 text-xs"
                           >
-                            <Download className="w-4 h-4" />
-                            {downloadingInvoice === booking.id 
-                              ? t('billing.downloading')
-                              : t('billing.downloadPdf')}
+                            <Download className="h-3.5 w-3.5 mr-1" />
+                            {downloadingInvoice === booking.id ? t('billing.downloading') : t('reception.downloadPdf')}
                           </Button>
                         </div>
                       ) : (
-                        <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                          <p className="text-xs text-gray-600 flex items-center gap-2">
-                            <FileText className="w-4 h-4" />
-                            {safeTranslate(t, 'bookings.noInvoiceForBooking', 'No invoice for this booking')}
-                          </p>
+                        <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                          <FileText className="h-3.5 w-3.5" />
+                          {t('reception.noInvoiceForBooking', 'No invoice for this booking')}
+                        </p>
+                      )}
+
+                      {zohoSyncStatus[booking.id] && (
+                        <div className="flex items-center gap-1 text-xs">
+                          {zohoSyncStatus[booking.id].pending ? (
+                            <span className="text-amber-600 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" />
+                              {t('bookings.zohoRegenerating', 'Invoice regenerating…')}
+                            </span>
+                          ) : zohoSyncStatus[booking.id].success ? (
+                            <span className="text-green-600 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" />
+                              {t('bookings.zohoSynced')}
+                            </span>
+                          ) : (
+                            <span className="text-red-600 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              {t('bookings.zohoFailed')}
+                            </span>
+                          )}
                         </div>
                       )}
 
-                      {/* Booking Management Actions (Service Provider Only) */}
-                      <div className="mt-4 flex flex-wrap gap-2 pt-4 border-t border-gray-200">
-                        {/* Payment Status Dropdown: Unpaid | Paid On Site | Bank Transfer */}
-                        <div className="flex items-center gap-2">
-                          <DollarSign className="w-4 h-4 text-gray-500" />
-                          <select
-                            value={getPaymentDisplayValue(booking)}
-                            onChange={(e) => {
-                              const val = e.target.value as PaymentDisplayValue;
-                              if (val === 'unpaid') {
-                                updatePaymentStatus(booking.id, 'unpaid');
-                              } else if (val === 'paid_onsite') {
-                                updatePaymentStatus(booking.id, 'paid_manual', 'onsite');
-                              } else {
-                                setPaymentStatusModal({ bookingId: booking.id });
-                                setPaymentStatusModalMethod('transfer');
-                                setPaymentStatusModalReference('');
-                              }
-                            }}
-                            disabled={updatingPaymentStatus === booking.id}
-                            className="px-3 py-1 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <option value="unpaid">{t('payment.displayUnpaid', 'Unpaid')}</option>
-                            <option value="paid_onsite">{t('payment.displayPaidOnSite', 'Paid On Site')}</option>
-                            <option value="bank_transfer">{t('payment.displayBankTransfer', 'Bank Transfer')}</option>
-                          </select>
-                          {updatingPaymentStatus === booking.id && (
-                            <span className="text-xs text-gray-500">{t('bookings.updating')}</span>
-                          )}
-                        </div>
-
-                        {/* Zoho Sync Status */}
-                        {zohoSyncStatus[booking.id] && (
-                          <div className="flex items-center gap-1 text-xs">
-                            {zohoSyncStatus[booking.id].pending ? (
-                              <span className="text-amber-600 flex items-center gap-1">
-                                <CheckCircle className="w-3 h-3" />
-                                {t('bookings.zohoRegenerating', 'Invoice regenerating…')}
-                              </span>
-                            ) : zohoSyncStatus[booking.id].success ? (
-                              <span className="text-green-600 flex items-center gap-1">
-                                <CheckCircle className="w-3 h-3" />
-                                {t('bookings.zohoSynced')}
-                              </span>
-                            ) : (
-                              <span className="text-red-600 flex items-center gap-1">
-                                <AlertCircle className="w-3 h-3" />
-                                {t('bookings.zohoFailed')}
-                              </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {booking.status !== 'cancelled' && booking.status !== 'completed' && (
+                          <>
+                            {booking.status === 'pending' && (
+                              <Button size="sm" onClick={() => updateBookingStatus(booking.id, 'confirmed')} className="rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
+                                <CheckCircle className="w-3.5 h-3.5 mr-1" />
+                                {t('common.confirm')}
+                              </Button>
                             )}
-                          </div>
+                            <Button size="sm" onClick={() => updateBookingStatus(booking.id, 'cancelled')} className="rounded-lg bg-red-600 hover:bg-red-700 text-white">
+                              <XCircle className="w-3.5 h-3.5 mr-1" />
+                              {t('common.cancel')}
+                            </Button>
+                          </>
                         )}
-
-                        {/* Edit Button */}
                         <Button
-                          onClick={() => handleEditBookingClick(booking)}
-                          variant="ghost"
                           size="sm"
-                          className="flex items-center gap-1 text-sm"
+                          variant="secondary"
+                          onClick={() => setDetailsBooking(booking)}
+                          className="rounded-lg"
                         >
-                          <Edit className="w-4 h-4" />
-                          {t('common.edit')}
+                          {t('bookings.bookingDetails', 'Details')}
                         </Button>
-
-                        {/* Delete Button */}
                         <Button
+                          size="sm"
+                          variant="ghost"
                           onClick={() => deleteBooking(booking.id)}
                           disabled={deletingBooking === booking.id}
-                          variant="ghost"
-                          size="sm"
-                          className="flex items-center gap-1 text-sm text-red-600 hover:text-red-700 hover:bg-red-50"
+                          className="rounded-lg text-red-600 hover:text-red-700 hover:bg-red-50"
                         >
-                          <Trash2 className="w-4 h-4" />
-                          {deletingBooking === booking.id 
-                            ? t('common.deleting')
-                            : t('common.delete')}
+                          <Trash2 className="w-3.5 h-3.5 mr-1" />
+                          {deletingBooking === booking.id ? t('common.deleting') : t('common.delete')}
                         </Button>
                       </div>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
-                      booking.status === 'confirmed' ? 'bg-green-100 text-green-800' :
-                      booking.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                      booking.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {safeTranslateStatus(t, booking.status, 'booking')}
-                    </span>
                   </div>
-                </CardContent>
-              </Card>
-            ))}
+                </div>
+              );
+            })}
           </div>
         )
       ) : (
@@ -2168,6 +2205,42 @@ export function BookingsPage() {
           </p>
         </div>
       )}
+
+      {/* Booking details modal (customer, order items, notes, payment, actions) */}
+      <BookingDetailsModal
+        isOpen={!!detailsBooking}
+        onClose={() => setDetailsBooking(null)}
+        booking={detailsBooking}
+        formatPrice={formatPrice}
+        showPaymentDropdown={true}
+        downloadingInvoice={downloadingInvoice}
+        updatingPayment={detailsBooking && updatingPaymentStatus === detailsBooking.id ? detailsBooking.id : null}
+        onEdit={(b) => {
+          setDetailsBooking(null);
+          handleEditBookingClick(b);
+        }}
+        onDelete={(id) => {
+          setDetailsBooking(null);
+          deleteBooking(id);
+        }}
+        onChangeAppointment={(b) => {
+          setDetailsBooking(null);
+          handleEditBookingClick(b);
+        }}
+        onUpdatePaymentStatus={(id, value) => {
+          if (value === 'unpaid') {
+            updatePaymentStatus(id, 'unpaid');
+          } else if (value === 'paid_onsite') {
+            updatePaymentStatus(id, 'paid_manual', 'onsite');
+          } else {
+            setDetailsBooking(null);
+            setPaymentStatusModal({ bookingId: id });
+            setPaymentStatusModalMethod('transfer');
+            setPaymentStatusModalReference('');
+          }
+        }}
+        onDownloadInvoice={(bookingId, invoiceId) => downloadInvoice(bookingId, invoiceId)}
+      />
 
       {/* Payment status modal: when setting to paid, collect payment method + transaction reference */}
       {paymentStatusModal && (
@@ -3176,10 +3249,12 @@ export function BookingsPage() {
                 </Button>
                 <Button
                   onClick={() => {
+                    const bookingToReopen = editingBooking;
                     setEditingBooking(null);
                     setSelectedNewSlotId('');
                     setChangeTimeEmployeeId('');
                     setAvailableTimeSlots([]);
+                    if (bookingToReopen) setDetailsBooking(bookingToReopen);
                   }}
                   variant="ghost"
                   className="flex-1"

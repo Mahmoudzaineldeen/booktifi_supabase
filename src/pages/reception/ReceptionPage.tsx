@@ -26,6 +26,7 @@ import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { extractBookingIdFromQR } from '../../lib/qrUtils';
 import { fetchAvailableSlots as fetchAvailableSlotsUtil, Slot as AvailabilitySlot } from '../../lib/bookingAvailability';
 import { BookingConfirmationModal } from '../../components/shared/BookingConfirmationModal';
+import { BookingDetailsModal } from '../../components/shared/BookingDetailsModal';
 import { SubscriptionConfirmationModal, type SubscriptionConfirmationData } from '../../components/shared/SubscriptionConfirmationModal';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
@@ -2528,13 +2529,14 @@ export function ReceptionPage() {
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
 
+      const status = (editBookingForm.status || editingBooking.status || 'pending').trim();
       const updateData: any = {
         customer_name: editBookingForm.customer_name,
         customer_phone: editBookingForm.customer_phone,
         customer_email: editBookingForm.customer_email || null,
         total_price: editBookingForm.total_price,
         notes: editBookingForm.notes || null,
-        status: editBookingForm.status,
+        status: status || 'pending',
       };
 
       const response = await fetch(`${API_URL}/bookings/${editingBooking.id}`, {
@@ -3589,279 +3591,203 @@ export function ReceptionPage() {
   }
 
   function BookingCard({ booking }: { booking: Booking }) {
+    const statusBorder =
+      booking.status === 'confirmed' ? 'border-l-green-500' :
+      booking.status === 'pending' ? 'border-l-amber-500' :
+      booking.status === 'cancelled' ? 'border-l-red-400' :
+      booking.status === 'completed' ? 'border-l-blue-500' :
+      'border-l-gray-300';
+    const statusBg =
+      booking.status === 'confirmed' ? 'bg-green-50' :
+      booking.status === 'pending' ? 'bg-amber-50' :
+      booking.status === 'cancelled' ? 'bg-red-50' :
+      booking.status === 'completed' ? 'bg-slate-50' :
+      'bg-gray-50';
+    const initial = (booking.customer_name || '?').trim().charAt(0).toUpperCase();
+
     return (
-      <Card key={booking.id}>
-        <CardContent className="py-4">
-          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-            <div className="flex-1">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mb-3">
-                <div className="flex items-center gap-2">
-                  <User className="w-4 h-4 text-gray-500" />
-                  <span className="font-medium text-lg">{booking.customer_name}</span>
-                </div>
-                <div className="flex items-center gap-2 text-gray-600">
-                  <Phone className="w-4 h-4" />
-                  <span className="text-sm">{booking.customer_phone}</span>
-                </div>
+      <div
+        className={`rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden transition-shadow hover:shadow-md border-l-4 ${statusBorder}`}
+      >
+        <div className="p-5">
+          {/* Top row: avatar, customer, time, badges */}
+          <div className="flex flex-wrap items-start gap-4">
+            <div className="flex items-center gap-4 min-w-0 flex-1">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700 font-semibold text-lg">
+                {initial}
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-900 truncate">{booking.customer_name}</p>
+                <p className="text-sm text-gray-500 flex items-center gap-1.5 mt-0.5">
+                  <Phone className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{booking.customer_phone}</span>
+                </p>
                 {booking.customer_email && (
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Mail className="w-4 h-4" />
-                    <span className="text-sm">{booking.customer_email}</span>
-                  </div>
+                  <p className="text-xs text-gray-400 flex items-center gap-1.5 mt-0.5 truncate">
+                    <Mail className="h-3 w-3 shrink-0" />
+                    {booking.customer_email}
+                  </p>
                 )}
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <span className="text-gray-500">{t('reception.serviceLabel')}</span>
-                  <div className="font-medium">
-                    {i18n.language === 'ar' ? booking.services?.name_ar : booking.services?.name}
-                  </div>
-                </div>
-                <div>
-                  <span className="text-gray-500">{t('reception.dateAndTimeLabel')}</span>
-                  <div className="font-medium">
-                    {format(parseISO(booking.slots?.slot_date), 'MMM dd, yyyy', { locale: i18n.language?.startsWith('ar') ? ar : undefined })}
-                    <br />
-                    {formatTimeTo12Hour(booking.slots?.start_time ?? '')} - {formatTimeTo12Hour(booking.slots?.end_time ?? '')}
-                  </div>
-                </div>
-                <div>
-                  <span className="text-gray-500">{getBookingEmployees(booking).length > 1 ? t('reception.employeesLabel') : t('reception.employeeLabel')}</span>
-                  <div className="font-medium">
-                    {getBookingEmployees(booking).length > 0
-                      ? getBookingEmployees(booking).map((emp, idx) => (
-                          <span key={emp.id ?? idx}>
-                            {i18n.language === 'ar' ? (emp.full_name_ar || emp.full_name) : emp.full_name}
-                            {idx < getBookingEmployees(booking).length - 1 ? ', ' : ''}
-                          </span>
-                        ))
-                      : (i18n.language === 'ar' ? '—' : '—')}
-                  </div>
-                </div>
-                <div>
-                  <span className="text-gray-500">{t('booking.visitorCount')}:</span>
-                  <div className="font-medium">
-                    {(booking as any).groupCount || booking.visitor_count} • {formatPrice((booking as any).grouped_total_price || booking.total_price)}
-                    {/* Show only paid amount if package is used */}
-                    {booking.package_covered_quantity !== undefined && booking.package_covered_quantity > 0 && booking.paid_quantity !== undefined && booking.paid_quantity > 0 && (
-                      <span className="text-xs text-gray-500 ml-2">
-                        ({t('reception.paidOnly')})
-                      </span>
-                    )}
-                  </div>
-                  {/* Package Coverage Badge */}
-                  {booking.package_covered_quantity !== undefined && booking.package_covered_quantity > 0 && (
-                    <div className="mt-2 flex items-center gap-2">
-                      {booking.package_covered_quantity === booking.visitor_count ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-300">
-                          <Package className="w-3 h-3" />
-                          {t('reception.coveredByPackage')}
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300">
-                          <Package className="w-3 h-3" />
-                          {t('reception.packagePaidFormat', { package: booking.package_covered_quantity, paid: booking.paid_quantity || 0 })}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-              {booking.notes && (
-                <div className="mt-3 text-sm text-gray-600 bg-gray-50 p-2 rounded">
-                  <strong>{t('reception.notesLabelWithColon')}</strong> {booking.notes}
-                </div>
-              )}
-              
-              {/* Invoice Section (TASK 7: Receptionist can download invoices) */}
-              {booking.zoho_invoice_id ? (
-                <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                  <div className="flex items-start justify-between gap-4 mb-3">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-5 h-5 text-blue-600" />
-                      <div>
-                        <h4 className="font-semibold text-blue-900 text-sm">
-                          {t('reception.invoice')}
-                        </h4>
-                        <p className="text-xs text-blue-700 font-mono mt-1">
-                          {booking.zoho_invoice_id}
-                        </p>
-                      </div>
-                    </div>
-                    {getPaymentDisplayValue(booking) !== 'unpaid' ? (
-                      <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                        <CheckCircle className="w-3 h-3" />
-                        {getPaymentDisplayLabel(booking, t)}
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
-                        <XCircle className="w-3 h-3" />
-                        {getPaymentDisplayLabel(booking, t)}
-                      </span>
-                    )}
-                  </div>
-                  {booking.zoho_invoice_created_at && (
-                    <p className="text-xs text-blue-600 mb-3">
-                      {i18n.language === 'ar' ? 'تاريخ الإنشاء:' : 'Created:'}{' '}
-                      {formatDateTimeTo12Hour(booking.zoho_invoice_created_at, { locale: i18n.language === 'ar' ? ar : undefined })}
-                    </p>
-                  )}
-                  <Button
-                    onClick={() => downloadInvoice(booking.id, booking.zoho_invoice_id!)}
-                    disabled={downloadingInvoice === booking.id}
-                    className="flex items-center gap-2 text-sm w-full"
-                    variant="ghost"
-                    size="sm"
-                  >
-                    <Download className="w-4 h-4" />
-                    {downloadingInvoice === booking.id 
-                      ? (i18n.language === 'ar' ? 'جاري التنزيل...' : 'Downloading...')
-                      : t('reception.downloadPdf')}
-                  </Button>
-                </div>
-              ) : (
-                <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                  <p className="text-xs text-gray-600 flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    {i18n.language === 'ar' 
-                      ? 'لا توجد فاتورة لهذا الحجز' 
-                      : t('reception.noInvoiceForBooking')}
-                  </p>
-                </div>
-              )}
             </div>
-            <div className="flex flex-col sm:flex-row md:flex-col md:items-end gap-2">
-              <div className="flex gap-2">
-                <span className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
-                  booking.status === 'confirmed' ? 'bg-green-100 text-green-800' :
-                  booking.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                  booking.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                  booking.status === 'completed' ? 'bg-blue-100 text-blue-800' :
-                  'bg-gray-100 text-gray-800'
-                }`}>
-                  {safeTranslateStatus(t, booking.status, 'booking')}
-                </span>
-                <span className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
-                  getPaymentDisplayValue(booking) === 'unpaid' ? 'bg-orange-100 text-orange-800' :
-                  getPaymentDisplayValue(booking) === 'bank_transfer' ? 'bg-blue-100 text-blue-800' :
-                  'bg-emerald-100 text-emerald-800'
-                }`}>
-                  {getPaymentDisplayLabel(booking, t)}
-                </span>
-              </div>
-              {booking.status !== 'cancelled' && (
-                <div className="flex flex-col gap-2 w-full sm:w-auto">
-                  <div className="flex flex-wrap gap-2">
-                    {booking.status !== 'completed' && (
-                      <>
-                        {booking.status === 'pending' && (
-                          <Button
-                            size="sm"
-                            onClick={() => updateBookingStatus(booking.id, 'confirmed')}
-                            icon={<CheckCircle className="w-3 h-3" />}
-                          >
-                            {t('common.confirm')}
-                          </Button>
-                        )}
-                        {!isCoordinator && (
-                          <>
-                            {booking.status === 'confirmed' && (
-                              <Button
-                                size="sm"
-                                onClick={() => updateBookingStatus(booking.id, 'completed')}
-                                icon={<CheckCircle className="w-3 h-3" />}
-                              >
-                                {t('reception.complete')}
-                              </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="danger"
-                              onClick={() => updateBookingStatus(booking.id, 'cancelled')}
-                              icon={<XCircle className="w-3 h-3" />}
-                            >
-                              {t('common.cancel')}
-                            </Button>
-                          </>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  {!isCoordinator && (
-                  <>
-                  {getPaymentDisplayValue(booking) === 'unpaid' && (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      onClick={() => updatePaymentStatus(booking.id, 'paid_manual')}
-                      icon={<DollarSign className="w-3 h-3" />}
-                      className="w-full"
-                    >
-                      {t('reception.markAsPaid')}
-                    </Button>
-                  )}
-                  {getPaymentDisplayValue(booking) !== 'unpaid' && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => updatePaymentStatus(booking.id, 'unpaid')}
-                      icon={<DollarSign className="w-3 h-3" />}
-                      className="w-full"
-                    >
-                      {t('reception.markAsUnpaid')}
-                    </Button>
-                  )}
-                  
-                  {/* QR Code Validation Button - only when tickets are enabled */}
-                  {tenant?.tickets_enabled !== false && booking.status !== 'cancelled' && !(booking as any).qr_scanned && (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      onClick={() => {
-                        setQrInputValue(booking.id);
-                        setIsQRScannerOpen(true);
-                        setQrValidationResult(null);
-                      }}
-                      icon={<QrCode className="w-3 h-3" />}
-                      className="w-full"
-                    >
-                      {t('reception.scanQR')}
-                    </Button>
-                  )}
-                  
-                  {/* QR Already Scanned Indicator - only when tickets are enabled */}
-                  {tenant?.tickets_enabled !== false && (booking as any).qr_scanned && (
-                    <div className="w-full p-2 bg-green-50 border border-green-200 rounded-lg text-center">
-                      <div className="flex items-center justify-center gap-2 text-green-800 text-xs">
-                        <CheckCircle className="w-4 h-4" />
-                        <span>{t('reception.qrScanned')}</span>
-                      </div>
-                      {(booking as any).qr_scanned_at && (
-                        <div className="text-xs text-green-600 mt-1">
-                          {formatDateTimeTo12Hour((booking as any).qr_scanned_at)}
-                        </div>
-                      )}
-                    </div>
-                  )}
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium">
+                <Clock className="h-3.5 w-3.5" />
+                {formatTimeTo12Hour(booking.slots?.start_time ?? '')} – {formatTimeTo12Hour(booking.slots?.end_time ?? '')}
+              </span>
+              <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${statusBg} ${
+                booking.status === 'confirmed' ? 'text-green-800' :
+                booking.status === 'pending' ? 'text-amber-800' :
+                booking.status === 'cancelled' ? 'text-red-800' :
+                booking.status === 'completed' ? 'text-slate-700' :
+                'text-gray-700'
+              }`}>
+                {safeTranslateStatus(t, booking.status, 'booking')}
+              </span>
+              <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                getPaymentDisplayValue(booking) === 'unpaid' ? 'bg-amber-100 text-amber-800' :
+                getPaymentDisplayValue(booking) === 'bank_transfer' ? 'bg-blue-100 text-blue-800' :
+                'bg-emerald-100 text-emerald-800'
+              }`}>
+                {getPaymentDisplayLabel(booking, t)}
+              </span>
+            </div>
+          </div>
 
-                  {/* Edit (details + change time in one modal) - hidden for coordinator */}
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => openEditBooking(booking)}
-                    icon={<Edit className="w-3 h-3" />}
-                    className="w-full"
-                  >
-                    {t('reception.editBooking')}
-                  </Button>
-                  </>
-                  )}
-                </div>
+          {/* Service, date, employee, price */}
+          <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{t('reception.serviceLabel')}</p>
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {i18n.language === 'ar' ? booking.services?.name_ar : booking.services?.name}
+              </p>
+            </div>
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{t('reception.dateAndTimeLabel')}</p>
+              <p className="text-sm font-medium text-gray-900">
+                {booking.slots?.slot_date
+                  ? format(parseISO(booking.slots.slot_date), 'MMM d', { locale: i18n.language?.startsWith('ar') ? ar : undefined })
+                  : '—'}
+              </p>
+            </div>
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">
+                {getBookingEmployees(booking).length > 1 ? t('reception.employeesLabel') : t('reception.employeeLabel')}
+              </p>
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {getBookingEmployees(booking).length > 0
+                  ? getBookingEmployees(booking).map((emp, idx) =>
+                      (i18n.language === 'ar' ? (emp.full_name_ar || emp.full_name) : emp.full_name)
+                    ).join(', ')
+                  : '—'}
+              </p>
+            </div>
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{t('booking.visitorCount')}</p>
+              <p className="text-sm font-medium text-gray-900">
+                {(booking as any).groupCount || booking.visitor_count} × {formatPrice((booking as any).grouped_total_price || booking.total_price)}
+              </p>
+              {booking.package_covered_quantity !== undefined && booking.package_covered_quantity > 0 && (
+                <span className="inline-flex items-center gap-0.5 mt-1 text-xs font-medium text-emerald-700">
+                  <Package className="h-3 w-3" />
+                  {booking.package_covered_quantity === booking.visitor_count
+                    ? t('reception.coveredByPackage')
+                    : t('reception.packagePaidFormat', { package: booking.package_covered_quantity, paid: booking.paid_quantity || 0 })}
+                </span>
               )}
             </div>
           </div>
-        </CardContent>
-      </Card>
+
+          {booking.notes && (
+            <div className="mt-3 rounded-lg bg-amber-50/80 border border-amber-100 px-3 py-2">
+              <p className="text-xs text-amber-800 font-medium">{t('reception.notesLabelWithColon')}</p>
+              <p className="text-sm text-amber-900 line-clamp-2">{booking.notes}</p>
+            </div>
+          )}
+
+          {/* Invoice row */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-gray-100">
+            {booking.zoho_invoice_id ? (
+              <div className="flex items-center gap-2 text-sm">
+                <FileText className="h-4 w-4 text-blue-600" />
+                <span className="text-gray-600 font-mono text-xs">{booking.zoho_invoice_id}</span>
+                <Button
+                  onClick={() => downloadInvoice(booking.id, booking.zoho_invoice_id!)}
+                  disabled={downloadingInvoice === booking.id}
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs"
+                >
+                  <Download className="h-3.5 w-3.5 mr-1" />
+                  {downloadingInvoice === booking.id ? (i18n.language === 'ar' ? 'جاري التنزيل...' : 'Downloading...') : t('reception.downloadPdf')}
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                <FileText className="h-3.5 w-3.5" />
+                {i18n.language === 'ar' ? 'لا توجد فاتورة' : t('reception.noInvoiceForBooking')}
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              {booking.status !== 'cancelled' && (
+                <>
+                  {booking.status !== 'completed' && (
+                    <>
+                      {booking.status === 'pending' && (
+                        <Button size="sm" onClick={() => updateBookingStatus(booking.id, 'confirmed')} icon={<CheckCircle className="w-3.5 h-3.5" />} className="rounded-lg">
+                          {t('common.confirm')}
+                        </Button>
+                      )}
+                      {!isCoordinator && (
+                        <>
+                          {booking.status === 'confirmed' && (
+                            <Button size="sm" onClick={() => updateBookingStatus(booking.id, 'completed')} icon={<CheckCircle className="w-3.5 h-3.5" />} className="rounded-lg">
+                              {t('reception.complete')}
+                            </Button>
+                          )}
+                          <Button size="sm" variant="danger" onClick={() => updateBookingStatus(booking.id, 'cancelled')} icon={<XCircle className="w-3.5 h-3.5" />} className="rounded-lg">
+                            {t('common.cancel')}
+                          </Button>
+                        </>
+                      )}
+                    </>
+                  )}
+                  {!isCoordinator && (
+                    <>
+                      {tenant?.tickets_enabled !== false && booking.status !== 'cancelled' && !(booking as any).qr_scanned && (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={() => { setQrInputValue(booking.id); setIsQRScannerOpen(true); setQrValidationResult(null); }}
+                          icon={<QrCode className="w-3.5 h-3.5" />}
+                          className="rounded-lg"
+                        >
+                          {t('reception.scanQR')}
+                        </Button>
+                      )}
+                      {tenant?.tickets_enabled !== false && (booking as any).qr_scanned && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-green-100 text-green-800 text-xs font-medium">
+                          <CheckCircle className="h-3.5 w-3.5" />
+                          {t('reception.qrScanned')}
+                        </span>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setSelectedBookingForDetails(booking)}
+                        className="rounded-lg"
+                      >
+                        {t('bookings.bookingDetails', 'Details')}
+                      </Button>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -4231,7 +4157,7 @@ export function ReceptionPage() {
             </CardContent>
           </Card>
         ) : viewMode === 'list' ? (
-          <div className="space-y-4">
+          <div className="space-y-5">
             {displayBookings.map((booking) => (
               <BookingCard key={booking.id} booking={booking} />
             ))}
@@ -5765,224 +5691,42 @@ export function ReceptionPage() {
         ticketsEnabled={tenant?.tickets_enabled !== false}
       />
 
-      {/* Booking Details Modal */}
-      <Modal
+      {/* Booking Details Modal (customer, order items, notes, payment, actions) */}
+      <BookingDetailsModal
         isOpen={!!selectedBookingForDetails}
         onClose={() => setSelectedBookingForDetails(null)}
-        title={t('reception.bookingDetails')}
-      >
-        {selectedBookingForDetails && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">Customer Name</label>
-                <div className="mt-1 flex items-center gap-2">
-                  <User className="w-4 h-4 text-gray-400" />
-                  <span className="font-medium">{selectedBookingForDetails.customer_name}</span>
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Phone</label>
-                <div className="mt-1 flex items-center gap-2">
-                  <Phone className="w-4 h-4 text-gray-400" />
-                  <span className="font-medium">{selectedBookingForDetails.customer_phone}</span>
-                </div>
-              </div>
-            </div>
-
-            {selectedBookingForDetails.customer_email && (
-              <div>
-                <label className="text-sm font-medium text-gray-500">Email</label>
-                <div className="mt-1 flex items-center gap-2">
-                  <Mail className="w-4 h-4 text-gray-400" />
-                  <span className="font-medium">{selectedBookingForDetails.customer_email}</span>
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">{t('reception.serviceLabel')}</label>
-                <div className="mt-1 font-medium">
-                  {i18n.language === 'ar' ? selectedBookingForDetails.services?.name_ar : selectedBookingForDetails.services?.name}
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">{getBookingEmployees(selectedBookingForDetails).length > 1 ? t('reception.employeesLabel') : t('reception.employeeLabel')}</label>
-                <div className="mt-1 font-medium">
-                  {getBookingEmployees(selectedBookingForDetails).length > 0
-                    ? getBookingEmployees(selectedBookingForDetails).map((emp, idx) => (
-                        <div key={emp.id ?? idx}>
-                          {i18n.language === 'ar' ? (emp.full_name_ar || emp.full_name) : emp.full_name}
-                        </div>
-                      ))
-                    : (i18n.language === 'ar' ? '—' : '—')}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">{t('reception.date')}</label>
-                <div className="mt-1 flex items-center gap-2">
-                  <CalendarDays className="w-4 h-4 text-gray-400" />
-                  <span className="font-medium">
-                    {format(parseISO(selectedBookingForDetails.slots?.slot_date), 'MMM dd, yyyy', { locale: i18n.language?.startsWith('ar') ? ar : undefined })}
-                  </span>
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">{t('reception.time')}</label>
-                <div className="mt-1 flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-gray-400" />
-                  <span className="font-medium">
-                    {formatTimeTo12Hour(selectedBookingForDetails.slots?.start_time ?? '')} - {formatTimeTo12Hour(selectedBookingForDetails.slots?.end_time ?? '')}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">{t('booking.visitorCount')}</label>
-                <div className="mt-1 font-medium">{(selectedBookingForDetails as any).groupCount || selectedBookingForDetails.visitor_count}</div>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">{t('reception.totalPrice')}</label>
-                <div className="mt-1 flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-gray-400" />
-                  <span className="font-medium">{formatPrice(selectedBookingForDetails.total_price)}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">Status</label>
-                <div className="mt-1">
-                  <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${
-                    selectedBookingForDetails.status === 'confirmed' ? 'bg-green-100 text-green-800' :
-                    selectedBookingForDetails.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                    selectedBookingForDetails.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                    selectedBookingForDetails.status === 'completed' ? 'bg-blue-100 text-blue-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
-                    {selectedBookingForDetails.status.toUpperCase()}
-                  </span>
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Payment Status</label>
-                <div className="mt-1">
-                  <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${
-                    getPaymentDisplayValue(selectedBookingForDetails) === 'unpaid' ? 'bg-orange-100 text-orange-800' :
-                    getPaymentDisplayValue(selectedBookingForDetails) === 'bank_transfer' ? 'bg-blue-100 text-blue-800' :
-                    'bg-green-100 text-green-800'
-                  }`}>
-                    {getPaymentDisplayLabel(selectedBookingForDetails, t)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {selectedBookingForDetails.notes && (
-              <div>
-                <label className="text-sm font-medium text-gray-500">Notes</label>
-                <div className="mt-1 p-3 bg-gray-50 rounded-lg text-sm">
-                  {selectedBookingForDetails.notes}
-                </div>
-              </div>
-            )}
-
-            {/* Action Buttons - coordinator only sees Confirm when pending */}
-            <div className="flex flex-col gap-2 pt-4 border-t">
-              {selectedBookingForDetails.status === 'pending' && (
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    updateBookingStatus(selectedBookingForDetails.id, 'confirmed');
-                    setSelectedBookingForDetails(null);
-                  }}
-                  icon={<CheckCircle className="w-4 h-4" />}
-                  fullWidth
-                >
-                  {t('common.confirm')}
-                </Button>
-              )}
-              {!isCoordinator && (
-              <>
-              {/* Edit (details + change time in one modal) - hidden for coordinator */}
-              <div className="flex gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    openEditBooking(selectedBookingForDetails);
-                    setSelectedBookingForDetails(null);
-                  }}
-                  icon={<Edit className="w-4 h-4" />}
-                  fullWidth
-                >
-                  {t('reception.editBooking')}
-                </Button>
-              </div>
-              
-              {/* Status Management Buttons */}
-              {selectedBookingForDetails.status !== 'cancelled' && selectedBookingForDetails.status !== 'completed' && (
-                <div className="flex gap-2">
-                  {selectedBookingForDetails.status === 'confirmed' && (
-                    <Button
-                      variant="primary"
-                      onClick={() => {
-                        updateBookingStatus(selectedBookingForDetails.id, 'completed');
-                        setSelectedBookingForDetails(null);
-                      }}
-                      icon={<CheckCircle className="w-4 h-4" />}
-                      fullWidth
-                    >
-                      {t('bookings.markComplete')}
-                    </Button>
-                  )}
-                  <Button
-                    variant="danger"
-                    onClick={() => {
-                      updateBookingStatus(selectedBookingForDetails.id, 'cancelled');
-                      setSelectedBookingForDetails(null);
-                    }}
-                    icon={<XCircle className="w-4 h-4" />}
-                    fullWidth
-                  >
-                    {t('bookings.cancelBooking')}
-                  </Button>
-                </div>
-              )}
-
-            {getPaymentDisplayValue(selectedBookingForDetails) === 'unpaid' && (
-              <Button
-                variant="primary"
-                onClick={() => {
-                  updatePaymentStatus(selectedBookingForDetails.id, 'paid_manual');
-                  setSelectedBookingForDetails(null);
-                }}
-                icon={<DollarSign className="w-4 h-4" />}
-                fullWidth
-              >
-                {t('reception.markAsPaid')}
-              </Button>
-            )}
-              </>
-              )}
-            </div>
-
-            <Button
-              variant="secondary"
-              onClick={() => setSelectedBookingForDetails(null)}
-              fullWidth
-            >
-              Close
-            </Button>
-          </div>
-        )}
-      </Modal>
+        booking={selectedBookingForDetails}
+        formatPrice={formatPrice}
+        isCoordinator={isCoordinator}
+        onEdit={(b) => {
+          setSelectedBookingForDetails(null);
+          openEditBooking(b);
+        }}
+        onChangeAppointment={(b) => {
+          setSelectedBookingForDetails(null);
+          openEditBooking(b);
+        }}
+        onRepeatBooking={undefined}
+        onMarkPaid={(id) => {
+          setSelectedBookingForDetails(null);
+          setMarkPaidBookingId(id);
+        }}
+        onConfirm={(id) => {
+          updateBookingStatus(id, 'confirmed');
+          setSelectedBookingForDetails(null);
+        }}
+        onComplete={(id) => {
+          updateBookingStatus(id, 'completed');
+          setSelectedBookingForDetails(null);
+        }}
+        onCancelBooking={(id) => {
+          updateBookingStatus(id, 'cancelled');
+          setSelectedBookingForDetails(null);
+        }}
+        onDownloadInvoice={(bookingId, invoiceId) => downloadInvoice(bookingId, invoiceId)}
+        showPaymentDropdown={false}
+        downloadingInvoice={downloadingInvoice}
+      />
 
       {/* Mark as paid modal: payment method + transaction reference */}
       {markPaidBookingId && (
@@ -6269,11 +6013,13 @@ export function ReceptionPage() {
                 </Button>
                 <Button
                   onClick={() => {
+                    const bookingToReopen = editingBooking;
                     setIsEditBookingModalOpen(false);
                     setEditingBooking(null);
                     setSelectedNewSlotId('');
                     setChangeTimeEmployeeId('');
                     setAvailableTimeSlots([]);
+                    if (bookingToReopen) setSelectedBookingForDetails(bookingToReopen);
                   }}
                   variant="ghost"
                   className="flex-1"

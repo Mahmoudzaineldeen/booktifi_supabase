@@ -4075,6 +4075,11 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
       }
     }
 
+    // Explicitly apply status when client sends it (e.g. cancelled) so it is never dropped
+    if (typeof updateData.status === 'string' && updateData.status.trim() !== '') {
+      updatePayload.status = updateData.status.trim();
+    }
+
     // Validate status if provided (must match database enum: cancelled not canceled)
     if (updatePayload.status) {
       const validStatuses = ['pending', 'confirmed', 'checked_in', 'completed', 'cancelled'];
@@ -4326,7 +4331,9 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
     }
 
     // When price was edited to a new non-zero value: regenerate invoice (void old if any, create new with new amount, record payment, send)
-    if (priceChanged && updatedBooking && Number(updatedBooking.total_price) > 0) {
+    // Skip invoice regeneration when booking was just set to cancelled
+    const wasCancelled = updatePayload.status === 'cancelled';
+    if (priceChanged && updatedBooking && Number(updatedBooking.total_price) > 0 && !wasCancelled) {
       setImmediate(async () => {
         try {
           const { zohoService } = await import('../services/zohoService.js');
@@ -5648,7 +5655,7 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
 // Search bookings (Receptionist, Coordinator, and Tenant Admin)
 // ============================================================================
 // CRITICAL: Only accepts ONE search parameter at a time
-// Valid parameters: phone, customer_name, date, service_name, booking_id
+// Valid parameters: phone, customer_name, date, service_name, booking_id, customer_id
 router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, res) => {
   try {
     const userId = req.user!.id;
@@ -5662,25 +5669,26 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
     const date = req.query.date as string;
     const service_name = req.query.service_name as string;
     const booking_id = req.query.booking_id as string;
+    const customer_id = req.query.customer_id as string;
 
     // Count how many search parameters are provided
-    const searchParams = [phone, customer_name, date, service_name, booking_id].filter(p => p && p.trim().length > 0);
+    const searchParams = [phone, customer_name, date, service_name, booking_id, customer_id].filter(p => p && p.trim().length > 0);
     
     if (searchParams.length === 0) {
       return res.status(400).json({ 
         error: 'No search parameter provided',
-        hint: 'Provide exactly one of: phone, customer_name, date, service_name, or booking_id'
+        hint: 'Provide exactly one of: phone, customer_name, date, service_name, booking_id, or customer_id'
       });
     }
 
     if (searchParams.length > 1) {
       return res.status(400).json({ 
         error: 'Multiple search parameters provided',
-        hint: 'Provide exactly ONE search parameter: phone, customer_name, date, service_name, or booking_id'
+        hint: 'Provide exactly ONE search parameter: phone, customer_name, date, service_name, booking_id, or customer_id'
       });
     }
 
-    // Base query structure
+    // Base query structure (include all fields needed for list/card display)
     const baseSelect = `
       id,
       customer_name,
@@ -5690,6 +5698,7 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
       total_price,
       status,
       payment_status,
+      payment_method,
       notes,
       created_at,
       booking_group_id,
@@ -5697,6 +5706,11 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
       zoho_invoice_created_at,
       invoice_processing_status,
       invoice_last_error,
+      package_covered_quantity,
+      paid_quantity,
+      service_id,
+      slot_id,
+      employee_id,
       services:service_id (
         id,
         name,
@@ -5844,10 +5858,29 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
         });
       }
 
-      // Search by booking ID (exact match)
+      // Search by booking ID (exact match on bookings.id)
       let idQuery = supabase.from('bookings').select(baseSelect, { count: 'exact' }).eq('tenant_id', tenantId);
       if (branchId) idQuery = idQuery.eq('branch_id', branchId);
       const { data, error } = await idQuery.eq('id', booking_id.trim()).limit(limit);
+
+      if (error) throw error;
+      bookings = data || [];
+
+    } else if (customer_id && customer_id.trim().length > 0) {
+      searchType = 'customer_id';
+      // Validate UUID format for customer_id
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(customer_id.trim())) {
+        return res.status(400).json({ 
+          error: 'Invalid customer ID format. Must be a valid UUID',
+          searchType: 'customer_id'
+        });
+      }
+
+      // Search by customer ID (exact match on bookings.customer_id)
+      let custIdQuery = supabase.from('bookings').select(baseSelect, { count: 'exact' }).eq('tenant_id', tenantId).eq('customer_id', customer_id.trim());
+      if (branchId) custIdQuery = custIdQuery.eq('branch_id', branchId);
+      const { data, error } = await custIdQuery.order('created_at', { ascending: false }).limit(limit);
 
       if (error) throw error;
       bookings = data || [];
