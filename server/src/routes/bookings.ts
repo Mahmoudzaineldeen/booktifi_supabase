@@ -5736,38 +5736,68 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
 
     // Combined filter: employee_name + date (bookings for that employee on that date)
     if (hasEmployeeAndDate) {
-      searchType = 'employee_name+date';
-      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dateRegex.test(date.trim())) {
-        return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD', searchType: 'date' });
+      try {
+        searchType = 'employee_name+date';
+        const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+        if (!dateRegex.test(date.trim())) {
+          return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD', searchType: 'date' });
+        }
+        const { data: userMatches, error: userError } = await supabase
+          .from('users')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .or(`full_name.ilike.%${employee_name.trim()}%,full_name_ar.ilike.%${employee_name.trim()}%`)
+          .limit(50);
+        if (userError) {
+          logger.warn('Search employee_name+date: user lookup failed', { error: userError.message });
+          return res.status(500).json({ error: userError.message || 'User lookup failed' });
+        }
+        const employeeIds = (userMatches || []).map((u: { id: string }) => u.id).filter(Boolean);
+        if (employeeIds.length === 0) {
+          return res.json({ bookings: [], count: 0, searchType });
+        }
+        const { data: slotsOnDate, error: slotsError } = await supabase
+          .from('slots')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .eq('slot_date', date.trim())
+          .limit(500);
+        if (slotsError) {
+          logger.warn('Search employee_name+date: slots lookup failed', { error: slotsError.message });
+          return res.status(500).json({ error: slotsError.message || 'Slots lookup failed' });
+        }
+        const slotIds = (slotsOnDate || []).map((s: { id: string }) => s.id).filter(Boolean);
+        if (slotIds.length === 0) {
+          return res.json({ bookings: [], count: 0, searchType });
+        }
+        let combinedQuery = supabase
+          .from('bookings')
+          .select(baseSelect, { count: 'exact' })
+          .eq('tenant_id', tenantId)
+          .in('employee_id', employeeIds)
+          .in('slot_id', slotIds);
+        if (branchId) {
+          combinedQuery = combinedQuery.eq('branch_id', branchId);
+        }
+        let result = await combinedQuery.order('created_at', { ascending: false }).limit(limit);
+        if (result.error && branchId && (result.error.message?.includes('branch_id') || result.error.code === 'PGRST204')) {
+          combinedQuery = supabase
+            .from('bookings')
+            .select(baseSelect, { count: 'exact' })
+            .eq('tenant_id', tenantId)
+            .in('employee_id', employeeIds)
+            .in('slot_id', slotIds);
+          result = await combinedQuery.order('created_at', { ascending: false }).limit(limit);
+        }
+        if (result.error) {
+          logger.warn('Search employee_name+date: bookings query failed', { error: result.error.message, code: result.error.code });
+          return res.status(500).json({ error: result.error.message || 'Bookings query failed' });
+        }
+        return res.json({ bookings: result.data || [], count: (result.data || []).length, searchType });
+      } catch (err: any) {
+        logger.warn('Search employee_name+date: exception', { error: err?.message || err });
+        return res.status(500).json({ error: err?.message || 'Search failed' });
       }
-      const { data: userMatches, error: userError } = await supabase
-        .from('users')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .or(`full_name.ilike.%${employee_name.trim()}%,full_name_ar.ilike.%${employee_name.trim()}%`)
-        .limit(50);
-      if (userError) throw userError;
-      const employeeIds = (userMatches || []).map((u: { id: string }) => u.id);
-      if (employeeIds.length === 0) {
-        return res.json({ bookings: [], count: 0, searchType });
-      }
-      const { data: slotsOnDate, error: slotsError } = await supabase
-        .from('slots')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .eq('slot_date', date.trim())
-        .limit(500);
-      if (slotsError) throw slotsError;
-      const slotIds = (slotsOnDate || []).map((s: { id: string }) => s.id);
-      if (slotIds.length === 0) {
-        return res.json({ bookings: [], count: 0, searchType });
-      }
-      let combinedQuery = supabase.from('bookings').select(baseSelect, { count: 'exact' }).eq('tenant_id', tenantId).in('employee_id', employeeIds).in('slot_id', slotIds);
-      if (branchId) combinedQuery = combinedQuery.eq('branch_id', branchId);
-      const { data, error } = await combinedQuery.order('created_at', { ascending: false }).limit(limit);
-      if (error) throw error;
-      return res.json({ bookings: data || [], count: (data || []).length, searchType });
     }
 
     // Handle each search type explicitly - only ONE will execute
