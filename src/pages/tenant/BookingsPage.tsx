@@ -1495,8 +1495,8 @@ export function BookingsPage() {
     return { valid: true };
   }
 
-  // Search bookings function
-  async function searchBookings(type: SearchType, value: string) {
+  // Search bookings function (optional date filter when type is employee_name)
+  async function searchBookings(type: SearchType, value: string, options?: { date?: string }) {
     if (!userProfile?.tenant_id || !type || !value) {
       setSearchResults([]);
       setShowSearchResults(false);
@@ -1523,6 +1523,9 @@ export function BookingsPage() {
 
       const params = new URLSearchParams();
       params.append(type, value.trim());
+      if (type === 'employee_name' && options?.date && options.date.trim().length > 0) {
+        params.append('date', options.date.trim());
+      }
       params.append('limit', '50');
 
       const response = await fetch(`${API_URL}/bookings/search?${params.toString()}`, {
@@ -1600,19 +1603,30 @@ export function BookingsPage() {
     setSearchValidationError('');
   };
 
-  // Handle date change
+  // Handle date change (standalone "Search by date" or optional "On date" when searching by employee)
   const handleDateChange = (date: string) => {
     setSearchDate(date);
     setSearchValidationError('');
-    if (date && searchType === 'date') {
-      searchBookings('date', date);
+    if (searchType === 'date') {
+      if (date) {
+        searchBookings('date', date);
+      } else {
+        setSearchResults([]);
+        setShowSearchResults(false);
+      }
+    } else if (searchType === 'employee_name' && searchQuery.trim().length >= 2) {
+      if (date) {
+        searchBookings('employee_name', searchQuery.trim(), { date });
+      } else {
+        searchBookings('employee_name', searchQuery.trim());
+      }
     } else if (!date) {
       setSearchResults([]);
       setShowSearchResults(false);
     }
   };
 
-  // Debounced search handler for text inputs
+  // Debounced search handler for text inputs (for employee_name, include optional date)
   useEffect(() => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
@@ -1622,7 +1636,8 @@ export function BookingsPage() {
       const validation = validateSearchInput(searchType, searchQuery);
       if (validation.valid) {
         searchTimeoutRef.current = setTimeout(() => {
-          searchBookings(searchType, searchQuery);
+          const opts = searchType === 'employee_name' && searchDate ? { date: searchDate } : undefined;
+          searchBookings(searchType, searchQuery, opts);
         }, 300);
       }
     } else if (searchType === '' || (searchType !== 'date' && searchQuery.trim().length === 0)) {
@@ -1636,7 +1651,7 @@ export function BookingsPage() {
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [searchQuery, searchType]);
+  }, [searchQuery, searchType, searchDate]);
 
   // Determine which bookings to display
   const displayBookings = showSearchResults ? searchResults : bookings;
@@ -1814,6 +1829,23 @@ export function BookingsPage() {
               </div>
             )}
           </div>
+
+          {/* Optional "On date" filter when searching by Employee Name */}
+          {searchType === 'employee_name' && (
+            <div className="w-full sm:w-56 shrink-0">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                {isAr ? 'في تاريخ (اختياري)' : (t('bookings.filterOnDate') || 'On date (optional)')}
+              </label>
+              <div className={searchBarWrapperClass}>
+                <Input
+                  type="date"
+                  value={searchDate}
+                  onChange={(e) => handleDateChange(e.target.value)}
+                  className="w-full border-0 shadow-none focus:ring-0 py-2.5 px-4"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Validation Error */}
@@ -1839,6 +1871,7 @@ export function BookingsPage() {
                 {searchType === 'booking_id' && (isAr ? 'رقم الحجز' : (t('reception.searchByBookingId') || 'Booking ID'))}
                 {searchType === 'customer_id' && (isAr ? 'رقم العميل' : (t('reception.searchByCustomerId') || 'Customer ID'))}
                 {searchType === 'employee_name' && (isAr ? 'اسم الموظف' : (t('reception.searchByEmployeeName') || 'Employee Name'))}
+                {searchType === 'employee_name' && searchDate && (isAr ? ` · ${searchDate}` : ` · ${searchDate}`)}
               </span>
             </p>
             <p className="text-gray-600">

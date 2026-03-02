@@ -5678,14 +5678,15 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
     if (searchParams.length === 0) {
       return res.status(400).json({ 
         error: 'No search parameter provided',
-        hint: 'Provide exactly one of: phone, customer_name, date, service_name, booking_id, customer_id, or employee_name'
+        hint: 'Provide at least one of: phone, customer_name, date, service_name, booking_id, customer_id, or employee_name. You can combine employee_name with date.'
       });
     }
 
-    if (searchParams.length > 1) {
+    const hasEmployeeAndDate = (employee_name && employee_name.trim().length >= 2) && (date && date.trim().length > 0);
+    if (searchParams.length > 1 && !hasEmployeeAndDate) {
       return res.status(400).json({ 
         error: 'Multiple search parameters provided',
-        hint: 'Provide exactly ONE search parameter: phone, customer_name, date, service_name, booking_id, customer_id, or employee_name'
+        hint: 'Provide exactly ONE search parameter, or combine employee_name with date (e.g. employee_name=Marivick&date=2026-03-02)'
       });
     }
 
@@ -5732,6 +5733,42 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
 
     let bookings: any[] = [];
     let searchType = '';
+
+    // Combined filter: employee_name + date (bookings for that employee on that date)
+    if (hasEmployeeAndDate) {
+      searchType = 'employee_name+date';
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(date.trim())) {
+        return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD', searchType: 'date' });
+      }
+      const { data: userMatches, error: userError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .or(`full_name.ilike.%${employee_name.trim()}%,full_name_ar.ilike.%${employee_name.trim()}%`)
+        .limit(50);
+      if (userError) throw userError;
+      const employeeIds = (userMatches || []).map((u: { id: string }) => u.id);
+      if (employeeIds.length === 0) {
+        return res.json({ bookings: [], count: 0, searchType });
+      }
+      const { data: slotsOnDate, error: slotsError } = await supabase
+        .from('slots')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('slot_date', date.trim())
+        .limit(500);
+      if (slotsError) throw slotsError;
+      const slotIds = (slotsOnDate || []).map((s: { id: string }) => s.id);
+      if (slotIds.length === 0) {
+        return res.json({ bookings: [], count: 0, searchType });
+      }
+      let combinedQuery = supabase.from('bookings').select(baseSelect, { count: 'exact' }).eq('tenant_id', tenantId).in('employee_id', employeeIds).in('slot_id', slotIds);
+      if (branchId) combinedQuery = combinedQuery.eq('branch_id', branchId);
+      const { data, error } = await combinedQuery.order('created_at', { ascending: false }).limit(limit);
+      if (error) throw error;
+      return res.json({ bookings: data || [], count: (data || []).length, searchType });
+    }
 
     // Handle each search type explicitly - only ONE will execute
     if (phone && phone.trim().length > 0) {

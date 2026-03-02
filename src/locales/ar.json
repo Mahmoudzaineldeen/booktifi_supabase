@@ -1817,6 +1817,7 @@
     "listView": "عرض القائمة",
     "calendarView": "عرض التقويم",
     "clearSearchToUseCalendar": "امسح البحث لاستخدام عرض التقويم",
+    "filterOnDate": "في تاريخ (اختياري)",
     "noBookingsYet": "لا توجد حجوزات بعد",
     "bookingsWillAppear": "ستظهر الحجوزات هنا عندما يبدأ العملاء بالحجز",
     "today": "اليوم",

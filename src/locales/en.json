@@ -1330,6 +1330,7 @@
     "listView": "List View",
     "calendarView": "Calendar View",
     "clearSearchToUseCalendar": "Clear search to use calendar view",
+    "filterOnDate": "On date (optional)",
     "noBookingsYet": "No bookings yet",
     "bookingsWillAppear": "Bookings will appear here once customers start booking",
     "today": "Today",
