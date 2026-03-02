@@ -701,6 +701,8 @@
     "customerIdPlaceholder": "Enter customer ID (UUID)...",
     "enterSearchValue": "Please enter a search value",
     "searchError": "Search failed",
+    "searchNetworkError": "Network error. Make sure the API server is running and reachable.",
+    "searchServerError": "Server error. Try again or contact support.",
     "bookingPreview": "Booking Preview",
     "bookingSummary": "Booking Summary",
     "reviewBeforeConfirm": "Please review before confirming",

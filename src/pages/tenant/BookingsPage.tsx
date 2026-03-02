@@ -1528,20 +1528,32 @@ export function BookingsPage() {
       }
       params.append('limit', '50');
 
-      const response = await fetch(`${API_URL}/bookings/search?${params.toString()}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Search failed');
+      let response: Response;
+      try {
+        response = await fetch(`${API_URL}/bookings/search?${params.toString()}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+      } catch (networkErr: any) {
+        throw new Error(networkErr?.message?.includes('fetch') ? (t('reception.searchNetworkError') || 'Network error. Make sure the API server is running and reachable.') : (networkErr?.message || 'Search request failed'));
       }
 
-      const result = await response.json();
+      const responseText = await response.text();
+      if (!response.ok) {
+        let errMsg = response.status === 500 ? (t('reception.searchServerError') || 'Server error') : 'Search failed';
+        try {
+          const errorData = JSON.parse(responseText);
+          if (errorData?.error) errMsg = errorData.error;
+        } catch {
+          if (responseText && responseText.length < 200) errMsg = responseText;
+        }
+        throw new Error(errMsg);
+      }
+
+      const result = JSON.parse(responseText) as { bookings?: unknown[] };
       
       const transformedBookings = (result.bookings || []).map((b: any) => ({
         id: b.id,

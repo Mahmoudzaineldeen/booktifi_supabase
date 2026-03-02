@@ -378,7 +378,9 @@
     "invalidCustomerId": "تنسيق رقم العميل غير صحيح. استخدم UUID صالحاً.",
     "customerIdPlaceholder": "أدخل رقم العميل (UUID)...",
     "enterSearchValue": "يرجى إدخال قيمة البحث",
-    "searchError": "فشل البحث"
+    "searchError": "فشل البحث",
+    "searchNetworkError": "خطأ في الشبكة. تأكد من تشغيل خادم الواجهة البرمجية.",
+    "searchServerError": "خطأ في الخادم. حاول مرة أخرى أو تواصل مع الدعم."
   },
   "common": {
     "clearSearch": "مسح البحث",
