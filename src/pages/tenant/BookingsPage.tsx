@@ -86,7 +86,7 @@ interface Booking {
   notes?: string | null;
 }
 
-type SearchType = 'phone' | 'customer_name' | 'date' | 'service_name' | 'booking_id' | 'customer_id' | '';
+type SearchType = 'phone' | 'customer_name' | 'date' | 'service_name' | 'booking_id' | 'customer_id' | 'employee_name' | '';
 
 export function BookingsPage() {
   const { t, i18n } = useTranslation();
@@ -1479,6 +1479,11 @@ export function BookingsPage() {
           return { valid: false, error: isAr ? 'يجب أن يكون اسم الخدمة حرفين على الأقل' : (t('reception.serviceMinLength') || 'Service name must be at least 2 characters') };
         }
         break;
+      case 'employee_name':
+        if (value.trim().length < 2) {
+          return { valid: false, error: isAr ? 'يجب أن يكون اسم الموظف حرفين على الأقل' : (t('reception.employeeNameMinLength') || 'Employee name must be at least 2 characters') };
+        }
+        break;
       case 'date':
         if (!value) {
           return { valid: false, error: isAr ? 'اختر التاريخ' : (t('reception.selectDate') || 'Please select a date') };
@@ -1586,7 +1591,7 @@ export function BookingsPage() {
     if (searchType === 'phone') {
       const digitsOnly = value.replace(/\D/g, '');
       setSearchQuery(digitsOnly);
-    } else if (searchType === 'booking_id' || searchType === 'customer_id') {
+    } else if (searchType === 'booking_id' || searchType === 'customer_id' || searchType === 'employee_name') {
       setSearchQuery(value.trim());
     } else {
       setSearchQuery(value);
@@ -1741,6 +1746,7 @@ export function BookingsPage() {
               <option value="service_name">{isAr ? 'اسم الخدمة' : (t('reception.searchByService') || 'Service Name')}</option>
               <option value="booking_id">{isAr ? 'رقم الحجز' : (t('reception.searchByBookingId') || 'Booking ID')}</option>
               <option value="customer_id">{isAr ? 'رقم العميل' : (t('reception.searchByCustomerId') || 'Customer ID')}</option>
+              <option value="employee_name">{isAr ? 'اسم الموظف' : (t('reception.searchByEmployeeName') || 'Employee Name')}</option>
             </select>
           </div>
 
@@ -1777,6 +1783,8 @@ export function BookingsPage() {
                       ? (isAr ? 'أدخل اسم العميل...' : (t('reception.namePlaceholder') || 'Enter customer name...'))
                       : searchType === 'service_name'
                       ? (isAr ? 'أدخل اسم الخدمة...' : (t('reception.servicePlaceholder') || 'Enter service name...'))
+                      : searchType === 'employee_name'
+                      ? (isAr ? 'أدخل اسم الموظف...' : (t('reception.employeeNamePlaceholder') || 'Enter employee name...'))
                       : (isAr ? 'اختر نوع البحث أولاً...' : (t('reception.selectSearchTypeFirst') || 'Select search type first...'))
                   }
                   className={`pl-10 pr-10 ${!searchType ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -1825,6 +1833,7 @@ export function BookingsPage() {
                 {searchType === 'service_name' && (isAr ? 'اسم الخدمة' : (t('reception.searchByService') || 'Service Name'))}
                 {searchType === 'booking_id' && (isAr ? 'رقم الحجز' : (t('reception.searchByBookingId') || 'Booking ID'))}
                 {searchType === 'customer_id' && (isAr ? 'رقم العميل' : (t('reception.searchByCustomerId') || 'Customer ID'))}
+                {searchType === 'employee_name' && (isAr ? 'اسم الموظف' : (t('reception.searchByEmployeeName') || 'Employee Name'))}
               </span>
             </p>
             <p className="text-gray-600">

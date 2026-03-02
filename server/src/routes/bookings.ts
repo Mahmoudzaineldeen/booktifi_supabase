@@ -5670,21 +5670,22 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
     const service_name = req.query.service_name as string;
     const booking_id = req.query.booking_id as string;
     const customer_id = req.query.customer_id as string;
+    const employee_name = req.query.employee_name as string;
 
     // Count how many search parameters are provided
-    const searchParams = [phone, customer_name, date, service_name, booking_id, customer_id].filter(p => p && p.trim().length > 0);
+    const searchParams = [phone, customer_name, date, service_name, booking_id, customer_id, employee_name].filter(p => p && p.trim().length > 0);
     
     if (searchParams.length === 0) {
       return res.status(400).json({ 
         error: 'No search parameter provided',
-        hint: 'Provide exactly one of: phone, customer_name, date, service_name, booking_id, or customer_id'
+        hint: 'Provide exactly one of: phone, customer_name, date, service_name, booking_id, customer_id, or employee_name'
       });
     }
 
     if (searchParams.length > 1) {
       return res.status(400).json({ 
         error: 'Multiple search parameters provided',
-        hint: 'Provide exactly ONE search parameter: phone, customer_name, date, service_name, booking_id, or customer_id'
+        hint: 'Provide exactly ONE search parameter: phone, customer_name, date, service_name, booking_id, customer_id, or employee_name'
       });
     }
 
@@ -5909,6 +5910,37 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
 
       if (error) throw error;
       bookings = data || [];
+
+    } else if (employee_name && employee_name.trim().length > 0) {
+      searchType = 'employee_name';
+      if (employee_name.trim().length < 2) {
+        return res.status(400).json({
+          error: 'Employee name must be at least 2 characters',
+          searchType: 'employee_name'
+        });
+      }
+
+      // Search by employee name: find users (staff) whose full_name or full_name_ar matches, then bookings with that employee_id
+      const { data: userMatches, error: userError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .or(`full_name.ilike.%${employee_name.trim()}%,full_name_ar.ilike.%${employee_name.trim()}%`)
+        .limit(50);
+
+      if (userError) throw userError;
+
+      if (userMatches && userMatches.length > 0) {
+        const employeeIds = userMatches.map((u: { id: string }) => u.id);
+        let empQuery = supabase.from('bookings').select(baseSelect, { count: 'exact' }).eq('tenant_id', tenantId).in('employee_id', employeeIds);
+        if (branchId) empQuery = empQuery.eq('branch_id', branchId);
+        const { data, error } = await empQuery.order('created_at', { ascending: false }).limit(limit);
+
+        if (error) throw error;
+        bookings = data || [];
+      } else {
+        bookings = [];
+      }
     }
 
     res.json({
