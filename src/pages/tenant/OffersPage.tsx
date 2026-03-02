@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
+import { SearchInput } from '../../components/ui/SearchInput';
 import { Plus, Edit, Trash2, Gift, X, Star, TrendingUp, Zap, Search } from 'lucide-react';
 
 interface Service {
@@ -407,16 +408,12 @@ export function OffersPage() {
         {/* Search Bar */}
         <Card className="shadow-sm border border-gray-200/80">
           <CardContent className="pt-6">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <Input
-                type="text"
-                placeholder={i18n.language === 'ar' ? 'ابحث عن عرض...' : 'Search offers...'}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 w-full"
-              />
-            </div>
+            <SearchInput
+              placeholder={i18n.language === 'ar' ? 'ابحث عن عرض...' : 'Search offers...'}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onClear={() => setSearchQuery('')}
+            />
           </CardContent>
         </Card>
       </div>

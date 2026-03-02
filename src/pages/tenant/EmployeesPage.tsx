@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
+import { SearchInput } from '../../components/ui/SearchInput';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { countryCodes } from '../../lib/countryCodes';
 import { Plus, Edit, Users, Mail, Phone, Briefcase, UserX, UserCheck, Search, Trash2, Clock } from 'lucide-react';
@@ -732,16 +733,12 @@ export function EmployeesPage() {
       {employees.length > 0 && (
         <div className="mb-6 space-y-4">
           {/* Search Input */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <Input
-              type="text"
-              placeholder={t('employee.searchEmployees')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
+          <SearchInput
+            placeholder={t('employee.searchEmployees')}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onClear={() => setSearchQuery('')}
+          />
 
           {/* Role Filter Tabs */}
           <div className="flex gap-2 overflow-x-auto pb-2">

@@ -7,6 +7,7 @@ import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader } from '../../components/ui/Card';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
+import { SearchInput } from '../../components/ui/SearchInput';
 import { ArrowLeft, FileText, Download, Calendar, CheckCircle, XCircle, Clock, Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
@@ -492,32 +493,16 @@ export function CustomerBillingPage() {
             {/* Search and Controls */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex-1 w-full sm:max-w-md">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
-                    onKeyPress={handleSearchKeyPress}
-                    placeholder={t('billing.searchInvoices')}
-                    className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2"
-                    style={{
-                      borderColor: `${primaryColor}30`,
-                      '--tw-ring-color': primaryColor,
-                    } as React.CSSProperties & { '--tw-ring-color': string }}
-                  />
-                  {searchInput && (
-                    <button
-                      onClick={() => {
-                        setSearchInput('');
-                        setSearchQuery('');
-                      }}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
+                <SearchInput
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyPress={handleSearchKeyPress}
+                  placeholder={t('billing.searchInvoices')}
+                  onClear={() => {
+                    setSearchInput('');
+                    setSearchQuery('');
+                  }}
+                />
               </div>
               
               <div className="flex items-center gap-4">

@@ -6,6 +6,7 @@ import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
+import { SearchInput } from '../../components/ui/SearchInput';
 import { safeTranslateNested } from '../../lib/safeTranslation';
 
 interface TenantFeatures {
@@ -219,21 +220,19 @@ export function TenantFeaturesPage() {
 
         {/* Search and category filter */}
         {tenants.length > 0 && (
-          <div className="flex flex-wrap items-center gap-3 mb-4">
-            <div className="relative flex-1 min-w-[200px] max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input
-                type="text"
+          <div className="flex flex-wrap items-center gap-4 mb-4">
+            <div className="flex-1 min-w-[200px] max-w-sm">
+              <SearchInput
                 placeholder={t('admin.searchTenants', 'Search by name, email or industry...')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
+                onClear={() => setSearchQuery('')}
               />
             </div>
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white min-w-[140px]"
+              className="px-4 py-2.5 rounded-xl border border-gray-200 bg-white shadow-sm text-gray-700 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 hover:border-gray-300 text-sm min-w-[140px]"
             >
               <option value="">{t('admin.allCategories', 'All categories')}</option>
               {INDUSTRY_OPTIONS.map((ind) => (

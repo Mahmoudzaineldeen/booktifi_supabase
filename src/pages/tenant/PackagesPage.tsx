@@ -11,6 +11,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
+import { SearchInput } from '../../components/ui/SearchInput';
 import { Package, Plus, Edit, Trash2, X, Upload, Search } from 'lucide-react';
 import heic2any from 'heic2any';
 
@@ -936,16 +937,12 @@ export function PackagesPage() {
           {/* Search Bar */}
           {packages.length > 0 && (
             <div className="mb-6">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <Input
-                  type="text"
-                  placeholder={i18n.language === 'ar' ? 'ابحث عن حزمة...' : 'Search packages...'}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 pr-4 py-2 w-full"
-                />
-              </div>
+              <SearchInput
+                placeholder={i18n.language === 'ar' ? 'ابحث عن حزمة...' : 'Search packages...'}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onClear={() => setSearchQuery('')}
+              />
             </div>
           )}
 

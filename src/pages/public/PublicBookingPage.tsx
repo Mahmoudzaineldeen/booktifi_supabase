@@ -8,6 +8,7 @@ import { getApiUrl } from '../../lib/apiUrl';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
+import { SearchInput } from '../../components/ui/SearchInput';
 import { Modal } from '../../components/ui/Modal';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
@@ -1544,24 +1545,13 @@ function PublicBookingPage() {
             {/* Search Bar */}
             {services.length > 0 && (
               <div className="mb-8 max-w-2xl mx-auto">
-                <div className="relative">
-                  <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                  <Input
-                    type="text"
-                    placeholder={t('booking.searchServices')}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-12 pr-4 py-3 w-full text-lg border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  )}
-                </div>
+                <SearchInput
+                  placeholder={t('booking.searchServices')}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onClear={() => setSearchQuery('')}
+                  inputClassName="text-base sm:text-lg"
+                />
                 {searchQuery && (
                   <div className="mt-2 text-sm text-gray-600 text-center">
                     {i18n.language === 'ar' 

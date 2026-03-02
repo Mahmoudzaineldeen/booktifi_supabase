@@ -7,6 +7,7 @@ import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
+import { SearchInput, searchSelectClass } from '../../components/ui/SearchInput';
 import { Modal } from '../../components/ui/Modal';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { Building2, Users, Calendar, LogOut, Plus, Settings, Edit, Trash2, UserPlus, Shield, Search, ChevronLeft, ChevronRight, Ticket, LogIn } from 'lucide-react';
@@ -630,18 +631,16 @@ export function SolutionOwnerDashboard() {
           <CardContent>
             {/* Search and category filter */}
             {!loading && tenants.length > 0 && (
-              <div className="flex flex-wrap items-center gap-3 mb-4">
-                <div className="relative flex-1 min-w-[200px] max-w-sm">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <Input
-                    type="text"
+              <div className="flex flex-wrap items-center gap-4 mb-4">
+                <div className="flex-1 min-w-[200px] max-w-sm">
+                  <SearchInput
                     placeholder={t('admin.searchTenants', 'Search by name, email or industry...')}
                     value={searchQuery}
                     onChange={(e) => {
                       setSearchQuery(e.target.value);
                       setCurrentPage(1);
                     }}
-                    className="pl-9"
+                    onClear={() => { setSearchQuery(''); setCurrentPage(1); }}
                   />
                 </div>
                 <select
@@ -650,7 +649,7 @@ export function SolutionOwnerDashboard() {
                     setCategoryFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white min-w-[140px]"
+                  className={`${searchSelectClass} min-w-[140px]`}
                 >
                   <option value="">{t('admin.allCategories', 'All categories')}</option>
                   {INDUSTRY_OPTIONS.map((ind) => (

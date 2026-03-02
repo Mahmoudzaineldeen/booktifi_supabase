@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
+import { searchBarWrapperClass, searchSelectClass } from '../../components/ui/SearchInput';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Package, Users, Search, X, Calendar, Filter, FileSearch, Phone, Mail, CheckCircle, Briefcase, TrendingUp, TrendingDown, Hash, XCircle, AlertTriangle, Plus, Edit2, Download } from 'lucide-react';
@@ -446,7 +447,7 @@ title: t('common.confirm'),
                   setSearchType(e.target.value as SearchType);
                   setSearchValidationError('');
                 }}
-                className="w-full px-4 py-3 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`${searchSelectClass} text-base py-3`}
               >
                 <option value="">{t('bookings.search.selectType', 'Select search type')}</option>
                 <option value="customer_name">{t('bookings.search.customerName', 'Customer Name')}</option>
@@ -460,22 +461,25 @@ title: t('common.confirm'),
                 <FileSearch className="w-5 h-5" />
                 {t('bookings.search.query', 'Search Query')}
               </label>
-              <div className="flex gap-3">
-                <Input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setSearchValidationError('');
-                  }}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
-                      handleSearch();
-                    }
-                  }}
-                  placeholder={t('bookings.search.placeholder', 'Enter search term...')}
-                  className="flex-1 text-base py-3 px-4"
-                />
+              <div className="flex gap-3 flex-1 min-w-0">
+                <div className={`flex-1 min-w-0 ${searchBarWrapperClass}`}>
+                  <FileSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setSearchValidationError('');
+                    }}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSearch();
+                      }
+                    }}
+                    placeholder={t('bookings.search.placeholder', 'Enter search term...')}
+                    className="w-full bg-transparent border-0 pl-11 pr-4 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                  />
+                </div>
                 <button
                   onClick={handleSearch}
                   disabled={isSearching}

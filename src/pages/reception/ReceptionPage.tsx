@@ -9,6 +9,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
+import { searchBarWrapperClass, searchSelectClass } from '../../components/ui/SearchInput';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Edit, CalendarClock, Users, Ban, Wrench, UserX } from 'lucide-react';
@@ -3954,16 +3955,16 @@ export function ReceptionPage() {
           <>
         {/* Search Bar with Type Selector */}
         <div className="mb-6 space-y-3">
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-4">
             {/* Search Type Selector */}
             <div className="w-full sm:w-64">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 {t('reception.searchType') || 'Search By'}
               </label>
               <select
                 value={searchType}
                 onChange={(e) => handleSearchTypeChange(e.target.value as SearchType)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                className={searchSelectClass}
               >
                 <option value="">{t('reception.selectSearchType') || 'Select search type...'}</option>
                 <option value="phone">{t('reception.searchByPhone') || 'Customer Phone Number'}</option>
@@ -3975,25 +3976,27 @@ export function ReceptionPage() {
             </div>
 
             {/* Search Input (conditional based on type) */}
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+            <div className="flex-1 min-w-0">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 {searchType === 'date' 
                   ? (t('reception.selectDate') || 'Select Date')
                   : (t('reception.searchValue') || 'Search Value')}
               </label>
               {searchType === 'date' ? (
-                <Input
-                  type="date"
-                  value={searchDate}
-                  onChange={(e) => handleDateChange(e.target.value)}
-                  className={`w-full ${!searchType ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  disabled={!searchType || searchType !== 'date'}
-                />
-              ) : (
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <div className={searchBarWrapperClass}>
                   <Input
-                    type={searchType === 'phone' || searchType === 'booking_id' ? 'text' : 'text'}
+                    type="date"
+                    value={searchDate}
+                    onChange={(e) => handleDateChange(e.target.value)}
+                    className={`w-full border-0 shadow-none focus:ring-0 py-2.5 px-4 ${!searchType ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    disabled={!searchType || searchType !== 'date'}
+                  />
+                </div>
+              ) : (
+                <div className={`${searchBarWrapperClass} ${!searchType ? 'opacity-60' : ''}`}>
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
                     value={searchQuery}
                     onChange={(e) => handleSearchInputChange(e.target.value)}
                     placeholder={
@@ -4007,11 +4010,12 @@ export function ReceptionPage() {
                         ? (t('reception.servicePlaceholder') || 'Enter service name...')
                         : (t('reception.selectSearchTypeFirst') || 'Select search type first...')
                     }
-                    className={`pl-10 pr-10 ${!searchType ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className="w-full bg-transparent border-0 pl-11 pr-10 py-2.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0 disabled:cursor-not-allowed"
                     disabled={!searchType}
                   />
                   {(searchQuery || searchDate) && (
                     <button
+                      type="button"
                       onClick={() => {
                         setSearchQuery('');
                         setSearchDate('');
@@ -4020,8 +4024,9 @@ export function ReceptionPage() {
                         setSearchResults([]);
                         setSearchValidationError('');
                       }}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 rounded-full p-0.5"
                       title={t('common.clear') || 'Clear'}
+                      aria-label="Clear search"
                     >
                       <X className="w-5 h-5" />
                     </button>
