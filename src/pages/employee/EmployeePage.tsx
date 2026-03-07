@@ -434,6 +434,16 @@ export function EmployeePage() {
                                   )}
                                 </div>
                                 <p className="text-slate-800 font-medium">{serviceName}</p>
+                                {b.users && (
+                                  <p className="text-sm text-slate-600">
+                                    {t('employeePage.assignedTo', 'Assigned to')}:{' '}
+                                    <span className="font-medium text-slate-800">
+                                      {i18n.language === 'ar' && b.users.full_name_ar
+                                        ? b.users.full_name_ar
+                                        : b.users.full_name || '—'}
+                                    </span>
+                                  </p>
+                                )}
                                 <p className="text-slate-900 font-semibold">{b.customer_name}</p>
                                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
                                   {b.customer_phone && (
