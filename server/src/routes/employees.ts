@@ -357,39 +357,40 @@ router.post('/update', authMiddleware, async (req, res) => {
 
     if (role_id !== undefined) {
       if (role_id) {
-        const { data: roleRow, error: roleErr } = await supabase
-          .from('roles')
-          .select('id, tenant_id, category, is_active')
-          .eq('id', role_id)
-          .maybeSingle();
-
-        const roleInvalid = roleErr || !roleRow || !roleRow.is_active;
-        const roleWrongTenant = roleRow && roleRow.tenant_id && existing.tenant_id && roleRow.tenant_id !== existing.tenant_id;
-
-        if (roleInvalid || roleWrongTenant) {
-          if (isAdminCaller) {
-            // Tenant admin / solution owner: do not update role fields when role is invalid or wrong tenant (keep existing)
-          } else {
-            if (roleInvalid) return res.status(400).json({ error: 'Invalid or inactive role.' });
-            if (roleWrongTenant) return res.status(400).json({ error: 'Role does not belong to this tenant.' });
-          }
+        // Built-in role IDs: update without DB lookup so role always saves even if roles table is missing built-ins
+        if (isBuiltInRoleId(String(role_id))) {
+          updates.role_id = role_id;
+          updates.role = legacyRoleFromRoleId(String(role_id));
         } else {
-          const roleCategory = (roleRow!.category as 'admin' | 'employee') || 'employee';
-          const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
-          let legacyRole: string;
-          if (isBuiltInRoleId(roleRow!.id)) {
-            legacyRole = legacyRoleFromRoleId(String(role_id));
+          const { data: roleRow, error: roleErr } = await supabase
+            .from('roles')
+            .select('id, tenant_id, category, is_active')
+            .eq('id', role_id)
+            .maybeSingle();
+
+          const roleInvalid = roleErr || !roleRow || !roleRow.is_active;
+          const roleWrongTenant = roleRow && roleRow.tenant_id && existing.tenant_id && roleRow.tenant_id !== existing.tenant_id;
+
+          if (roleInvalid || roleWrongTenant) {
+            if (isAdminCaller) {
+              // Tenant admin / solution owner: do not update role fields when role is invalid or wrong tenant (keep existing)
+            } else {
+              if (roleInvalid) return res.status(400).json({ error: 'Invalid or inactive role.' });
+              if (roleWrongTenant) return res.status(400).json({ error: 'Role does not belong to this tenant.' });
+            }
           } else {
+            const roleCategory = (roleRow!.category as 'admin' | 'employee') || 'employee';
+            const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
             const requestedLegacy = (role && typeof role === 'string' ? role : existing.role) || 'employee';
-            legacyRole = allowedLegacy.includes(requestedLegacy)
+            let legacyRole = allowedLegacy.includes(requestedLegacy)
               ? requestedLegacy
               : (roleCategory === 'admin' ? 'admin_user' : 'receptionist');
+            if (!allowedLegacy.includes(legacyRole)) {
+              legacyRole = roleCategory === 'admin' ? 'admin_user' : 'receptionist';
+            }
+            updates.role_id = role_id;
+            updates.role = legacyRole;
           }
-          if (!allowedLegacy.includes(legacyRole)) {
-            legacyRole = roleCategory === 'admin' ? 'admin_user' : 'receptionist';
-          }
-          updates.role_id = role_id;
-          updates.role = legacyRole;
         }
       } else {
         updates.role_id = null;
