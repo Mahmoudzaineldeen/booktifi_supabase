@@ -27,6 +27,7 @@
     "test:integration:booking-performance": "vitest run tests/integration/booking-creation-performance.test.ts",
     "test:booking-creation-performance": "node tests/backend/11-booking-creation-performance.test.js",
     "test:security": "vitest run tests/security",
+    "test:rbac": "vitest run tests/rbac",
     "test:coverage": "vitest run --coverage",
     "test:setup": "node tests/scripts/setup-test-data.js",
     "test:receptionist-edit": "node tests/test-receptionist-edit-booking.js",

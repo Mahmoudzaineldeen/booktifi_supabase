@@ -433,19 +433,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (error) {
-        debugLog('Sign In Error', { error: error.message, email, errorCode: error.code });
+        const backendMessage = (error as { error?: string }).error;
+        debugLog('Sign In Error', { error: error.message, backendMessage, email, errorCode: (error as { code?: string }).code });
         console.error('Sign in API error:', error);
         
-        // Provide more helpful error message for network errors
-        let errorMessage = error.message || 'Authentication failed';
+        // Use backend error message when present (e.g. "User role is missing. Cannot create authentication token.")
+        let errorMessage =
+          backendMessage ||
+          (error as Error).message ||
+          'Authentication failed';
         
         // Check for server connection errors
-        if (error.code === 'NETWORK_ERROR' || 
-            error.code === 'SERVER_NOT_RUNNING' ||
-            error.message?.includes('Cannot connect to server') ||
-            error.message?.includes('Backend server is not running') ||
-            error.message?.includes('ERR_CONNECTION_REFUSED') ||
-            error.message?.includes('Failed to fetch')) {
+        if ((error as { code?: string }).code === 'NETWORK_ERROR' ||
+            (error as { code?: string }).code === 'SERVER_NOT_RUNNING' ||
+            (error as Error).message?.includes('Cannot connect to server') ||
+            (error as Error).message?.includes('Backend server is not running') ||
+            (error as Error).message?.includes('ERR_CONNECTION_REFUSED') ||
+            (error as Error).message?.includes('Failed to fetch')) {
           errorMessage = 'Backend server is not running. Please start the server:\n\n1. Open terminal\n2. cd to project/server\n3. Run: npm run dev\n\nOr double-click start-server.bat';
         }
         

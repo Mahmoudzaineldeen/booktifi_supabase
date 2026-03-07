@@ -235,6 +235,8 @@ router.post('/signin', async (req, res) => {
     }
 
     // Generate JWT token with all required fields (include branch_id, role_id for RBAC)
+    const rawRole = user.role != null ? String(user.role).trim() : '';
+    const role = rawRole || 'employee';
     const tokenPayload: {
       id: string;
       email: string | null;
@@ -243,22 +245,17 @@ router.post('/signin', async (req, res) => {
       branch_id?: string | null;
       role_id?: string | null;
     } = {
-      id: user.id,
+      id: String(user.id || ''),
       email: user.email || null,
-      role: user.role || 'employee',
+      role,
       tenant_id: user.tenant_id || null,
       branch_id: user.branch_id ?? null,
       role_id: (user as any).role_id ?? null,
     };
 
-    // Validate required fields
     if (!tokenPayload.id) {
       console.error('[Auth] ❌ Cannot create token: user.id is missing', { user });
       return res.status(500).json({ error: 'User ID is missing. Cannot create authentication token.' });
-    }
-    if (!tokenPayload.role) {
-      console.error('[Auth] ❌ Cannot create token: user.role is missing', { user });
-      return res.status(500).json({ error: 'User role is missing. Cannot create authentication token.' });
     }
 
     const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
@@ -382,6 +379,7 @@ router.post('/signup', async (req, res) => {
     }
 
     // Generate JWT token with all required fields (include role_id for RBAC)
+    const signupRole = (user.role != null && String(user.role).trim()) ? String(user.role).trim() : 'employee';
     const tokenPayload: {
       id: string;
       email: string | null;
@@ -390,22 +388,17 @@ router.post('/signup', async (req, res) => {
       branch_id?: string | null;
       role_id?: string | null;
     } = {
-      id: user.id,
+      id: String(user.id || ''),
       email: user.email || null,
-      role: user.role || 'employee',
+      role: signupRole,
       tenant_id: user.tenant_id || null,
       branch_id: (user as any).branch_id ?? null,
       role_id: (user as any).role_id ?? null,
     };
 
-    // Validate required fields
     if (!tokenPayload.id) {
       console.error('[Auth] ❌ Cannot create token: user.id is missing', { user });
       return res.status(500).json({ error: 'User ID is missing. Cannot create authentication token.' });
-    }
-    if (!tokenPayload.role) {
-      console.error('[Auth] ❌ Cannot create token: user.role is missing', { user });
-      return res.status(500).json({ error: 'User role is missing. Cannot create authentication token.' });
     }
 
     const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
@@ -1948,13 +1941,13 @@ router.post('/login-with-otp', async (req, res) => {
     } = {
       id: user.id,
       email: user.email || null,
-      role: user.role || 'employee',
+      role: (user.role != null && String(user.role).trim()) ? String(user.role).trim() : 'employee',
       tenant_id: user.tenant_id || null,
       branch_id: (user as any).branch_id ?? null,
       role_id: (user as any).role_id ?? null,
     };
 
-    if (!tokenPayload.id || !tokenPayload.role) {
+    if (!tokenPayload.id) {
       console.error('[Auth] ❌ Cannot create login token: missing required fields', { user });
       return res.status(500).json({ error: 'User data incomplete. Cannot create authentication token.' });
     }

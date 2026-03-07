@@ -173,8 +173,21 @@ router.post('/', authMiddleware, requireManageRoles, async (req, res) => {
     }
     const ids = Array.isArray(permission_ids) ? permission_ids : [];
     if (ids.length > 0) {
+      const { data: permsRows, error: permsErr } = await supabase
+        .from('permissions')
+        .select('id, category')
+        .in('id', ids);
+      if (permsErr || !permsRows?.length) return res.status(400).json({ error: 'Invalid permission_ids' });
+      const wrongCategory = permsRows.some((p: any) => p.category !== category);
+      if (wrongCategory) {
+        return res.status(400).json({
+          error: 'Invalid role configuration.',
+          details: 'A role cannot include both Admin and Employee permissions.',
+        });
+      }
+      const validIds = permsRows.filter((p: any) => p.category === category).map((p: any) => p.id);
       await supabase.from('role_permissions').insert(
-        ids.map((pid: string) => ({ role_id: role.id, permission_id: pid }))
+        validIds.map((pid: string) => ({ role_id: role.id, permission_id: pid }))
       );
     }
     const { data: perms } = await supabase
@@ -195,7 +208,7 @@ router.put('/:id', authMiddleware, requireManageRoles, async (req, res) => {
     const { name, description, category, permission_ids, is_active } = req.body;
     const { data: existing, error: fetchError } = await supabase
       .from('roles')
-      .select('id, tenant_id')
+      .select('id, tenant_id, category')
       .eq('id', id)
       .maybeSingle();
     if (fetchError || !existing) return res.status(404).json({ error: 'Role not found' });
@@ -207,6 +220,19 @@ router.put('/:id', authMiddleware, requireManageRoles, async (req, res) => {
     if (description !== undefined) updates.description = description?.trim() || null;
     if (category !== undefined) {
       if (!['admin', 'employee'].includes(category)) return res.status(400).json({ error: 'category must be admin or employee' });
+      if (category !== existing.category) {
+        const { data: perms, error: permsErr } = await supabase
+          .from('role_permissions')
+          .select('permission_id')
+          .eq('role_id', id)
+          .limit(1);
+        if (!permsErr && perms && perms.length > 0) {
+          return res.status(400).json({
+            error: 'Invalid role configuration.',
+            details: 'Role category cannot be changed while the role has permissions. Remove all permissions first, then change category.',
+          });
+        }
+      }
       updates.category = category;
     }
     if (is_active !== undefined) updates.is_active = !!is_active;
@@ -216,6 +242,21 @@ router.put('/:id', authMiddleware, requireManageRoles, async (req, res) => {
       if (updateError) throw updateError;
     }
     if (Array.isArray(permission_ids)) {
+      const roleCategory = (category !== undefined ? category : existing.category) as string;
+      if (permission_ids.length > 0 && roleCategory) {
+        const { data: permsRows, error: permsErr } = await supabase
+          .from('permissions')
+          .select('id, category')
+          .in('id', permission_ids);
+        if (permsErr || !permsRows?.length) return res.status(400).json({ error: 'Invalid permission_ids' });
+        const wrongCategory = permsRows.some((p: any) => p.category !== roleCategory);
+        if (wrongCategory) {
+          return res.status(400).json({
+            error: 'Invalid role configuration.',
+            details: 'A role cannot include both Admin and Employee permissions.',
+          });
+        }
+      }
       await supabase.from('role_permissions').delete().eq('role_id', id);
       if (permission_ids.length > 0) {
         await supabase.from('role_permissions').insert(

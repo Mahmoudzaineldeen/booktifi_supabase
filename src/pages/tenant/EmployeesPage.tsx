@@ -1052,7 +1052,11 @@ export function EmployeesPage() {
               onChange={(e) => {
                 const val = e.target.value;
                 if (roles.length > 0 && val && roles.some((r) => r.id === val)) {
-                  const legacy = ROLE_ID_TO_LEGACY[val] ?? 'employee';
+                  const roleOption = roles.find((r) => r.id === val)!;
+                  const isBuiltIn = val in ROLE_ID_TO_LEGACY;
+                  const legacy = isBuiltIn
+                    ? ROLE_ID_TO_LEGACY[val]
+                    : (roleOption.category === 'admin' ? 'tenant_admin' : 'receptionist');
                   setFormData({ ...formData, role_id: val, role: legacy as any });
                 } else if (['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'].includes(val)) {
                   setFormData({ ...formData, role_id: '', role: val as any });
@@ -1078,6 +1082,43 @@ export function EmployeesPage() {
               )}
             </select>
           </div>
+
+          {formData.role_id && roles.some((r) => r.id === formData.role_id) && !(formData.role_id in ROLE_ID_TO_LEGACY) && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('employee.userType', 'User type')}
+              </label>
+              <p className="text-xs text-gray-500 mb-1">
+                {t('employee.userTypeHint', 'Choose how this user appears in the app (branch and shifts depend on this).')}
+              </p>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                value={formData.role}
+                onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
+              >
+                {(() => {
+                  const roleOption = roles.find((r) => r.id === formData.role_id);
+                  if (roleOption?.category === 'admin') {
+                    return (
+                      <>
+                        <option value="tenant_admin">{t('employee.roles.tenant_admin')}</option>
+                        <option value="admin_user">{t('employee.roles.admin_user')}</option>
+                        <option value="customer_admin">{t('employee.roles.customer_admin')}</option>
+                      </>
+                    );
+                  }
+                  return (
+                    <>
+                      <option value="receptionist">{t('employee.roles.receptionist')}</option>
+                      <option value="cashier">{t('employee.roles.cashier')}</option>
+                      <option value="coordinator">{t('employee.roles.coordinator')}</option>
+                      <option value="employee">{t('employee.roles.employee')}</option>
+                    </>
+                  );
+                })()}
+              </select>
+            </div>
+          )}
 
           {(formData.role === 'employee' || formData.role === 'receptionist' || formData.role === 'coordinator' || formData.role === 'cashier') && (
             <div>

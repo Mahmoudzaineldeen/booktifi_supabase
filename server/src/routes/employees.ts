@@ -16,8 +16,18 @@ const ROLE_ID_TO_LEGACY: Record<string, string> = {
   '00000000-0000-0000-0000-000000000007': 'customer_admin',
 };
 
+/** Legacy roles allowed for admin-category roles (Admin, Manager, Supervisor-style) */
+const LEGACY_ADMIN_ROLES = ['tenant_admin', 'admin_user', 'customer_admin', 'solution_owner'];
+
+/** Legacy roles allowed for employee-category roles (Receptionist, Cashier, Operational) */
+const LEGACY_EMPLOYEE_ROLES = ['receptionist', 'cashier', 'coordinator', 'employee'];
+
 function legacyRoleFromRoleId(roleId: string): string {
   return ROLE_ID_TO_LEGACY[roleId] ?? 'employee';
+}
+
+function isBuiltInRoleId(roleId: string): boolean {
+  return roleId in ROLE_ID_TO_LEGACY;
 }
 
 // Create employee
@@ -56,7 +66,27 @@ router.post('/create', async (req, res) => {
       if (roleRow.tenant_id && roleRow.tenant_id !== tenant_id) {
         return res.status(400).json({ error: 'Role does not belong to this tenant.' });
       }
-      resolvedRole = legacyRoleFromRoleId(roleRow.id);
+      if (isBuiltInRoleId(roleRow.id)) {
+        resolvedRole = legacyRoleFromRoleId(roleRow.id);
+      } else {
+        if (!role || typeof role !== 'string') {
+          return res.status(400).json({
+            error: 'Invalid role configuration.',
+            details: 'When assigning a custom role, you must specify the user type (e.g. Receptionist, Cashier for employee roles; Admin for admin roles).',
+          });
+        }
+        resolvedRole = role;
+      }
+      const roleCategory = roleRow.category as 'admin' | 'employee';
+      const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
+      if (!allowedLegacy.includes(resolvedRole)) {
+        return res.status(400).json({
+          error: 'Invalid role configuration.',
+          details: roleCategory === 'admin'
+            ? 'Admin roles can only be assigned to Admin/Manager/Supervisor user types (tenant_admin, admin_user, customer_admin).'
+            : 'Employee roles can only be assigned to Receptionist, Cashier, or Operational user types (receptionist, cashier, coordinator, employee).',
+        });
+      }
       resolvedRoleId = roleRow.id;
     } else {
       const validRoles = ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'];
@@ -279,7 +309,7 @@ router.post('/update', async (req, res) => {
       if (role_id) {
         const { data: roleRow, error: roleErr } = await supabase
           .from('roles')
-          .select('id, tenant_id, is_active')
+          .select('id, tenant_id, category, is_active')
           .eq('id', role_id)
           .maybeSingle();
         if (roleErr || !roleRow || !roleRow.is_active) {
@@ -288,8 +318,32 @@ router.post('/update', async (req, res) => {
         if (roleRow.tenant_id && existing.tenant_id && roleRow.tenant_id !== existing.tenant_id) {
           return res.status(400).json({ error: 'Role does not belong to this tenant.' });
         }
+        let legacyRole: string;
+        if (isBuiltInRoleId(roleRow.id)) {
+          legacyRole = legacyRoleFromRoleId(role_id);
+        } else {
+          legacyRole = (role && typeof role === 'string' ? role : existing.role) || 'employee';
+          const roleCategory = roleRow.category as 'admin' | 'employee';
+          const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
+          if (!allowedLegacy.includes(legacyRole)) {
+            return res.status(400).json({
+              error: 'Invalid role configuration.',
+              details: 'When assigning a custom role, specify a user type that matches the role category (e.g. Receptionist/Cashier for employee roles; Admin for admin roles).',
+            });
+          }
+        }
+        const roleCategory = roleRow.category as 'admin' | 'employee';
+        const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
+        if (!allowedLegacy.includes(legacyRole)) {
+          return res.status(400).json({
+            error: 'Invalid role configuration.',
+            details: roleCategory === 'admin'
+              ? 'Admin roles can only be assigned to Admin/Manager/Supervisor user types (tenant_admin, admin_user, customer_admin).'
+              : 'Employee roles can only be assigned to Receptionist, Cashier, or Operational user types (receptionist, cashier, coordinator, employee).',
+          });
+        }
         updates.role_id = role_id;
-        updates.role = legacyRoleFromRoleId(role_id);
+        updates.role = legacyRole;
       } else {
         updates.role_id = null;
         updates.role = 'employee';

@@ -2,6 +2,63 @@
 
 Run these manually or automate against a running server and seeded DB.
 
+**Full test plan:** See [RBAC_COMPREHENSIVE_TEST_PLAN.md](./RBAC_COMPREHENSIVE_TEST_PLAN.md) for the complete 10-step test plan (permissions load, single/negative permission tests, category validation, role lifecycle, branch isolation, module compatibility, API security, performance).
+
+**Automated API tests:** `npm run test:rbac` (or `npx vitest run tests/rbac`) runs `tests/rbac/rbac-api.test.ts` against a live backend. Set `TEST_ADMIN_EMAIL` and `TEST_ADMIN_PASSWORD` (or use test@gmail.com / 111111) and ensure the API is running at `API_BASE_URL` or `http://localhost:3001`.
+
+---
+
+## Core rule: one category per role
+
+A role must be either **Admin** or **Employee**; it cannot mix permissions from both categories. The system enforces this in the UI, API, and database.
+
+---
+
+## Category enforcement tests
+
+### Test 1: Create Admin role → only Admin permissions visible
+
+1. Go to Role Management → Create role.
+2. Select **Category: Admin Role**.
+3. Verify only **Admin permissions** are shown (Manage branches, Manage services, Manage roles, etc.).
+4. Create the role with some admin permissions. Save.
+5. Edit the role: category should still be Admin and only admin permissions listed.
+
+### Test 2: Create Employee role → only Employee permissions visible
+
+1. Create role, select **Category: Employee Role**.
+2. Verify only **Employee permissions** are shown (Create booking, Edit booking, Sell packages, etc.).
+3. Create the role and assign to an employee. Confirm the employee can only have Receptionist/Cashier/Coordinator/Employee user types (not Admin types).
+
+### Test 3: Mixing Admin + Employee permissions via API → rejected
+
+1. Obtain a valid JWT (e.g. tenant_admin).
+2. `POST /api/roles` with body: `{ "name": "Mixed", "category": "admin", "permission_ids": ["manage_branches", "create_booking"] }` (one admin + one employee permission).
+3. Expect **400** with error: `Invalid role configuration. A role cannot include both Admin and Employee permissions.`
+4. Same for `PUT /api/roles/:id` if you try to set permission_ids that span both categories.
+
+### Test 4: Assign Admin role to employee user type → blocked
+
+1. Create a custom role with **Category: Admin** and assign only admin permissions.
+2. In Employees, try to create/update a user and assign this admin role but set **user type** to Receptionist (or any employee-type).
+3. Expect **400** with message that admin roles can only be assigned to Admin/Manager/Supervisor user types (tenant_admin, admin_user, customer_admin).
+
+### Test 5: Assign Employee role to receptionist → allowed
+
+1. Create or use a role with **Category: Employee** (e.g. built-in Receptionist or a custom employee role).
+2. Create/update an employee, assign this role, and set user type to Receptionist (or Cashier, Coordinator, Employee).
+3. Expect **200** and the user is saved with that role and legacy role.
+
+### Test 6: Edit role and attempt cross-category permission → blocked
+
+1. Create an Admin role with some admin permissions. Save.
+2. Call `PUT /api/roles/:id` with the same role id and `permission_ids` that include an employee permission (e.g. `create_booking`).
+3. Expect **400** with error: `Invalid role configuration. A role cannot include both Admin and Employee permissions.`
+4. In the UI: try to change **Category** from Admin to Employee (or vice versa) while the role has permissions. The category dropdown should be **disabled** and show: "Remove all permissions first to change category."
+5. Clear all permissions, then change category; save. Then add permissions for the new category. Should succeed.
+
+---
+
 ## Prerequisites
 
 - Migration `20260308000000_rbac_roles_and_permissions.sql` applied
