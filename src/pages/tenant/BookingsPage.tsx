@@ -87,18 +87,18 @@ interface Booking {
   notes?: string | null;
 }
 
-type SearchType = 'phone' | 'customer_name' | 'date' | 'service_name' | 'booking_id' | 'customer_id' | 'employee_name' | '';
+type SearchType = 'phone' | 'customer_name' | 'service_name' | 'booking_id' | 'customer_id' | 'employee_name' | '';
 
 export function BookingsPage() {
   const { t, i18n } = useTranslation();
   const isAr = i18n.language?.startsWith('ar') ?? false;
-  const { userProfile, tenant } = useAuth();
+  const { userProfile, tenant, hasPermission } = useAuth();
   const { formatPrice, formatPriceString } = useCurrency();
   const tenantDefaultCountry = useTenantDefaultCountry();
   const { features: tenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
   const isEmployeeBasedMode = tenantFeatures?.scheduling_mode === 'employee_based';
   const tenantAssignmentMode = (tenantFeatures?.employee_assignment_mode ?? 'both') as 'automatic' | 'manual' | 'both';
-  const canCreateBooking = ['receptionist', 'admin_user', 'tenant_admin', 'customer_admin'].includes(userProfile?.role || '');
+  const canCreateBooking = hasPermission('create_booking') || ['receptionist', 'admin_user', 'tenant_admin', 'customer_admin'].includes(userProfile?.role || '');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -679,9 +679,9 @@ export function BookingsPage() {
           const normalized = normalizeSlotDate(raw);
           return normalized >= weekStartStr && normalized <= weekEndStr;
         });
-        setBookings(filteredBookings);
+        setBookings(sortBookingsByDate(filteredBookings));
       } else {
-        setBookings(allBookings.slice(0, 50));
+        setBookings(sortBookingsByDate(allBookings.slice(0, 50)));
       }
     } catch (err) {
       console.error('Error fetching bookings:', err);
@@ -702,6 +702,16 @@ export function BookingsPage() {
       return raw.substring(0, 10);
     }
     return format(new Date(raw), 'yyyy-MM-dd');
+  }
+
+  /** Sort bookings by slot date then start time (earliest first). */
+  function sortBookingsByDate<T extends { slots?: { slot_date?: string; start_time?: string } | null }>(list: T[]): T[] {
+    return [...list].sort((a, b) => {
+      const dateA = normalizeSlotDate(a.slots?.slot_date ?? '') || '0000-00-00';
+      const dateB = normalizeSlotDate(b.slots?.slot_date ?? '') || '0000-00-00';
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+      return (a.slots?.start_time || '').localeCompare(b.slots?.start_time || '');
+    });
   }
 
   function getBookingsForDate(date: Date) {
@@ -1485,18 +1495,13 @@ export function BookingsPage() {
           return { valid: false, error: isAr ? 'يجب أن يكون اسم الموظف حرفين على الأقل' : (t('reception.employeeNameMinLength') || 'Employee name must be at least 2 characters') };
         }
         break;
-      case 'date':
-        if (!value) {
-          return { valid: false, error: isAr ? 'اختر التاريخ' : (t('reception.selectDate') || 'Please select a date') };
-        }
-        break;
     }
 
     return { valid: true };
   }
 
-  // Search bookings function (optional date filter when type is employee_name)
-  async function searchBookings(type: SearchType, value: string, options?: { date?: string }) {
+  // Search bookings function
+  async function searchBookings(type: SearchType, value: string) {
     if (!userProfile?.tenant_id || !type || !value) {
       setSearchResults([]);
       setShowSearchResults(false);
@@ -1523,9 +1528,6 @@ export function BookingsPage() {
 
       const params = new URLSearchParams();
       params.append(type, value.trim());
-      if (type === 'employee_name' && options?.date && options.date.trim().length > 0) {
-        params.append('date', options.date.trim());
-      }
       params.append('limit', '50');
 
       let response: Response;
@@ -1580,7 +1582,7 @@ export function BookingsPage() {
         slots: b.slots || { slot_date: '', start_time: '', end_time: '' }
       }));
 
-      setSearchResults(transformedBookings);
+      setSearchResults(sortBookingsByDate(transformedBookings));
       setShowSearchResults(true);
     } catch (error: any) {
       console.error('Search error:', error);
@@ -1615,44 +1617,20 @@ export function BookingsPage() {
     setSearchValidationError('');
   };
 
-  // Handle date change (standalone "Search by date" or optional "On date" when searching by employee)
-  const handleDateChange = (date: string) => {
-    setSearchDate(date);
-    setSearchValidationError('');
-    if (searchType === 'date') {
-      if (date) {
-        searchBookings('date', date);
-      } else {
-        setSearchResults([]);
-        setShowSearchResults(false);
-      }
-    } else if (searchType === 'employee_name' && searchQuery.trim().length >= 2) {
-      if (date) {
-        searchBookings('employee_name', searchQuery.trim(), { date });
-      } else {
-        searchBookings('employee_name', searchQuery.trim());
-      }
-    } else if (!date) {
-      setSearchResults([]);
-      setShowSearchResults(false);
-    }
-  };
-
-  // Debounced search handler for text inputs (for employee_name, include optional date)
+  // Debounced search handler for text inputs
   useEffect(() => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
 
-    if (searchType && searchType !== 'date' && searchType !== '' && searchQuery.trim().length > 0) {
+    if (searchType && searchType !== '' && searchQuery.trim().length > 0) {
       const validation = validateSearchInput(searchType, searchQuery);
       if (validation.valid) {
         searchTimeoutRef.current = setTimeout(() => {
-          const opts = searchType === 'employee_name' && searchDate ? { date: searchDate } : undefined;
-          searchBookings(searchType, searchQuery, opts);
+          searchBookings(searchType, searchQuery);
         }, 300);
       }
-    } else if (searchType === '' || (searchType !== 'date' && searchQuery.trim().length === 0)) {
+    } else if (searchType === '' || searchQuery.trim().length === 0) {
       setSearchResults([]);
       setShowSearchResults(false);
       setSearchValidationError('');
@@ -1663,7 +1641,7 @@ export function BookingsPage() {
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [searchQuery, searchType, searchDate]);
+  }, [searchQuery, searchType]);
 
   // Determine which bookings to display
   const displayBookings = showSearchResults ? searchResults : bookings;
@@ -1770,7 +1748,6 @@ export function BookingsPage() {
               <option value="">{isAr ? 'اختر نوع البحث...' : (t('reception.selectSearchType') || 'Select search type...')}</option>
               <option value="phone">{isAr ? 'رقم هاتف العميل' : (t('reception.searchByPhone') || 'Customer Phone Number')}</option>
               <option value="customer_name">{isAr ? 'اسم العميل' : (t('reception.searchByName') || 'Customer Name')}</option>
-              <option value="date">{isAr ? 'تاريخ الحجز' : (t('reception.searchByDate') || 'Booking Date')}</option>
               <option value="service_name">{isAr ? 'اسم الخدمة' : (t('reception.searchByService') || 'Service Name')}</option>
               <option value="booking_id">{isAr ? 'رقم الحجز' : (t('reception.searchByBookingId') || 'Booking ID')}</option>
               <option value="customer_id">{isAr ? 'رقم العميل' : (t('reception.searchByCustomerId') || 'Customer ID')}</option>
@@ -1781,22 +1758,9 @@ export function BookingsPage() {
           {/* Search Input (conditional based on type) */}
           <div className="flex-1 min-w-0">
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              {searchType === 'date'
-                ? (isAr ? 'اختر التاريخ' : (t('reception.selectDate') || 'Select Date'))
-                : (isAr ? 'قيمة البحث' : (t('reception.searchValue') || 'Search Value'))}
+              {isAr ? 'قيمة البحث' : (t('reception.searchValue') || 'Search Value')}
             </label>
-            {searchType === 'date' ? (
-              <div className={searchBarWrapperClass}>
-                <Input
-                  type="date"
-                  value={searchDate}
-                  onChange={(e) => handleDateChange(e.target.value)}
-                  className={`w-full border-0 shadow-none focus:ring-0 py-2.5 px-4 ${!searchType ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  disabled={!searchType || searchType !== 'date'}
-                />
-              </div>
-            ) : (
-              <div className={`${searchBarWrapperClass} ${!searchType ? 'opacity-60' : ''}`}>
+            <div className={`${searchBarWrapperClass} ${!searchType ? 'opacity-60' : ''}`}>
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
                 <input
                   type="text"
@@ -1820,7 +1784,7 @@ export function BookingsPage() {
                   className="w-full bg-transparent border-0 pl-11 pr-10 py-2.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0 disabled:cursor-not-allowed"
                   disabled={!searchType}
                 />
-                {(searchQuery || searchDate) && (
+                {searchQuery && (
                   <button
                     type="button"
                     onClick={() => {
@@ -1839,25 +1803,7 @@ export function BookingsPage() {
                   </button>
                 )}
               </div>
-            )}
           </div>
-
-          {/* Optional "On date" filter when searching by Employee Name */}
-          {searchType === 'employee_name' && (
-            <div className="w-full sm:w-56 shrink-0">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                {isAr ? 'في تاريخ (اختياري)' : (t('bookings.filterOnDate') || 'On date (optional)')}
-              </label>
-              <div className={searchBarWrapperClass}>
-                <Input
-                  type="date"
-                  value={searchDate}
-                  onChange={(e) => handleDateChange(e.target.value)}
-                  className="w-full border-0 shadow-none focus:ring-0 py-2.5 px-4"
-                />
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Validation Error */}
@@ -1878,12 +1824,10 @@ export function BookingsPage() {
               <span>
                 {searchType === 'phone' && (isAr ? 'رقم هاتف العميل' : (t('reception.searchByPhone') || 'Phone Number'))}
                 {searchType === 'customer_name' && (isAr ? 'اسم العميل' : (t('reception.searchByName') || 'Customer Name'))}
-                {searchType === 'date' && (isAr ? 'تاريخ الحجز' : (t('reception.searchByDate') || 'Booking Date'))}
                 {searchType === 'service_name' && (isAr ? 'اسم الخدمة' : (t('reception.searchByService') || 'Service Name'))}
                 {searchType === 'booking_id' && (isAr ? 'رقم الحجز' : (t('reception.searchByBookingId') || 'Booking ID'))}
                 {searchType === 'customer_id' && (isAr ? 'رقم العميل' : (t('reception.searchByCustomerId') || 'Customer ID'))}
                 {searchType === 'employee_name' && (isAr ? 'اسم الموظف' : (t('reception.searchByEmployeeName') || 'Employee Name'))}
-                {searchType === 'employee_name' && searchDate && (isAr ? ` · ${searchDate}` : ` · ${searchDate}`)}
               </span>
             </p>
             <p className="text-gray-600">

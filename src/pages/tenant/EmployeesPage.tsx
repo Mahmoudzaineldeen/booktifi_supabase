@@ -25,6 +25,14 @@ interface Branch {
   location: string | null;
 }
 
+interface RoleOption {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  is_active: boolean;
+}
+
 interface Employee {
   id: string;
   username: string;
@@ -33,6 +41,7 @@ interface Employee {
   email: string | null;
   phone: string | null;
   role: string;
+  role_id?: string | null;
   branch_id: string | null;
   is_active: boolean;
   is_paused_until?: string | null;
@@ -160,12 +169,27 @@ export function EmployeesPage() {
     email: '',
     phone: '',
     role: 'employee' as 'employee' | 'receptionist' | 'coordinator' | 'cashier' | 'customer_admin' | 'admin_user',
+    role_id: '' as string,
     branch_id: '',
     assigned_services: [] as string[],
     service_shift_assignments: [] as ServiceShiftAssignment[],
   });
+  const [roles, setRoles] = useState<RoleOption[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
+
+  const ROLE_ID_TO_LEGACY: Record<string, string> = {
+    '00000000-0000-0000-0000-000000000001': 'tenant_admin',
+    '00000000-0000-0000-0000-000000000002': 'receptionist',
+    '00000000-0000-0000-0000-000000000003': 'cashier',
+    '00000000-0000-0000-0000-000000000004': 'coordinator',
+    '00000000-0000-0000-0000-000000000005': 'employee',
+    '00000000-0000-0000-0000-000000000006': 'admin_user',
+    '00000000-0000-0000-0000-000000000007': 'customer_admin',
+  };
+  const LEGACY_TO_ROLE_ID: Record<string, string> = Object.fromEntries(
+    Object.entries(ROLE_ID_TO_LEGACY).map(([id, name]) => [name, id])
+  );
   const [phoneFull, setPhoneFull] = useState<string>(''); // Full phone number with country code
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState<'all' | 'employee' | 'cashier' | 'receptionist' | 'coordinator' | 'customer_admin' | 'admin_user'>('all');
@@ -194,10 +218,22 @@ export function EmployeesPage() {
     }
   }
 
+  async function fetchRoles() {
+    if (!userProfile?.tenant_id) return;
+    try {
+      const res = await apiFetch(`/roles?tenant_id=${userProfile.tenant_id}`);
+      const data = await res.json();
+      if (res.ok) setRoles((data.roles || []).filter((r: RoleOption) => r.is_active));
+    } catch (_) {
+      setRoles([]);
+    }
+  }
+
   useEffect(() => {
     fetchServices();
     fetchEmployees();
     fetchBranches();
+    fetchRoles();
   }, [userProfile]);
 
   async function fetchServices() {
@@ -239,6 +275,7 @@ export function EmployeesPage() {
           email,
           phone,
           role,
+          role_id,
           branch_id,
           is_active,
           is_paused_until,
@@ -290,6 +327,7 @@ export function EmployeesPage() {
           full_name_ar: formData.full_name_ar,
           phone: phoneFull || null,
           role: formData.role,
+          role_id: formData.role_id || undefined,
           is_paused_until: isPausedUntil ? isPausedUntil : null,
         };
         if (operationalRoles.includes(formData.role)) {
@@ -427,9 +465,10 @@ export function EmployeesPage() {
             full_name_ar: formData.full_name_ar,
             email: formData.email || null,
             phone: phoneFull || null,
-            role: formData.role,
-            tenant_id: userProfile.tenant_id,
-            branch_id: operationalRoles.includes(formData.role) ? (formData.branch_id || null) : null,
+          role: formData.role,
+          role_id: formData.role_id || undefined,
+          tenant_id: userProfile.tenant_id,
+          branch_id: operationalRoles.includes(formData.role) ? (formData.branch_id || null) : null,
             service_shift_assignments: formData.service_shift_assignments,
             employee_shifts: formData.role === 'employee' && employeeShifts.length > 0
               ? employeeShifts.map(sh => ({
@@ -517,6 +556,7 @@ export function EmployeesPage() {
       email: employee.email || '',
       phone: employee.phone || '',
       role: employee.role as 'employee' | 'receptionist' | 'coordinator' | 'cashier' | 'customer_admin' | 'admin_user',
+      role_id: employee.role_id || LEGACY_TO_ROLE_ID[employee.role] || '',
       branch_id: employee.branch_id || '',
       assigned_services: uniqueServiceIds,
       service_shift_assignments: serviceShiftMap,
@@ -536,6 +576,7 @@ export function EmployeesPage() {
       email: '',
       phone: '',
       role: 'employee',
+      role_id: '',
       branch_id: '',
       assigned_services: [],
       service_shift_assignments: [],
@@ -1007,16 +1048,34 @@ export function EmployeesPage() {
             </label>
             <select
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              value={formData.role}
-              onChange={(e) => setFormData({ ...formData, role: e.target.value as 'employee' | 'receptionist' | 'coordinator' | 'cashier' | 'customer_admin' | 'admin_user' })}
+              value={formData.role_id || formData.role}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (roles.length > 0 && val && roles.some((r) => r.id === val)) {
+                  const legacy = ROLE_ID_TO_LEGACY[val] ?? 'employee';
+                  setFormData({ ...formData, role_id: val, role: legacy as any });
+                } else if (['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'].includes(val)) {
+                  setFormData({ ...formData, role_id: '', role: val as any });
+                }
+              }}
               required
             >
-              <option value="employee">{t('employee.roles.employee')}</option>
-              <option value="receptionist">{t('employee.roles.receptionist')}</option>
-              <option value="coordinator">{t('employee.roles.coordinator')}</option>
-              <option value="cashier">{t('employee.roles.cashier')}</option>
-              <option value="customer_admin">{t('employee.roles.customer_admin')}</option>
-              <option value="admin_user">{t('employee.roles.admin_user')}</option>
+              {roles.length > 0 ? (
+                roles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}{r.description ? ` — ${r.description}` : ''}
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="employee">{t('employee.roles.employee')}</option>
+                  <option value="receptionist">{t('employee.roles.receptionist')}</option>
+                  <option value="coordinator">{t('employee.roles.coordinator')}</option>
+                  <option value="cashier">{t('employee.roles.cashier')}</option>
+                  <option value="customer_admin">{t('employee.roles.customer_admin')}</option>
+                  <option value="admin_user">{t('employee.roles.admin_user')}</option>
+                </>
+              )}
             </select>
           </div>
 

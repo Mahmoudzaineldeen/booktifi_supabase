@@ -56,9 +56,12 @@ done fix the time rang so in booking it dont show 1pm 3pm make it just 1pm
 
 add edit all in services
 
+add a commotion side with both a static number of commotion this means if employe made 10 or 20 no matter we give it 10 or what ever percent the admin specifies and add target system like 1000 sell take 50 sar 2000 takes 100 and go this should be specified from admin and shows in employee side
+
+
 add enable and disable landing page from superadmin
 
-add login as button 
+done add login as button 
 
 add accustom rule system
 

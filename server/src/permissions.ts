@@ -1,0 +1,158 @@
+/**
+ * RBAC: Permission registry and helpers.
+ * Permission IDs must match seeded values in migration 20260308000000_rbac_roles_and_permissions.sql
+ */
+
+export const PERMISSION_IDS = {
+  // Admin
+  MANAGE_BRANCHES: 'manage_branches',
+  MANAGE_SERVICES: 'manage_services',
+  MANAGE_PACKAGES: 'manage_packages',
+  MANAGE_EMPLOYEES: 'manage_employees',
+  MANAGE_SHIFTS: 'manage_shifts',
+  MANAGE_BOOKINGS: 'manage_bookings',
+  VIEW_REPORTS: 'view_reports',
+  MANAGE_ROLES: 'manage_roles',
+  VIEW_INCOME: 'view_income',
+  ACCESS_SUPPORT_TICKETS: 'access_support_tickets',
+  EDIT_SYSTEM_SETTINGS: 'edit_system_settings',
+  // Employee
+  CREATE_BOOKING: 'create_booking',
+  EDIT_BOOKING: 'edit_booking',
+  CANCEL_BOOKING: 'cancel_booking',
+  ASSIGN_EMPLOYEE_TO_BOOKING: 'assign_employee_to_booking',
+  SELL_PACKAGES: 'sell_packages',
+  CREATE_SUBSCRIPTIONS: 'create_subscriptions',
+  REGISTER_VISITORS: 'register_visitors',
+  VIEW_SCHEDULES: 'view_schedules',
+  PROCESS_PAYMENTS: 'process_payments',
+  ISSUE_INVOICES: 'issue_invoices',
+} as const;
+
+export type PermissionId = (typeof PERMISSION_IDS)[keyof typeof PERMISSION_IDS];
+
+/** Legacy role → permission IDs (used when user has no role_id) */
+const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionId[]> = {
+  solution_owner: [
+    PERMISSION_IDS.MANAGE_BRANCHES,
+    PERMISSION_IDS.MANAGE_SERVICES,
+    PERMISSION_IDS.MANAGE_PACKAGES,
+    PERMISSION_IDS.MANAGE_EMPLOYEES,
+    PERMISSION_IDS.MANAGE_SHIFTS,
+    PERMISSION_IDS.MANAGE_BOOKINGS,
+    PERMISSION_IDS.VIEW_REPORTS,
+    PERMISSION_IDS.MANAGE_ROLES,
+    PERMISSION_IDS.VIEW_INCOME,
+    PERMISSION_IDS.ACCESS_SUPPORT_TICKETS,
+    PERMISSION_IDS.EDIT_SYSTEM_SETTINGS,
+    PERMISSION_IDS.CREATE_BOOKING,
+    PERMISSION_IDS.EDIT_BOOKING,
+    PERMISSION_IDS.CANCEL_BOOKING,
+    PERMISSION_IDS.ASSIGN_EMPLOYEE_TO_BOOKING,
+    PERMISSION_IDS.SELL_PACKAGES,
+    PERMISSION_IDS.CREATE_SUBSCRIPTIONS,
+    PERMISSION_IDS.REGISTER_VISITORS,
+    PERMISSION_IDS.VIEW_SCHEDULES,
+    PERMISSION_IDS.PROCESS_PAYMENTS,
+    PERMISSION_IDS.ISSUE_INVOICES,
+  ],
+  tenant_admin: [
+    PERMISSION_IDS.MANAGE_BRANCHES,
+    PERMISSION_IDS.MANAGE_SERVICES,
+    PERMISSION_IDS.MANAGE_PACKAGES,
+    PERMISSION_IDS.MANAGE_EMPLOYEES,
+    PERMISSION_IDS.MANAGE_SHIFTS,
+    PERMISSION_IDS.MANAGE_BOOKINGS,
+    PERMISSION_IDS.VIEW_REPORTS,
+    PERMISSION_IDS.MANAGE_ROLES,
+    PERMISSION_IDS.VIEW_INCOME,
+    PERMISSION_IDS.ACCESS_SUPPORT_TICKETS,
+    PERMISSION_IDS.EDIT_SYSTEM_SETTINGS,
+    PERMISSION_IDS.CREATE_BOOKING,
+    PERMISSION_IDS.EDIT_BOOKING,
+    PERMISSION_IDS.CANCEL_BOOKING,
+    PERMISSION_IDS.ASSIGN_EMPLOYEE_TO_BOOKING,
+    PERMISSION_IDS.SELL_PACKAGES,
+    PERMISSION_IDS.CREATE_SUBSCRIPTIONS,
+    PERMISSION_IDS.REGISTER_VISITORS,
+    PERMISSION_IDS.VIEW_SCHEDULES,
+    PERMISSION_IDS.PROCESS_PAYMENTS,
+    PERMISSION_IDS.ISSUE_INVOICES,
+  ],
+  receptionist: [
+    PERMISSION_IDS.CREATE_BOOKING,
+    PERMISSION_IDS.EDIT_BOOKING,
+    PERMISSION_IDS.CANCEL_BOOKING,
+    PERMISSION_IDS.ASSIGN_EMPLOYEE_TO_BOOKING,
+    PERMISSION_IDS.SELL_PACKAGES,
+    PERMISSION_IDS.CREATE_SUBSCRIPTIONS,
+    PERMISSION_IDS.REGISTER_VISITORS,
+    PERMISSION_IDS.VIEW_SCHEDULES,
+    PERMISSION_IDS.PROCESS_PAYMENTS,
+    PERMISSION_IDS.ISSUE_INVOICES,
+    PERMISSION_IDS.VIEW_REPORTS,
+  ],
+  cashier: [
+    PERMISSION_IDS.SELL_PACKAGES,
+    PERMISSION_IDS.CREATE_SUBSCRIPTIONS,
+    PERMISSION_IDS.VIEW_SCHEDULES,
+    PERMISSION_IDS.PROCESS_PAYMENTS,
+    PERMISSION_IDS.ISSUE_INVOICES,
+    PERMISSION_IDS.CREATE_BOOKING,
+    PERMISSION_IDS.EDIT_BOOKING,
+    PERMISSION_IDS.VIEW_REPORTS,
+  ],
+  coordinator: [
+    PERMISSION_IDS.VIEW_SCHEDULES,
+    PERMISSION_IDS.REGISTER_VISITORS,
+    PERMISSION_IDS.VIEW_REPORTS,
+  ],
+  employee: [PERMISSION_IDS.VIEW_SCHEDULES],
+  admin_user: [
+    PERMISSION_IDS.MANAGE_BOOKINGS,
+    PERMISSION_IDS.VIEW_REPORTS,
+    PERMISSION_IDS.CREATE_BOOKING,
+    PERMISSION_IDS.EDIT_BOOKING,
+    PERMISSION_IDS.VIEW_SCHEDULES,
+  ],
+  customer_admin: [
+    PERMISSION_IDS.MANAGE_BOOKINGS,
+    PERMISSION_IDS.VIEW_REPORTS,
+    PERMISSION_IDS.MANAGE_EMPLOYEES,
+    PERMISSION_IDS.MANAGE_SHIFTS,
+    PERMISSION_IDS.CREATE_BOOKING,
+    PERMISSION_IDS.EDIT_BOOKING,
+    PERMISSION_IDS.CANCEL_BOOKING,
+    PERMISSION_IDS.VIEW_SCHEDULES,
+    PERMISSION_IDS.REGISTER_VISITORS,
+    PERMISSION_IDS.SELL_PACKAGES,
+    PERMISSION_IDS.CREATE_SUBSCRIPTIONS,
+  ],
+};
+
+export function getLegacyPermissionsForRole(role: string): PermissionId[] {
+  return LEGACY_ROLE_PERMISSIONS[role] ?? [];
+}
+
+export function legacyRoleHasPermission(role: string, permissionId: string): boolean {
+  const perms = LEGACY_ROLE_PERMISSIONS[role] ?? [];
+  return perms.includes(permissionId as PermissionId);
+}
+
+/** Resolve permission IDs for a user: from role_id (DB) or legacy role. */
+export async function getPermissionsForUser(
+  supabaseClient: any,
+  roleId: string | null | undefined,
+  legacyRole: string
+): Promise<string[]> {
+  if (roleId) {
+    const { data: rows, error } = await supabaseClient
+      .from('role_permissions')
+      .select('permission_id')
+      .eq('role_id', roleId);
+    if (!error && rows && rows.length > 0) {
+      return rows.map((r: { permission_id: string }) => r.permission_id);
+    }
+  }
+  return getLegacyPermissionsForRole(legacyRole) as string[];
+}

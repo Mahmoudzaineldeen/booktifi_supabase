@@ -16,10 +16,14 @@ interface AuthContextType {
   userProfile: User | null;
   tenant: Tenant | null;
   loading: boolean;
+  /** RBAC: permission IDs for current user (from role or legacy role) */
+  permissions: string[];
   signIn: (email: string, password: string) => Promise<{ error?: Error; userProfile?: User; tenant?: Tenant }>;
   signUp: (email: string, password: string, fullName: string, role: UserRole, tenantId?: string) => Promise<{ error?: Error }>;
   signOut: () => Promise<void>;
   hasRole: (roles: UserRole[]) => boolean;
+  /** RBAC: whether current user has the given permission */
+  hasPermission: (permissionId: string) => boolean;
   /** Apply session from admin impersonation (sets token + user + tenant; optional originalSession + log id for exit) */
   applyImpersonation: (data: {
     user: User;
@@ -53,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userProfile, setUserProfile] = useState<User | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [loading, setLoading] = useState(true);
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [isImpersonating, setIsImpersonating] = useState(() => {
     if (typeof localStorage === 'undefined') return false;
     return !!(localStorage.getItem(IMPERSONATION_LOG_ID_KEY) && localStorage.getItem(IMPERSONATION_ORIGINAL_SESSION_KEY));
@@ -135,6 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
         setUserProfile(null);
         setTenant(null);
+        setPermissions([]);
         setLoading(false);
         fetchingProfileRef.current = null;
         userProfileRef.current = null;
@@ -245,7 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data, error } = await db
         .from('users')
-        .select('id, tenant_id, branch_id, email, phone, full_name, full_name_ar, role, is_active, created_at, updated_at')
+        .select('id, tenant_id, branch_id, email, phone, full_name, full_name_ar, role, role_id, is_active, created_at, updated_at')
         .eq('id', userId)
         .maybeSingle();
 
@@ -291,6 +297,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(null);
           setUserProfile(null);
           setTenant(null);
+          setPermissions([]);
           userProfileRef.current = null;
           fetchingProfileRef.current = null;
           setLoading(false);
@@ -303,6 +310,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: data.email,
         });
         setUserProfile(data);
+
+        // Fetch RBAC permissions from backend (uses same JWT as auth)
+        if (typeof window !== 'undefined') {
+          const token = localStorage.getItem('auth_token');
+          if (token) {
+            try {
+              const { getApiUrl } = await import('../lib/apiUrl');
+              const base = getApiUrl().replace(/\/$/, '');
+              const res = await fetch(`${base}/roles/permissions/me`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (res.ok) {
+                const json = await res.json();
+                setPermissions(Array.isArray(json.permissions) ? json.permissions : []);
+              } else {
+                setPermissions([]);
+              }
+            } catch (_) {
+              setPermissions([]);
+            }
+          } else {
+            setPermissions([]);
+          }
+        }
 
         if (data.tenant_id) {
           debugLog('Fetching Tenant Data', { tenantId: data.tenant_id });
@@ -537,6 +568,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return roles.includes(userProfile.role);
   }
 
+  function hasPermission(permissionId: string): boolean {
+    return permissions.includes(permissionId);
+  }
+
   function applyImpersonation(data: {
     user: User;
     tenant: Tenant | null;
@@ -560,6 +595,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setTenant(tenantData || null);
     userProfileRef.current = userProfileData;
     startTokenRefreshInterval();
+    if (session?.access_token && typeof window !== 'undefined') {
+      import('../lib/apiUrl').then(({ getApiUrl }) => {
+        const base = getApiUrl().replace(/\/$/, '');
+        return fetch(`${base}/roles/permissions/me`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+      }).then((res) => (res?.ok ? res.json() : { permissions: [] })).then((json) => {
+        setPermissions(Array.isArray(json?.permissions) ? json.permissions : []);
+      }).catch(() => setPermissions([]));
+    } else setPermissions([]);
   }
 
   async function exitImpersonation() {
@@ -623,10 +668,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     userProfile,
     tenant,
     loading,
+    permissions,
     signIn,
     signUp,
     signOut,
     hasRole,
+    hasPermission,
     applyImpersonation,
     isImpersonating,
     exitImpersonation,

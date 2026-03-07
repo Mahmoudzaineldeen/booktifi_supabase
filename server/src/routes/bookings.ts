@@ -10,6 +10,7 @@ import {
   invalidateEmployeeAvailabilityForTenant,
 } from '../utils/employeeAvailabilityCache';
 import { formatTimeTo12Hour } from '../utils/timeFormat';
+import { getPermissionsForUser } from '../permissions.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -1512,6 +1513,15 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
   };
 
   try {
+    // RBAC: staff (non-customer) must have create_booking permission
+    const userRole = req.user?.role;
+    if (userRole && userRole !== 'customer') {
+      const perms = await getPermissionsForUser(supabase, (req.user as any).role_id, userRole);
+      if (!perms.includes('create_booking')) {
+        return sendResponse(403, { error: 'You do not have permission to create bookings.' });
+      }
+    }
+
     // Extract only expected fields (ignore extra fields like status, payment_status, created_by_user_id, package_subscription_id)
     // These are handled automatically by the backend
     const {
@@ -1572,7 +1582,6 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
     // MAINTENANCE MODE CHECK - Block customers only
     // ============================================================================
     // Check if maintenance mode is enabled and user is a customer
-    const userRole = req.user?.role;
     if (userRole === 'customer' || !userRole) {
       // For customers or unauthenticated users, check maintenance mode
       const { data: tenantData, error: tenantError } = await supabase

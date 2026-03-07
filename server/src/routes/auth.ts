@@ -234,19 +234,21 @@ router.post('/signin', async (req, res) => {
       }
     }
 
-    // Generate JWT token with all required fields (include branch_id for branch-scoped roles)
+    // Generate JWT token with all required fields (include branch_id, role_id for RBAC)
     const tokenPayload: {
       id: string;
       email: string | null;
       role: string;
       tenant_id: string | null;
       branch_id?: string | null;
+      role_id?: string | null;
     } = {
       id: user.id,
       email: user.email || null,
       role: user.role || 'employee',
       tenant_id: user.tenant_id || null,
       branch_id: user.branch_id ?? null,
+      role_id: (user as any).role_id ?? null,
     };
 
     // Validate required fields
@@ -379,18 +381,21 @@ router.post('/signup', async (req, res) => {
       return res.status(500).json({ error: insertError?.message || 'Failed to create user' });
     }
 
-    // Generate JWT token with all required fields
+    // Generate JWT token with all required fields (include role_id for RBAC)
     const tokenPayload: {
       id: string;
       email: string | null;
       role: string;
       tenant_id: string | null;
+      branch_id?: string | null;
+      role_id?: string | null;
     } = {
       id: user.id,
       email: user.email || null,
       role: user.role || 'employee',
       tenant_id: user.tenant_id || null,
       branch_id: (user as any).branch_id ?? null,
+      role_id: (user as any).role_id ?? null,
     };
 
     // Validate required fields
@@ -504,19 +509,21 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'User not found or inactive' });
     }
 
-    // Generate new token with validated fields (include branch_id for branch-scoped roles)
+    // Generate new token with validated fields (include branch_id, role_id for RBAC)
     const tokenPayload: {
       id: string;
       email: string | null;
       role: string;
       tenant_id: string | null;
       branch_id?: string | null;
+      role_id?: string | null;
     } = {
       id: user.id,
       email: user.email || null,
       role: user.role || 'employee',
       tenant_id: user.tenant_id || null,
       branch_id: (user as any).branch_id ?? null,
+      role_id: (user as any).role_id ?? null,
     };
 
     if (!tokenPayload.id || !tokenPayload.role) {
@@ -1689,18 +1696,21 @@ router.post('/verify-otp', async (req, res) => {
         tenant = tenantData || null;
       }
 
-      // Generate JWT session token for automatic login
+      // Generate JWT session token for automatic login (include role_id for RBAC)
       const tokenPayload: {
         id: string;
         email: string | null;
         role: string;
         tenant_id: string | null;
+        branch_id?: string | null;
+        role_id?: string | null;
       } = {
         id: user.id,
         email: user.email || null,
         role: user.role || 'employee',
         tenant_id: user.tenant_id || null,
         branch_id: (user as any).branch_id ?? null,
+        role_id: (user as any).role_id ?? null,
       };
 
       if (!tokenPayload.id || !tokenPayload.role) {
@@ -1927,19 +1937,21 @@ router.post('/login-with-otp', async (req, res) => {
       tenant = tenantData || null;
     }
 
-    // Generate JWT token for login with validated fields
+    // Generate JWT token for login with validated fields (include role_id for RBAC)
     const tokenPayload: {
       id: string;
       email: string | null;
       role: string;
       tenant_id: string | null;
       branch_id?: string | null;
+      role_id?: string | null;
     } = {
       id: user.id,
       email: user.email || null,
       role: user.role || 'employee',
       tenant_id: user.tenant_id || null,
       branch_id: (user as any).branch_id ?? null,
+      role_id: (user as any).role_id ?? null,
     };
 
     if (!tokenPayload.id || !tokenPayload.role) {
@@ -2493,6 +2505,7 @@ router.post('/admin/impersonate', authenticateSolutionOwner, async (req, res) =>
       role: user.role ?? 'employee',
       tenant_id: user.tenant_id ?? null,
       branch_id: user.branch_id ?? null,
+      role_id: (user as any).role_id ?? null,
     };
     const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
 

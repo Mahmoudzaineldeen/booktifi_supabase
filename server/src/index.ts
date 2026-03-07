@@ -17,6 +17,7 @@ import { packageRoutes } from './routes/packages';
 import { visitorRoutes } from './routes/visitors';
 import { branchRoutes } from './routes/branches';
 import { supportTicketRoutes } from './routes/supportTickets';
+import { roleRoutes } from './routes/roles.js';
 import { debugRoutes } from './routes/debug';
 import { startLockCleanup } from './jobs/cleanupLocks';
 import { startZohoReceiptWorker } from './jobs/zohoReceiptWorker';
@@ -91,6 +92,7 @@ app.use('/api/packages', packageRoutes);
 app.use('/api/visitors', visitorRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/support-tickets', supportTicketRoutes);
+app.use('/api/roles', roleRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api', queryRoutes);
 

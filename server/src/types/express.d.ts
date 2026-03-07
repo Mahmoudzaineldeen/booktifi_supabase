@@ -9,6 +9,7 @@ declare global {
         role: string;
         tenant_id?: string;
         branch_id?: string | null;
+        role_id?: string | null;
       };
     }
   }

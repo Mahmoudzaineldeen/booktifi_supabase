@@ -63,6 +63,7 @@ export interface User {
   full_name: string;
   full_name_ar?: string;
   role: UserRole;
+  role_id?: string | null;
   is_active: boolean;
   capacity_per_slot?: number; // Optional - not all users have this field
   created_at: string;

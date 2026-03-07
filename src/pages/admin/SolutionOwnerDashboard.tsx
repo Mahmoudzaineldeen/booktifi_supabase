@@ -748,6 +748,18 @@ export function SolutionOwnerDashboard() {
                         </td>
                         <td className="px-4 py-3 text-start">
                           <div className="flex items-center gap-2 flex-wrap justify-start">
+                            {tenant.slug && (
+                              <Link to={`/${tenant.slug}/admin`}>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  title={t('admin.openAdminPanel', 'Open admin panel (roles, bookings, settings)')}
+                                >
+                                  <Settings className="w-4 h-4 mr-1" />
+                                  {t('admin.openAdmin', 'Admin')}
+                                </Button>
+                              </Link>
+                            )}
                             <Button
                               size="sm"
                               variant="ghost"

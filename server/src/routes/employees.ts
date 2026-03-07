@@ -5,6 +5,21 @@ import { invalidateEmployeeAvailabilityForTenant } from '../utils/employeeAvaila
 
 const router = express.Router();
 
+/** Built-in role_id -> legacy user_role enum (for backward compatibility) */
+const ROLE_ID_TO_LEGACY: Record<string, string> = {
+  '00000000-0000-0000-0000-000000000001': 'tenant_admin',
+  '00000000-0000-0000-0000-000000000002': 'receptionist',
+  '00000000-0000-0000-0000-000000000003': 'cashier',
+  '00000000-0000-0000-0000-000000000004': 'coordinator',
+  '00000000-0000-0000-0000-000000000005': 'employee',
+  '00000000-0000-0000-0000-000000000006': 'admin_user',
+  '00000000-0000-0000-0000-000000000007': 'customer_admin',
+};
+
+function legacyRoleFromRoleId(roleId: string): string {
+  return ROLE_ID_TO_LEGACY[roleId] ?? 'employee';
+}
+
 // Create employee
 router.post('/create', async (req, res) => {
   try {
@@ -16,6 +31,7 @@ router.post('/create', async (req, res) => {
       email,
       phone,
       role,
+      role_id,
       tenant_id,
       branch_id,
       service_shift_assignments,
@@ -26,14 +42,31 @@ router.post('/create', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Validate role
-    const validRoles = ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'];
-    if (!validRoles.includes(role)) {
-      return res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
+    let resolvedRole = role;
+    let resolvedRoleId = role_id ?? null;
+    if (role_id) {
+      const { data: roleRow, error: roleErr } = await supabase
+        .from('roles')
+        .select('id, name, category, is_active')
+        .eq('id', role_id)
+        .maybeSingle();
+      if (roleErr || !roleRow || !roleRow.is_active) {
+        return res.status(400).json({ error: 'Invalid or inactive role.' });
+      }
+      if (roleRow.tenant_id && roleRow.tenant_id !== tenant_id) {
+        return res.status(400).json({ error: 'Role does not belong to this tenant.' });
+      }
+      resolvedRole = legacyRoleFromRoleId(roleRow.id);
+      resolvedRoleId = roleRow.id;
+    } else {
+      const validRoles = ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'];
+      if (!validRoles.includes(role)) {
+        return res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
+      }
     }
 
     const operationalRoles = ['employee', 'receptionist', 'coordinator', 'cashier'];
-    if (operationalRoles.includes(role) && !branch_id) {
+    if (operationalRoles.includes(resolvedRole) && !branch_id) {
       return res.status(400).json({ error: 'Branch is required for this role.', hint: 'Select a branch for employees, receptionists, coordinators, and cashiers.' });
     }
     if (branch_id) {
@@ -88,12 +121,13 @@ router.post('/create', async (req, res) => {
       phone: phone || null,
       full_name,
       full_name_ar: full_name_ar || '',
-      role: role || 'employee',
+      role: resolvedRole || 'employee',
       tenant_id,
       password_hash: passwordHash,
       is_active: true,
     };
     if (branch_id) userPayload.branch_id = branch_id;
+    if (resolvedRoleId) userPayload.role_id = resolvedRoleId;
 
     const { data: newUser, error: userError } = await supabase
       .from('users')
@@ -116,7 +150,7 @@ router.post('/create', async (req, res) => {
     }
 
     // Create employee service assignments (only for employees, not receptionists/cashiers)
-    if (role === 'employee' && service_shift_assignments && service_shift_assignments.length > 0 && branch_id) {
+    if (resolvedRole === 'employee' && service_shift_assignments && service_shift_assignments.length > 0 && branch_id) {
       const { data: branchServiceIds } = await supabase.from('service_branches').select('service_id').eq('branch_id', branch_id);
       const allowedServiceIds = new Set((branchServiceIds || []).map((r: any) => r.service_id));
 
@@ -163,7 +197,7 @@ router.post('/create', async (req, res) => {
     }
 
     // Create employee shifts (working hours) when provided
-    if (role === 'employee' && employeeShiftsBody && Array.isArray(employeeShiftsBody) && employeeShiftsBody.length > 0) {
+    if (resolvedRole === 'employee' && employeeShiftsBody && Array.isArray(employeeShiftsBody) && employeeShiftsBody.length > 0) {
       const shiftsToInsert = employeeShiftsBody
         .filter((s: any) => s && Array.isArray(s.days_of_week) && s.days_of_week.length > 0 && s.start_time_utc && s.end_time_utc)
         .map((s: any) => ({
@@ -202,6 +236,7 @@ router.post('/update', async (req, res) => {
       full_name_ar,
       phone,
       role,
+      role_id,
       branch_id,
       is_active,
       is_paused_until,
@@ -240,7 +275,26 @@ router.post('/update', async (req, res) => {
     if (full_name !== undefined) updates.full_name = full_name;
     if (full_name_ar !== undefined) updates.full_name_ar = full_name_ar;
     if (phone !== undefined) updates.phone = phone;
-    if (role !== undefined) {
+    if (role_id !== undefined) {
+      if (role_id) {
+        const { data: roleRow, error: roleErr } = await supabase
+          .from('roles')
+          .select('id, tenant_id, is_active')
+          .eq('id', role_id)
+          .maybeSingle();
+        if (roleErr || !roleRow || !roleRow.is_active) {
+          return res.status(400).json({ error: 'Invalid or inactive role.' });
+        }
+        if (roleRow.tenant_id && existing.tenant_id && roleRow.tenant_id !== existing.tenant_id) {
+          return res.status(400).json({ error: 'Role does not belong to this tenant.' });
+        }
+        updates.role_id = role_id;
+        updates.role = legacyRoleFromRoleId(role_id);
+      } else {
+        updates.role_id = null;
+        updates.role = 'employee';
+      }
+    } else if (role !== undefined) {
       const validRoles = ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'];
       if (!validRoles.includes(role)) {
         return res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });

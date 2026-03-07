@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { showNotification } from '../../contexts/NotificationContext';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList, UserCircle, Clock, Building2, Wrench, UserX } from 'lucide-react';
+import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList, UserCircle, Clock, Building2, Wrench, UserX, Shield } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface TenantLayoutProps {
@@ -18,7 +18,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
   const location = useLocation();
   const navigate = useNavigate();
   const params = useParams<{ tenantSlug?: string }>();
-  const { userProfile, tenant, signOut, isImpersonating, exitImpersonation } = useAuth();
+  const { userProfile, tenant, signOut, isImpersonating, exitImpersonation, hasPermission } = useAuth();
   const { features } = useTenantFeatures(tenant?.id);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -115,6 +115,13 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       icon: Users,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/employees`),
       visible: hasFeatures && (features?.employees_enabled ?? true) && (userProfile?.role === 'tenant_admin' || userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user'),
+    },
+    {
+      name: t('navigation.roles', 'Role Management'),
+      href: `/${tenantSlug}/admin/roles`,
+      icon: Shield,
+      current: location.pathname.startsWith(`/${tenantSlug}/admin/roles`),
+      visible: userProfile?.role === 'tenant_admin' || userProfile?.role === 'solution_owner' || hasPermission('manage_roles'),
     },
     {
       name: t('navigation.employeeShifts', 'Employee Shifts & Assignments'),
