@@ -575,6 +575,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   function hasPermission(permissionId: string): boolean {
+    if (userProfile?.role === 'tenant_admin' || userProfile?.role === 'solution_owner') {
+      return true;
+    }
     return permissions.includes(permissionId);
   }
 
