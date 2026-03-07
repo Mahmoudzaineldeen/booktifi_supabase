@@ -181,8 +181,8 @@ router.post('/', authMiddleware, requireManageRoles, async (req, res) => {
       const wrongCategory = permsRows.some((p: any) => p.category !== category);
       if (wrongCategory) {
         return res.status(400).json({
-          error: 'Invalid role configuration.',
-          details: 'A role cannot include both Admin and Employee permissions.',
+          error: 'Permissions must match the role category.',
+          details: 'All selected permissions must be for the same category (Admin or Employee) as the role.',
         });
       }
       const validIds = permsRows.filter((p: any) => p.category === category).map((p: any) => p.id);
@@ -197,7 +197,14 @@ router.post('/', authMiddleware, requireManageRoles, async (req, res) => {
     res.status(201).json({ ...role, permission_ids: (perms ?? []).map((p: any) => p.permission_id) });
   } catch (e: any) {
     console.error('Create role error:', e);
-    res.status(500).json({ error: e.message || 'Failed to create role' });
+    const msg = e.message || '';
+    if (msg.includes('Invalid role configuration') || msg.includes('Admin and Employee')) {
+      return res.status(400).json({
+        error: 'Permissions must match the role category.',
+        details: 'All selected permissions must be for the same category (Admin or Employee) as the role.',
+      });
+    }
+    res.status(500).json({ error: msg || 'Failed to create role' });
   }
 });
 
@@ -230,8 +237,8 @@ router.put('/:id', authMiddleware, requireManageRoles, async (req, res) => {
             .limit(1);
           if (!permsErr && perms && perms.length > 0) {
             return res.status(400).json({
-              error: 'Invalid role configuration.',
-              details: 'Role category cannot be changed while the role has permissions. Remove all permissions first, then change category.',
+              error: 'Cannot change role category while role has permissions.',
+              details: 'Send the new permission set (permission_ids) in this request, or remove all permissions first, then change category.',
             });
           }
         }
@@ -256,8 +263,8 @@ router.put('/:id', authMiddleware, requireManageRoles, async (req, res) => {
         const wrongCategory = permsRows.some((p: any) => p.category !== roleCategory);
         if (wrongCategory) {
           return res.status(400).json({
-            error: 'Invalid role configuration.',
-            details: 'A role cannot include both Admin and Employee permissions.',
+            error: 'Permissions must match the role category.',
+            details: 'All selected permissions must be for the same category (Admin or Employee) as the role.',
           });
         }
       }
@@ -268,10 +275,10 @@ router.put('/:id', authMiddleware, requireManageRoles, async (req, res) => {
         );
         if (insertPermErr) {
           const msg = insertPermErr.message || '';
-          if (msg.includes('Invalid role configuration') || insertPermErr.code === '23514' || insertPermErr.code === 'P0001') {
+          if (msg.includes('Invalid role configuration') || msg.includes('Admin and Employee') || insertPermErr.code === '23514' || insertPermErr.code === 'P0001') {
             return res.status(400).json({
-              error: 'Invalid role configuration.',
-              details: 'A role cannot include both Admin and Employee permissions. Ensure all selected permissions match the role category.',
+              error: 'Permissions must match the role category.',
+              details: 'All selected permissions must be for the same category (Admin or Employee) as the role.',
             });
           }
           throw insertPermErr;
@@ -283,7 +290,14 @@ router.put('/:id', authMiddleware, requireManageRoles, async (req, res) => {
     res.json({ ...role, permission_ids: (perms ?? []).map((p: any) => p.permission_id) });
   } catch (e: any) {
     console.error('Update role error:', e);
-    res.status(500).json({ error: e.message || 'Failed to update role' });
+    const msg = e.message || '';
+    if (msg.includes('Invalid role configuration') || msg.includes('Admin and Employee')) {
+      return res.status(400).json({
+        error: 'Permissions must match the role category.',
+        details: 'All selected permissions must be for the same category (Admin or Employee) as the role.',
+      });
+    }
+    res.status(500).json({ error: msg || 'Failed to update role' });
   }
 });
 

@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { showNotification } from '../../contexts/NotificationContext';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, ClipboardList, UserCircle, Clock, Building2, Wrench, UserX, Shield } from 'lucide-react';
+import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, UserCircle, Clock, Building2, Wrench, UserX, Shield } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface TenantLayoutProps {
@@ -45,9 +45,6 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
   // Permission-based visibility: custom roles see only what their permissions allow; built-in roles get permissions from role_permissions (seeded)
   const canAccessBookings = hasPermission('create_booking') || hasPermission('edit_booking') || hasPermission('cancel_booking') || hasPermission('manage_bookings') || hasPermission('view_schedules');
   const canAccessVisitors = hasPermission('register_visitors') || hasPermission('view_schedules') || hasPermission('manage_bookings');
-  const canAccessReception = hasPermission('view_schedules');
-  const receptionHref = (userProfile?.role === 'receptionist' || userProfile?.role === 'coordinator') ? `/${tenantSlug}/reception` : `/${tenantSlug}/admin/bookings`;
-
   const baseNavigation = [
     {
       name: t('navigation.home'),
@@ -105,13 +102,6 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       icon: UserCircle,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/visitors`) || location.pathname.startsWith(`/${tenantSlug}/reception/visitors`),
       visible: canAccessVisitors,
-    },
-    {
-      name: t('navigation.reception', 'Reception'),
-      href: receptionHref,
-      icon: ClipboardList,
-      current: location.pathname === `/${tenantSlug}/reception`,
-      visible: canAccessReception,
     },
     {
       name: t('navigation.employees'),

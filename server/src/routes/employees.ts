@@ -1,9 +1,11 @@
 import express from 'express';
+import jwt from 'jsonwebtoken';
 import { supabase } from '../db';
 import bcrypt from 'bcryptjs';
 import { invalidateEmployeeAvailabilityForTenant } from '../utils/employeeAvailabilityCache';
 
 const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
 /** Built-in role_id -> legacy user_role enum (for backward compatibility) */
 const ROLE_ID_TO_LEGACY: Record<string, string> = {
@@ -16,6 +18,38 @@ const ROLE_ID_TO_LEGACY: Record<string, string> = {
   '00000000-0000-0000-0000-000000000007': 'customer_admin',
 };
 
+/** Built-in receptionist role id (fallback when tenant_admin assigns invalid role_id on create) */
+const BUILTIN_RECEPTIONIST_ROLE_ID = '00000000-0000-0000-0000-000000000002';
+
+/** Decode JWT and set req.user (id, email, role, tenant_id, branch_id, role_id). Used for create/update so we can relax validation for tenant_admin. */
+function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authorization required' });
+    }
+    const token = authHeader.replace('Bearer ', '').trim();
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      tenant_id: decoded.tenant_id,
+      branch_id: decoded.branch_id ?? null,
+      role_id: decoded.role_id ?? null,
+    };
+    next();
+  } catch (e: any) {
+    if (e.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token has expired' });
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+function isTenantAdminOrSolutionOwner(req: express.Request): boolean {
+  const role = req.user?.role;
+  return role === 'tenant_admin' || role === 'solution_owner';
+}
+
 /** Legacy roles allowed for admin-category roles (Admin, Manager, Supervisor-style) */
 const LEGACY_ADMIN_ROLES = ['tenant_admin', 'admin_user', 'customer_admin', 'solution_owner'];
 
@@ -23,15 +57,17 @@ const LEGACY_ADMIN_ROLES = ['tenant_admin', 'admin_user', 'customer_admin', 'sol
 const LEGACY_EMPLOYEE_ROLES = ['receptionist', 'cashier', 'coordinator', 'employee'];
 
 function legacyRoleFromRoleId(roleId: string): string {
-  return ROLE_ID_TO_LEGACY[roleId] ?? 'employee';
+  const key = typeof roleId === 'string' ? roleId.toLowerCase() : String(roleId);
+  return ROLE_ID_TO_LEGACY[key] ?? 'employee';
 }
 
 function isBuiltInRoleId(roleId: string): boolean {
-  return roleId in ROLE_ID_TO_LEGACY;
+  const key = typeof roleId === 'string' ? roleId.toLowerCase() : String(roleId);
+  return key in ROLE_ID_TO_LEGACY;
 }
 
-// Create employee
-router.post('/create', async (req, res) => {
+// Create employee (auth required; tenant_admin/solution_owner get relaxed role validation)
+router.post('/create', authMiddleware, async (req, res) => {
   try {
     const {
       username,
@@ -54,39 +90,47 @@ router.post('/create', async (req, res) => {
 
     let resolvedRole = role;
     let resolvedRoleId = role_id ?? null;
+    const isAdminCaller = isTenantAdminOrSolutionOwner(req);
+
     if (role_id) {
       const { data: roleRow, error: roleErr } = await supabase
         .from('roles')
         .select('id, name, category, is_active')
         .eq('id', role_id)
         .maybeSingle();
+
       if (roleErr || !roleRow || !roleRow.is_active) {
-        return res.status(400).json({ error: 'Invalid or inactive role.' });
-      }
-      if (roleRow.tenant_id && roleRow.tenant_id !== tenant_id) {
-        return res.status(400).json({ error: 'Role does not belong to this tenant.' });
-      }
-      if (isBuiltInRoleId(roleRow.id)) {
-        resolvedRole = legacyRoleFromRoleId(roleRow.id);
+        if (isAdminCaller) {
+          resolvedRoleId = BUILTIN_RECEPTIONIST_ROLE_ID;
+          resolvedRole = 'receptionist';
+        } else {
+          return res.status(400).json({ error: 'Invalid or inactive role.' });
+        }
+      } else if (roleRow.tenant_id && roleRow.tenant_id !== tenant_id) {
+        if (isAdminCaller) {
+          resolvedRoleId = BUILTIN_RECEPTIONIST_ROLE_ID;
+          resolvedRole = 'receptionist';
+        } else {
+          return res.status(400).json({ error: 'Role does not belong to this tenant.' });
+        }
       } else {
-        const roleCategory = roleRow.category as 'admin' | 'employee';
+        if (isBuiltInRoleId(roleRow.id)) {
+          resolvedRole = legacyRoleFromRoleId(roleRow.id);
+        } else {
+          const roleCategory = roleRow.category as 'admin' | 'employee';
+          const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
+          const requested = role && typeof role === 'string' ? role : null;
+          resolvedRole = requested && allowedLegacy.includes(requested)
+            ? requested
+            : (roleCategory === 'admin' ? 'admin_user' : 'receptionist');
+        }
+        const roleCategory = (roleRow.category as 'admin' | 'employee') || 'employee';
         const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
-        const requested = role && typeof role === 'string' ? role : null;
-        resolvedRole = requested && allowedLegacy.includes(requested)
-          ? requested
-          : (roleCategory === 'admin' ? 'admin_user' : 'receptionist');
+        if (!allowedLegacy.includes(resolvedRole)) {
+          resolvedRole = roleCategory === 'admin' ? 'admin_user' : 'receptionist';
+        }
+        resolvedRoleId = roleRow.id;
       }
-      const roleCategory = roleRow.category as 'admin' | 'employee';
-      const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
-      if (!allowedLegacy.includes(resolvedRole)) {
-        return res.status(400).json({
-          error: 'Invalid role configuration.',
-          details: roleCategory === 'admin'
-            ? 'Admin roles can only be assigned to Admin/Manager/Supervisor user types (tenant_admin, admin_user, customer_admin).'
-            : 'Employee roles can only be assigned to Receptionist, Cashier, or Operational user types (receptionist, cashier, coordinator, employee).',
-        });
-      }
-      resolvedRoleId = roleRow.id;
     } else {
       const validRoles = ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'];
       if (!validRoles.includes(role)) {
@@ -255,7 +299,7 @@ router.post('/create', async (req, res) => {
 });
 
 // Update employee
-router.post('/update', async (req, res) => {
+router.post('/update', authMiddleware, async (req, res) => {
   try {
     const {
       employee_id,
@@ -299,11 +343,13 @@ router.post('/update', async (req, res) => {
       }
     }
 
-    // Update database fields
     const updates: any = {};
     if (full_name !== undefined) updates.full_name = full_name;
     if (full_name_ar !== undefined) updates.full_name_ar = full_name_ar;
     if (phone !== undefined) updates.phone = phone;
+
+    const isAdminCaller = isTenantAdminOrSolutionOwner(req);
+
     if (role_id !== undefined) {
       if (role_id) {
         const { data: roleRow, error: roleErr } = await supabase
@@ -311,35 +357,35 @@ router.post('/update', async (req, res) => {
           .select('id, tenant_id, category, is_active')
           .eq('id', role_id)
           .maybeSingle();
-        if (roleErr || !roleRow || !roleRow.is_active) {
-          return res.status(400).json({ error: 'Invalid or inactive role.' });
-        }
-        if (roleRow.tenant_id && existing.tenant_id && roleRow.tenant_id !== existing.tenant_id) {
-          return res.status(400).json({ error: 'Role does not belong to this tenant.' });
-        }
-        let legacyRole: string;
-        if (isBuiltInRoleId(roleRow.id)) {
-          legacyRole = legacyRoleFromRoleId(role_id);
+
+        const roleInvalid = roleErr || !roleRow || !roleRow.is_active;
+        const roleWrongTenant = roleRow && roleRow.tenant_id && existing.tenant_id && roleRow.tenant_id !== existing.tenant_id;
+
+        if (roleInvalid || roleWrongTenant) {
+          if (isAdminCaller) {
+            // Tenant admin / solution owner: do not update role fields when role is invalid or wrong tenant (keep existing)
+          } else {
+            if (roleInvalid) return res.status(400).json({ error: 'Invalid or inactive role.' });
+            if (roleWrongTenant) return res.status(400).json({ error: 'Role does not belong to this tenant.' });
+          }
         } else {
-          const roleCategory = roleRow.category as 'admin' | 'employee';
+          const roleCategory = (roleRow!.category as 'admin' | 'employee') || 'employee';
           const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
-          const requestedLegacy = (role && typeof role === 'string' ? role : existing.role) || 'employee';
-          legacyRole = allowedLegacy.includes(requestedLegacy)
-            ? requestedLegacy
-            : (roleCategory === 'admin' ? 'admin_user' : 'receptionist');
+          let legacyRole: string;
+          if (isBuiltInRoleId(roleRow!.id)) {
+            legacyRole = legacyRoleFromRoleId(String(role_id));
+          } else {
+            const requestedLegacy = (role && typeof role === 'string' ? role : existing.role) || 'employee';
+            legacyRole = allowedLegacy.includes(requestedLegacy)
+              ? requestedLegacy
+              : (roleCategory === 'admin' ? 'admin_user' : 'receptionist');
+          }
+          if (!allowedLegacy.includes(legacyRole)) {
+            legacyRole = roleCategory === 'admin' ? 'admin_user' : 'receptionist';
+          }
+          updates.role_id = role_id;
+          updates.role = legacyRole;
         }
-        const roleCategory = roleRow.category as 'admin' | 'employee';
-        const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
-        if (!allowedLegacy.includes(legacyRole)) {
-          return res.status(400).json({
-            error: 'Invalid role configuration.',
-            details: roleCategory === 'admin'
-              ? 'Admin roles can only be assigned to Admin/Manager/Supervisor user types (tenant_admin, admin_user, customer_admin).'
-              : 'Employee roles can only be assigned to Receptionist, Cashier, or Operational user types (receptionist, cashier, coordinator, employee).',
-          });
-        }
-        updates.role_id = role_id;
-        updates.role = legacyRole;
       } else {
         updates.role_id = null;
         updates.role = 'employee';
