@@ -71,35 +71,30 @@ class ZohoService {
     
     // Credentials are loaded per-tenant from database when needed
     // These are fallback values (will be overridden by tenant-specific credentials)
+    const fallbackRedirectUri = 'http://localhost:3000/api/zoho/callback';
     try {
       const globalCreds = zohoCredentials.loadCredentials(false);
       if (globalCreds) {
         this.clientId = globalCreds.client_id;
         this.clientSecret = globalCreds.client_secret;
-        if (!process.env.APP_URL) {
-          throw new Error('APP_URL environment variable is required for Zoho OAuth redirect URI');
-        }
-        this.redirectUri = globalCreds.redirect_uri || process.env.APP_URL + '/api/zoho/callback';
+        this.redirectUri = globalCreds.redirect_uri || process.env.ZOHO_REDIRECT_URI || (process.env.APP_URL ? process.env.APP_URL + '/api/zoho/callback' : fallbackRedirectUri);
         this.scope = (globalCreds.scope || ['ZohoInvoice.invoices.CREATE', 'ZohoInvoice.invoices.READ']).join(',');
       } else {
         // No global credentials - will use tenant-specific from database
         this.clientId = '';
         this.clientSecret = '';
-        if (!process.env.APP_URL) {
-          throw new Error('APP_URL environment variable is required for Zoho OAuth redirect URI');
-        }
-        this.redirectUri = process.env.APP_URL + '/api/zoho/callback';
+        this.redirectUri = process.env.ZOHO_REDIRECT_URI || (process.env.APP_URL ? process.env.APP_URL + '/api/zoho/callback' : fallbackRedirectUri);
         this.scope = 'ZohoInvoice.invoices.CREATE,ZohoInvoice.invoices.READ,ZohoInvoice.invoices.UPDATE';
       }
     } catch (error: any) {
       // No global credentials available - will use tenant-specific from database
       this.clientId = '';
       this.clientSecret = '';
-      if (!process.env.APP_URL && !process.env.ZOHO_REDIRECT_URI) {
-        throw new Error('Either APP_URL or ZOHO_REDIRECT_URI environment variable is required for Zoho OAuth redirect URI');
-      }
-      this.redirectUri = process.env.ZOHO_REDIRECT_URI || process.env.APP_URL + '/api/zoho/callback';
+      this.redirectUri = process.env.ZOHO_REDIRECT_URI || (process.env.APP_URL ? process.env.APP_URL + '/api/zoho/callback' : fallbackRedirectUri);
       this.scope = process.env.ZOHO_SCOPE || 'ZohoInvoice.invoices.CREATE,ZohoInvoice.invoices.READ,ZohoInvoice.invoices.UPDATE';
+      if (this.redirectUri === fallbackRedirectUri) {
+        console.warn('[ZohoService] ⚠️  APP_URL and ZOHO_REDIRECT_URI not set; using fallback. Set APP_URL or ZOHO_REDIRECT_URI for real Zoho OAuth.');
+      }
     }
     
     console.log('[ZohoService] ✅ Initialized. Credentials will be loaded from database per tenant when needed.');

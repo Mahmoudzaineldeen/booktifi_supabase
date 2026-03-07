@@ -44,7 +44,8 @@
     "test:package-invoice-create-send": "node tests/test-package-subscription-invoice-create-and-send.js",
     "test:package-partial-coverage-cap": "node tests/test-package-partial-coverage-cap.js",
     "test:booking-mix-single-parallel": "node tests/test-booking-mix-single-and-parallel.js",
-    "test:booking-three-same-period-fail": "node tests/test-booking-three-slots-same-period-should-fail.js"
+    "test:booking-three-same-period-fail": "node tests/test-booking-three-slots-same-period-should-fail.js",
+    "test:employee-role-assign": "node scripts/test-employee-role-assign-admin-then-employee.js"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
