@@ -23,7 +23,7 @@ import { EmployeeShiftsPage } from './pages/tenant/EmployeeShiftsPage';
 import { SettingsPage } from './pages/tenant/SettingsPage';
 import { ReceptionPage } from './pages/reception/ReceptionPage';
 import { CashierPage } from './pages/cashier/CashierPage';
-// ARCHIVED: import { EmployeePage } from './pages/employee/EmployeePage';
+import { EmployeePage } from './pages/employee/EmployeePage';
 import PublicBookingPage from './pages/public/PublicBookingPage';
 import { ServiceBookingFlow } from './pages/public/ServiceBookingFlow';
 import { PackageSchedulePage } from './pages/public/PackageSchedulePage';
@@ -95,7 +95,7 @@ function AppContent() {
       <Route path="/:tenantSlug/reception" element={<ReceptionPage />} />
       <Route path="/:tenantSlug/cashier/assign-fixing-ticket" element={<CashierPage />} />
       <Route path="/:tenantSlug/cashier" element={<CashierPage />} />
-      {/* ARCHIVED: <Route path="/:tenantSlug/employee" element={<EmployeePage />} /> */}
+      <Route path="/:tenantSlug/employee" element={<EmployeePage />} />
 
       <Route path="/:tenantSlug/book" element={<PublicBookingPage />} />
       <Route path="/:tenantSlug/book/:serviceId" element={<ServiceBookingFlow />} />

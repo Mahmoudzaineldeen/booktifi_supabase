@@ -92,6 +92,8 @@ export function LoginPage() {
         navigate(`/${tenant.slug}/reception`);
       } else if (userProfile.role === 'cashier') {
         navigate(`/${tenant.slug}/cashier`);
+      } else if (userProfile.role === 'employee') {
+        navigate(`/${tenant.slug}/employee`);
       } else {
         navigate(`/${tenant.slug}/admin`);
       }
@@ -116,6 +118,8 @@ export function LoginPage() {
             navigate(`/${tenantData.slug}/reception`);
           } else if (userProfile.role === 'cashier') {
             navigate(`/${tenantData.slug}/cashier`);
+          } else if (userProfile.role === 'employee') {
+            navigate(`/${tenantData.slug}/employee`);
           } else {
             navigate(`/${tenantData.slug}/admin`);
           }
