@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
@@ -12,6 +13,7 @@ import { Calendar } from 'lucide-react';
 export function SignupPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { refreshSessionFromStorage } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -221,15 +223,21 @@ export function SignupPage() {
         } catch (deleteError) {
           console.error('Failed to delete tenant after auth error:', deleteError);
         }
-        setError(authError.message || t('auth.failedToCreateAccount'));
+        const backendMessage = (authError as { error?: string }).error;
+        setError(backendMessage || (authError as Error).message || t('auth.failedToCreateAccount'));
         setLoading(false);
         return;
       }
 
-      // Step 3: User profile is already created by the backend signup endpoint
-      // If we need to update additional fields, we can do it here
+      // Step 3: Sync auth state from localStorage so the app shows the user as signed in
+      try {
+        await refreshSessionFromStorage();
+      } catch (refreshErr) {
+        console.warn('Could not refresh session after signup:', refreshErr);
+      }
+
+      // Step 4: User profile is already created by the backend signup endpoint
       if (authData?.user) {
-        // User is already created with all fields, no need for separate insert
         console.log('User created successfully:', authData.user);
       } else {
         console.warn('User creation response missing user data');
@@ -237,11 +245,14 @@ export function SignupPage() {
 
       setSuccess(true);
       setLoading(false);
-      
-      // Show success message for 2 seconds before redirecting
-      setTimeout(() => {
-        navigate('/login');
-      }, 2000);
+
+      // Redirect to tenant admin so user lands signed in (no need to go to /login)
+      const redirectSlug = tenant?.slug;
+      if (redirectSlug) {
+        navigate(`/${redirectSlug}/admin`, { replace: true });
+      } else {
+        setTimeout(() => navigate('/login'), 2000);
+      }
     } catch (err: any) {
       setError(err.message || t('auth.somethingWentWrong'));
       setLoading(false);

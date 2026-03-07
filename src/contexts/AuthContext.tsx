@@ -21,6 +21,8 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error?: Error; userProfile?: User; tenant?: Tenant }>;
   signUp: (email: string, password: string, fullName: string, role: UserRole, tenantId?: string) => Promise<{ error?: Error }>;
   signOut: () => Promise<void>;
+  /** Re-read session from localStorage and fetch user profile (e.g. after signup so UI is logged in) */
+  refreshSessionFromStorage: () => Promise<void>;
   hasRole: (roles: UserRole[]) => boolean;
   /** RBAC: whether current user has the given permission */
   hasPermission: (permissionId: string) => boolean;
@@ -661,6 +663,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     startTokenRefreshInterval();
   }
 
+  async function refreshSessionFromStorage() {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session?.user) return;
+    setUser(session.user);
+    await fetchUserProfile(session.user.id);
+  }
+
   useEffect(() => {
     if (typeof localStorage === 'undefined') return;
     const has = !!localStorage.getItem(IMPERSONATION_LOG_ID_KEY) && !!localStorage.getItem(IMPERSONATION_ORIGINAL_SESSION_KEY);
@@ -676,6 +685,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signIn,
     signUp,
     signOut,
+    refreshSessionFromStorage,
     hasRole,
     hasPermission,
     applyImpersonation,

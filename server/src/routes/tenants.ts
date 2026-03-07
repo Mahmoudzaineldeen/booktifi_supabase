@@ -112,6 +112,41 @@ function authenticateTenantAdmin(req: express.Request, res: express.Response, ne
   }
 }
 
+// Middleware for routes that any tenant member can access (e.g. read currency for display)
+// Same as authenticateTenantAdmin but includes 'employee' so staff can see tenant currency
+function authenticateTenantMember(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authorization header required' });
+    }
+    const token = authHeader.replace('Bearer ', '');
+    if (!token || token.trim() === '') {
+      return res.status(401).json({ error: 'Token is required' });
+    }
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (jwtError: any) {
+      if (jwtError.name === 'TokenExpiredError') {
+        return res.status(401).json({ error: 'Token has expired' });
+      }
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    const allowedRoles = ['tenant_admin', 'receptionist', 'coordinator', 'cashier', 'employee', 'solution_owner', 'customer_admin', 'admin_user'];
+    if (!decoded.role || !allowedRoles.includes(decoded.role)) {
+      return res.status(403).json({
+        error: `Access denied. Your role "${decoded.role}" does not have permission to access this resource.`,
+        userRole: decoded.role,
+      });
+    }
+    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id };
+    next();
+  } catch (error: any) {
+    return res.status(401).json({ error: 'Authentication failed', hint: error.message });
+  }
+}
+
 // Helper function to check if user is solution owner
 function isSolutionOwner(req: express.Request): boolean {
   return req.user?.role === 'solution_owner';
@@ -1421,8 +1456,8 @@ router.post('/zoho-config/test', authenticateTenantAdmin, async (req, res) => {
 // Currency Settings
 // ============================================================================
 
-// Get currency settings (block customer_admin and admin_user)
-router.get('/currency', authenticateTenantAdmin, async (req, res) => {
+// Get currency settings (any tenant member can read; block customer_admin and admin_user)
+router.get('/currency', authenticateTenantMember, async (req, res) => {
   // Block restricted roles from accessing settings
   if (req.user?.role === 'customer_admin' || req.user?.role === 'admin_user') {
     return res.status(403).json({ 
