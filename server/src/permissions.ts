@@ -31,54 +31,13 @@ export const PERMISSION_IDS = {
 
 export type PermissionId = (typeof PERMISSION_IDS)[keyof typeof PERMISSION_IDS];
 
+/** All permission IDs (single source of truth for "full admin" credentials) */
+export const ALL_PERMISSION_IDS: PermissionId[] = Object.values(PERMISSION_IDS);
+
 /** Legacy role → permission IDs (used when user has no role_id) */
 const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionId[]> = {
-  solution_owner: [
-    PERMISSION_IDS.MANAGE_BRANCHES,
-    PERMISSION_IDS.MANAGE_SERVICES,
-    PERMISSION_IDS.MANAGE_PACKAGES,
-    PERMISSION_IDS.MANAGE_EMPLOYEES,
-    PERMISSION_IDS.MANAGE_SHIFTS,
-    PERMISSION_IDS.MANAGE_BOOKINGS,
-    PERMISSION_IDS.VIEW_REPORTS,
-    PERMISSION_IDS.MANAGE_ROLES,
-    PERMISSION_IDS.VIEW_INCOME,
-    PERMISSION_IDS.ACCESS_SUPPORT_TICKETS,
-    PERMISSION_IDS.EDIT_SYSTEM_SETTINGS,
-    PERMISSION_IDS.CREATE_BOOKING,
-    PERMISSION_IDS.EDIT_BOOKING,
-    PERMISSION_IDS.CANCEL_BOOKING,
-    PERMISSION_IDS.ASSIGN_EMPLOYEE_TO_BOOKING,
-    PERMISSION_IDS.SELL_PACKAGES,
-    PERMISSION_IDS.CREATE_SUBSCRIPTIONS,
-    PERMISSION_IDS.REGISTER_VISITORS,
-    PERMISSION_IDS.VIEW_SCHEDULES,
-    PERMISSION_IDS.PROCESS_PAYMENTS,
-    PERMISSION_IDS.ISSUE_INVOICES,
-  ],
-  tenant_admin: [
-    PERMISSION_IDS.MANAGE_BRANCHES,
-    PERMISSION_IDS.MANAGE_SERVICES,
-    PERMISSION_IDS.MANAGE_PACKAGES,
-    PERMISSION_IDS.MANAGE_EMPLOYEES,
-    PERMISSION_IDS.MANAGE_SHIFTS,
-    PERMISSION_IDS.MANAGE_BOOKINGS,
-    PERMISSION_IDS.VIEW_REPORTS,
-    PERMISSION_IDS.MANAGE_ROLES,
-    PERMISSION_IDS.VIEW_INCOME,
-    PERMISSION_IDS.ACCESS_SUPPORT_TICKETS,
-    PERMISSION_IDS.EDIT_SYSTEM_SETTINGS,
-    PERMISSION_IDS.CREATE_BOOKING,
-    PERMISSION_IDS.EDIT_BOOKING,
-    PERMISSION_IDS.CANCEL_BOOKING,
-    PERMISSION_IDS.ASSIGN_EMPLOYEE_TO_BOOKING,
-    PERMISSION_IDS.SELL_PACKAGES,
-    PERMISSION_IDS.CREATE_SUBSCRIPTIONS,
-    PERMISSION_IDS.REGISTER_VISITORS,
-    PERMISSION_IDS.VIEW_SCHEDULES,
-    PERMISSION_IDS.PROCESS_PAYMENTS,
-    PERMISSION_IDS.ISSUE_INVOICES,
-  ],
+  solution_owner: ALL_PERMISSION_IDS,
+  tenant_admin: ALL_PERMISSION_IDS,
   receptionist: [
     PERMISSION_IDS.CREATE_BOOKING,
     PERMISSION_IDS.EDIT_BOOKING,
@@ -139,20 +98,30 @@ export function legacyRoleHasPermission(role: string, permissionId: string): boo
   return perms.includes(permissionId as PermissionId);
 }
 
-/** Resolve permission IDs for a user: from role_id (DB) or legacy role. */
+/**
+ * Resolve permission IDs for a user.
+ * - tenant_admin and solution_owner always get full permissions (all pages), regardless of role_id.
+ * - When role_id is set for other roles: return ONLY permissions from role_permissions.
+ * - When role_id is null/undefined: use legacy role mapping.
+ */
 export async function getPermissionsForUser(
   supabaseClient: any,
   roleId: string | null | undefined,
   legacyRole: string
 ): Promise<string[]> {
-  if (roleId) {
+  const role = (legacyRole || '').trim();
+  if (role === 'tenant_admin' || role === 'solution_owner') {
+    return [...ALL_PERMISSION_IDS];
+  }
+  if (roleId != null && String(roleId).trim() !== '') {
     const { data: rows, error } = await supabaseClient
       .from('role_permissions')
       .select('permission_id')
       .eq('role_id', roleId);
-    if (!error && rows && rows.length > 0) {
+    if (!error && rows) {
       return rows.map((r: { permission_id: string }) => r.permission_id);
     }
+    return [];
   }
   return getLegacyPermissionsForRole(legacyRole) as string[];
 }

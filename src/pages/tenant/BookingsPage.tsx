@@ -98,7 +98,9 @@ export function BookingsPage() {
   const { features: tenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
   const isEmployeeBasedMode = tenantFeatures?.scheduling_mode === 'employee_based';
   const tenantAssignmentMode = (tenantFeatures?.employee_assignment_mode ?? 'both') as 'automatic' | 'manual' | 'both';
-  const canCreateBooking = hasPermission('create_booking') || ['receptionist', 'admin_user', 'tenant_admin', 'customer_admin'].includes(userProfile?.role || '');
+  const canCreateBooking = hasPermission('create_booking');
+  const canEditBooking = hasPermission('edit_booking') || hasPermission('manage_bookings');
+  const canCancelBooking = hasPermission('cancel_booking') || hasPermission('manage_bookings');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -2017,16 +2019,18 @@ export function BookingsPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         {booking.status !== 'cancelled' && booking.status !== 'completed' && (
                           <>
-                            {booking.status === 'pending' && (
+                            {booking.status === 'pending' && canEditBooking && (
                               <Button size="sm" onClick={() => updateBookingStatus(booking.id, 'confirmed')} className="rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
                                 <CheckCircle className="w-3.5 h-3.5 mr-1" />
                                 {t('common.confirm')}
                               </Button>
                             )}
-                            <Button size="sm" onClick={() => updateBookingStatus(booking.id, 'cancelled')} className="rounded-lg bg-red-600 hover:bg-red-700 text-white">
-                              <XCircle className="w-3.5 h-3.5 mr-1" />
-                              {t('common.cancel')}
-                            </Button>
+                            {canCancelBooking && (
+                              <Button size="sm" onClick={() => updateBookingStatus(booking.id, 'cancelled')} className="rounded-lg bg-red-600 hover:bg-red-700 text-white">
+                                <XCircle className="w-3.5 h-3.5 mr-1" />
+                                {t('common.cancel')}
+                              </Button>
+                            )}
                           </>
                         )}
                         <Button
@@ -2037,16 +2041,18 @@ export function BookingsPage() {
                         >
                           {t('bookings.bookingDetails', 'Details')}
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => deleteBooking(booking.id)}
-                          disabled={deletingBooking === booking.id}
-                          className="rounded-lg text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 mr-1" />
-                          {deletingBooking === booking.id ? t('common.deleting') : t('common.delete')}
-                        </Button>
+                        {canEditBooking && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => deleteBooking(booking.id)}
+                            disabled={deletingBooking === booking.id}
+                            className="rounded-lg text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 mr-1" />
+                            {deletingBooking === booking.id ? t('common.deleting') : t('common.delete')}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2220,18 +2226,22 @@ export function BookingsPage() {
         showPaymentDropdown={true}
         downloadingInvoice={downloadingInvoice}
         updatingPayment={detailsBooking && updatingPaymentStatus === detailsBooking.id ? detailsBooking.id : null}
-        onEdit={(b) => {
+        onEdit={canEditBooking ? (b) => {
           setDetailsBooking(null);
           handleEditBookingClick(b);
-        }}
-        onDelete={(id) => {
+        } : undefined}
+        onDelete={canEditBooking ? (id) => {
           setDetailsBooking(null);
           deleteBooking(id);
-        }}
-        onChangeAppointment={(b) => {
+        } : undefined}
+        onCancelBooking={canCancelBooking ? (id) => {
+          setDetailsBooking(null);
+          updateBookingStatus(id, 'cancelled');
+        } : undefined}
+        onChangeAppointment={canEditBooking ? (b) => {
           setDetailsBooking(null);
           handleEditBookingClick(b);
-        }}
+        } : undefined}
         onUpdatePaymentStatus={(id, value) => {
           if (value === 'unpaid') {
             updatePaymentStatus(id, 'unpaid');

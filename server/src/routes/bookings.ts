@@ -152,77 +152,46 @@ function authenticate(req: express.Request, res: express.Response, next: express
   }
 }
 
-// Middleware to authenticate tenant admin ONLY (for booking deletion)
-function authenticateTenantAdminOnly(req: express.Request, res: express.Response, next: express.NextFunction) {
+// Middleware for booking deletion: tenant_admin/customer_admin/admin_user OR permission edit_booking/manage_bookings (RBAC)
+async function authenticateTenantAdminOrBookingEditForDelete(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ 
-        error: 'Authorization header required',
-        hint: 'Please provide a valid Bearer token in the Authorization header'
-      });
+      return res.status(401).json({ error: 'Authorization header required', hint: 'Please provide a valid Bearer token' });
     }
-
-    const token = authHeader.replace('Bearer ', '');
-    if (!token || token.trim() === '') {
-      return res.status(401).json({ error: 'Token is required' });
-    }
-
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (!token) return res.status(401).json({ error: 'Token is required' });
     let decoded: any;
     try {
       decoded = jwt.verify(token, JWT_SECRET) as any;
     } catch (jwtError: any) {
-      if (jwtError.name === 'TokenExpiredError') {
-        return res.status(401).json({ 
-          error: 'Token has expired',
-          hint: 'Please log in again to get a new token'
-        });
-      } else if (jwtError.name === 'JsonWebTokenError') {
-        return res.status(401).json({ 
-          error: 'Invalid token',
-          hint: 'The token format is invalid. Please log in again.'
-        });
-      }
-      return res.status(401).json({ 
-        error: 'Token verification failed',
-        hint: jwtError.message || 'Please log in again'
-      });
+      if (jwtError.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token has expired', hint: 'Please log in again' });
+      return res.status(401).json({ error: 'Invalid token', hint: jwtError.message || 'Please log in again' });
     }
-    
-    // STRICT: Only tenant_admin, customer_admin, and admin_user can delete bookings
-    const allowedRoles = ['tenant_admin', 'customer_admin', 'admin_user'];
-    if (!allowedRoles.includes(decoded.role)) {
-      console.error('[Auth] Access denied for booking management:', {
-        userId: decoded.id,
-        email: decoded.email,
-        actualRole: decoded.role,
-        requiredRoles: allowedRoles,
-        tenantId: decoded.tenant_id
-      });
-      return res.status(403).json({ 
-        error: 'Access denied. Only authorized admin roles can perform this action.',
-        userRole: decoded.role,
-        requiredRoles: allowedRoles,
-        hint: 'You must be logged in as an authorized admin role to perform this action. Current role: ' + decoded.role
-      });
-    }
-
     if (!decoded.tenant_id) {
-      return res.status(403).json({ 
-        error: 'Access denied. No tenant associated with your account.',
-        hint: 'Please contact support to associate your account with a tenant.'
-      });
+      return res.status(403).json({ error: 'Access denied. No tenant associated with your account.' });
     }
-
     req.user = {
       id: decoded.id,
       email: decoded.email,
       role: decoded.role,
       tenant_id: decoded.tenant_id,
       branch_id: decoded.branch_id ?? null,
+      role_id: decoded.role_id ?? null,
     };
-    
-    next();
+    const allowedRoles = ['tenant_admin', 'customer_admin', 'admin_user'];
+    if (allowedRoles.includes(decoded.role)) {
+      return next();
+    }
+    const perms = await getPermissionsForUser(supabase, decoded.role_id, decoded.role || '');
+    if (perms.includes('edit_booking') || perms.includes('manage_bookings')) {
+      return next();
+    }
+    return res.status(403).json({
+      error: 'Access denied. You do not have permission to delete bookings.',
+      userRole: decoded.role,
+      hint: 'Required: tenant admin role or edit_booking / manage_bookings permission.',
+    });
   } catch (error: any) {
     return res.status(500).json({ error: 'Authentication error', hint: error.message });
   }
@@ -560,7 +529,7 @@ function authenticateReceptionistOrCoordinatorForPatch(req: express.Request, res
     if (!decoded.tenant_id) {
       return res.status(403).json({ error: 'Access denied. No tenant associated with your account.' });
     }
-    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null };
+    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null, role_id: decoded.role_id ?? null };
     // Coordinator: only allow PATCH when body is strictly { status: 'confirmed' }
     if (decoded.role === 'coordinator') {
       const body = req.body || {};
@@ -4066,6 +4035,20 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
     const userId = req.user!.id;
     const tenantId = req.user!.tenant_id!;
     const updateData = req.body;
+
+    // RBAC: enforce permissions for custom roles; built-in roles get permissions from role_permissions
+    const perms = await getPermissionsForUser(supabase, (req.user as any).role_id, req.user!.role || '');
+    const isCancelling = updateData && (updateData.status === 'cancelled' || (typeof updateData.status === 'string' && updateData.status.trim() === 'cancelled'));
+    const onlyConfirming = req.user!.role === 'coordinator' && updateData && Object.keys(updateData).filter(k => !['status', 'updated_at', 'status_changed_at'].includes(k)).length === 0 && updateData.status === 'confirmed';
+    if (isCancelling) {
+      if (!perms.includes('cancel_booking') && !perms.includes('manage_bookings')) {
+        return res.status(403).json({ error: 'You do not have permission to cancel bookings.' });
+      }
+    } else if (!onlyConfirming) {
+      if (!perms.includes('edit_booking') && !perms.includes('manage_bookings')) {
+        return res.status(403).json({ error: 'You do not have permission to edit bookings.' });
+      }
+    }
     const isCoordinator = req.user!.role === 'coordinator';
 
     // Get current booking to verify ownership and get old values
@@ -5106,7 +5089,7 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
 // ============================================================================
 // Delete booking (Service Provider only)
 // ============================================================================
-router.delete('/:id', authenticateTenantAdminOnly, async (req, res) => {
+router.delete('/:id', authenticateTenantAdminOrBookingEditForDelete, async (req, res) => {
   try {
     const bookingId = req.params.id;
     const userId = req.user!.id;

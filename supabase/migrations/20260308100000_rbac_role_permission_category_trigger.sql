@@ -10,6 +10,11 @@ DECLARE
   r_category text;
   p_category text;
 BEGIN
+  -- Built-in System Admin role is allowed all permissions (admin + employee)
+  IF NEW.role_id = '00000000-0000-0000-0000-000000000001'::uuid THEN
+    RETURN NEW;
+  END IF;
+
   SELECT category INTO r_category FROM roles WHERE id = NEW.role_id;
   SELECT category INTO p_category FROM permissions WHERE id = NEW.permission_id;
   IF r_category IS NULL OR p_category IS NULL THEN

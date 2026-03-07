@@ -42,34 +42,40 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
   const isAdminUser = userProfile?.role === 'admin_user';
   const isCustomerAdmin = userProfile?.role === 'customer_admin';
 
+  // Permission-based visibility: custom roles see only what their permissions allow; built-in roles get permissions from role_permissions (seeded)
+  const canAccessBookings = hasPermission('create_booking') || hasPermission('edit_booking') || hasPermission('cancel_booking') || hasPermission('manage_bookings') || hasPermission('view_schedules');
+  const canAccessVisitors = hasPermission('register_visitors') || hasPermission('view_schedules') || hasPermission('manage_bookings');
+  const canAccessReception = hasPermission('view_schedules');
+  const receptionHref = (userProfile?.role === 'receptionist' || userProfile?.role === 'coordinator') ? `/${tenantSlug}/reception` : `/${tenantSlug}/admin/bookings`;
+
   const baseNavigation = [
     {
       name: t('navigation.home'),
       href: `/${tenantSlug}/admin`,
       icon: LayoutDashboard,
       current: location.pathname === `/${tenantSlug}/admin`,
-      visible: !isAdminUser, // customer_admin can access, but admin_user cannot
+      visible: !isAdminUser,
     },
     {
       name: t('navigation.services'),
       href: `/${tenantSlug}/admin/services`,
       icon: Briefcase,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/services`),
-      visible: !isAdminUser, // customer_admin can access, but admin_user cannot
+      visible: hasPermission('manage_services'),
     },
     {
       name: t('navigation.packages'),
       href: `/${tenantSlug}/admin/packages`,
       icon: Package,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/packages`),
-      visible: hasFeatures && (features?.packages_enabled ?? true) && !isAdminUser,
+      visible: hasFeatures && (features?.packages_enabled ?? true) && hasPermission('manage_packages'),
     },
     {
       name: t('navigation.branches', 'Branches'),
       href: `/${tenantSlug}/admin/branches`,
       icon: Building2,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/branches`),
-      visible: userProfile?.role === 'tenant_admin' || userProfile?.role === 'solution_owner',
+      visible: hasPermission('manage_branches'),
     },
     {
       name: t('navigation.packageSubscribers', 'Package Subscribers'),
@@ -77,58 +83,56 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       icon: UserCheck,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/package-subscribers`),
       visible: hasFeatures && (features?.packages_enabled ?? true) &&
-               (userProfile?.role === 'tenant_admin' || userProfile?.role === 'admin_user' || userProfile?.role === 'customer_admin'),
+               (hasPermission('sell_packages') || hasPermission('create_subscriptions') || hasPermission('manage_packages')),
     },
     {
       name: t('navigation.offers'),
       href: `/${tenantSlug}/admin/offers`,
       icon: Gift,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/offers`),
-      visible: !isAdminUser, // customer_admin can access, but admin_user cannot
+      visible: !isAdminUser,
     },
     {
       name: t('navigation.bookings'),
       href: `/${tenantSlug}/admin/bookings`,
       icon: Calendar,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/bookings`),
-      visible: true, // All roles can see bookings
+      visible: canAccessBookings,
     },
     {
       name: t('navigation.visitors', 'Visitors'),
-      href: (userProfile?.role === 'receptionist' || userProfile?.role === 'coordinator')
-        ? `/${tenantSlug}/reception/visitors`
-        : `/${tenantSlug}/admin/visitors`,
+      href: (userProfile?.role === 'receptionist' || userProfile?.role === 'coordinator') ? `/${tenantSlug}/reception/visitors` : `/${tenantSlug}/admin/visitors`,
       icon: UserCircle,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/visitors`) || location.pathname.startsWith(`/${tenantSlug}/reception/visitors`),
-      visible: ['receptionist', 'coordinator', 'tenant_admin', 'customer_admin', 'admin_user'].includes(userProfile?.role || ''),
+      visible: canAccessVisitors,
     },
     {
       name: t('navigation.reception', 'Reception'),
-      href: `/${tenantSlug}/reception`,
+      href: receptionHref,
       icon: ClipboardList,
       current: location.pathname === `/${tenantSlug}/reception`,
-      visible: userProfile?.role === 'receptionist', // Admin has native flows in Admin panel; receptionist uses Reception page
+      visible: canAccessReception,
     },
     {
       name: t('navigation.employees'),
       href: `/${tenantSlug}/admin/employees`,
       icon: Users,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/employees`),
-      visible: hasFeatures && (features?.employees_enabled ?? true) && (userProfile?.role === 'tenant_admin' || userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user'),
+      visible: hasFeatures && (features?.employees_enabled ?? true) && hasPermission('manage_employees'),
     },
     {
       name: t('navigation.roles', 'Role Management'),
       href: `/${tenantSlug}/admin/roles`,
       icon: Shield,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/roles`),
-      visible: userProfile?.role === 'tenant_admin' || userProfile?.role === 'solution_owner' || hasPermission('manage_roles'),
+      visible: hasPermission('manage_roles'),
     },
     {
       name: t('navigation.employeeShifts', 'Employee Shifts & Assignments'),
       href: `/${tenantSlug}/admin/employee-shifts`,
       icon: Clock,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/employee-shifts`),
-      visible: hasFeatures && (features?.scheduling_mode === 'employee_based') && (userProfile?.role === 'tenant_admin' || userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user'),
+      visible: hasFeatures && (features?.scheduling_mode === 'employee_based') && hasPermission('manage_shifts'),
     },
     {
       name: t('navigation.landingPage'),
@@ -142,14 +146,13 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       href: `/${tenantSlug}/admin/settings`,
       icon: Settings,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/settings`),
-      visible: !isRestrictedRole, // Both restricted roles cannot access
+      visible: !isRestrictedRole && hasPermission('edit_system_settings'),
     },
     {
       name: t('navigation.assignFixingTicket', 'Assign Fixing Ticket'),
       href: `/${tenantSlug}/admin/assign-fixing-ticket`,
       icon: Wrench,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/assign-fixing-ticket`),
-      // Visible to all roles except super admin (Solution Owner) and customers
       visible: !!userProfile?.role &&
         userProfile.role !== 'solution_owner' &&
         !['customer', 'customer_admin'].includes(userProfile.role),
