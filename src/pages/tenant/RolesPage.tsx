@@ -258,7 +258,7 @@ export function RolesPage() {
         </Card>
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingRole ? 'Edit role' : 'Create role'}>
+      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editingRole ? 'Edit role' : 'Create role'}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
             label="Role name"

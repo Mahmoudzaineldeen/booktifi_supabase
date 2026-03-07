@@ -11,11 +11,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        // Proxy only used when VITE_API_URL is not set
-        // If VITE_API_URL is set, frontend makes direct requests to Railway
-        target: process.env.VITE_API_URL?.replace('/api', '') || 'https://booktifisupabase-production.up.railway.app',
+        // Local dev: proxy to local backend so JWT from local login works. Set VITE_API_URL to use a different backend.
+        target: process.env.VITE_API_URL?.replace(/api/?$/, '') || 'http://localhost:3001',
         changeOrigin: true,
-        secure: true,
+        secure: false,
         rewrite: (path) => path.replace(/^\/api/, '/api'),
       },
     },

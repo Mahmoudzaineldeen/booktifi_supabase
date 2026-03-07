@@ -242,7 +242,11 @@ router.post('/:id/disable', authMiddleware, requireManageRoles, async (req, res)
       .eq('id', id)
       .maybeSingle();
     if (fetchError || !existing) return res.status(404).json({ error: 'Role not found' });
-    if (req.user!.role !== 'solution_owner' && existing.tenant_id !== req.user!.tenant_id) {
+    // Allow if solution_owner, or role is built-in (tenant_id null), or role belongs to user's tenant
+    const canDisable = req.user!.role === 'solution_owner'
+      || existing.tenant_id == null
+      || existing.tenant_id === req.user!.tenant_id;
+    if (!canDisable) {
       return res.status(403).json({ error: 'Cannot disable this role' });
     }
     const { data: usersWithRole } = await supabase.from('users').select('id').eq('role_id', id);
