@@ -9,7 +9,7 @@ export function TenantDashboard() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { tenantSlug } = useParams<{ tenantSlug?: string }>();
-  const { userProfile, tenant: authTenant, loading: authLoading } = useAuth();
+  const { userProfile, tenant: authTenant, loading: authLoading, hasPermission } = useAuth();
   const [loading, setLoading] = useState(true);
   const [tenantSlugResolved, setTenantSlugResolved] = useState<string>('');
   const redirectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -150,13 +150,21 @@ export function TenantDashboard() {
       return;
     }
 
-    // Allow tenant_admin, customer_admin, and (for visitors page only) receptionist/coordinator
-    const allowedRoles = isVisitorsPage
+    // Allow: legacy roles in list, OR user has an assigned RBAC role (role_id) — created roles use role_id; sidebar then restricts by permissions
+    const allowedLegacyRoles = isVisitorsPage
       ? ['tenant_admin', 'customer_admin', 'admin_user', 'receptionist', 'coordinator']
       : ['tenant_admin', 'customer_admin'];
-    if (!allowedRoles.includes(userProfile.role)) {
-      console.log('[TenantDashboard] Wrong role, redirecting to home', {
+    const hasAssignedRole = userProfile.role_id != null && String(userProfile.role_id).trim() !== '';
+    const hasLegacyAccess = allowedLegacyRoles.includes(userProfile.role);
+    const hasAnyTenantPermission =
+      hasPermission('view_schedule') || hasPermission('create_booking') || hasPermission('manage_roles') ||
+      hasPermission('view_reports') || hasPermission('manage_services') || hasPermission('manage_employees');
+    const canAccess =
+      hasLegacyAccess || hasAssignedRole || hasAnyTenantPermission;
+    if (!canAccess) {
+      console.log('[TenantDashboard] No access (legacy role, RBAC role, or permissions), redirecting to home', {
         role: userProfile.role,
+        role_id: userProfile.role_id,
       });
       navigate('/');
       return;
