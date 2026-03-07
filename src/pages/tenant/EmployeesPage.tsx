@@ -190,6 +190,22 @@ export function EmployeesPage() {
   const LEGACY_TO_ROLE_ID: Record<string, string> = Object.fromEntries(
     Object.entries(ROLE_ID_TO_LEGACY).map(([id, name]) => [name, id])
   );
+  /** Built-in roles so Role dropdown always shows them even if API omits them; merged with API roles for options */
+  const BUILTIN_ROLES: RoleOption[] = [
+    { id: '00000000-0000-0000-0000-000000000001', name: 'System Admin', description: 'Full tenant administration', category: 'admin', is_active: true },
+    { id: '00000000-0000-0000-0000-000000000002', name: 'Receptionist', description: 'Front desk: bookings, visitors, packages', category: 'employee', is_active: true },
+    { id: '00000000-0000-0000-0000-000000000003', name: 'Cashier', description: 'Payments, invoices, packages', category: 'employee', is_active: true },
+    { id: '00000000-0000-0000-0000-000000000004', name: 'Coordinator', description: 'View and confirm bookings only', category: 'employee', is_active: true },
+    { id: '00000000-0000-0000-0000-000000000005', name: 'Employee', description: 'Service provider only', category: 'employee', is_active: true },
+    { id: '00000000-0000-0000-0000-000000000006', name: 'Bookings Only (Admin)', description: 'Access bookings page only', category: 'admin', is_active: true },
+    { id: '00000000-0000-0000-0000-000000000007', name: 'Customer Admin', description: 'Dashboard, bookings, limited admin', category: 'admin', is_active: true },
+  ];
+  const roleOptions = React.useMemo(() => {
+    const byId = new Map<string, RoleOption>();
+    BUILTIN_ROLES.forEach((r) => byId.set(r.id, r));
+    (roles || []).forEach((r) => byId.set(r.id, r));
+    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [roles]);
   const [phoneFull, setPhoneFull] = useState<string>(''); // Full phone number with country code
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState<'all' | 'employee' | 'cashier' | 'receptionist' | 'coordinator' | 'customer_admin' | 'admin_user'>('all');
@@ -548,6 +564,16 @@ export function EmployeesPage() {
     );
     setEmployeeShiftForm({ days_of_week: [], start_time: '09:00', end_time: '18:00', is_active: true });
 
+    // Prefer legacy role_id when user's role is Receptionist/Employee/Cashier/Coordinator but role_id is stale (e.g. old custom)
+    const operationalLegacy = ['receptionist', 'employee', 'cashier', 'coordinator'];
+    const builtInForRole = LEGACY_TO_ROLE_ID[employee.role];
+    const roleIdStale =
+      operationalLegacy.includes(employee.role) &&
+      builtInForRole &&
+      employee.role_id &&
+      employee.role_id !== builtInForRole;
+    const resolvedRoleId = roleIdStale ? builtInForRole : (employee.role_id || builtInForRole || '');
+
     setFormData({
       username: employee.username,
       password: '',
@@ -556,7 +582,7 @@ export function EmployeesPage() {
       email: employee.email || '',
       phone: employee.phone || '',
       role: employee.role as 'employee' | 'receptionist' | 'coordinator' | 'cashier' | 'customer_admin' | 'admin_user',
-      role_id: employee.role_id || LEGACY_TO_ROLE_ID[employee.role] || '',
+      role_id: resolvedRoleId,
       branch_id: employee.branch_id || '',
       assigned_services: uniqueServiceIds,
       service_shift_assignments: serviceShiftMap,
@@ -1051,8 +1077,8 @@ export function EmployeesPage() {
               value={formData.role_id || formData.role}
               onChange={(e) => {
                 const val = e.target.value;
-                if (roles.length > 0 && val && roles.some((r) => r.id === val)) {
-                  const roleOption = roles.find((r) => r.id === val)!;
+                if (roleOptions.length > 0 && val && roleOptions.some((r) => r.id === val)) {
+                  const roleOption = roleOptions.find((r) => r.id === val)!;
                   const isBuiltIn = val in ROLE_ID_TO_LEGACY;
                   const legacy = isBuiltIn
                     ? ROLE_ID_TO_LEGACY[val]
@@ -1066,26 +1092,15 @@ export function EmployeesPage() {
               }}
               required
             >
-              {roles.length > 0 ? (
-                roles.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}{r.description ? ` — ${r.description}` : ''}
-                  </option>
-                ))
-              ) : (
-                <>
-                  <option value="employee">{t('employee.roles.employee')}</option>
-                  <option value="receptionist">{t('employee.roles.receptionist')}</option>
-                  <option value="coordinator">{t('employee.roles.coordinator')}</option>
-                  <option value="cashier">{t('employee.roles.cashier')}</option>
-                  <option value="customer_admin">{t('employee.roles.customer_admin')}</option>
-                  <option value="admin_user">{t('employee.roles.admin_user')}</option>
-                </>
-              )}
+              {roleOptions.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}{r.description ? ` — ${r.description}` : ''}
+                </option>
+              ))}
             </select>
           </div>
 
-          {formData.role_id && roles.some((r) => r.id === formData.role_id) && !(formData.role_id in ROLE_ID_TO_LEGACY) && (
+          {formData.role_id && roleOptions.some((r) => r.id === formData.role_id) && !(formData.role_id in ROLE_ID_TO_LEGACY) && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 {t('employee.userType', 'User type')}
@@ -1099,7 +1114,7 @@ export function EmployeesPage() {
                 onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
               >
                 {(() => {
-                  const roleOption = roles.find((r) => r.id === formData.role_id);
+                  const roleOption = roleOptions.find((r) => r.id === formData.role_id);
                   if (roleOption?.category === 'admin') {
                     return (
                       <>
