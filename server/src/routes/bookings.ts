@@ -432,6 +432,32 @@ function authenticateReceptionistOrTenantAdmin(req: express.Request, res: expres
   }
 }
 
+// Employee: view own bookings only (for employee dashboard).
+function authenticateEmployee(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authorization header required' });
+    }
+    const token = authHeader.replace('Bearer ', '');
+    if (!token || token.trim() === '') return res.status(401).json({ error: 'Token is required' });
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (jwtError: any) {
+      return res.status(401).json({ error: jwtError.name === 'TokenExpiredError' ? 'Token has expired' : 'Invalid token' });
+    }
+    if (decoded.role !== 'employee') {
+      return res.status(403).json({ error: 'Access denied. Employee role required.', userRole: decoded.role });
+    }
+    if (!decoded.tenant_id) return res.status(403).json({ error: 'No tenant associated with your account.' });
+    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null };
+    next();
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Authentication error' });
+  }
+}
+
 // Coordinator + receptionist/admin: view bookings and search only. Coordinator cannot create/edit/cancel.
 const RECEPTIONIST_OR_COORDINATOR_VIEW_ROLES = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user', 'coordinator'];
 function authenticateReceptionistOrCoordinatorForView(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -523,11 +549,12 @@ function authenticateReceptionistOrCoordinatorForPatch(req: express.Request, res
       }
       return res.status(401).json({ error: 'Token verification failed', hint: jwtError.message || 'Please log in again' });
     }
-    if (!RECEPTIONIST_OR_COORDINATOR_VIEW_ROLES.includes(decoded.role)) {
+    const PATCH_BOOKING_ROLES = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user', 'coordinator', 'employee'];
+    if (!PATCH_BOOKING_ROLES.includes(decoded.role)) {
       return res.status(403).json({ 
         error: 'Access denied.',
         userRole: decoded.role,
-        hint: 'Only receptionist, coordinator, or admin roles can update bookings.'
+        hint: 'Only receptionist, coordinator, employee, or admin roles can update bookings.'
       });
     }
     if (!decoded.tenant_id) {
@@ -4059,6 +4086,23 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
       });
     }
 
+    // Employee: may only set status to 'completed' for bookings assigned to them
+    const isEmployee = req.user!.role === 'employee';
+    if (isEmployee) {
+      if (currentBooking.employee_id !== userId) {
+        return res.status(403).json({ error: 'Access denied. You can only complete your own assigned bookings.' });
+      }
+      const body = req.body || {};
+      const keys = Object.keys(body).filter(k => k !== 'updated_at' && k !== 'status_changed_at');
+      const onlyCompleted = keys.length === 1 && keys[0] === 'status' && body.status === 'completed';
+      if (!onlyCompleted) {
+        return res.status(403).json({
+          error: 'Access denied. Employees can only mark bookings as completed.',
+          hint: 'Send { status: "completed" } only.'
+        });
+      }
+    }
+
     // TASK 8: Prepare update payload (only allow specific fields)
     // Receptionist and tenant_admin can edit all booking fields including rescheduling (slot_id)
     const allowedFields = [
@@ -5657,6 +5701,80 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
   } catch (error: any) {
     logger.error('Mark paid error:', error);
     res.status(500).json({ error: error.message || 'Failed to mark booking as paid' });
+  }
+});
+
+// ============================================================================
+// Employee: get my assigned bookings (optional date or date range filter)
+// ============================================================================
+const EMPLOYEE_BOOKINGS_SELECT = `
+  id,
+  customer_name,
+  customer_phone,
+  customer_email,
+  visitor_count,
+  total_price,
+  status,
+  payment_status,
+  notes,
+  created_at,
+  service_id,
+  slot_id,
+  employee_id,
+  services:service_id (id, name, name_ar),
+  slots:slot_id (id, slot_date, start_time, end_time),
+  users:employee_id (id, full_name, full_name_ar)
+`;
+router.get('/employee', authenticateEmployee, async (req, res) => {
+  try {
+    const userId = req.user!.id;
+    const tenantId = req.user!.tenant_id!;
+    const date = (req.query.date as string) || '';
+    const from_date = (req.query.from_date as string) || '';
+    const to_date = (req.query.to_date as string) || '';
+    const limit = Math.min(parseInt(req.query.limit as string) || 100, 200);
+
+    const { data: rows, error } = await supabase
+      .from('bookings')
+      .select(EMPLOYEE_BOOKINGS_SELECT)
+      .eq('tenant_id', tenantId)
+      .eq('employee_id', userId)
+      .neq('status', 'cancelled')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      logger.warn('Employee bookings fetch error', { error: error.message, userId, tenantId });
+      return res.status(500).json({ error: error.message || 'Failed to fetch bookings' });
+    }
+
+    let bookings = (rows || []).map((b: any) => ({
+      ...b,
+      slot_date: b.slots?.slot_date || null,
+    }));
+
+    // Optional server-side date filter
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (date && dateRegex.test(date.trim())) {
+      bookings = bookings.filter((b: any) => {
+        const d = b.slot_date || (b.slots && b.slots.slot_date);
+        const norm = d ? (String(d).split('T')[0]) : '';
+        return norm === date.trim();
+      });
+    } else if (from_date && dateRegex.test(from_date.trim()) && to_date && dateRegex.test(to_date.trim())) {
+      const from = from_date.trim();
+      const to = to_date.trim();
+      bookings = bookings.filter((b: any) => {
+        const d = b.slot_date || (b.slots && b.slots.slot_date);
+        const norm = d ? (String(d).split('T')[0]) : '';
+        return norm >= from && norm <= to;
+      });
+    }
+
+    return res.json({ bookings });
+  } catch (err: any) {
+    logger.error('Employee bookings error', err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
   }
 });
 
