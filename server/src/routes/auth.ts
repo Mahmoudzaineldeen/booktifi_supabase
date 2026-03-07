@@ -6,9 +6,12 @@ import { sendOTPEmail } from '../services/emailService.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-// Session token lifetime: default 30 days so users don't get 401/403 from expiry quickly
-const JWT_EXPIRY = process.env.JWT_EXPIRY || '30d';
+// Idle timeout: token expires after this if no refresh (default 30 min)
+const JWT_EXPIRY = process.env.JWT_EXPIRY || '30m';
 const JWT_EXPIRY_SECONDS = parseJwtExpiryToSeconds(JWT_EXPIRY);
+// Absolute session cap: no refresh after this from first login (default 120 min)
+const JWT_MAX_AGE = process.env.JWT_MAX_AGE || '120m';
+const JWT_MAX_AGE_SECONDS = parseJwtExpiryToSeconds(JWT_MAX_AGE);
 
 function parseJwtExpiryToSeconds(expiry: string): number {
   const match = expiry.match(/^(\d+)([smhd])$/);
@@ -237,6 +240,7 @@ router.post('/signin', async (req, res) => {
     // Generate JWT token with all required fields (include branch_id, role_id for RBAC)
     const rawRole = user.role != null ? String(user.role).trim() : '';
     const role = rawRole || 'employee';
+    const sessionStart = Math.floor(Date.now() / 1000);
     const tokenPayload: {
       id: string;
       email: string | null;
@@ -244,6 +248,7 @@ router.post('/signin', async (req, res) => {
       tenant_id: string | null;
       branch_id?: string | null;
       role_id?: string | null;
+      session_start?: number;
     } = {
       id: String(user.id || ''),
       email: user.email || null,
@@ -251,6 +256,7 @@ router.post('/signin', async (req, res) => {
       tenant_id: user.tenant_id || null,
       branch_id: user.branch_id ?? null,
       role_id: (user as any).role_id ?? null,
+      session_start: sessionStart,
     };
 
     if (!tokenPayload.id) {
@@ -380,6 +386,7 @@ router.post('/signup', async (req, res) => {
 
     // Generate JWT token with all required fields (include role_id for RBAC)
     const signupRole = (user.role != null && String(user.role).trim()) ? String(user.role).trim() : 'employee';
+    const sessionStart = Math.floor(Date.now() / 1000);
     const tokenPayload: {
       id: string;
       email: string | null;
@@ -387,6 +394,7 @@ router.post('/signup', async (req, res) => {
       tenant_id: string | null;
       branch_id?: string | null;
       role_id?: string | null;
+      session_start?: number;
     } = {
       id: String(user.id || ''),
       email: user.email || null,
@@ -394,6 +402,7 @@ router.post('/signup', async (req, res) => {
       tenant_id: user.tenant_id || null,
       branch_id: (user as any).branch_id ?? null,
       role_id: (user as any).role_id ?? null,
+      session_start: sessionStart,
     };
 
     if (!tokenPayload.id) {
@@ -490,6 +499,13 @@ router.post('/refresh', async (req, res) => {
       }
     }
 
+    // Enforce absolute session cap (e.g. 120 min from first login)
+    const sessionStart = decoded.session_start ?? decoded.iat ?? Math.floor(Date.now() / 1000);
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (nowSec - sessionStart > JWT_MAX_AGE_SECONDS) {
+      return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+    }
+
     // Verify user still exists and is active
     const { data: user, error } = await supabase
       .from('users')
@@ -502,7 +518,7 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'User not found or inactive' });
     }
 
-    // Generate new token with validated fields (include branch_id, role_id for RBAC)
+    // Generate new token with validated fields (include branch_id, role_id for RBAC; preserve session_start)
     const tokenPayload: {
       id: string;
       email: string | null;
@@ -510,6 +526,7 @@ router.post('/refresh', async (req, res) => {
       tenant_id: string | null;
       branch_id?: string | null;
       role_id?: string | null;
+      session_start?: number;
     } = {
       id: user.id,
       email: user.email || null,
@@ -517,6 +534,7 @@ router.post('/refresh', async (req, res) => {
       tenant_id: user.tenant_id || null,
       branch_id: (user as any).branch_id ?? null,
       role_id: (user as any).role_id ?? null,
+      session_start: sessionStart,
     };
 
     if (!tokenPayload.id || !tokenPayload.role) {
@@ -1690,6 +1708,7 @@ router.post('/verify-otp', async (req, res) => {
       }
 
       // Generate JWT session token for automatic login (include role_id for RBAC)
+      const sessionStart = Math.floor(Date.now() / 1000);
       const tokenPayload: {
         id: string;
         email: string | null;
@@ -1697,6 +1716,7 @@ router.post('/verify-otp', async (req, res) => {
         tenant_id: string | null;
         branch_id?: string | null;
         role_id?: string | null;
+        session_start?: number;
       } = {
         id: user.id,
         email: user.email || null,
@@ -1704,6 +1724,7 @@ router.post('/verify-otp', async (req, res) => {
         tenant_id: user.tenant_id || null,
         branch_id: (user as any).branch_id ?? null,
         role_id: (user as any).role_id ?? null,
+        session_start: sessionStart,
       };
 
       if (!tokenPayload.id || !tokenPayload.role) {
@@ -1931,6 +1952,7 @@ router.post('/login-with-otp', async (req, res) => {
     }
 
     // Generate JWT token for login with validated fields (include role_id for RBAC)
+    const sessionStart = Math.floor(Date.now() / 1000);
     const tokenPayload: {
       id: string;
       email: string | null;
@@ -1938,6 +1960,7 @@ router.post('/login-with-otp', async (req, res) => {
       tenant_id: string | null;
       branch_id?: string | null;
       role_id?: string | null;
+      session_start?: number;
     } = {
       id: user.id,
       email: user.email || null,
@@ -1945,6 +1968,7 @@ router.post('/login-with-otp', async (req, res) => {
       tenant_id: user.tenant_id || null,
       branch_id: (user as any).branch_id ?? null,
       role_id: (user as any).role_id ?? null,
+      session_start: sessionStart,
     };
 
     if (!tokenPayload.id) {
@@ -2492,6 +2516,7 @@ router.post('/admin/impersonate', authenticateSolutionOwner, async (req, res) =>
       return res.status(500).json({ error: 'Failed to create impersonation log' });
     }
 
+    const sessionStart = Math.floor(Date.now() / 1000);
     const tokenPayload = {
       id: user.id,
       email: user.email ?? null,
@@ -2499,6 +2524,7 @@ router.post('/admin/impersonate', authenticateSolutionOwner, async (req, res) =>
       tenant_id: user.tenant_id ?? null,
       branch_id: user.branch_id ?? null,
       role_id: (user as any).role_id ?? null,
+      session_start: sessionStart,
     };
     const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
 

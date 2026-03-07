@@ -197,8 +197,8 @@ async function authenticateTenantAdminOrBookingEditForDelete(req: express.Reques
   }
 }
 
-// Middleware: only receptionist and admin can edit payment status (same flow: regeneration when method/reference changes)
-function authenticateAdminOrReceptionistForPaymentStatus(req: express.Request, res: express.Response, next: express.NextFunction) {
+// Middleware: require issue_invoices (Update payment status) permission or legacy allowed roles
+async function authenticateAdminOrReceptionistForPaymentStatus(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -213,19 +213,25 @@ function authenticateAdminOrReceptionistForPaymentStatus(req: express.Request, r
       if (jwtError.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token has expired', hint: 'Please log in again' });
       return res.status(401).json({ error: 'Invalid token', hint: jwtError.message || 'Please log in again' });
     }
-    const allowedRoles = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user'];
-    if (!decoded.role || !allowedRoles.includes(decoded.role)) {
-      return res.status(403).json({
-        error: 'Only receptionist and admin can edit payment status.',
-        userRole: decoded.role,
-        hint: 'Cashiers can only mark unpaid as paid via the mark-paid action.',
-      });
-    }
     if (!decoded.tenant_id) {
       return res.status(403).json({ error: 'Access denied. No tenant associated with your account.' });
     }
-    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null };
-    next();
+    const allowedRoles = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user'];
+    const roleAllowed = decoded.role && allowedRoles.includes(decoded.role);
+    if (roleAllowed) {
+      req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null, role_id: decoded.role_id ?? null };
+      return next();
+    }
+    const perms = await getPermissionsForUser(supabase, decoded.role_id, decoded.role || '');
+    if (perms.includes('issue_invoices')) {
+      req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null, role_id: decoded.role_id ?? null };
+      return next();
+    }
+    return res.status(403).json({
+      error: 'You do not have permission to update payment status.',
+      userRole: decoded.role,
+      hint: 'Required: Update payment status permission (or receptionist/admin role).',
+    });
   } catch (error: any) {
     return res.status(500).json({ error: 'Authentication error', hint: error.message });
   }

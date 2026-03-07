@@ -16,17 +16,16 @@ export const PERMISSION_IDS = {
   VIEW_INCOME: 'view_income',
   ACCESS_SUPPORT_TICKETS: 'access_support_tickets',
   EDIT_SYSTEM_SETTINGS: 'edit_system_settings',
-  // Employee
+  // Employee (assign_employee removed: assignment is part of create/edit booking; create_subscriptions merged into sell_packages)
   CREATE_BOOKING: 'create_booking',
   EDIT_BOOKING: 'edit_booking',
   CANCEL_BOOKING: 'cancel_booking',
-  ASSIGN_EMPLOYEE_TO_BOOKING: 'assign_employee_to_booking',
   SELL_PACKAGES: 'sell_packages',
-  CREATE_SUBSCRIPTIONS: 'create_subscriptions',
   REGISTER_VISITORS: 'register_visitors',
   VIEW_SCHEDULES: 'view_schedules',
   PROCESS_PAYMENTS: 'process_payments',
-  ISSUE_INVOICES: 'issue_invoices',
+  /** Update booking/subscription payment status (e.g. mark as paid); invoices created/sent when payment recorded */
+  UPDATE_PAYMENT_STATUS: 'issue_invoices',
 } as const;
 
 export type PermissionId = (typeof PERMISSION_IDS)[keyof typeof PERMISSION_IDS];
@@ -42,21 +41,18 @@ const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionId[]> = {
     PERMISSION_IDS.CREATE_BOOKING,
     PERMISSION_IDS.EDIT_BOOKING,
     PERMISSION_IDS.CANCEL_BOOKING,
-    PERMISSION_IDS.ASSIGN_EMPLOYEE_TO_BOOKING,
     PERMISSION_IDS.SELL_PACKAGES,
-    PERMISSION_IDS.CREATE_SUBSCRIPTIONS,
     PERMISSION_IDS.REGISTER_VISITORS,
     PERMISSION_IDS.VIEW_SCHEDULES,
     PERMISSION_IDS.PROCESS_PAYMENTS,
-    PERMISSION_IDS.ISSUE_INVOICES,
+    PERMISSION_IDS.UPDATE_PAYMENT_STATUS,
     PERMISSION_IDS.VIEW_REPORTS,
   ],
   cashier: [
     PERMISSION_IDS.SELL_PACKAGES,
-    PERMISSION_IDS.CREATE_SUBSCRIPTIONS,
     PERMISSION_IDS.VIEW_SCHEDULES,
     PERMISSION_IDS.PROCESS_PAYMENTS,
-    PERMISSION_IDS.ISSUE_INVOICES,
+    PERMISSION_IDS.UPDATE_PAYMENT_STATUS,
     PERMISSION_IDS.CREATE_BOOKING,
     PERMISSION_IDS.EDIT_BOOKING,
     PERMISSION_IDS.VIEW_REPORTS,
@@ -85,7 +81,6 @@ const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionId[]> = {
     PERMISSION_IDS.VIEW_SCHEDULES,
     PERMISSION_IDS.REGISTER_VISITORS,
     PERMISSION_IDS.SELL_PACKAGES,
-    PERMISSION_IDS.CREATE_SUBSCRIPTIONS,
   ],
 };
 

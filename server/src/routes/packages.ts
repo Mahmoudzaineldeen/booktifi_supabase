@@ -2,6 +2,7 @@ import express from 'express';
 import { supabase } from '../db';
 import jwt from 'jsonwebtoken';
 import { logger, isVerboseLogging } from '../utils/logger';
+import { getPermissionsForUser } from '../permissions.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -131,8 +132,8 @@ function authenticateTenantAdmin(req: express.Request, res: express.Response, ne
   }
 }
 
-// Middleware to authenticate admin user, customer admin, or tenant admin
-function authenticateSubscriptionManager(req: express.Request, res: express.Response, next: express.NextFunction) {
+// Middleware: allow by role (reception/admin) or by sell_packages permission
+async function authenticateSubscriptionManager(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -146,22 +147,34 @@ function authenticateSubscriptionManager(req: express.Request, res: express.Resp
       return res.status(403).json({ error: 'User does not belong to a tenant' });
     }
 
-    if (!RECEPTIONIST_OR_ADMIN_ROLES.includes(decoded.role)) {
-      return res.status(403).json({ 
-        error: 'Access denied',
-        details: 'Only admin users, customer admins, tenant admins, and receptionists can manage subscriptions'
-      });
+    const roleAllowed = RECEPTIONIST_OR_ADMIN_ROLES.includes(decoded.role);
+    if (roleAllowed) {
+      req.user = {
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+        tenant_id: decoded.tenant_id,
+        branch_id: decoded.branch_id ?? null,
+      };
+      return next();
     }
 
-    req.user = {
-      id: decoded.id,
-      email: decoded.email,
-      role: decoded.role,
-      tenant_id: decoded.tenant_id,
-      branch_id: decoded.branch_id ?? null,
-    };
+    const perms = await getPermissionsForUser(supabase, decoded.role_id ?? null, decoded.role || '');
+    if (perms.includes('sell_packages')) {
+      req.user = {
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+        tenant_id: decoded.tenant_id,
+        branch_id: decoded.branch_id ?? null,
+      };
+      return next();
+    }
 
-    next();
+    return res.status(403).json({
+      error: 'Access denied',
+      details: 'Required: Sell packages permission or an admin/receptionist role',
+    });
   } catch (error: any) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }

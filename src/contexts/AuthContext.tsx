@@ -478,7 +478,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setTenant(tenantData);
         }
         
-        // Start token refresh interval (refresh 1 day before expiration)
+        // Start token refresh interval (refresh before idle expiry)
         startTokenRefreshInterval();
         
         return { userProfile, tenant: tenantData };
@@ -503,8 +503,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearInterval(tokenRefreshIntervalRef.current);
     }
 
-    // Refresh token every 6 days (1 day before 7-day expiration)
-    // This ensures the token is always fresh
+    // Refresh token before idle expiry (token lifetime ~30 min; refresh every 15 min when active)
+    const refreshIntervalMs = 15 * 60 * 1000; // 15 minutes
     tokenRefreshIntervalRef.current = setInterval(async () => {
       try {
         const { data, error } = await db.auth.refreshSession();
@@ -517,7 +517,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (err) {
         debugLog('Token refresh exception', { error: (err as Error).message });
       }
-    }, 6 * 24 * 60 * 60 * 1000); // 6 days in milliseconds
+    }, refreshIntervalMs);
   }
 
   function stopTokenRefreshInterval() {

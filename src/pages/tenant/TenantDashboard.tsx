@@ -157,7 +157,7 @@ export function TenantDashboard() {
     const hasAssignedRole = userProfile.role_id != null && String(userProfile.role_id).trim() !== '';
     const hasLegacyAccess = allowedLegacyRoles.includes(userProfile.role);
     const hasAnyTenantPermission =
-      hasPermission('view_schedule') || hasPermission('create_booking') || hasPermission('manage_roles') ||
+      hasPermission('view_schedules') || hasPermission('create_booking') || hasPermission('manage_roles') ||
       hasPermission('view_reports') || hasPermission('manage_services') || hasPermission('manage_employees');
     const canAccess =
       hasLegacyAccess || hasAssignedRole || hasAnyTenantPermission;

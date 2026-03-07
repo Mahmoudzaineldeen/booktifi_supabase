@@ -101,6 +101,7 @@ export function BookingsPage() {
   const canCreateBooking = hasPermission('create_booking');
   const canEditBooking = hasPermission('edit_booking') || hasPermission('manage_bookings');
   const canCancelBooking = hasPermission('cancel_booking') || hasPermission('manage_bookings');
+  const canUpdatePaymentStatus = hasPermission('issue_invoices') || hasPermission('manage_bookings');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -2223,7 +2224,7 @@ export function BookingsPage() {
         onClose={() => setDetailsBooking(null)}
         booking={detailsBooking}
         formatPrice={formatPrice}
-        showPaymentDropdown={true}
+        showPaymentDropdown={canUpdatePaymentStatus}
         downloadingInvoice={downloadingInvoice}
         updatingPayment={detailsBooking && updatingPaymentStatus === detailsBooking.id ? detailsBooking.id : null}
         onEdit={canEditBooking ? (b) => {
@@ -2242,7 +2243,7 @@ export function BookingsPage() {
           setDetailsBooking(null);
           handleEditBookingClick(b);
         } : undefined}
-        onUpdatePaymentStatus={(id, value) => {
+        onUpdatePaymentStatus={canUpdatePaymentStatus ? (id, value) => {
           if (value === 'unpaid') {
             updatePaymentStatus(id, 'unpaid');
           } else if (value === 'paid_onsite') {
@@ -2253,7 +2254,7 @@ export function BookingsPage() {
             setPaymentStatusModalMethod('transfer');
             setPaymentStatusModalReference('');
           }
-        }}
+        } : undefined}
         onDownloadInvoice={(bookingId, invoiceId) => downloadInvoice(bookingId, invoiceId)}
       />
 

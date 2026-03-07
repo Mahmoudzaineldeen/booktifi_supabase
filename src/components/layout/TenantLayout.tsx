@@ -83,7 +83,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       icon: UserCheck,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/package-subscribers`),
       visible: hasFeatures && (features?.packages_enabled ?? true) &&
-               (hasPermission('sell_packages') || hasPermission('create_subscriptions') || hasPermission('manage_packages')),
+               (hasPermission('sell_packages') || hasPermission('manage_packages')),
     },
     {
       name: t('navigation.offers'),
