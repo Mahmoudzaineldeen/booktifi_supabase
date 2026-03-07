@@ -1112,7 +1112,9 @@ export function ReceptionPage() {
         }
       });
 
-      const allBookings = Array.from(bookingGroups.values());
+      const allBookings = Array.from(bookingGroups.values()).sort((a, b) =>
+        (b.created_at || '').localeCompare(a.created_at || '')
+      );
       console.log('Grouped bookings:', allBookings.length, 'booking groups');
       setAllBookingsTruncated(rawBookings.length >= RECEPTION_ALL_BOOKINGS_LIMIT);
       setBookings(allBookings);
@@ -1148,6 +1150,7 @@ export function ReceptionPage() {
         }
         return matches;
       });
+      todayOnly.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
       console.log(`[ReceptionPage] Today's bookings: ${todayOnly.length} out of ${allBookings.length} total`);
       if (todayOnly.length > 0) {
         console.log('[ReceptionPage] Today\'s bookings details:', todayOnly.map(b => ({

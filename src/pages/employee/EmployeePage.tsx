@@ -375,12 +375,8 @@ export function EmployeePage() {
                   </div>
                 ) : (
                   <ul className="space-y-4">
-                    {filteredBySelectedDay
-                      .sort((a, b) => {
-                        const sa = a.slots?.start_time || '';
-                        const sb = b.slots?.start_time || '';
-                        return sa.localeCompare(sb);
-                      })
+                    {[...filteredBySelectedDay]
+                      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
                       .map((b) => {
                         const serviceName = b.services
                           ? i18n.language === 'ar' && b.services.name_ar

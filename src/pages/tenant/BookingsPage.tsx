@@ -689,9 +689,9 @@ export function BookingsPage() {
           const normalized = normalizeSlotDate(raw);
           return normalized >= weekStartStr && normalized <= weekEndStr;
         });
-        setBookings(sortBookingsByDate(filteredBookings));
+        setBookings(sortBookingsByCreatedAtDesc(filteredBookings));
       } else {
-        setBookings(sortBookingsByDate(allBookings.slice(0, 50)));
+        setBookings(sortBookingsByCreatedAtDesc(allBookings.slice(0, 50)));
       }
     } catch (err) {
       console.error('Error fetching bookings:', err);
@@ -714,7 +714,7 @@ export function BookingsPage() {
     return format(new Date(raw), 'yyyy-MM-dd');
   }
 
-  /** Sort bookings by slot date then start time (earliest first). */
+  /** Sort bookings by slot date then start time (earliest first). Used for calendar day grouping. */
   function sortBookingsByDate<T extends { slots?: { slot_date?: string; start_time?: string } | null }>(list: T[]): T[] {
     return [...list].sort((a, b) => {
       const dateA = normalizeSlotDate(a.slots?.slot_date ?? '') || '0000-00-00';
@@ -722,6 +722,11 @@ export function BookingsPage() {
       if (dateA !== dateB) return dateA.localeCompare(dateB);
       return (a.slots?.start_time || '').localeCompare(b.slots?.start_time || '');
     });
+  }
+
+  /** Sort bookings from most recent to oldest (created_at descending). */
+  function sortBookingsByCreatedAtDesc<T extends { created_at?: string | null }>(list: T[]): T[] {
+    return [...list].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   }
 
   function getBookingsForDate(date: Date) {
@@ -1592,7 +1597,7 @@ export function BookingsPage() {
         slots: b.slots || { slot_date: '', start_time: '', end_time: '' }
       }));
 
-      setSearchResults(sortBookingsByDate(transformedBookings));
+      setSearchResults(sortBookingsByCreatedAtDesc(transformedBookings));
       setShowSearchResults(true);
     } catch (error: any) {
       console.error('Search error:', error);

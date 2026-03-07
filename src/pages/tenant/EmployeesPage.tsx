@@ -1059,7 +1059,9 @@ export function EmployeesPage() {
                     : (roleOption.category === 'admin' ? 'tenant_admin' : 'receptionist');
                   setFormData({ ...formData, role_id: val, role: legacy as any });
                 } else if (['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'].includes(val)) {
-                  setFormData({ ...formData, role_id: '', role: val as any });
+                  // Keep role_id in sync with legacy role so save updates this user only and list shows correct role
+                  const builtInRoleId = LEGACY_TO_ROLE_ID[val] || '';
+                  setFormData({ ...formData, role_id: builtInRoleId, role: val as any });
                 }
               }}
               required

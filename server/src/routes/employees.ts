@@ -18,6 +18,11 @@ const ROLE_ID_TO_LEGACY: Record<string, string> = {
   '00000000-0000-0000-0000-000000000007': 'customer_admin',
 };
 
+/** Legacy role string -> built-in role_id (so role and role_id stay in sync on update) */
+const LEGACY_TO_ROLE_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(ROLE_ID_TO_LEGACY).map(([id, name]) => [name, id])
+);
+
 /** Built-in receptionist role id (fallback when tenant_admin assigns invalid role_id on create) */
 const BUILTIN_RECEPTIONIST_ROLE_ID = '00000000-0000-0000-0000-000000000002';
 
@@ -396,6 +401,13 @@ router.post('/update', authMiddleware, async (req, res) => {
         return res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
       }
       updates.role = role;
+      // Keep role_id in sync with legacy role so Edit form and list show correct role for this user only
+      const builtInRoleId = LEGACY_TO_ROLE_ID[role];
+      if (builtInRoleId) {
+        updates.role_id = builtInRoleId;
+      } else {
+        updates.role_id = null;
+      }
     }
     if (branch_id !== undefined) {
       if (branch_id && existing.tenant_id) {
