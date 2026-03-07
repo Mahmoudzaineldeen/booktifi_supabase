@@ -163,7 +163,10 @@ export function RolesPage() {
           body: JSON.stringify(body),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to update role');
+        if (!res.ok) {
+          const msg = data.details ? `${data.error || 'Failed to update role'}. ${data.details}` : (data.error || 'Failed to update role');
+          throw new Error(msg);
+        }
         showNotification('success', 'Role updated');
       } else {
         const res = await apiFetch('/roles', {
@@ -171,7 +174,10 @@ export function RolesPage() {
           body: JSON.stringify(body),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to create role');
+        if (!res.ok) {
+          const msg = data.details ? `${data.error || 'Failed to create role'}. ${data.details}` : (data.error || 'Failed to create role');
+          throw new Error(msg);
+        }
         showNotification('success', 'Role created');
       }
       setModalOpen(false);

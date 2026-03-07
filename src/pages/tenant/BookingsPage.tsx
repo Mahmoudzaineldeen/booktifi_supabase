@@ -174,6 +174,13 @@ export function BookingsPage() {
     fetchBookings();
   }, [userProfile, calendarDate, viewMode]);
 
+  // Never keep edit modal open if user loses edit permission
+  useEffect(() => {
+    if (!canEditBooking && editingBooking) {
+      setEditingBooking(null);
+    }
+  }, [canEditBooking, editingBooking]);
+
   // Fetch services when create modal opens
   async function fetchCreateServices() {
     if (!userProfile?.tenant_id) return;
@@ -2034,14 +2041,16 @@ export function BookingsPage() {
                             )}
                           </>
                         )}
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => setDetailsBooking(booking)}
-                          className="rounded-lg"
-                        >
-                          {t('bookings.bookingDetails', 'Details')}
-                        </Button>
+                        {(canEditBooking || canCancelBooking || canUpdatePaymentStatus) && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setDetailsBooking(booking)}
+                            className="rounded-lg"
+                          >
+                            {t('bookings.bookingDetails', 'Details')}
+                          </Button>
+                        )}
                         {canEditBooking && (
                           <Button
                             size="sm"
@@ -3074,8 +3083,8 @@ export function BookingsPage() {
         ticketsEnabled={tenant?.tickets_enabled !== false}
       />
 
-      {/* Edit Booking Modal (details + change time in one place) */}
-      {editingBooking && (
+      {/* Edit Booking Modal (details + change time in one place) — only when user has edit permission */}
+      {canEditBooking && editingBooking && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <CardContent className="p-6">

@@ -221,28 +221,32 @@ router.put('/:id', authMiddleware, requireManageRoles, async (req, res) => {
     if (category !== undefined) {
       if (!['admin', 'employee'].includes(category)) return res.status(400).json({ error: 'category must be admin or employee' });
       if (category !== existing.category) {
-        const { data: perms, error: permsErr } = await supabase
-          .from('role_permissions')
-          .select('permission_id')
-          .eq('role_id', id)
-          .limit(1);
-        if (!permsErr && perms && perms.length > 0) {
-          return res.status(400).json({
-            error: 'Invalid role configuration.',
-            details: 'Role category cannot be changed while the role has permissions. Remove all permissions first, then change category.',
-          });
+        const sendingNewPermissions = Array.isArray(permission_ids);
+        if (!sendingNewPermissions) {
+          const { data: perms, error: permsErr } = await supabase
+            .from('role_permissions')
+            .select('permission_id')
+            .eq('role_id', id)
+            .limit(1);
+          if (!permsErr && perms && perms.length > 0) {
+            return res.status(400).json({
+              error: 'Invalid role configuration.',
+              details: 'Role category cannot be changed while the role has permissions. Remove all permissions first, then change category.',
+            });
+          }
         }
       }
       updates.category = category;
     }
     if (is_active !== undefined) updates.is_active = !!is_active;
     updates.updated_at = new Date().toISOString();
+    // Apply role update first (including category) so permission insert trigger sees correct category
     if (Object.keys(updates).length > 1) {
       const { error: updateError } = await supabase.from('roles').update(updates).eq('id', id);
       if (updateError) throw updateError;
     }
     if (Array.isArray(permission_ids)) {
-      const roleCategory = (category !== undefined ? category : existing.category) as string;
+      const roleCategory = (updates.category !== undefined ? updates.category : existing.category) as string;
       if (permission_ids.length > 0 && roleCategory) {
         const { data: permsRows, error: permsErr } = await supabase
           .from('permissions')
@@ -259,9 +263,19 @@ router.put('/:id', authMiddleware, requireManageRoles, async (req, res) => {
       }
       await supabase.from('role_permissions').delete().eq('role_id', id);
       if (permission_ids.length > 0) {
-        await supabase.from('role_permissions').insert(
+        const { error: insertPermErr } = await supabase.from('role_permissions').insert(
           permission_ids.map((pid: string) => ({ role_id: id, permission_id: pid }))
         );
+        if (insertPermErr) {
+          const msg = insertPermErr.message || '';
+          if (msg.includes('Invalid role configuration') || insertPermErr.code === '23514' || insertPermErr.code === 'P0001') {
+            return res.status(400).json({
+              error: 'Invalid role configuration.',
+              details: 'A role cannot include both Admin and Employee permissions. Ensure all selected permissions match the role category.',
+            });
+          }
+          throw insertPermErr;
+        }
       }
     }
     const { data: role } = await supabase.from('roles').select('*').eq('id', id).single();

@@ -12,7 +12,7 @@ const TEST_PASSWORD = process.env.TEST_ADMIN_PASSWORD || '111111';
 
 type Permission = { id: string; name: string; category: string; description?: string | null };
 
-async function signIn(email: string, password: string): Promise<{ token: string } | null> {
+async function signIn(email: string, password: string): Promise<{ token: string; userId?: string } | null> {
   try {
     const res = await fetch(`${API_BASE}/api/auth/signin`, {
       method: 'POST',
@@ -22,7 +22,8 @@ async function signIn(email: string, password: string): Promise<{ token: string 
     if (!res.ok) return null;
     const data = await res.json();
     const token = data?.token ?? data?.access_token ?? data?.session?.access_token;
-    return token ? { token } : null;
+    const userId = data?.user?.id ?? data?.session?.user?.id;
+    return token ? { token, userId } : null;
   } catch {
     return null;
   }
@@ -184,6 +185,137 @@ describe('RBAC API', () => {
         const p = permissions.find((x) => x.id === id);
         expect(p?.category).toBe('employee');
       }
+    });
+  });
+
+  describe('Role "Tester" (cancel_booking only) — cannot do anything else', () => {
+    const TESTER_EMAIL = process.env.TEST_RBAC_Tester_EMAIL;
+    const TESTER_PASSWORD = process.env.TEST_RBAC_Tester_PASSWORD;
+
+    let testerToken: string | null = null;
+
+    beforeAll(async () => {
+      if (!TESTER_EMAIL || !TESTER_PASSWORD) {
+        return;
+      }
+      const signInResult = await signIn(TESTER_EMAIL, TESTER_PASSWORD);
+      testerToken = signInResult?.token ?? null;
+    });
+
+    it('tester user has only cancel_booking permission', async () => {
+      if (!testerToken) {
+        console.warn('Skipping: set TEST_RBAC_Tester_EMAIL and TEST_RBAC_Tester_PASSWORD to a user with "Tester" role (only cancel_booking)');
+        return;
+      }
+      const res = await fetchWithAuth('/api/roles/permissions/me', testerToken);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      const perms = (body.permissions || []) as string[];
+      expect(perms).toContain('cancel_booking');
+      expect(perms).not.toContain('create_booking');
+      expect(perms).not.toContain('edit_booking');
+      expect(perms).not.toContain('manage_bookings');
+      expect(perms).not.toContain('issue_invoices');
+      expect(perms).not.toContain('sell_packages');
+    });
+
+    it('tester cannot create a booking (403)', async () => {
+      if (!testerToken) {
+        console.warn('Skipping: set TEST_RBAC_Tester_EMAIL and TEST_RBAC_Tester_PASSWORD to run');
+        return;
+      }
+      const res = await fetchWithAuth('/api/bookings/create', testerToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          customer_phone: '+201000000000',
+          customer_name: 'Test',
+          service_id: '00000000-0000-0000-0000-000000000001',
+          slot_id: '00000000-0000-0000-0000-000000000001',
+        }),
+      });
+      expect(res.status).toBe(403);
+      const body = await res.json().catch(() => ({}));
+      expect(body?.error ?? '').toMatch(/permission|create|denied|access/i);
+    });
+
+    it('tester cannot edit a booking (PATCH status to confirmed) (403)', async () => {
+      if (!testerToken || !adminToken) return;
+      const searchRes = await fetchWithAuth('/api/bookings/search?date=2030-01-01', adminToken);
+      if (!searchRes.ok) return;
+      const searchBody = await searchRes.json();
+      const bookings = searchBody.bookings ?? searchBody.data ?? [];
+      const pending = Array.isArray(bookings) ? bookings.find((b: any) => b.status === 'pending') : null;
+      if (!pending?.id) {
+        console.warn('Skipping: no pending booking found for edit test');
+        return;
+      }
+      const res = await fetchWithAuth(`/api/bookings/${pending.id}`, testerToken, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'confirmed' }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it('tester can cancel a booking (PATCH status to cancelled) (200)', async () => {
+      if (!testerToken) return;
+      const searchRes = await fetchWithAuth('/api/bookings/search?date=2030-01-01', testerToken);
+      if (!searchRes.ok) {
+        console.warn('Skipping: tester cannot search bookings (wrong role or no access)');
+        return;
+      }
+      const searchBody = await searchRes.json();
+      const bookings = searchBody.bookings ?? searchBody.data ?? [];
+      const notCancelled = Array.isArray(bookings) ? bookings.find((b: any) => b.status !== 'cancelled') : null;
+      if (!notCancelled?.id) {
+        console.warn('Skipping: no non-cancelled booking found for cancel test');
+        return;
+      }
+      const res = await fetchWithAuth(`/api/bookings/${notCancelled.id}`, testerToken, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'cancelled' }),
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it('tester cannot update payment status (403)', async () => {
+      if (!testerToken || !adminToken) return;
+      const searchRes = await fetchWithAuth('/api/bookings/search?date=2030-01-01', adminToken);
+      if (!searchRes.ok) return;
+      const searchBody = await searchRes.json();
+      const bookings = searchBody.bookings ?? searchBody.data ?? [];
+      const first = Array.isArray(bookings) ? bookings[0] : null;
+      if (!first?.id) {
+        console.warn('Skipping: no booking found for payment-status test');
+        return;
+      }
+      const res = await fetchWithAuth(`/api/bookings/${first.id}/payment-status`, testerToken, {
+        method: 'PATCH',
+        body: JSON.stringify({ payment_status: 'paid_manual', payment_method: 'onsite' }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it('tester cannot delete a booking (403)', async () => {
+      if (!testerToken || !adminToken) return;
+      const searchRes = await fetchWithAuth('/api/bookings/search?date=2030-01-01', adminToken);
+      if (!searchRes.ok) return;
+      const searchBody = await searchRes.json();
+      const bookings = searchBody.bookings ?? searchBody.data ?? [];
+      const first = Array.isArray(bookings) ? bookings[0] : null;
+      if (!first?.id) {
+        console.warn('Skipping: no booking found for delete test');
+        return;
+      }
+      const res = await fetchWithAuth(`/api/bookings/${first.id}`, testerToken, {
+        method: 'DELETE',
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it('tester cannot access package/receptionist endpoints (403)', async () => {
+      if (!testerToken) return;
+      const res = await fetchWithAuth('/api/packages/receptionist/packages', testerToken);
+      expect(res.status).toBe(403);
     });
   });
 });
