@@ -69,13 +69,12 @@ router.post('/create', async (req, res) => {
       if (isBuiltInRoleId(roleRow.id)) {
         resolvedRole = legacyRoleFromRoleId(roleRow.id);
       } else {
-        if (!role || typeof role !== 'string') {
-          return res.status(400).json({
-            error: 'Invalid role configuration.',
-            details: 'When assigning a custom role, you must specify the user type (e.g. Receptionist, Cashier for employee roles; Admin for admin roles).',
-          });
-        }
-        resolvedRole = role;
+        const roleCategory = roleRow.category as 'admin' | 'employee';
+        const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
+        const requested = role && typeof role === 'string' ? role : null;
+        resolvedRole = requested && allowedLegacy.includes(requested)
+          ? requested
+          : (roleCategory === 'admin' ? 'admin_user' : 'receptionist');
       }
       const roleCategory = roleRow.category as 'admin' | 'employee';
       const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
@@ -322,15 +321,12 @@ router.post('/update', async (req, res) => {
         if (isBuiltInRoleId(roleRow.id)) {
           legacyRole = legacyRoleFromRoleId(role_id);
         } else {
-          legacyRole = (role && typeof role === 'string' ? role : existing.role) || 'employee';
           const roleCategory = roleRow.category as 'admin' | 'employee';
           const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
-          if (!allowedLegacy.includes(legacyRole)) {
-            return res.status(400).json({
-              error: 'Invalid role configuration.',
-              details: 'When assigning a custom role, specify a user type that matches the role category (e.g. Receptionist/Cashier for employee roles; Admin for admin roles).',
-            });
-          }
+          const requestedLegacy = (role && typeof role === 'string' ? role : existing.role) || 'employee';
+          legacyRole = allowedLegacy.includes(requestedLegacy)
+            ? requestedLegacy
+            : (roleCategory === 'admin' ? 'admin_user' : 'receptionist');
         }
         const roleCategory = roleRow.category as 'admin' | 'employee';
         const allowedLegacy = roleCategory === 'admin' ? LEGACY_ADMIN_ROLES : LEGACY_EMPLOYEE_ROLES;
