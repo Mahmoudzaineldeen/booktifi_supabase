@@ -95,9 +95,8 @@ export function legacyRoleHasPermission(role: string, permissionId: string): boo
 
 /**
  * Resolve permission IDs for a user.
- * - tenant_admin and solution_owner always get full permissions (all pages), regardless of role_id.
- * - When role_id is set for other roles: return ONLY permissions from role_permissions.
- * - When role_id is null/undefined: use legacy role mapping.
+ * - When role_id is set: always use role_permissions so that editing the role (e.g. admin → employee) takes effect.
+ * - When role_id is null/empty: tenant_admin and solution_owner get full permissions; others use legacy mapping.
  */
 export async function getPermissionsForUser(
   supabaseClient: any,
@@ -105,18 +104,23 @@ export async function getPermissionsForUser(
   legacyRole: string
 ): Promise<string[]> {
   const role = (legacyRole || '').trim();
-  if (role === 'tenant_admin' || role === 'solution_owner') {
-    return [...ALL_PERMISSION_IDS];
-  }
+  // If user has an assigned role (custom or built-in), always use role_permissions so permission changes take effect
   if (roleId != null && String(roleId).trim() !== '') {
     const { data: rows, error } = await supabaseClient
       .from('role_permissions')
       .select('permission_id')
       .eq('role_id', roleId);
-    if (!error && rows) {
+    if (!error && rows && rows.length > 0) {
       return rows.map((r: { permission_id: string }) => r.permission_id);
     }
-    return [];
+    if (!error && (!rows || rows.length === 0)) {
+      return []; // role has no permissions (e.g. just created or all removed)
+    }
+    return []; // on error, deny
+  }
+  // No role_id: legacy behaviour – tenant_admin/solution_owner get all, others from legacy map
+  if (role === 'tenant_admin' || role === 'solution_owner') {
+    return [...ALL_PERMISSION_IDS];
   }
   return getLegacyPermissionsForRole(legacyRole) as string[];
 }

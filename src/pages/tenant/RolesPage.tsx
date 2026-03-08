@@ -169,7 +169,7 @@ export function RolesPage() {
         }
         showNotification('success', 'Role updated');
         // Refetch current user permissions so if they have this role they see the new access immediately
-        refetchPermissions();
+        await refetchPermissions();
       } else {
         const res = await apiFetch('/roles', {
           method: 'POST',
