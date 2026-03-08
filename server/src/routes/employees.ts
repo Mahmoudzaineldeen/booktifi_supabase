@@ -3,6 +3,8 @@ import jwt from 'jsonwebtoken';
 import { supabase } from '../db';
 import bcrypt from 'bcryptjs';
 import { invalidateEmployeeAvailabilityForTenant } from '../utils/employeeAvailabilityCache';
+import { getPermissionsForUser } from '../permissions.js';
+import { PERMISSION_IDS } from '../permissions.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -452,6 +454,53 @@ router.post('/update', authMiddleware, async (req, res) => {
   } catch (error: any) {
     console.error('Update employee error:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// List employees for tenant (uses backend permission check so role permission changes take effect; avoids RLS issues)
+const STAFF_ROLES = ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'];
+router.get('/list', authMiddleware, async (req, res) => {
+  try {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'No tenant associated with your account.' });
+    }
+    const isAdmin = isTenantAdminOrSolutionOwner(req);
+    if (!isAdmin) {
+      const permissions = await getPermissionsForUser(supabase, req.user?.role_id ?? null, req.user?.role ?? '');
+      if (!permissions.includes(PERMISSION_IDS.MANAGE_EMPLOYEES)) {
+        return res.status(403).json({ error: 'You do not have permission to manage employees.' });
+      }
+    }
+    const { data, error } = await supabase
+      .from('users')
+      .select(`
+        id,
+        username,
+        full_name,
+        full_name_ar,
+        email,
+        phone,
+        role,
+        role_id,
+        branch_id,
+        is_active,
+        is_paused_until,
+        employee_services(
+          service_id,
+          shift_id,
+          services(name, name_ar)
+        )
+      `)
+      .eq('tenant_id', tenantId)
+      .in('role', STAFF_ROLES)
+      .order('full_name');
+
+    if (error) throw error;
+    res.json({ employees: data ?? [] });
+  } catch (e: any) {
+    console.error('List employees error:', e);
+    res.status(500).json({ error: e.message || 'Failed to list employees' });
   }
 });
 

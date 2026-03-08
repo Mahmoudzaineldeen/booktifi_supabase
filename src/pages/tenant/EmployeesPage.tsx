@@ -206,9 +206,26 @@ export function EmployeesPage() {
     (roles || []).forEach((r) => byId.set(r.id, r));
     return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [roles]);
+
+  /** Custom roles only (for filter tabs); built-in roles are filtered by legacy role key */
+  const customRoleOptions = React.useMemo(
+    () => roleOptions.filter((r) => !(r.id in ROLE_ID_TO_LEGACY)),
+    [roleOptions]
+  );
+
+  function getRoleDisplayName(emp: { role?: string; role_id?: string | null }): string {
+    if (emp.role_id && emp.role_id in ROLE_ID_TO_LEGACY) {
+      return safeTranslateNested(t, 'employee.roles', ROLE_ID_TO_LEGACY[emp.role_id], emp.role || '');
+    }
+    if (emp.role_id) {
+      const r = roleOptions.find((o) => o.id === emp.role_id);
+      return r ? r.name : (emp.role || '');
+    }
+    return safeTranslateNested(t, 'employee.roles', emp.role || '', emp.role || '');
+  }
   const [phoneFull, setPhoneFull] = useState<string>(''); // Full phone number with country code
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'all' | 'employee' | 'cashier' | 'receptionist' | 'coordinator' | 'customer_admin' | 'admin_user'>('all');
+  const [selectedRole, setSelectedRole] = useState<string>('all');
   const [isPausedUntil, setIsPausedUntil] = useState<string>('');
   const [employeeShifts, setEmployeeShifts] = useState<EmployeeShift[]>([]);
   const [branchDefaultShifts, setBranchDefaultShifts] = useState<BranchDefaultShift[]>([]);
@@ -239,7 +256,7 @@ export function EmployeesPage() {
     try {
       const res = await apiFetch(`/roles?tenant_id=${userProfile.tenant_id}`);
       const data = await res.json();
-      if (res.ok) setRoles((data.roles || []).filter((r: RoleOption) => r.is_active));
+      if (res.ok) setRoles(data.roles || []);
     } catch (_) {
       setRoles([]);
     }
@@ -251,6 +268,23 @@ export function EmployeesPage() {
     fetchBranches();
     fetchRoles();
   }, [userProfile]);
+
+  // Refetch roles when Add/Edit modal opens so newly created roles appear in the dropdown
+  useEffect(() => {
+    if (isModalOpen && userProfile?.tenant_id) fetchRoles();
+  }, [isModalOpen, userProfile?.tenant_id]);
+
+  // Refetch employees and roles when page becomes visible (e.g. after editing a role elsewhere) so permission/role changes take effect
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && userProfile?.tenant_id) {
+        fetchEmployees();
+        fetchRoles();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [userProfile?.tenant_id]);
 
   async function fetchServices() {
     if (!userProfile?.tenant_id) return;
@@ -280,35 +314,18 @@ export function EmployeesPage() {
   async function fetchEmployees() {
     if (!userProfile?.tenant_id) return;
 
+    setLoading(true);
     try {
-      const { data, error } = await db
-        .from('users')
-        .select(`
-          id,
-          username,
-          full_name,
-          full_name_ar,
-          email,
-          phone,
-          role,
-          role_id,
-          branch_id,
-          is_active,
-          is_paused_until,
-          employee_services(
-            service_id,
-            shift_id,
-            services(name, name_ar)
-          )
-        `)
-        .eq('tenant_id', userProfile.tenant_id)
-        .in('role', ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'])
-        .order('full_name');
-
-      if (error) throw error;
-      setEmployees(data || []);
-    } catch (err) {
+      const res = await apiFetch('/employees/list');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to load employees');
+      }
+      setEmployees(data.employees || []);
+    } catch (err: any) {
       console.error('Error fetching employees:', err);
+      showNotification('error', err.message || t('common.error'));
+      setEmployees([]);
     } finally {
       setLoading(false);
     }
@@ -858,16 +875,31 @@ export function EmployeesPage() {
             >
               {t('employee.roles.admin_user')} ({employees.filter(e => e.role === 'admin_user').length})
             </Button>
+            {customRoleOptions.map((r) => (
+              <Button
+                key={r.id}
+                variant={selectedRole === r.id ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setSelectedRole(r.id)}
+              >
+                {r.name}{!r.is_active ? ` (${t('employee.inactive')})` : ''} ({employees.filter(e => e.role_id === r.id).length})
+              </Button>
+            ))}
           </div>
         </div>
       )}
 
       {/* Filtered Employees */}
       {(() => {
-        // Filter employees by role
+        // Filter employees by role (legacy key or custom role_id)
         let filteredEmployees = employees;
         if (selectedRole !== 'all') {
-          filteredEmployees = employees.filter(emp => emp.role === selectedRole);
+          const legacyKeys = ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'];
+          if (legacyKeys.includes(selectedRole)) {
+            filteredEmployees = employees.filter(emp => emp.role === selectedRole);
+          } else {
+            filteredEmployees = employees.filter(emp => emp.role_id === selectedRole);
+          }
         }
 
         // Filter employees by search query
@@ -952,7 +984,7 @@ export function EmployeesPage() {
                   )}
                   <div className="mt-2">
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 capitalize">
-                      {safeTranslateNested(t, 'employee.roles', employee.role, employee.role)}
+                      {getRoleDisplayName(employee)}
                     </span>
                   </div>
                   {employee.role === 'employee' && employee.employee_services && employee.employee_services.length > 0 && (
@@ -1092,7 +1124,7 @@ export function EmployeesPage() {
               }}
               required
             >
-              {roleOptions.map((r) => (
+              {roleOptions.filter((r) => r.is_active).map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}{r.description ? ` — ${r.description}` : ''}
                 </option>
