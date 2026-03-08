@@ -37,21 +37,23 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
     }
   }, [userProfile?.role, tenantSlug, location.pathname, navigate]);
 
-  // Determine restricted roles
-  const isRestrictedRole = userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user';
-  const isAdminUser = userProfile?.role === 'admin_user';
-  const isCustomerAdmin = userProfile?.role === 'customer_admin';
+  // When user has role_id (assigned role), use only permissions for menu visibility so category changes (admin ↔ employee) take effect without re-login
+  const hasAssignedRole = Boolean(userProfile?.role_id);
+  const isRestrictedRole = hasAssignedRole ? false : (userProfile?.role === 'customer_admin' || userProfile?.role === 'admin_user');
+  const isAdminUser = hasAssignedRole ? false : (userProfile?.role === 'admin_user');
+  const isCustomerAdmin = hasAssignedRole ? false : (userProfile?.role === 'customer_admin');
 
   // Permission-based visibility: custom roles see only what their permissions allow; built-in roles get permissions from role_permissions (seeded)
   const canAccessBookings = hasPermission('create_booking') || hasPermission('edit_booking') || hasPermission('cancel_booking') || hasPermission('manage_bookings') || hasPermission('view_schedules');
   const canAccessVisitors = hasPermission('register_visitors') || hasPermission('view_schedules') || hasPermission('manage_bookings');
+  const useAdminVisitorsPath = hasAssignedRole ? hasPermission('manage_bookings') : (userProfile?.role === 'receptionist' || userProfile?.role === 'coordinator' ? false : true);
   const baseNavigation = [
     {
       name: t('navigation.home'),
       href: `/${tenantSlug}/admin`,
       icon: LayoutDashboard,
       current: location.pathname === `/${tenantSlug}/admin`,
-      visible: !isAdminUser,
+      visible: hasAssignedRole ? true : !isAdminUser,
     },
     {
       name: t('navigation.services'),
@@ -87,7 +89,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       href: `/${tenantSlug}/admin/offers`,
       icon: Gift,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/offers`),
-      visible: !isAdminUser,
+      visible: hasAssignedRole ? true : !isAdminUser,
     },
     {
       name: t('navigation.bookings'),
@@ -98,7 +100,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
     },
     {
       name: t('navigation.visitors', 'Visitors'),
-      href: (userProfile?.role === 'receptionist' || userProfile?.role === 'coordinator') ? `/${tenantSlug}/reception/visitors` : `/${tenantSlug}/admin/visitors`,
+      href: useAdminVisitorsPath ? `/${tenantSlug}/admin/visitors` : `/${tenantSlug}/reception/visitors`,
       icon: UserCircle,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/visitors`) || location.pathname.startsWith(`/${tenantSlug}/reception/visitors`),
       visible: canAccessVisitors,

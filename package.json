@@ -45,7 +45,8 @@
     "test:package-partial-coverage-cap": "node tests/test-package-partial-coverage-cap.js",
     "test:booking-mix-single-parallel": "node tests/test-booking-mix-single-and-parallel.js",
     "test:booking-three-same-period-fail": "node tests/test-booking-three-slots-same-period-should-fail.js",
-    "test:employee-role-assign": "node scripts/test-employee-role-assign-admin-then-employee.js"
+    "test:employee-role-assign": "node scripts/test-employee-role-assign-admin-then-employee.js",
+    "test:role-permissions-update": "node scripts/test-role-permissions-update-flow.js"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",

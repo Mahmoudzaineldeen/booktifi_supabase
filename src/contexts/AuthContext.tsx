@@ -716,6 +716,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, []);
 
+  // Periodic refetch of permissions (e.g. every 60s) so if an admin changed this user's role, they see new access without switching tabs
+  useEffect(() => {
+    if (!userProfileRef.current || typeof window === 'undefined') return;
+    const intervalMs = 60 * 1000;
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible' && localStorage.getItem('auth_token')) {
+        refetchPermissions();
+      }
+    }, intervalMs);
+    return () => clearInterval(id);
+  }, [userProfile?.id]);
+
   useEffect(() => {
     if (typeof localStorage === 'undefined') return;
     const has = !!localStorage.getItem(IMPERSONATION_LOG_ID_KEY) && !!localStorage.getItem(IMPERSONATION_ORIGINAL_SESSION_KEY);
