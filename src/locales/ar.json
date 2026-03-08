@@ -724,6 +724,8 @@
     "searchEmployees": "ابحث عن موظف...",
     "all": "الكل",
     "noResultsFound": "لا توجد نتائج",
+    "noEmployeesWithRole": "لا يوجد موظفون معينون لدور {{role}}. جرّب \"الكل\" أو حدّث بعد تغيير فئة الدور.",
+    "showAll": "عرض الكل",
     "tryDifferentSearch": "جرب البحث بكلمات مختلفة أو اختر تصنيف آخر",
     "deactivate": "تعطيل",
     "activate": "تفعيل",

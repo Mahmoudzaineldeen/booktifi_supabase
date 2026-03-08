@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { invalidateEmployeeAvailabilityForTenant } from '../utils/employeeAvailabilityCache';
 import { getPermissionsForUser } from '../permissions.js';
 import { PERMISSION_IDS } from '../permissions.js';
+import { resolveUserFromDb } from '../middleware/resolveUserFromDb.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -457,9 +458,9 @@ router.post('/update', authMiddleware, async (req, res) => {
   }
 });
 
-// List employees for tenant (uses backend permission check so role permission changes take effect; avoids RLS issues)
+// List employees for tenant; resolve user from DB so permission and role filters use current state (no category filter)
 const STAFF_ROLES = ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'];
-router.get('/list', authMiddleware, async (req, res) => {
+router.get('/list', authMiddleware, resolveUserFromDb, async (req, res) => {
   try {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) {

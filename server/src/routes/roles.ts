@@ -2,6 +2,7 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import { supabase } from '../db';
 import { getPermissionsForUser, PERMISSION_IDS } from '../permissions.js';
+import { resolveUserFromDb } from '../middleware/resolveUserFromDb.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -30,7 +31,10 @@ function authMiddleware(req: express.Request, res: express.Response, next: expre
   }
 }
 
-/** Require one of the given permissions; use after authMiddleware. */
+/** Chain: auth then resolve user from DB so permission checks use current role_id/role. */
+const authWithFreshUser = [authMiddleware, resolveUserFromDb];
+
+/** Require one of the given permissions; use after authWithFreshUser so req.user is from DB. */
 function requirePermission(...permissionIds: string[]) {
   return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -45,7 +49,7 @@ function requirePermission(...permissionIds: string[]) {
   };
 }
 
-/** Require manage_roles permission or solution_owner/tenant_admin (for create/update/disable/delete role). */
+/** Require manage_roles permission or solution_owner/tenant_admin (for create/update/disable/delete role). Use after authWithFreshUser. */
 function requireManageRoles(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (!req.user) {
     res.status(401).json({ error: 'Unauthorized' });
@@ -79,8 +83,8 @@ router.get('/permissions', authMiddleware, async (_req, res) => {
   }
 });
 
-// ----- Current user's permissions (for frontend) -----
-router.get('/permissions/me', authMiddleware, async (req, res) => {
+// ----- Current user's permissions (for frontend); resolve user from DB so role category changes take effect -----
+router.get('/permissions/me', authWithFreshUser, async (req, res) => {
   try {
     const permissions = await getPermissionsForUser(
       supabase,
@@ -95,7 +99,7 @@ router.get('/permissions/me', authMiddleware, async (req, res) => {
 });
 
 // ----- List roles (built-in + tenant-specific for tenant_id) -----
-router.get('/', authMiddleware, async (req, res) => {
+router.get('/', authWithFreshUser, async (req, res) => {
   try {
     const tenantId = (req.query.tenant_id as string) || req.user!.tenant_id;
     // Solution owner can list any tenant's roles; others only their tenant
@@ -122,7 +126,7 @@ router.get('/', authMiddleware, async (req, res) => {
 });
 
 // ----- Get single role with permission IDs -----
-router.get('/:id', authMiddleware, async (req, res) => {
+router.get('/:id', authWithFreshUser, async (req, res) => {
   try {
     const { id } = req.params;
     const { data: role, error: roleError } = await supabase
@@ -143,7 +147,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
 });
 
 // ----- Create role (tenant_id from body or current user's tenant) -----
-router.post('/', authMiddleware, requireManageRoles, async (req, res) => {
+router.post('/', authWithFreshUser, requireManageRoles, async (req, res) => {
   try {
     const { name, description, category, permission_ids, tenant_id } = req.body;
     if (!name || !category) {
@@ -209,7 +213,7 @@ router.post('/', authMiddleware, requireManageRoles, async (req, res) => {
 });
 
 // ----- Update role -----
-router.put('/:id', authMiddleware, requireManageRoles, async (req, res) => {
+router.put('/:id', authWithFreshUser, requireManageRoles, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, category, permission_ids, is_active } = req.body;
@@ -287,6 +291,12 @@ router.put('/:id', authMiddleware, requireManageRoles, async (req, res) => {
     }
     const { data: role } = await supabase.from('roles').select('*').eq('id', id).single();
     const { data: perms } = await supabase.from('role_permissions').select('permission_id').eq('role_id', id);
+    // Sync legacy user.role for assignees when role category changed so Employees page shows them under correct bucket
+    const newCategory = (updates.category !== undefined ? updates.category : existing.category) as string;
+    if (newCategory && category !== undefined && category !== existing.category) {
+      const legacyRole = newCategory === 'admin' ? 'admin_user' : 'receptionist';
+      await supabase.from('users').update({ role: legacyRole }).eq('role_id', id);
+    }
     res.json({ ...role, permission_ids: (perms ?? []).map((p: any) => p.permission_id) });
   } catch (e: any) {
     console.error('Update role error:', e);
@@ -302,7 +312,7 @@ router.put('/:id', authMiddleware, requireManageRoles, async (req, res) => {
 });
 
 // ----- Disable role -----
-router.post('/:id/disable', authMiddleware, requireManageRoles, async (req, res) => {
+router.post('/:id/disable', authWithFreshUser, requireManageRoles, async (req, res) => {
   try {
     const { id } = req.params;
     const { data: existing, error: fetchError } = await supabase
@@ -336,7 +346,7 @@ router.post('/:id/disable', authMiddleware, requireManageRoles, async (req, res)
 });
 
 // ----- Delete role (only if no users assigned) -----
-router.delete('/:id', authMiddleware, requireManageRoles, async (req, res) => {
+router.delete('/:id', authWithFreshUser, requireManageRoles, async (req, res) => {
   try {
     const { id } = req.params;
     const { data: existing, error: fetchError } = await supabase

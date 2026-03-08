@@ -2,7 +2,7 @@ import express from 'express';
 import { supabase } from '../db';
 import jwt from 'jsonwebtoken';
 import { logger, isVerboseLogging } from '../utils/logger';
-import { getPermissionsForUser } from '../permissions.js';
+import { getPermissionsForUserByUserId } from '../permissions.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -159,7 +159,7 @@ async function authenticateSubscriptionManager(req: express.Request, res: expres
       return next();
     }
 
-    const perms = await getPermissionsForUser(supabase, decoded.role_id ?? null, decoded.role || '');
+    const perms = await getPermissionsForUserByUserId(supabase, decoded.id);
     if (perms.includes('sell_packages')) {
       req.user = {
         id: decoded.id,

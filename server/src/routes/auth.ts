@@ -2480,7 +2480,7 @@ router.post('/admin/impersonate', authenticateSolutionOwner, async (req, res) =>
       return res.status(400).json({ error: 'Provide user_id or email to impersonate.' });
     }
 
-    let query = supabase.from('users').select('id, email, username, full_name, full_name_ar, role, tenant_id, branch_id, is_active').limit(1);
+    let query = supabase.from('users').select('id, email, username, full_name, full_name_ar, role, role_id, tenant_id, branch_id, is_active').limit(1);
     if (user_id) {
       query = query.eq('id', user_id);
     } else {

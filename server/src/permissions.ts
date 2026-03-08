@@ -124,3 +124,29 @@ export async function getPermissionsForUser(
   }
   return getLegacyPermissionsForRole(legacyRole) as string[];
 }
+
+/**
+ * Resolve permissions from the database by user id.
+ * Always loads current role_id and role from users table so that permission resolution
+ * reflects role changes (category change, reassignment) without re-login.
+ * Use this for all permission checks instead of getPermissionsForUser with JWT-derived role_id/role.
+ */
+export async function getPermissionsForUserByUserId(
+  supabaseClient: any,
+  userId: string
+): Promise<string[]> {
+  if (!userId || String(userId).trim() === '') {
+    return [];
+  }
+  const { data: user, error } = await supabaseClient
+    .from('users')
+    .select('role_id, role')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error || !user) {
+    return [];
+  }
+  const roleId = user.role_id ?? null;
+  const legacyRole = (user.role ?? '').trim() || 'employee';
+  return getPermissionsForUser(supabaseClient, roleId, legacyRole);
+}

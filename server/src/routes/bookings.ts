@@ -10,7 +10,7 @@ import {
   invalidateEmployeeAvailabilityForTenant,
 } from '../utils/employeeAvailabilityCache';
 import { formatTimeTo12Hour } from '../utils/timeFormat';
-import { getPermissionsForUser } from '../permissions.js';
+import { getPermissionsForUserByUserId } from '../permissions.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -183,7 +183,7 @@ async function authenticateTenantAdminOrBookingEditForDelete(req: express.Reques
     if (allowedRoles.includes(decoded.role)) {
       return next();
     }
-    const perms = await getPermissionsForUser(supabase, decoded.role_id, decoded.role || '');
+    const perms = await getPermissionsForUserByUserId(supabase, decoded.id);
     if (perms.includes('edit_booking') || perms.includes('manage_bookings')) {
       return next();
     }
@@ -222,7 +222,7 @@ async function authenticateAdminOrReceptionistForPaymentStatus(req: express.Requ
       req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null, role_id: decoded.role_id ?? null };
       return next();
     }
-    const perms = await getPermissionsForUser(supabase, decoded.role_id, decoded.role || '');
+    const perms = await getPermissionsForUserByUserId(supabase, decoded.id);
     if (perms.includes('issue_invoices')) {
       req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null, role_id: decoded.role_id ?? null };
       return next();
@@ -1515,10 +1515,10 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
   };
 
   try {
-    // RBAC: staff (non-customer) must have create_booking permission
+    // RBAC: staff (non-customer) must have create_booking permission (resolve from DB so role changes take effect)
     const userRole = req.user?.role;
-    if (userRole && userRole !== 'customer') {
-      const perms = await getPermissionsForUser(supabase, (req.user as any).role_id, userRole);
+    if (userRole && userRole !== 'customer' && req.user?.id) {
+      const perms = await getPermissionsForUserByUserId(supabase, req.user.id);
       if (!perms.includes('create_booking')) {
         return sendResponse(403, { error: 'You do not have permission to create bookings.' });
       }
@@ -4042,8 +4042,8 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
     const tenantId = req.user!.tenant_id!;
     const updateData = req.body;
 
-    // RBAC: enforce permissions for custom roles; built-in roles get permissions from role_permissions
-    const perms = await getPermissionsForUser(supabase, (req.user as any).role_id, req.user!.role || '');
+    // RBAC: enforce permissions from DB so role/category changes take effect without re-login
+    const perms = await getPermissionsForUserByUserId(supabase, userId);
     const isCancelling = updateData && (updateData.status === 'cancelled' || (typeof updateData.status === 'string' && updateData.status.trim() === 'cancelled'));
     const onlyConfirming = req.user!.role === 'coordinator' && updateData && Object.keys(updateData).filter(k => !['status', 'updated_at', 'status_changed_at'].includes(k)).length === 0 && updateData.status === 'confirmed';
     if (isCancelling) {

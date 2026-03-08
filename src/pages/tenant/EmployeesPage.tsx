@@ -891,10 +891,10 @@ export function EmployeesPage() {
 
       {/* Filtered Employees */}
       {(() => {
+        const legacyKeys = ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'];
         // Filter employees by role (legacy key or custom role_id)
         let filteredEmployees = employees;
         if (selectedRole !== 'all') {
-          const legacyKeys = ['employee', 'receptionist', 'coordinator', 'cashier', 'customer_admin', 'admin_user'];
           if (legacyKeys.includes(selectedRole)) {
             filteredEmployees = employees.filter(emp => emp.role === selectedRole);
           } else {
@@ -902,7 +902,7 @@ export function EmployeesPage() {
           }
         }
 
-        // Filter employees by search query
+        // Filter employees by search query (include role name so e.g. "tester" finds "Tester Role" assignees)
         if (searchQuery.trim()) {
           const query = searchQuery.toLowerCase().trim();
           filteredEmployees = filteredEmployees.filter(emp => {
@@ -911,33 +911,47 @@ export function EmployeesPage() {
             const username = (emp.username || '').toLowerCase();
             const email = (emp.email || '').toLowerCase();
             const phone = (emp.phone || '').toLowerCase();
-            
-            return fullName.includes(query) || 
-                   fullNameAr.includes(query) || 
-                   username.includes(query) || 
-                   email.includes(query) || 
-                   phone.includes(query);
+            const roleDisplayName = getRoleDisplayName(emp).toLowerCase();
+            return fullName.includes(query) ||
+                   fullNameAr.includes(query) ||
+                   username.includes(query) ||
+                   email.includes(query) ||
+                   phone.includes(query) ||
+                   roleDisplayName.includes(query);
           });
         }
 
         if (filteredEmployees.length === 0) {
+          const onlyRoleFilter = selectedRole !== 'all' && !searchQuery.trim();
+          const selectedRoleName = selectedRole !== 'all' && !legacyKeys.includes(selectedRole)
+            ? roleOptions.find((r) => r.id === selectedRole)?.name
+            : null;
           return (
             <Card className="shadow-sm border border-gray-200/80">
               <CardContent className="py-12 text-center">
                 <Users className="w-16 h-16 text-slate-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  {searchQuery || selectedRole !== 'all' 
+                  {searchQuery || selectedRole !== 'all'
                     ? t('employee.noResultsFound')
                     : t('employee.noEmployeesYet')}
                 </h3>
                 <p className="text-gray-600 mb-6">
-                  {searchQuery || selectedRole !== 'all'
+                  {searchQuery
                     ? t('employee.tryDifferentSearch')
-                    : t('employee.startBuildingTeam')}
+                    : onlyRoleFilter && selectedRoleName
+                      ? t('employee.noEmployeesWithRole', { role: selectedRoleName })
+                      : selectedRole !== 'all'
+                        ? t('employee.tryDifferentSearch')
+                        : t('employee.startBuildingTeam')}
                 </p>
                 {!searchQuery && selectedRole === 'all' && (
                   <Button onClick={() => setIsModalOpen(true)} icon={<Plus className="w-4 h-4" />}>
                     {t('employee.addEmployee')}
+                  </Button>
+                )}
+                {onlyRoleFilter && (
+                  <Button variant="secondary" size="sm" onClick={() => { setSelectedRole('all'); setSearchQuery(''); }}>
+                    {t('employee.showAll')}
                   </Button>
                 )}
               </CardContent>

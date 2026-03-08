@@ -462,6 +462,8 @@
     "activate": "Activate",
     "noEmployeesYet": "No employees yet",
     "noResultsFound": "No results found",
+    "noEmployeesWithRole": "No employees assigned to {{role}}. Try \"All\" or refresh after changing role category.",
+    "showAll": "Show all",
     "tryDifferentSearch": "Try a different search term",
     "startBuildingTeam": "Start building your team by adding employees",
     "assignServices": "Assign Services",

@@ -12,7 +12,7 @@ export default defineConfig({
     proxy: {
       '/api': {
         // Local dev: proxy to local backend so JWT from local login works. Set VITE_API_URL to use a different backend.
-        target: process.env.VITE_API_URL?.replace(/api/?$/, '') || 'http://localhost:3001',
+        target: process.env.VITE_API_URL?.replace(/api\/?$/, '') || 'http://localhost:3001',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api/, '/api'),
