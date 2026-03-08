@@ -30,7 +30,7 @@ interface Role {
 
 export function RolesPage() {
   const { t } = useTranslation();
-  const { userProfile, hasPermission } = useAuth();
+  const { userProfile, hasPermission, refetchPermissions } = useAuth();
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,6 +168,8 @@ export function RolesPage() {
           throw new Error(msg);
         }
         showNotification('success', 'Role updated');
+        // Refetch current user permissions so if they have this role they see the new access immediately
+        refetchPermissions();
       } else {
         const res = await apiFetch('/roles', {
           method: 'POST',

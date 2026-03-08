@@ -23,6 +23,8 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   /** Re-read session from localStorage and fetch user profile (e.g. after signup so UI is logged in) */
   refreshSessionFromStorage: () => Promise<void>;
+  /** Refetch current user permissions from backend (e.g. after role permissions were updated so UI reflects new access) */
+  refetchPermissions: () => Promise<void>;
   hasRole: (roles: UserRole[]) => boolean;
   /** RBAC: whether current user has the given permission */
   hasPermission: (permissionId: string) => boolean;
@@ -464,7 +466,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // User data is already in authData.user, no need to fetch again
         const userProfile = authData.user as User;
         const tenantData = authData.tenant || null;
-        
+        const session = (authData as { session?: { access_token?: string } }).session;
+        if (session?.access_token && typeof localStorage !== 'undefined') {
+          localStorage.setItem('auth_token', session.access_token);
+        }
         debugLog('Sign In Successful', {
           userId: userProfile.id,
           role: userProfile.role,
@@ -477,6 +482,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (tenantData) {
           setTenant(tenantData);
         }
+        // Fetch permissions so menu/features match role (backend reads from role_permissions)
+        refetchPermissions();
         
         // Start token refresh interval (refresh before idle expiry)
         startTokenRefreshInterval();
@@ -673,6 +680,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await fetchUserProfile(session.user.id);
   }
 
+  /** Fetch current user permissions from backend (used when role permissions may have changed). */
+  async function refetchPermissions() {
+    if (typeof window === 'undefined') return;
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      setPermissions([]);
+      return;
+    }
+    try {
+      const { getApiUrl } = await import('../lib/apiUrl');
+      const base = getApiUrl().replace(/\/$/, '');
+      const res = await fetch(`${base}/roles/permissions/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setPermissions(Array.isArray(json.permissions) ? json.permissions : []);
+      } else {
+        setPermissions([]);
+      }
+    } catch (_) {
+      setPermissions([]);
+    }
+  }
+
+  // When tab becomes visible, refetch permissions so role permission changes take effect without re-login
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && userProfileRef.current && localStorage.getItem('auth_token')) {
+        refetchPermissions();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
+
   useEffect(() => {
     if (typeof localStorage === 'undefined') return;
     const has = !!localStorage.getItem(IMPERSONATION_LOG_ID_KEY) && !!localStorage.getItem(IMPERSONATION_ORIGINAL_SESSION_KEY);
@@ -689,6 +732,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUp,
     signOut,
     refreshSessionFromStorage,
+    refetchPermissions,
     hasRole,
     hasPermission,
     applyImpersonation,
