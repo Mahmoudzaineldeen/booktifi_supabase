@@ -56,7 +56,10 @@ done fix the time rang so in booking it dont show 1pm 3pm make it just 1pm
 
 add edit all in services
 
-add a commotion side with both a static number of commotion this means if employe made 10 or 20 no matter we give it 10 or what ever percent the admin specifies and add target system like 1000 sell take 50 sar 2000 takes 100 and go this should be specified from admin and shows in employee side
+add a commotion side with both a static number of commotion this means if employee made 10 or 20 no matter we give it 10 or what ever percent the admin specifies and add target system like 1000 sell take 50 sar 2000 takes 100 and go this should be specified from admin and shows in employee side
+
+intgerate with google analytics and google tag manager
+
 
 
 add enable and disable landing page from superadmin
@@ -67,13 +70,26 @@ add accustom rule system
 
 add employee side
 
-add made by saudi
+done add made by saudi
 
 pricing (number of branches and users and WhatsApp number messages)
 https://www.daftra.com/plans
 Pricing page
 
-add payment getway and WhatsApp getway
+add payment getaway and WhatsApp getaway
 
 add new role (agency) link with the agency id so if any one created a link through an agency link there is a tap called added persons shows persons registered through my link and there is a cashback for me for each one add same for the service provider 
 Deep Tissue Massage
+
+
+in search in packages subscribers add when search by package add a drop down menu for packages name
+make a main called reports that has 3 pages under it our normal visitors and a small detail in each visitor detail add the employee that served him 
+and another reports  transactions only
+and other one with bookings data like the one in the displayed bookings and add filter by employee 
+
+place where the booking made in indoor or outdoor while booking 
+option called additional cost to add delivery cost while creating or editing existed service add field to name additional cost and its value for both 
+
+make a tag mechanism so the admin can name a tag and add option of extra fees where he name the fee and its value and add option to assign it to service or more services and each service can be assigned to multi tags and the is a tag called default that has no fees when the receptionist is making a booking or the admin he must choose the tag before creating the booking so the fee is added to the service value and there is a description for each fee and add  ensure all edits takes its affect on the role managements system
+
+integrate with daftara

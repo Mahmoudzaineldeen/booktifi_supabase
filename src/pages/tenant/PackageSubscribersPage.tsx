@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
@@ -7,7 +7,7 @@ import { Input } from '../../components/ui/Input';
 import { searchBarWrapperClass, searchSelectClass } from '../../components/ui/SearchInput';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
-import { Package, Users, Search, X, Calendar, Filter, FileSearch, Phone, Mail, CheckCircle, Briefcase, TrendingUp, TrendingDown, Hash, XCircle, AlertTriangle, Plus, Edit2, Download } from 'lucide-react';
+import { Package, Users, X, Calendar, Filter, FileSearch, Phone, Mail, CheckCircle, Briefcase, TrendingUp, TrendingDown, Hash, XCircle, AlertTriangle, Plus, Edit2, Download } from 'lucide-react';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
@@ -64,6 +64,7 @@ export function PackageSubscribersPage() {
   // Search state
   const [searchType, setSearchType] = useState<SearchType>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [packageFilterPackageId, setPackageFilterPackageId] = useState('');
   const [searchResults, setSearchResults] = useState<PackageSubscriber[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
@@ -184,71 +185,114 @@ export function PackageSubscribersPage() {
     }
   }
 
-  function handleSearch() {
-    if (!searchQuery.trim() || !searchType) {
-      setSearchValidationError(t('bookings.search.validation.required', 'Please select search type and enter query'));
+  const packageNameOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; label: string }>();
+    for (const s of subscribers) {
+      const id = s.package_id;
+      if (!id || byId.has(id)) continue;
+      const label =
+        i18n.language === 'ar'
+          ? (s.service_packages?.name_ar || s.service_packages?.name || '')
+          : (s.service_packages?.name || s.service_packages?.name_ar || '');
+      byId.set(id, { id, label });
+    }
+    return Array.from(byId.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, i18n.language === 'ar' ? 'ar' : 'en', { sensitivity: 'base' })
+    );
+  }, [subscribers, i18n.language]);
+
+  const applyTextFilter = useCallback(
+    (type: Exclude<SearchType, '' | 'package_name'>, queryLower: string): PackageSubscriber[] => {
+      switch (type) {
+        case 'customer_name':
+          return subscribers.filter((s) => s.customer?.name?.toLowerCase().includes(queryLower));
+        case 'customer_phone': {
+          const digits = queryLower.replace(/\D/g, '');
+          if (!digits) return [];
+          return subscribers.filter((s) =>
+            (s.customer?.phone || '').replace(/\D/g, '').includes(digits)
+          );
+        }
+        case 'service_name':
+          return subscribers.filter((s) =>
+            s.usage.some((u) =>
+              (i18n.language === 'ar' ? u.service_name_ar : u.service_name)?.toLowerCase().includes(queryLower)
+            )
+          );
+        default:
+          return [];
+      }
+    },
+    [subscribers, i18n.language]
+  );
+
+  // Live search (debounced for text fields), like BookingsPage — no Search button
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+      searchTimeoutRef.current = null;
+    }
+
+    if (!searchType) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      setSearchValidationError('');
+      setIsSearching(false);
+      return;
+    }
+
+    if (searchType === 'package_name') {
+      setIsSearching(false);
+      setSearchValidationError('');
+      if (packageFilterPackageId) {
+        const results = subscribers.filter((s) => s.package_id === packageFilterPackageId);
+        setSearchResults(results);
+        setShowSearchResults(true);
+      } else {
+        setSearchResults([]);
+        setShowSearchResults(false);
+      }
+      return;
+    }
+
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      setSearchValidationError('');
+      setIsSearching(false);
       return;
     }
 
     setIsSearching(true);
-    setShowSearchResults(true);
-
-    // Clear previous timeout
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
-    // Debounce search
+    const queryLower = q.toLowerCase();
     searchTimeoutRef.current = setTimeout(() => {
-      performSearch();
+      const results = applyTextFilter(searchType, queryLower);
+      setSearchResults(results);
+      setShowSearchResults(true);
+      setIsSearching(false);
+      searchTimeoutRef.current = null;
     }, 300);
-  }
 
-  function performSearch() {
-    if (!searchQuery.trim() || !searchType) return;
-
-    const query = searchQuery.toLowerCase().trim();
-    let results: PackageSubscriber[] = [];
-
-    switch (searchType) {
-      case 'customer_name':
-        results = subscribers.filter(s => 
-          s.customer?.name?.toLowerCase().includes(query)
-        );
-        break;
-      case 'customer_phone':
-        results = subscribers.filter(s => 
-          s.customer?.phone?.includes(query)
-        );
-        break;
-      case 'service_name':
-        results = subscribers.filter(s => 
-          s.usage.some(u => 
-            (i18n.language === 'ar' ? u.service_name_ar : u.service_name)
-              ?.toLowerCase().includes(query)
-          )
-        );
-        break;
-      case 'package_name':
-        results = subscribers.filter(s => 
-          (i18n.language === 'ar' ? s.service_packages?.name_ar : s.service_packages?.name)
-            ?.toLowerCase().includes(query)
-        );
-        break;
-    }
-
-    setSearchResults(results);
-    setIsSearching(false);
-  }
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = null;
+      }
+    };
+  }, [searchQuery, searchType, packageFilterPackageId, subscribers, applyTextFilter]);
 
   function clearSearch() {
     setSearchQuery('');
     setSearchType('');
+    setPackageFilterPackageId('');
     setShowSearchResults(false);
     setSearchResults([]);
     setSearchValidationError('');
+    setIsSearching(false);
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
+      searchTimeoutRef.current = null;
     }
   }
 
@@ -445,6 +489,8 @@ title: t('common.confirm'),
                 value={searchType}
                 onChange={(e) => {
                   setSearchType(e.target.value as SearchType);
+                  setSearchQuery('');
+                  setPackageFilterPackageId('');
                   setSearchValidationError('');
                 }}
                 className={`${searchSelectClass} text-base py-3`}
@@ -458,40 +504,63 @@ title: t('common.confirm'),
             </div>
             <div className="flex-[2]">
               <label className="flex items-center gap-2 text-base font-medium text-gray-700 mb-3">
-                <FileSearch className="w-5 h-5" />
-                {t('bookings.search.query', 'Search Query')}
+                {searchType === 'package_name' ? (
+                  <Package className="w-5 h-5" />
+                ) : (
+                  <FileSearch className="w-5 h-5" />
+                )}
+                {searchType === 'package_name'
+                  ? t('packages.search.selectPackage', 'Package')
+                  : t('bookings.search.query', 'Search Query')}
               </label>
-              <div className="flex gap-3 flex-1 min-w-0">
-                <div className={`flex-1 min-w-0 ${searchBarWrapperClass}`}>
-                  <FileSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={searchQuery}
+              <div className="flex gap-3 flex-1 min-w-0 items-start">
+                {searchType === 'package_name' ? (
+                  <select
+                    value={packageFilterPackageId}
                     onChange={(e) => {
-                      setSearchQuery(e.target.value);
+                      setPackageFilterPackageId(e.target.value);
                       setSearchValidationError('');
                     }}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        handleSearch();
+                    disabled={!searchType}
+                    className={`${searchSelectClass} flex-1 min-w-0 text-base py-3`}
+                  >
+                    <option value="">
+                      {t('packages.search.allPackages', 'All packages')}
+                    </option>
+                    {packageNameOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label || opt.id}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className={`flex-1 min-w-0 relative ${searchBarWrapperClass}`}>
+                    <FileSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setSearchValidationError('');
+                      }}
+                      disabled={!searchType}
+                      placeholder={
+                        searchType === 'customer_phone'
+                          ? t('bookings.search.phonePlaceholder', 'Phone number...')
+                          : t('bookings.search.placeholder', 'Enter search term...')
                       }
-                    }}
-                    placeholder={t('bookings.search.placeholder', 'Enter search term...')}
-                    className="w-full bg-transparent border-0 pl-11 pr-4 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
-                  />
-                </div>
-                <button
-                  onClick={handleSearch}
-                  disabled={isSearching}
-                  className="px-6 py-3 text-base bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 font-medium"
-                >
-                  <Search className="w-5 h-5" />
-                  {t('bookings.search.search', 'Search')}
-                </button>
-                {showSearchResults && (
+                      className="w-full bg-transparent border-0 pl-11 pr-4 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0 disabled:opacity-60"
+                    />
+                    {isSearching && searchType && searchType !== 'package_name' && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    )}
+                  </div>
+                )}
+                {(showSearchResults || (searchType === 'package_name' && packageFilterPackageId) || (searchType && searchQuery.trim())) && (
                   <button
+                    type="button"
                     onClick={clearSearch}
-                    className="px-6 py-3 text-base bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 flex items-center gap-2 font-medium"
+                    className="px-6 py-3 text-base bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 flex items-center gap-2 font-medium shrink-0"
                   >
                     <X className="w-5 h-5" />
                     {t('bookings.search.clear', 'Clear')}

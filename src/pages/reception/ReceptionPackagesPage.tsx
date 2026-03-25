@@ -18,7 +18,7 @@
  * - Delete packages
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
@@ -105,10 +105,11 @@ export function ReceptionPackagesPage() {
   const [services, setServices] = useState<Array<{ id: string; name: string; name_ar?: string }>>([]);
   
   // Subscribers state (same data source as admin PackageSubscribersPage: direct Supabase query)
-  const [subscribers, setSubscribers] = useState<PackageSubscriber[]>([]);
+  const [subscribersRaw, setSubscribersRaw] = useState<PackageSubscriber[]>([]);
   const [subscribersLoading, setSubscribersLoading] = useState(true);
   const [subscriberSearchQuery, setSubscriberSearchQuery] = useState('');
   const [subscriberSearchType, setSubscriberSearchType] = useState<'customer_name' | 'customer_phone' | 'package_name' | 'service_name' | ''>('');
+  const [subscriberPackageFilterId, setSubscriberPackageFilterId] = useState('');
   
   // Subscribe Customer Modal — uses shared ReceptionSubscribeModal (same UI + logic as admin)
   const [isSubscribeModalOpen, setIsSubscribeModalOpen] = useState(false);
@@ -155,12 +156,63 @@ export function ReceptionPackagesPage() {
     }
   }, [activeTab, userProfile, packageSearchQuery, packageSearchService]);
 
-  // Fetch subscribers (same data source as admin)
+  // Fetch subscribers once when tab opens (filters run client-side, like live search)
   useEffect(() => {
     if (activeTab === 'subscribers') {
       fetchSubscribers();
     }
-  }, [activeTab, userProfile, subscriberSearchQuery, subscriberSearchType]);
+  }, [activeTab, userProfile]);
+
+  const subscriberPackageOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; label: string }>();
+    for (const s of subscribersRaw) {
+      const id = s.package_id;
+      if (!id || !s.package || byId.has(id)) continue;
+      const label =
+        i18n.language === 'ar'
+          ? (s.package.name_ar || s.package.name || '')
+          : (s.package.name || s.package.name_ar || '');
+      byId.set(id, { id, label });
+    }
+    return Array.from(byId.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, i18n.language === 'ar' ? 'ar' : 'en', { sensitivity: 'base' })
+    );
+  }, [subscribersRaw, i18n.language]);
+
+  const filteredSubscribers = useMemo(() => {
+    let list = subscribersRaw;
+    if (!subscriberSearchType) return list;
+
+    if (subscriberSearchType === 'package_name') {
+      if (!subscriberPackageFilterId) return list;
+      return list.filter(
+        (sub) => sub.package_id === subscriberPackageFilterId && sub.customer && sub.package
+      );
+    }
+
+    const term = subscriberSearchQuery.trim().toLowerCase();
+    if (!term) return list;
+
+    return list.filter((sub) => {
+      if (!sub.customer || !sub.package) return false;
+      switch (subscriberSearchType) {
+        case 'customer_name':
+          return sub.customer.name?.toLowerCase().includes(term);
+        case 'customer_phone': {
+          const digits = term.replace(/\D/g, '');
+          if (!digits) return false;
+          return (sub.customer.phone || '').replace(/\D/g, '').includes(digits);
+        }
+        case 'service_name':
+          return sub.usage.some(
+            (u) =>
+              u.service_name?.toLowerCase().includes(term) || u.service_name_ar?.toLowerCase().includes(term)
+          );
+        default:
+          return false;
+      }
+    });
+  }, [subscribersRaw, subscriberSearchType, subscriberSearchQuery, subscriberPackageFilterId]);
 
   async function fetchPackages() {
     if (!userProfile?.tenant_id) {
@@ -204,7 +256,7 @@ export function ReceptionPackagesPage() {
 
   async function fetchSubscribers() {
     if (!userProfile?.tenant_id) {
-      setSubscribers([]);
+      setSubscribersRaw([]);
       setSubscribersLoading(false);
       return;
     }
@@ -244,12 +296,12 @@ export function ReceptionPackagesPage() {
 
       if (error) {
         console.error('Error fetching subscribers:', error);
-        setSubscribers([]);
+        setSubscribersRaw([]);
         return;
       }
 
       if (!data || data.length === 0) {
-        setSubscribers([]);
+        setSubscribersRaw([]);
         return;
       }
 
@@ -301,42 +353,11 @@ export function ReceptionPackagesPage() {
         })
       );
 
-      let list = subscribersWithUsage.filter((s): s is PackageSubscriber => s !== null);
-
-      // Client-side search (same filters as admin)
-      if (subscriberSearchQuery.trim() && subscriberSearchType) {
-        const term = subscriberSearchQuery.trim().toLowerCase();
-        list = list.filter((sub) => {
-          if (!sub.customer || !sub.package) return false;
-          switch (subscriberSearchType) {
-            case 'customer_name':
-              return sub.customer.name?.toLowerCase().includes(term);
-            case 'customer_phone':
-              return sub.customer.phone?.toLowerCase().includes(term);
-            case 'package_name':
-              return sub.package.name?.toLowerCase().includes(term) || sub.package.name_ar?.toLowerCase().includes(term);
-            case 'service_name':
-              return sub.usage.some(u =>
-                u.service_name?.toLowerCase().includes(term) || u.service_name_ar?.toLowerCase().includes(term)
-              );
-            default:
-              return (
-                sub.customer.name?.toLowerCase().includes(term) ||
-                sub.customer.phone?.toLowerCase().includes(term) ||
-                sub.package.name?.toLowerCase().includes(term) ||
-                sub.package.name_ar?.toLowerCase().includes(term) ||
-                sub.usage.some(u =>
-                  u.service_name?.toLowerCase().includes(term) || u.service_name_ar?.toLowerCase().includes(term)
-                )
-              );
-          }
-        });
-      }
-
-      setSubscribers(list);
+      const list = subscribersWithUsage.filter((s): s is PackageSubscriber => s !== null);
+      setSubscribersRaw(list);
     } catch (error) {
       console.error('Error fetching subscribers:', error);
-      setSubscribers([]);
+      setSubscribersRaw([]);
     } finally {
       setSubscribersLoading(false);
     }
@@ -371,7 +392,7 @@ export function ReceptionPackagesPage() {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || errorData.details || `Failed to cancel (${response.status})`);
       }
-      setSubscribers((prev) => prev.filter((s) => s.id !== subscriptionId));
+      setSubscribersRaw((prev) => prev.filter((s) => s.id !== subscriptionId));
       showNotification('success', t('packages.subscriptionCancelledSuccessfully'));
       await fetchSubscribers();
     } catch (err: any) {
@@ -636,6 +657,7 @@ export function ReceptionPackagesPage() {
                       onChange={(e) => {
                         setSubscriberSearchType(e.target.value as any);
                         setSubscriberSearchQuery('');
+                        setSubscriberPackageFilterId('');
                       }}
                       className={searchSelectClass}
                     >
@@ -648,42 +670,75 @@ export function ReceptionPackagesPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      {i18n.language === 'ar' ? 'البحث' : 'Search'}
+                      {subscriberSearchType === 'package_name'
+                        ? (i18n.language === 'ar' ? 'الباقة' : 'Package')
+                        : i18n.language === 'ar'
+                          ? 'البحث'
+                          : 'Search'}
                     </label>
-                    <div className={`${searchBarWrapperClass} ${!subscriberSearchType ? 'opacity-60' : ''}`}>
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-                      <input
-                        type="text"
-                        value={subscriberSearchQuery}
-                        onChange={(e) => setSubscriberSearchQuery(e.target.value)}
-                        placeholder={
-                          subscriberSearchType === 'customer_name'
-                            ? (i18n.language === 'ar' ? 'اسم العميل...' : 'Customer name...')
-                            : subscriberSearchType === 'customer_phone'
-                            ? (i18n.language === 'ar' ? 'رقم الهاتف...' : 'Phone number...')
-                            : subscriberSearchType === 'package_name'
-                            ? (i18n.language === 'ar' ? 'اسم الباقة...' : 'Package name...')
-                            : subscriberSearchType === 'service_name'
-                            ? (i18n.language === 'ar' ? 'اسم الخدمة...' : 'Service name...')
-                            : (i18n.language === 'ar' ? 'اختر نوع البحث أولاً...' : 'Select search type first...')
-                        }
-                        className="w-full bg-transparent border-0 pl-11 pr-10 py-2.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0 disabled:cursor-not-allowed"
+                    {subscriberSearchType === 'package_name' ? (
+                      <select
+                        value={subscriberPackageFilterId}
+                        onChange={(e) => setSubscriberPackageFilterId(e.target.value)}
                         disabled={!subscriberSearchType}
-                      />
-                      {subscriberSearchQuery && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSubscriberSearchQuery('');
-                            setSubscriberSearchType('');
-                          }}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 rounded-full p-0.5"
-                          aria-label="Clear search"
-                        >
-                          <X className="w-5 h-5" />
-                        </button>
-                      )}
-                    </div>
+                        className={`${searchSelectClass} w-full`}
+                      >
+                        <option value="">
+                          {i18n.language === 'ar' ? 'كل الباقات' : 'All packages'}
+                        </option>
+                        {subscriberPackageOptions.map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.label || opt.id}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className={`${searchBarWrapperClass} ${!subscriberSearchType ? 'opacity-60' : ''}`}>
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={subscriberSearchQuery}
+                          onChange={(e) => setSubscriberSearchQuery(e.target.value)}
+                          placeholder={
+                            subscriberSearchType === 'customer_name'
+                              ? (i18n.language === 'ar' ? 'اسم العميل...' : 'Customer name...')
+                              : subscriberSearchType === 'customer_phone'
+                                ? (i18n.language === 'ar' ? 'رقم الهاتف...' : 'Phone number...')
+                                : subscriberSearchType === 'service_name'
+                                  ? (i18n.language === 'ar' ? 'اسم الخدمة...' : 'Service name...')
+                                  : (i18n.language === 'ar' ? 'اختر نوع البحث أولاً...' : 'Select search type first...')
+                          }
+                          className="w-full bg-transparent border-0 pl-11 pr-10 py-2.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0 disabled:cursor-not-allowed"
+                          disabled={!subscriberSearchType}
+                        />
+                        {subscriberSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSubscriberSearchQuery('');
+                              setSubscriberSearchType('');
+                              setSubscriberPackageFilterId('');
+                            }}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 rounded-full p-0.5"
+                            aria-label="Clear search"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {subscriberSearchType === 'package_name' && subscriberPackageFilterId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSubscriberPackageFilterId('');
+                          setSubscriberSearchType('');
+                        }}
+                        className="mt-2 text-sm text-blue-600 hover:text-blue-800"
+                      >
+                        {i18n.language === 'ar' ? 'مسح التصفية' : 'Clear filter'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -696,12 +751,21 @@ export function ReceptionPackagesPage() {
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
               <p className="mt-4 text-gray-600">{i18n.language === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
             </div>
-          ) : subscribers.length === 0 ? (
+          ) : subscribersRaw.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
                 <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-600">
                   {i18n.language === 'ar' ? 'لا يوجد مشتركين' : 'No subscribers found'}
+                </p>
+              </CardContent>
+            </Card>
+          ) : filteredSubscribers.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600">
+                  {i18n.language === 'ar' ? 'لا نتائج مطابقة للبحث' : 'No subscribers match your search'}
                 </p>
               </CardContent>
             </Card>
@@ -735,7 +799,7 @@ export function ReceptionPackagesPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {subscribers.map((subscriber) => (
+                    {filteredSubscribers.map((subscriber) => (
                       <tr key={subscriber.id} className="hover:bg-gray-50">
                         <td className="px-4 py-4 whitespace-nowrap">
                           <div className={i18n.language === 'ar' ? 'text-right' : 'text-left'}>
