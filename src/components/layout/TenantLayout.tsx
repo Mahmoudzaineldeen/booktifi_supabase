@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { showNotification } from '../../contexts/NotificationContext';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, UserCircle, Clock, Building2, Wrench, UserX, Shield } from 'lucide-react';
+import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, UserCircle, Clock, Building2, Wrench, UserX, Shield, BarChart3, ChevronDown } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface TenantLayoutProps {
@@ -28,12 +28,21 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
   // Get tenantSlug from props, URL params, or tenant slug
   const tenantSlug = propTenantSlug || params.tenantSlug || tenant?.slug || '';
 
-  // Coordinator can only access reception page and visitors; redirect if they hit any other admin route
+  const reportsBasePath = tenantSlug ? `/${tenantSlug}/admin/reports` : '';
+  const isReportsRoute = Boolean(reportsBasePath && location.pathname.startsWith(reportsBasePath));
+  const [reportsExpanded, setReportsExpanded] = useState(isReportsRoute);
+
+  useEffect(() => {
+    if (isReportsRoute) setReportsExpanded(true);
+  }, [isReportsRoute]);
+
+  // Coordinator: admin limited to Visitors + Reports; anything else → reception
   useEffect(() => {
     if (userProfile?.role === 'coordinator' && tenantSlug && location.pathname.startsWith(`/${tenantSlug}/admin`)) {
-      if (!location.pathname.startsWith(`/${tenantSlug}/admin/visitors`)) {
-        navigate(`/${tenantSlug}/reception`, { replace: true });
-      }
+      const ok =
+        location.pathname.startsWith(`/${tenantSlug}/admin/visitors`) ||
+        location.pathname.startsWith(`/${tenantSlug}/admin/reports`);
+      if (!ok) navigate(`/${tenantSlug}/reception`, { replace: true });
     }
   }, [userProfile?.role, tenantSlug, location.pathname, navigate]);
 
@@ -152,9 +161,21 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
   ];
 
   const navigation = baseNavigation.filter((item) => item.visible);
+  const showReportsNav = (canAccessBookings || canAccessVisitors) && !!tenantSlug;
+  const reportSubItems = [
+    { name: t('reports.nav.visitors', 'Visitors'), href: `${reportsBasePath}/visitors` },
+    { name: t('reports.nav.transactions', 'Transactions'), href: `${reportsBasePath}/transactions` },
+    { name: t('reports.nav.bookings', 'Bookings'), href: `${reportsBasePath}/bookings` },
+  ];
 
-  // Coordinator must not see admin layout (except visitors); redirect is done in useEffect; avoid flashing content
-  if (userProfile?.role === 'coordinator' && tenantSlug && location.pathname.startsWith(`/${tenantSlug}/admin`) && !location.pathname.startsWith(`/${tenantSlug}/admin/visitors`)) {
+  // Coordinator: hide admin shell while redirecting (except visitors + reports)
+  if (
+    userProfile?.role === 'coordinator' &&
+    tenantSlug &&
+    location.pathname.startsWith(`/${tenantSlug}/admin`) &&
+    !location.pathname.startsWith(`/${tenantSlug}/admin/visitors`) &&
+    !location.pathname.startsWith(`/${tenantSlug}/admin/reports`)
+  ) {
     return null;
   }
 
@@ -240,11 +261,71 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
                       : 'text-gray-700 hover:bg-gray-50'
                   }`}
                 >
-                  <Icon className="w-5 h-5" />
+                  <Icon className="w-5 h-5 shrink-0" />
                   {item.name}
                 </Link>
               );
             })}
+
+            {showReportsNav && (
+              <div className="space-y-0.5">
+                <div
+                  className={`flex w-full items-stretch rounded-lg overflow-hidden ${
+                    isReportsRoute ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <Link
+                    to={reportsBasePath}
+                    onClick={() => {
+                      setReportsExpanded(true);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`flex flex-1 items-center gap-3 px-4 py-3 text-sm font-medium min-w-0 ${
+                      isReportsRoute ? '' : 'hover:bg-gray-50/80'
+                    }`}
+                  >
+                    <BarChart3 className="w-5 h-5 shrink-0" />
+                    <span className="truncate">{t('navigation.reports', 'Reports')}</span>
+                  </Link>
+                  <button
+                    type="button"
+                    aria-expanded={reportsExpanded}
+                    aria-label={reportsExpanded ? t('common.collapse', 'Collapse') : t('common.expand', 'Expand')}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setReportsExpanded((v) => !v);
+                    }}
+                    className={`px-2 flex items-center shrink-0 border-l border-blue-100/80 ${
+                      isReportsRoute ? 'border-blue-200/60' : 'border-gray-200'
+                    } hover:bg-black/5`}
+                  >
+                    <ChevronDown
+                      className={`w-4 h-4 text-gray-500 transition-transform ${reportsExpanded ? 'rotate-180' : ''}`}
+                      aria-hidden
+                    />
+                  </button>
+                </div>
+                {reportsExpanded && (
+                  <div className="ml-2 pl-4 border-l-2 border-blue-100 space-y-0.5 py-1">
+                    {reportSubItems.map((sub) => {
+                      const subActive = location.pathname === sub.href || location.pathname.startsWith(`${sub.href}/`);
+                      return (
+                        <Link
+                          key={sub.href}
+                          to={sub.href}
+                          onClick={() => setMobileMenuOpen(false)}
+                          className={`block px-3 py-2 text-sm rounded-md transition-colors ${
+                            subActive ? 'bg-blue-50 text-blue-800 font-medium' : 'text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          {sub.name}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
             
             {/* Preview Mode Section - Hidden for restricted roles (customer_admin and admin_user) */}
             {!isRestrictedRole && (

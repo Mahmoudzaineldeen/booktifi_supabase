@@ -1,11 +1,10 @@
 import express from 'express';
 import { supabase } from '../db';
-import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
 import { formatTimeTo12Hour } from '../utils/timeFormat';
+import { authenticateVisitorsAccess } from '../middleware/authenticateVisitorsAccess.js';
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
 declare global {
   namespace Express {
@@ -15,38 +14,9 @@ declare global {
         email?: string;
         role?: string;
         tenant_id?: string;
+        branch_id?: string | null;
       };
     }
-  }
-}
-
-const VISITORS_ACCESS_ROLES = ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user', 'coordinator'];
-
-function authenticateVisitorsAccess(req: express.Request, res: express.Response, next: express.NextFunction) {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authorization header required' });
-    }
-    const token = authHeader.replace('Bearer ', '').trim();
-    if (!token) return res.status(401).json({ error: 'Token is required' });
-    let decoded: any;
-    try {
-      decoded = jwt.verify(token, JWT_SECRET) as any;
-    } catch (e: any) {
-      if (e.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token has expired' });
-      return res.status(401).json({ error: 'Invalid token' });
-    }
-    if (!VISITORS_ACCESS_ROLES.includes(decoded.role)) {
-      return res.status(403).json({ error: 'Access denied. Only admin or receptionist can access visitors.' });
-    }
-    if (!decoded.tenant_id) {
-      return res.status(403).json({ error: 'No tenant associated with your account.' });
-    }
-    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null };
-    next();
-  } catch (err: any) {
-    return res.status(500).json({ error: 'Authentication error', hint: err.message });
   }
 }
 
@@ -62,6 +32,7 @@ interface ListFilters {
   serviceId?: string;
   bookingStatus?: BookingStatusFilter;
   branchId?: string | null;
+  employeeId?: string;
 }
 
 function buildBookingTypeCondition(bookingType: BookingTypeFilter): string | null {
@@ -120,6 +91,49 @@ function phoneMatches(filterPhone: string, storedPhone: string): boolean {
   if (s.endsWith(stripLeadingZero(f)) || f.endsWith(stripLeadingZero(s))) return true;
   if (s === '20' + stripLeadingZero(f) || f === '20' + stripLeadingZero(s)) return true;
   return false;
+}
+
+function employeeDisplayFromBooking(b: any): string {
+  const u = b?.users;
+  return String(u?.full_name || u?.full_name_ar || '').trim();
+}
+
+function addServingEmployee(map: Map<string, Set<string>>, key: string, name: string) {
+  const n = (name || '').trim();
+  if (!n) return;
+  if (!map.has(key)) map.set(key, new Set());
+  map.get(key)!.add(n);
+}
+
+/** Unique serving employee names per customer id or guest phone (from already-filtered bookings). */
+function buildServingEmployeesMap(bookings: any[]): Map<string, Set<string>> {
+  const m = new Map<string, Set<string>>();
+  for (const b of bookings) {
+    const emp = employeeDisplayFromBooking(b);
+    if (!emp) continue;
+    if (b.customer_id) addServingEmployee(m, `c:${b.customer_id}`, emp);
+    else {
+      const phone = (b.customer_phone || '').trim();
+      if (phone) addServingEmployee(m, `g:${normalizePhone(phone)}`, emp);
+    }
+  }
+  return m;
+}
+
+function servingListForCustomer(map: Map<string, Set<string>>, customerId: string, guestPhoneRaw: string | null | undefined): string[] {
+  const names = new Set<string>();
+  const k1 = `c:${customerId}`;
+  if (map.has(k1)) map.get(k1)!.forEach((x) => names.add(x));
+  if (guestPhoneRaw) {
+    const k2 = `g:${normalizePhone(guestPhoneRaw)}`;
+    if (map.has(k2)) map.get(k2)!.forEach((x) => names.add(x));
+  }
+  return Array.from(names).sort();
+}
+
+function servingListForGuest(map: Map<string, Set<string>>, phone: string): string[] {
+  const k = `g:${normalizePhone(phone)}`;
+  return map.has(k) ? Array.from(map.get(k)!).sort() : [];
 }
 
 /** Fetch all rows from a query by paginating (avoids PostgREST row cap). */
@@ -181,6 +195,8 @@ async function fetchAllBookings(
         paid_quantity,
         package_subscription_id,
         branch_id,
+        employee_id,
+        users:employee_id(full_name, full_name_ar),
         slots(slot_date, start_time, end_time)
       `)
       .eq('tenant_id', tenantId)
@@ -226,6 +242,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       serviceId: (req.query.serviceId as string)?.trim() || undefined,
       bookingStatus: (req.query.bookingStatus as BookingStatusFilter) || '',
       branchId: effectiveBranchId,
+      employeeId: (req.query.employeeId as string)?.trim() || undefined,
     };
 
     // 1) Fetch ALL customers for tenant (paginate to avoid PostgREST row cap)
@@ -282,7 +299,11 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       return true;
     };
 
-    const filteredBookings = bookings.filter((b) => applyDateFilter(b) && applyBookingTypeFilter(b));
+    let filteredBookings = bookings.filter((b) => applyDateFilter(b) && applyBookingTypeFilter(b));
+    if (filters.employeeId) {
+      filteredBookings = filteredBookings.filter((b: any) => b.employee_id === filters.employeeId);
+    }
+    const servingEmployeesMap = buildServingEmployeesMap(filteredBookings);
 
     const PAYMENT_PAID_STATUSES = new Set(['paid', 'paid_manual']);
     const isPaymentPaid = (ps: string) => ps && PAYMENT_PAID_STATUSES.has(String(ps).toLowerCase());
@@ -352,12 +373,13 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       const agg = byCustomerId[c.id];
       const guestEntry = Object.entries(byGuestPhone).find(([ph]) => phoneMatches(ph, c.phone || ''));
       const guest = guestEntry ? guestEntry[1] : null;
+      const guestPhoneKey = guestEntry ? guestEntry[0] : null;
       const totalBookings = (agg?.total ?? 0) + (guest?.total ?? 0);
       const totalSpent = (agg?.spent ?? 0) + (guest?.spent ?? 0);
       const packageCount = (agg?.packageCount ?? 0) + (guest?.packageCount ?? 0);
       const paidCount = (agg?.paidCount ?? 0) + (guest?.paidCount ?? 0);
       const lastDate = [agg?.lastDate, guest?.lastDate].filter(Boolean).sort().pop() as string | null;
-      if (filters.bookingType || filters.serviceId || filters.bookingStatus || filters.startDate || filters.endDate) {
+      if (filters.bookingType || filters.serviceId || filters.bookingStatus || filters.startDate || filters.endDate || filters.employeeId) {
         if (totalBookings === 0) continue;
       }
       visitorRows.push({
@@ -374,6 +396,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
         paid_bookings_count: paidCount,
         last_booking_date: lastDate ?? agg?.lastDate ?? guest?.lastDate ?? null,
         status: c.is_blocked ? 'blocked' : 'active',
+        serving_employees: servingListForCustomer(servingEmployeesMap, c.id, guestPhoneKey),
       });
     }
 
@@ -397,6 +420,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
         paid_bookings_count: agg.paidCount,
         last_booking_date: agg.lastDate,
         status: 'active',
+        serving_employees: servingListForGuest(servingEmployeesMap, phone),
       });
     }
 
@@ -461,6 +485,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       bookingType: (req.query.bookingType as BookingTypeFilter) || 'all',
       serviceId: (req.query.serviceId as string)?.trim() || undefined,
       bookingStatus: (req.query.bookingStatus as BookingStatusFilter) || '',
+      employeeId: (req.query.employeeId as string)?.trim() || undefined,
     };
     const includeTotalsParam = String(req.query.includeTotals ?? 'true').trim();
     const includeVisitorDetailsParam = String(req.query.includeVisitorDetails ?? 'true').trim();
@@ -531,7 +556,11 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       if (filters.bookingType === 'paid_only') return pc === 0;
       return true;
     };
-    const filteredBookings = bookings.filter((b) => applyDateFilter(b) && applyTypeFilter(b));
+    let filteredBookings = bookings.filter((b) => applyDateFilter(b) && applyTypeFilter(b));
+    if (filters.employeeId) {
+      filteredBookings = filteredBookings.filter((b: any) => b.employee_id === filters.employeeId);
+    }
+    const servingEmployeesMapExport = buildServingEmployeesMap(filteredBookings);
 
     const packageSpendByCustomerExport = await fetchPackageSpendByCustomer(tenantId, effectiveExportBranchId);
     const PAYMENT_PAID_STATUSES = new Set(['paid', 'paid_manual']);
@@ -579,6 +608,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       const agg = byCustomerId[c.id];
       const guestEntry = Object.entries(byGuestPhone).find(([ph]) => phoneMatches(ph, c.phone || ''));
       const guest = guestEntry ? guestEntry[1] : null;
+      const guestPhoneKey = guestEntry ? guestEntry[0] : null;
       const totalBookings = (agg?.total ?? 0) + (guest?.total ?? 0);
       const totalSpent = (agg?.spent ?? 0) + (guest?.spent ?? 0);
       const totalPaidOnSite = (agg?.spentOnSite ?? 0) + (guest?.spentOnSite ?? 0);
@@ -586,7 +616,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       const packageCount = (agg?.packageCount ?? 0) + (guest?.packageCount ?? 0);
       const paidCount = (agg?.paidCount ?? 0) + (guest?.paidCount ?? 0);
       const lastDate = [agg?.lastDate, guest?.lastDate].filter(Boolean).sort().pop() as string | null;
-      if (filters.bookingType || filters.serviceId || filters.bookingStatus || filters.startDate || filters.endDate) {
+      if (filters.bookingType || filters.serviceId || filters.bookingStatus || filters.startDate || filters.endDate || filters.employeeId) {
         if (totalBookings === 0) continue;
       }
       rows.push({
@@ -602,11 +632,13 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         paid_bookings_count: paidCount,
         last_booking_date: lastDate ?? agg?.lastDate ?? guest?.lastDate ?? null,
         status: (c as any).is_blocked ? 'Blocked' : 'Active',
+        serving_employees: servingListForCustomer(servingEmployeesMapExport, c.id, guestPhoneKey),
       });
     }
     for (const [phone, agg] of Object.entries(byGuestPhone)) {
       const isCustomerPhone = (filteredCustomers || []).some((c: any) => phoneMatches(phone, c.phone || ''));
       if (isCustomerPhone) continue;
+      if (agg.total === 0) continue;
       if (filters.phone && filters.phone.trim() && !phoneMatches(filters.phone, phone)) continue;
       if (filters.name && filters.name.trim() && !nameMatchesSearch(agg.name, filters.name)) continue;
       rows.push({
@@ -622,6 +654,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         paid_bookings_count: agg.paidCount,
         last_booking_date: agg.lastDate,
         status: 'Active',
+        serving_employees: servingListForGuest(servingEmployeesMapExport, phone),
       });
     }
 
@@ -696,12 +729,14 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           );
           zip.append('\uFEFF' + packagesHeader + '\r\n' + packageRows.join('\r\n'), { name: 'active_packages.csv' });
 
-          const historyHeader = multi ? 'Name,Booking ID,Service,Date,Time,Visitors,Type,Amount Paid,Status,Created By,Payment Method,Transaction Reference' : 'Booking ID,Service,Date,Time,Visitors,Type,Amount Paid,Status,Created By,Payment Method,Transaction Reference';
+          const historyHeader = multi
+            ? 'Name,Booking ID,Service,Date,Time,Visitors,Type,Amount Paid,Status,Created By,Payment Method,Transaction Reference,Employee'
+            : 'Booking ID,Service,Date,Time,Visitors,Type,Amount Paid,Status,Created By,Payment Method,Transaction Reference,Employee';
           const historyRows = reports.flatMap((rep) =>
             rep.bookingHistory.map((b) =>
               multi
-                ? [rep.profile.name, b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy, b.paymentMethod ?? '', b.transactionReference ?? ''].map(csvCell).join(',')
-                : [b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy, b.paymentMethod ?? '', b.transactionReference ?? ''].map(csvCell).join(',')
+                ? [rep.profile.name, b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy, b.paymentMethod ?? '', b.transactionReference ?? '', b.employeeName ?? ''].map(csvCell).join(',')
+                : [b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy, b.paymentMethod ?? '', b.transactionReference ?? '', b.employeeName ?? ''].map(csvCell).join(',')
             )
           );
           zip.append('\uFEFF' + historyHeader + '\r\n' + historyRows.join('\r\n'), { name: 'booking_history.csv' });
@@ -719,7 +754,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
           const XLSX = await import('xlsx');
           const wb = XLSX.utils.book_new();
           const SEP = ['——— Visitor ———'];
-          const historyHeader = ['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Type', 'Amount Paid', 'Status', 'Created By', 'Payment Method', 'Transaction Reference'];
+          const historyHeader = ['Booking ID', 'Service', 'Date', 'Time', 'Visitors', 'Type', 'Amount Paid', 'Status', 'Created By', 'Payment Method', 'Transaction Reference', 'Employee'];
 
           // Single "Visitor Details Report" sheet — full data like PDF: all 4 sections stacked per visitor
           const fullReportRows: any[][] = [['Visitor Details Report'], []];
@@ -754,7 +789,20 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
               fullReportRows.push(historyHeader.map(() => ''));
             } else {
               for (const b of rep.bookingHistory) {
-                fullReportRows.push([b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy, b.paymentMethod ?? '', b.transactionReference ?? '']);
+                fullReportRows.push([
+                  b.bookingId,
+                  b.serviceName,
+                  b.date,
+                  b.time,
+                  b.visitorsCount,
+                  b.type,
+                  b.amountPaid,
+                  b.status,
+                  b.createdBy,
+                  b.paymentMethod ?? '',
+                  b.transactionReference ?? '',
+                  b.employeeName ?? '',
+                ]);
               }
             }
             fullReportRows.push([]);
@@ -823,7 +871,20 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
               historyRows.push(historyHeader.map(() => ''));
             } else {
               for (const b of rep.bookingHistory) {
-                historyRows.push([b.bookingId, b.serviceName, b.date, b.time, b.visitorsCount, b.type, b.amountPaid, b.status, b.createdBy, b.paymentMethod ?? '', b.transactionReference ?? '']);
+                historyRows.push([
+                  b.bookingId,
+                  b.serviceName,
+                  b.date,
+                  b.time,
+                  b.visitorsCount,
+                  b.type,
+                  b.amountPaid,
+                  b.status,
+                  b.createdBy,
+                  b.paymentMethod ?? '',
+                  b.transactionReference ?? '',
+                  b.employeeName ?? '',
+                ]);
               }
             }
             historyRows.push([]);
@@ -869,9 +930,25 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         lines.push('');
       }
       if (includeVisitorDetails) {
-        const header = 'Customer Name,Phone,Email,Total Bookings,Total Spent,Total Paid On Site,Total Paid by Transfer,Package Bookings,Paid Bookings,Last Booking Date,Status';
+        const header =
+          'Customer Name,Phone,Email,Total Bookings,Total Spent,Total Paid On Site,Total Paid by Transfer,Package Bookings,Paid Bookings,Last Booking Date,Status,Serving Employees';
         const csvRows = filteredRows.map((r) =>
-          [r.customer_name, r.phone, r.email, r.total_bookings, r.total_spent, (r as any).total_paid_on_site ?? '', (r as any).total_paid_by_transfer ?? '', r.package_bookings_count, r.paid_bookings_count, r.last_booking_date || '', r.status].map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')
+          [
+            r.customer_name,
+            r.phone,
+            r.email,
+            r.total_bookings,
+            r.total_spent,
+            (r as any).total_paid_on_site ?? '',
+            (r as any).total_paid_by_transfer ?? '',
+            r.package_bookings_count,
+            r.paid_bookings_count,
+            r.last_booking_date || '',
+            r.status,
+            Array.isArray((r as any).serving_employees) ? (r as any).serving_employees.join('; ') : '',
+          ]
+            .map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`)
+            .join(',')
         );
         lines.push(header);
         lines.push(...csvRows);
@@ -886,7 +963,20 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         const XLSX = await import('xlsx');
         const wb = XLSX.utils.book_new();
         // Single sheet: totals above, then customer data (main report always includes visitor details)
-        const colHeaders = ['Customer Name', 'Phone', 'Email', 'Total Bookings', 'Total Spent', 'Total Paid On Site', 'Total Paid by Transfer', 'Package Bookings', 'Paid Bookings', 'Last Booking Date', 'Status'];
+        const colHeaders = [
+          'Customer Name',
+          'Phone',
+          'Email',
+          'Total Bookings',
+          'Total Spent',
+          'Total Paid On Site',
+          'Total Paid by Transfer',
+          'Package Bookings',
+          'Paid Bookings',
+          'Last Booking Date',
+          'Status',
+          'Serving Employees',
+        ];
         const rows: any[][] = [];
         // Totals block at top when "Include summary totals" is checked
         if (includeTotals) {
@@ -916,6 +1006,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
               r.paid_bookings_count ?? 0,
               r.last_booking_date ?? '',
               r.status ?? '',
+              Array.isArray((r as any).serving_employees) ? (r as any).serving_employees.join('; ') : '',
             ]);
           }
         }
@@ -967,7 +1058,20 @@ export interface VisitorStructuredReport {
   summary: { totalVisitors: number; totalBookings: number; packageBookings: number; paidBookings: number; totalSpent: number };
   profile: { name: string; phone: string; email: string; status: string };
   activePackages: Array<{ packageName: string; serviceName: string; remainingSlots: number }>;
-  bookingHistory: Array<{ bookingId: string; serviceName: string; date: string; time: string; visitorsCount: number; type: 'PACKAGE' | 'PAID'; amountPaid: number; status: string; createdBy: string; paymentMethod?: string; transactionReference?: string | null }>;
+  bookingHistory: Array<{
+    bookingId: string;
+    serviceName: string;
+    date: string;
+    time: string;
+    visitorsCount: number;
+    type: 'PACKAGE' | 'PAID';
+    amountPaid: number;
+    status: string;
+    createdBy: string;
+    paymentMethod?: string;
+    transactionReference?: string | null;
+    employeeName?: string;
+  }>;
 }
 
 async function getVisitorDetailStructured(
@@ -1001,7 +1105,9 @@ async function getVisitorDetailStructured(
         id, customer_name, customer_phone, customer_email, total_price, status, visitor_count,
         package_covered_quantity, created_by_user_id, service_id, slot_id,
         payment_method, transaction_reference,
-        services:service_id(name), slots:slot_id(slot_date, start_time, end_time)
+        employee_id,
+        services:service_id(name), slots:slot_id(slot_date, start_time, end_time),
+        users:employee_id(full_name, full_name_ar)
       `)
       .eq('tenant_id', tenantId)
       .is('customer_id', null)
@@ -1030,6 +1136,7 @@ async function getVisitorDetailStructured(
         createdBy: b.created_by_user_id ? 'staff' : 'customer',
         paymentMethod: b.payment_method ? (b.payment_method === 'transfer' ? 'Transfer' : 'On Site') : undefined,
         transactionReference: b.transaction_reference ?? null,
+        employeeName: employeeDisplayFromBooking(b),
       })),
     };
   }
@@ -1074,7 +1181,9 @@ async function getVisitorDetailStructured(
     .select(`
       id, total_price, status, visitor_count, package_covered_quantity, created_by_user_id,
       payment_method, transaction_reference,
-      service_id, slot_id, services:service_id(name), slots:slot_id(slot_date, start_time, end_time)
+      service_id, slot_id, employee_id,
+      services:service_id(name), slots:slot_id(slot_date, start_time, end_time),
+      users:employee_id(full_name, full_name_ar)
     `)
     .eq('tenant_id', tenantId)
     .eq('customer_id', visitorId)
@@ -1102,6 +1211,7 @@ async function getVisitorDetailStructured(
       createdBy: b.created_by_user_id ? 'staff' : 'customer',
       paymentMethod: b.payment_method ? (b.payment_method === 'transfer' ? 'Transfer' : 'On Site') : undefined,
       transactionReference: b.transaction_reference ?? null,
+      employeeName: employeeDisplayFromBooking(b),
     })),
   };
 }
@@ -1119,9 +1229,10 @@ async function getVisitorDetail(
         id, customer_name, customer_phone, customer_email, total_price, status, visitor_count,
         package_covered_quantity, paid_quantity, package_subscription_id, created_at, created_by_user_id,
         payment_method, transaction_reference,
-        service_id, slot_id,
+        service_id, slot_id, employee_id,
         services:service_id(name, name_ar),
-        slots:slot_id(slot_date, start_time, end_time)
+        slots:slot_id(slot_date, start_time, end_time),
+        users:employee_id(full_name, full_name_ar)
       `)
       .eq('tenant_id', tenantId)
       .is('customer_id', null)
@@ -1167,6 +1278,8 @@ async function getVisitorDetail(
         created_by: b.created_by_user_id ? 'staff' : 'customer',
         payment_method: b.payment_method ? (b.payment_method === 'transfer' ? 'Transfer' : 'On Site') : null,
         transaction_reference: b.transaction_reference ?? null,
+        employee_name: employeeDisplayFromBooking(b) || null,
+        employee_name_ar: (b as any).users?.full_name_ar || null,
       })),
     };
   }
@@ -1185,9 +1298,10 @@ async function getVisitorDetail(
       id, customer_name, total_price, status, visitor_count,
       package_covered_quantity, paid_quantity, package_subscription_id, created_at, created_by_user_id,
       payment_method, transaction_reference,
-      service_id, slot_id,
+      service_id, slot_id, employee_id,
       services:service_id(name, name_ar),
-      slots:slot_id(slot_date, start_time, end_time)
+      slots:slot_id(slot_date, start_time, end_time),
+      users:employee_id(full_name, full_name_ar)
     `)
     .eq('tenant_id', tenantId)
     .eq('customer_id', id)
@@ -1255,6 +1369,8 @@ async function getVisitorDetail(
       created_by: b.created_by_user_id ? 'staff' : 'customer',
       payment_method: b.payment_method ? (b.payment_method === 'transfer' ? 'Transfer' : 'On Site') : null,
       transaction_reference: b.transaction_reference ?? null,
+      employee_name: employeeDisplayFromBooking(b) || null,
+      employee_name_ar: b.users?.full_name_ar || null,
     })),
   };
 }

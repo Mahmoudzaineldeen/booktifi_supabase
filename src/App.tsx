@@ -40,6 +40,10 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { OffersPage } from './pages/tenant/OffersPage';
 import { AssignFixingTicketPage } from './pages/tenant/AssignFixingTicketPage';
 import { RolesPage } from './pages/tenant/RolesPage';
+import { ReportsLayout } from './components/reports/ReportsLayout';
+import { ReportsHubPage } from './pages/tenant/reports/ReportsHubPage';
+import { ReportsTransactionsPage } from './pages/tenant/reports/ReportsTransactionsPage';
+import { ReportsBookingsPage } from './pages/tenant/reports/ReportsBookingsPage';
 import { CustomerSignupPage } from './pages/customer/CustomerSignupPage';
 import { CustomerLoginPage } from './pages/customer/CustomerLoginPage';
 import { CustomerForgotPasswordPage } from './pages/customer/CustomerForgotPasswordPage';
@@ -79,6 +83,12 @@ function AppContent() {
         <Route path="package-subscribers" element={<PackageSubscribersPage />} />
         <Route path="offers" element={<OffersPage />} />
         <Route path="bookings" element={<BookingsPage />} />
+        <Route path="reports" element={<ReportsLayout />}>
+          <Route index element={<ReportsHubPage />} />
+          <Route path="visitors" element={<VisitorsPage embeddedInReports />} />
+          <Route path="transactions" element={<ReportsTransactionsPage />} />
+          <Route path="bookings" element={<ReportsBookingsPage />} />
+        </Route>
         <Route path="visitors" element={<VisitorsPage />} />
         <Route path="employees" element={<EmployeesPage />} />
         <Route path="employee-shifts" element={<EmployeeShiftsPage />} />
