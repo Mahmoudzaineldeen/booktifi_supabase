@@ -16,6 +16,9 @@ export const PERMISSION_IDS = {
   VIEW_INCOME: 'view_income',
   ACCESS_SUPPORT_TICKETS: 'access_support_tickets',
   EDIT_SYSTEM_SETTINGS: 'edit_system_settings',
+  MANAGE_TAGS: 'manage_tags',
+  ASSIGN_TAGS_TO_SERVICES: 'assign_tags_to_services',
+  VIEW_TAGS: 'view_tags',
   // Employee (assign_employee removed: assignment is part of create/edit booking; create_subscriptions merged into sell_packages)
   CREATE_BOOKING: 'create_booking',
   EDIT_BOOKING: 'edit_booking',

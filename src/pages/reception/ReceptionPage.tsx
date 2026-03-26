@@ -12,9 +12,9 @@ import { Input } from '../../components/ui/Input';
 import { searchBarWrapperClass, searchSelectClass } from '../../components/ui/SearchInput';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
-import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Edit, CalendarClock, Users, Ban, Wrench, UserX } from 'lucide-react';
+import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Edit, CalendarClock, Ban, Wrench, UserX, BarChart3, ChevronDown } from 'lucide-react';
 import { ReceptionPackagesPage } from './ReceptionPackagesPage';
-import { ReceptionVisitorsPage } from './ReceptionVisitorsPage';
+import { ReceptionReportsSection } from './ReceptionReportsSection';
 import { QRScanner } from '../../components/qr/QRScanner';
 import { format, addDays, startOfWeek, isSameDay, parseISO, startOfDay, endOfDay, addMinutes, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -144,14 +144,24 @@ interface CustomerPackage {
 
 export function ReceptionPage() {
   const { t, i18n } = useTranslation();
-  const { userProfile, tenant, signOut, loading: authLoading, isImpersonating, exitImpersonation } = useAuth();
+  const { userProfile, tenant, signOut, loading: authLoading, isImpersonating, exitImpersonation, hasPermission } = useAuth();
   const { formatPrice, formatPriceString } = useCurrency();
   const navigate = useNavigate();
   const location = useLocation();
   const { tenantSlug: routeTenantSlug } = useParams<{ tenantSlug?: string }>();
   const tenantSlugForNav = routeTenantSlug || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : '');
-  const isVisitorsPath = location.pathname.includes('/reception/visitors');
+  const isReportsPath = location.pathname.includes('/reception/reports');
   const isAssignFixingTicketPath = location.pathname.includes('/reception/assign-fixing-ticket');
+  const canAccessBookingsForReports =
+    hasPermission('create_booking') ||
+    hasPermission('edit_booking') ||
+    hasPermission('cancel_booking') ||
+    hasPermission('manage_bookings') ||
+    hasPermission('view_schedules');
+  const canAccessVisitorsForReports =
+    hasPermission('register_visitors') || hasPermission('view_schedules') || hasPermission('manage_bookings');
+  const showReceptionReportsNav =
+    (canAccessBookingsForReports || canAccessVisitorsForReports) && !!tenantSlugForNav;
   const tenantDefaultCountry = useTenantDefaultCountry();
   const { features: tenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
   const schedulingMode = (tenantFeatures?.scheduling_mode ?? 'service_slot_based') as 'employee_based' | 'service_slot_based';
@@ -228,6 +238,11 @@ export function ReceptionPage() {
   /** When set, create booking modal is closed and full-screen loading overlay is shown (creating_booking -> creating_invoice) */
   const [bookingCreationLoadingStep, setBookingCreationLoadingStep] = useState<null | 'creating_booking' | 'creating_invoice'>(null);
   const [selectedSlots, setSelectedSlots] = useState<Array<{slot_id: string, start_time: string, end_time: string, employee_id: string, slot_date: string}>>([]);
+  const [receptionPricingTags, setReceptionPricingTags] = useState<
+    { id: string; name: string; is_default?: boolean; fee_value?: number }[]
+  >([]);
+  const [receptionSelectedTagId, setReceptionSelectedTagId] = useState('');
+  const [loadingReceptionTags, setLoadingReceptionTags] = useState(false);
 
   // QR Code Validation State
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
@@ -235,6 +250,8 @@ export function ReceptionPage() {
   const [qrValidating, setQrValidating] = useState(false);
   const [qrValidationResult, setQrValidationResult] = useState<{success: boolean; message: string; booking?: any} | null>(null);
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
+  const [reportsMenuOpen, setReportsMenuOpen] = useState(false);
+  const reportsMenuRef = useRef<HTMLDivElement>(null);
 
   // Search state
   type SearchType = 'phone' | 'customer_name' | 'date' | 'service_name' | 'booking_id' | '';
@@ -265,6 +282,21 @@ export function ReceptionPage() {
   // Track if initial auth check has been completed
   const [initialAuthDone, setInitialAuthDone] = useState(false);
   const initialLoadRef = useRef(false); // Use ref to prevent multiple loads
+
+  useEffect(() => {
+    setReportsMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!reportsMenuOpen) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (reportsMenuRef.current && !reportsMenuRef.current.contains(event.target as Node)) {
+        setReportsMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [reportsMenuOpen]);
 
   // Initial auth check - only runs once after auth is loaded
   useEffect(() => {
@@ -386,6 +418,53 @@ export function ReceptionPage() {
     setSelectedSlot('');
     setSelectedTimeSlot(null);
   }, [selectedService, selectedDate]);
+
+  useEffect(() => {
+    if (!selectedService || !userProfile?.tenant_id) {
+      setReceptionPricingTags([]);
+      setReceptionSelectedTagId('');
+      return;
+    }
+    let cancelled = false;
+    setLoadingReceptionTags(true);
+    (async () => {
+      try {
+        const session = await db.auth.getSession();
+        const token = session.data.session?.access_token;
+        if (!token) {
+          setLoadingReceptionTags(false);
+          return;
+        }
+        const res = await fetch(`${getApiUrl()}/tags/by-service/${selectedService}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const d = await res.json();
+        if (cancelled) return;
+        const list = d.tags || [];
+        setReceptionPricingTags(list);
+        setReceptionSelectedTagId((prev) => {
+          if (prev && list.some((x: { id: string }) => x.id === prev)) return prev;
+          return list[0]?.id || '';
+        });
+      } catch {
+        if (!cancelled) {
+          setReceptionPricingTags([]);
+          setReceptionSelectedTagId('');
+        }
+      } finally {
+        if (!cancelled) setLoadingReceptionTags(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedService, userProfile?.tenant_id]);
+
+  function getReceptionTagFee(): number {
+    const sel = receptionPricingTags.find((x) => x.id === receptionSelectedTagId);
+    if (!sel || sel.is_default) return 0;
+    return Math.max(0, Number(sel.fee_value ?? 0));
+  }
 
   // Calculate required slots based on booking mode
   // Parallel: need N individual (employee, time) slots. Consecutive: need N slots for same employee.
@@ -1443,6 +1522,8 @@ export function ReceptionPage() {
     booking_group_id?: string | null;
     payment_method?: 'onsite' | 'transfer';
     transaction_reference?: string;
+    tag_id?: string;
+    payment_status?: string;
   }) {
     // Get API URL (already includes /api suffix)
     const API_URL = getApiUrl();
@@ -1466,8 +1547,9 @@ export function ReceptionPage() {
         },
         body: JSON.stringify({
           ...bookingData,
-          language: bookingData.language || i18n.language
-        })
+          tag_id: bookingData.tag_id || receptionSelectedTagId,
+          language: bookingData.language || i18n.language,
+        }),
       });
 
       // Check if response is JSON
@@ -1530,8 +1612,9 @@ export function ReceptionPage() {
         },
         body: JSON.stringify({
           ...bookingData,
-          language: i18n.language
-        })
+          tag_id: bookingData.tag_id || receptionSelectedTagId,
+          language: i18n.language,
+        }),
       });
 
       // Check if response is JSON
@@ -1622,8 +1705,12 @@ export function ReceptionPage() {
         }
       }
       const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
+      if (!receptionSelectedTagId) {
+        showNotification('warning', t('tags.selectTagRequired', 'Please select a pricing tag'));
+        return;
+      }
       
-      if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
+      if (totalPrice + getReceptionTagFee() > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
         showNotification('warning', t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
         return;
       }
@@ -1652,6 +1739,7 @@ export function ReceptionPage() {
             customer_email: bookingForm.customer_email || null,
             visitor_count: quantity,
             total_price: totalPrice,
+            tag_id: receptionSelectedTagId,
             notes: bookingForm.notes || null,
             booking_group_id: bookingGroupId,
             language: i18n.language,
@@ -1819,7 +1907,7 @@ export function ReceptionPage() {
       throw new Error(`Number of slots (${slotsToUse.length}) must match visitor count (${quantity})`);
     }
 
-    if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
+    if (totalPrice + getReceptionTagFee() > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
       throw new Error(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
     }
 
@@ -1885,7 +1973,7 @@ export function ReceptionPage() {
       throw new Error(`Number of selected slots (${slotsToUse.length}) must match visitor count (${quantity})`);
     }
 
-    if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
+    if (totalPrice + getReceptionTagFee() > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
       throw new Error(t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
     }
 
@@ -2017,7 +2105,7 @@ export function ReceptionPage() {
           const bookingVisitorCount = isMultiTicketInSingleSlot ? (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1) : 1;
           const bookingPrice = usePackage ? 0 : (priceForBooking * bookingVisitorCount);
 
-          if (bookingPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
+          if (bookingPrice + getReceptionTagFee() > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
             showNotification('warning', t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
             throw new Error('transaction_reference required');
           }
@@ -2093,6 +2181,11 @@ export function ReceptionPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (selectedService && !receptionSelectedTagId) {
+      showNotification('warning', t('tags.selectTagRequired', 'Please select a pricing tag'));
+      return;
+    }
 
     // Collect all services to book (from list + currently selected)
     let servicesToBook = [...selectedServices];
@@ -2373,7 +2466,7 @@ export function ReceptionPage() {
       }
       const totalPrice = price * (typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1);
 
-      if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
+      if (totalPrice + getReceptionTagFee() > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
         showNotification('warning', t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
         return;
       }
@@ -3459,6 +3552,8 @@ export function ReceptionPage() {
     setIsLookingUpCustomer(false);
     setCreatePaymentMethod('onsite');
     setCreateTransactionReference('');
+    setReceptionPricingTags([]);
+    setReceptionSelectedTagId('');
     
     // Clear any cached booking data from localStorage
     try {
@@ -3809,7 +3904,7 @@ export function ReceptionPage() {
     );
   }
 
-  if (authLoading || loading) {
+  if (authLoading || (loading && !isReportsPath)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -3879,30 +3974,89 @@ export function ReceptionPage() {
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Button
-                variant={!isVisitorsPath && currentView === 'bookings' ? 'primary' : 'secondary'}
+                variant={!isReportsPath && currentView === 'bookings' ? 'primary' : 'secondary'}
                 size="sm"
                 onClick={() => { setCurrentView('bookings'); tenantSlugForNav && navigate(`/${tenantSlugForNav}/reception`); }}
               >
                 <Calendar className="w-4 h-4 mr-2" />
                 <span className="hidden sm:inline">{i18n.language === 'ar' ? 'الحجوزات' : 'Bookings'}</span>
               </Button>
+              {showReceptionReportsNav && (
+                <div className="relative" ref={reportsMenuRef}>
+                  <Button
+                    variant={isReportsPath ? 'primary' : 'secondary'}
+                    size="sm"
+                    type="button"
+                    aria-expanded={reportsMenuOpen}
+                    aria-haspopup="menu"
+                    onClick={() => setReportsMenuOpen((o) => !o)}
+                  >
+                    <BarChart3 className="w-4 h-4 sm:mr-2" />
+                    <span className="hidden sm:inline">{t('navigation.reports', 'Reports')}</span>
+                    <ChevronDown className={`w-4 h-4 sm:ms-1 shrink-0 transition-transform ${reportsMenuOpen ? 'rotate-180' : ''}`} />
+                  </Button>
+                  {reportsMenuOpen && tenantSlugForNav && (
+                    <div
+                      role="menu"
+                      className="absolute end-0 z-50 mt-1 min-w-[11rem] rounded-md border border-gray-200 bg-white py-1 shadow-lg"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="block w-full px-3 py-2 text-start text-sm text-gray-700 hover:bg-gray-50"
+                        onClick={() => {
+                          setReportsMenuOpen(false);
+                          navigate(`/${tenantSlugForNav}/reception/reports`);
+                        }}
+                      >
+                        {t('reports.nav.overview', 'Overview')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="block w-full px-3 py-2 text-start text-sm text-gray-700 hover:bg-gray-50"
+                        onClick={() => {
+                          setReportsMenuOpen(false);
+                          navigate(`/${tenantSlugForNav}/reception/reports/visitors`);
+                        }}
+                      >
+                        {t('reports.nav.visitors', 'Visitors')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="block w-full px-3 py-2 text-start text-sm text-gray-700 hover:bg-gray-50"
+                        onClick={() => {
+                          setReportsMenuOpen(false);
+                          navigate(`/${tenantSlugForNav}/reception/reports/transactions`);
+                        }}
+                      >
+                        {t('reports.nav.transactions', 'Transactions')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="block w-full px-3 py-2 text-start text-sm text-gray-700 hover:bg-gray-50"
+                        onClick={() => {
+                          setReportsMenuOpen(false);
+                          navigate(`/${tenantSlugForNav}/reception/reports/bookings`);
+                        }}
+                      >
+                        {t('reports.nav.bookings', 'Bookings')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
               {!isCoordinator && (
               <>
               <Button
-                variant={!isVisitorsPath && currentView === 'packages' ? 'primary' : 'secondary'}
+                variant={!isReportsPath && currentView === 'packages' ? 'primary' : 'secondary'}
                 size="sm"
                 onClick={() => { setCurrentView('packages'); tenantSlugForNav && navigate(`/${tenantSlugForNav}/reception`); }}
               >
                 <Package className="w-4 h-4 mr-2" />
                 <span className="hidden sm:inline">{i18n.language === 'ar' ? 'الباقات' : 'Packages'}</span>
-              </Button>
-              <Button
-                variant={isVisitorsPath ? 'primary' : 'secondary'}
-                size="sm"
-                onClick={() => tenantSlugForNav && navigate(`/${tenantSlugForNav}/reception/visitors`)}
-              >
-                <Users className="w-4 h-4 mr-2" />
-                <span className="hidden sm:inline">{t('navigation.visitors', 'Visitors')}</span>
               </Button>
               <Button
                 variant={isAssignFixingTicketPath ? 'primary' : 'secondary'}
@@ -3943,18 +4097,20 @@ export function ReceptionPage() {
           <AssignFixingTicketForm />
         )}
 
-        {/* Visitors View (reception layout, same APIs as admin) */}
-        {!isAssignFixingTicketPath && isVisitorsPath && (
-          <ReceptionVisitorsPage />
+        {!isAssignFixingTicketPath && isReportsPath && showReceptionReportsNav && <ReceptionReportsSection />}
+        {!isAssignFixingTicketPath && isReportsPath && !showReceptionReportsNav && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-6 text-center text-sm text-amber-900">
+            {t('reports.noAccessReception', 'You do not have access to reports.')}
+          </div>
         )}
 
         {/* Packages View */}
-        {!isAssignFixingTicketPath && !isVisitorsPath && currentView === 'packages' && (
+        {!isAssignFixingTicketPath && !isReportsPath && currentView === 'packages' && (
           <ReceptionPackagesPage />
         )}
 
         {/* Bookings View */}
-        {!isAssignFixingTicketPath && !isVisitorsPath && currentView === 'bookings' && (
+        {!isAssignFixingTicketPath && !isReportsPath && currentView === 'bookings' && (
           <>
         {/* Search Bar with Type Selector */}
         <div className="mb-6 space-y-3">
@@ -4791,10 +4947,10 @@ export function ReceptionPage() {
                     value={selectedOffer}
                     onChange={(e) => setSelectedOffer(e.target.value)}
                   >
-                    <option value="">{t('reception.basePrice')} ({formatPrice(service?.base_price || 0)})</option>
+                    <option value="">{t('reception.basePrice')} ({formatPriceString(service?.base_price || 0)})</option>
                     {availableOffers.map((offer) => (
                       <option key={offer.id} value={offer.id}>
-                        {i18n.language === 'ar' ? offer.name_ar || offer.name : offer.name} - {formatPrice(offer.price)}
+                        {i18n.language === 'ar' ? offer.name_ar || offer.name : offer.name} - {formatPriceString(offer.price)}
                         {offer.discount_percentage && ` (${t('reception.save')} ${offer.discount_percentage}%)`}
                       </option>
                     ))}
@@ -4804,6 +4960,33 @@ export function ReceptionPage() {
             }
             return null;
           })()}
+
+          {selectedService && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('tags.pricingTag', 'Pricing tag')} *
+              </label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                value={receptionSelectedTagId}
+                onChange={(e) => setReceptionSelectedTagId(e.target.value)}
+                disabled={loadingReceptionTags || receptionPricingTags.length === 0}
+              >
+                {loadingReceptionTags ? (
+                  <option value="">{t('common.loading')}…</option>
+                ) : receptionPricingTags.length === 0 ? (
+                  <option value="">{t('tags.noTagsForService', 'No tags')}</option>
+                ) : (
+                  receptionPricingTags.map((tg) => (
+                    <option key={tg.id} value={tg.id}>
+                      {tg.name}
+                      {tg.is_default ? '' : tg.fee_value ? ` (+${formatPriceString(Number(tg.fee_value))})` : ''}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          )}
 
           {/* 5. Visitor Count */}
           {selectedService && (

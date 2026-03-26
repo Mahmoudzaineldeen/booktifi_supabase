@@ -12,6 +12,7 @@ import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Downl
 import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
+import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { fetchAvailableSlots, Slot } from '../../lib/bookingAvailability';
 import { getParallelSlotsForQuantity as getParallelSlotsForQuantityLib, getConsecutiveSlotsForQuantity as getConsecutiveSlotsForQuantityLib } from '../../lib/bookingSlotAllocation';
@@ -138,6 +139,11 @@ export function BookingsPage() {
   const [createTransactionReference, setCreateTransactionReference] = useState('');
   const [createSelectedServices, setCreateSelectedServices] = useState<Array<{ service: AdminService; slot: Slot; employeeId: string }>>([]);
   const [createAssignmentMode, setCreateAssignmentMode] = useState<'automatic' | 'manual'>('automatic');
+  const [createPricingTags, setCreatePricingTags] = useState<
+    { id: string; name: string; description?: string | null; is_default?: boolean; fee_value?: number; fee_name?: string | null }[]
+  >([]);
+  const [selectedPricingTagId, setSelectedPricingTagId] = useState('');
+  const [loadingPricingTags, setLoadingPricingTags] = useState(false);
   const [createSelectedEmployeeId, setCreateSelectedEmployeeId] = useState<string>('');
   const [createNextEmployeeIdForRotation, setCreateNextEmployeeIdForRotation] = useState<string | null>(null);
   const [confirmationBookingId, setConfirmationBookingId] = useState<string | null>(null);
@@ -255,6 +261,36 @@ export function BookingsPage() {
     setCreateSlotId('');
     setCreateNextEmployeeIdForRotation(null);
   }, [createServiceId, createDate]);
+
+  useEffect(() => {
+    if (!createServiceId || !canCreateBooking) {
+      setCreatePricingTags([]);
+      setSelectedPricingTagId('');
+      return;
+    }
+    let cancelled = false;
+    setLoadingPricingTags(true);
+    apiFetch(`/tags/by-service/${createServiceId}`, { headers: getAuthHeaders() })
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        const list = (d.tags || []) as typeof createPricingTags;
+        setCreatePricingTags(list);
+        setSelectedPricingTagId(list[0]?.id || '');
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCreatePricingTags([]);
+          setSelectedPricingTagId('');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPricingTags(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [createServiceId, canCreateBooking]);
 
   // Look up customer by phone and auto-fill name/email + package (same as reception)
   async function lookupCustomerByPhone(fullPhoneNumber: string) {
@@ -448,6 +484,8 @@ export function BookingsPage() {
     setCreateSelectedCustomer(null);
     setCreatePaymentMethod('onsite');
     setCreateTransactionReference('');
+    setCreatePricingTags([]);
+    setSelectedPricingTagId('');
   }
 
   function getNext8Days() {
@@ -461,13 +499,22 @@ export function BookingsPage() {
     if (!userProfile?.tenant_id || !createServiceId || !createDate) return;
     const service = createServices.find(s => s.id === createServiceId);
     if (!service) return;
+    if (!selectedPricingTagId) {
+      showNotification('warning', t('tags.selectTagRequired', 'Please select a pricing tag'));
+      return;
+    }
     let price = service.base_price;
     if (createOfferId && service.offers?.length) {
       const offer = service.offers.find(o => o.id === createOfferId);
       if (offer) price = offer.price;
     }
     const visitorCount = Math.max(1, createForm.visitor_count);
-    const totalPrice = price * visitorCount;
+    const selectedTag = createPricingTags.find((x) => x.id === selectedPricingTagId);
+    const tagFee =
+      selectedTag && !selectedTag.is_default ? Math.max(0, Number(selectedTag.fee_value ?? 0)) : 0;
+    const lineSubtotal = price * visitorCount;
+    const totalPrice = lineSubtotal;
+    const grandTotal = lineSubtotal + tagFee;
     const fullPhone = createCustomerPhoneFull.trim().startsWith('+') ? createCustomerPhoneFull.trim() : `${createCountryCode}${(createCustomerPhoneFull.trim() || createForm.customer_phone).replace(/^0+/, '')}`;
 
     const slotIds: string[] = [];
@@ -508,11 +555,11 @@ export function BookingsPage() {
       return;
     }
 
-    if (totalPrice > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
+    if (grandTotal > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
       showNotification('warning', t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
       return;
     }
-    const paymentPayload = totalPrice > 0
+    const paymentPayload = grandTotal > 0
       ? (createPaymentMethod === 'unpaid'
         ? { payment_status: 'unpaid' as const }
         : {
@@ -547,6 +594,7 @@ export function BookingsPage() {
             customer_email: createForm.customer_email?.trim() || null,
             visitor_count: visitorCount,
             total_price: totalPrice,
+            tag_id: selectedPricingTagId,
             notes: createForm.notes?.trim() || null,
             language: i18n.language,
             ...paymentPayload,
@@ -584,6 +632,7 @@ export function BookingsPage() {
             tenant_id: userProfile.tenant_id,
             service_id: createServiceId,
             slot_ids: idsToSend,
+            tag_id: selectedPricingTagId,
             ...(createSelectedCustomer?.id && { customer_id: createSelectedCustomer.id }),
             customer_name: createForm.customer_name.trim(),
             customer_phone: fullPhone,
@@ -2506,7 +2555,15 @@ export function BookingsPage() {
                       if (!svc) return formatPrice(0);
                       const pkgCheck = checkServiceInPackage(svc.id);
                       if (pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count) return t('reception.packageServiceTotal', { price: formatPriceString(0) });
-                      return formatPrice((svc.base_price || 0) * createForm.visitor_count);
+                      let unit = svc.base_price || 0;
+                      if (createOfferId && svc.offers?.length) {
+                        const off = svc.offers.find((o) => o.id === createOfferId);
+                        if (off) unit = off.price;
+                      }
+                      const sub = unit * createForm.visitor_count;
+                      const sel = createPricingTags.find((x) => x.id === selectedPricingTagId);
+                      const fee = sel && !sel.is_default ? Math.max(0, Number(sel.fee_value ?? 0)) : 0;
+                      return formatPrice(sub + fee);
                     })()}
                   </span>
                 </div>
@@ -2670,7 +2727,7 @@ export function BookingsPage() {
                 const pkgCheck = checkServiceInPackage(s.id);
                 return (
                   <option key={s.id} value={s.id}>
-                    {isAr ? s.name_ar : s.name} - {formatPrice(s.base_price)}
+                    {isAr ? s.name_ar : s.name} - {formatPriceString(s.base_price)}
                     {pkgCheck.available && ` 🎁 (${pkgCheck.remaining} ${t('packages.remaining')})`}
                   </option>
                 );
@@ -2692,13 +2749,63 @@ export function BookingsPage() {
                 onChange={(e) => setCreateOfferId(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                <option value="">{t('reception.basePrice')} ({formatPrice(createServices.find(s => s.id === createServiceId)?.base_price ?? 0)})</option>
+                <option value="">{t('reception.basePrice')} ({formatPriceString(createServices.find(s => s.id === createServiceId)?.base_price ?? 0)})</option>
                 {createServices.find(s => s.id === createServiceId)!.offers!.map((o) => (
-                  <option key={o.id} value={o.id}>{isAr ? o.name_ar : o.name} - {formatPrice(o.price)}</option>
+                  <option key={o.id} value={o.id}>{isAr ? o.name_ar : o.name} - {formatPriceString(o.price)}</option>
                 ))}
               </select>
             </div>
           ) : null}
+          {createServiceId && canCreateBooking && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t('tags.pricingTag', 'Pricing tag')} *</label>
+              <select
+                value={selectedPricingTagId}
+                onChange={(e) => setSelectedPricingTagId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                disabled={loadingPricingTags || createPricingTags.length === 0}
+              >
+                {loadingPricingTags ? (
+                  <option value="">{t('common.loading')}…</option>
+                ) : createPricingTags.length === 0 ? (
+                  <option value="">{t('tags.noTagsForService', 'No tags')}</option>
+                ) : (
+                  createPricingTags.map((tg) => (
+                    <option key={tg.id} value={tg.id}>
+                      {tg.name}
+                      {tg.is_default ? '' : tg.fee_value ? ` (+${formatPriceString(Number(tg.fee_value))})` : ''}
+                    </option>
+                  ))
+                )}
+              </select>
+              {createPricingTags.length > 0 && selectedPricingTagId && (
+                <p className="text-xs text-gray-600 mt-1">
+                  {(() => {
+                    const svc = createServices.find((s) => s.id === createServiceId);
+                    let unit = svc?.base_price ?? 0;
+                    if (createOfferId && svc?.offers?.length) {
+                      const off = svc.offers.find((o) => o.id === createOfferId);
+                      if (off) unit = off.price;
+                    }
+                    const qty = Math.max(1, createForm.visitor_count);
+                    const sub = unit * qty;
+                    const sel = createPricingTags.find((x) => x.id === selectedPricingTagId);
+                    const fee = sel && !sel.is_default ? Math.max(0, Number(sel.fee_value ?? 0)) : 0;
+                    return (
+                      <>
+                        {t('tags.lineSubtotal', 'Subtotal')}: {formatPrice(sub)}
+                        {fee > 0 ? ` · ${t('tags.tagFee', 'Tag fee')}: ${formatPriceString(fee)}` : ''}
+                        {' · '}
+                        <span className="font-semibold text-gray-800">
+                          {t('tags.total', 'Total')}: {formatPrice(sub + fee)}
+                        </span>
+                      </>
+                    );
+                  })()}
+                </p>
+              )}
+            </div>
+          )}
           {/* 5. Visitor Count */}
           {createServiceId && (
             <div>
@@ -2712,7 +2819,7 @@ export function BookingsPage() {
                 placeholder="Enter number of tickets"
               />
               <p className="text-xs text-gray-600 mt-1">
-                {formatPrice(createServices.find(s => s.id === createServiceId)?.base_price ?? 0)} {t('checkout.perBook')}
+                {formatPriceString(createServices.find(s => s.id === createServiceId)?.base_price ?? 0)} {t('checkout.perBook')}
               </p>
               {createServiceId && createForm.visitor_count && (() => {
                 const pkgCheck = checkServiceInPackage(createServiceId);
@@ -3054,6 +3161,7 @@ export function BookingsPage() {
               fullWidth
               disabled={(() => {
                 if (!createForm.customer_phone || !createForm.customer_name || !createServiceId || !createForm.visitor_count || !createDate) return true;
+                if (canCreateBooking && (!selectedPricingTagId || loadingPricingTags)) return true;
                 if (createForm.visitor_count <= 1) return !createSlotId && createSelectedSlots.length === 0;
                 const req = getRequiredSlotsCount();
                 const val = validateSlotSelection();

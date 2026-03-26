@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
@@ -46,8 +46,6 @@ export interface VisitorRow {
   paid_bookings_count: number;
   last_booking_date: string | null;
   status: 'active' | 'blocked';
-  /** Assigned staff from bookings (unique names), same filters as list */
-  serving_employees?: string[];
 }
 
 interface VisitorDetailBooking {
@@ -62,8 +60,6 @@ interface VisitorDetailBooking {
   created_by: string;
   payment_method?: string | null;
   transaction_reference?: string | null;
-  employee_name?: string | null;
-  employee_name_ar?: string | null;
 }
 
 interface VisitorDetail {
@@ -91,6 +87,7 @@ type VisitorsPageProps = { embeddedInReports?: boolean };
 export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
   const { t, i18n } = useTranslation();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  const location = useLocation();
   const { userProfile } = useAuth();
   const { formatPrice } = useCurrency();
 
@@ -123,8 +120,6 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
   const [services, setServices] = useState<{ id: string; name: string; name_ar?: string }[]>([]);
   const [branchId, setBranchId] = useState<string>('all');
   const [branches, setBranches] = useState<{ id: string; name: string; location: string | null }[]>([]);
-  const [employeeIdFilter, setEmployeeIdFilter] = useState('');
-  const [employees, setEmployees] = useState<{ id: string; full_name: string; full_name_ar?: string }[]>([]);
 
   const [detailVisitor, setDetailVisitor] = useState<VisitorDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -153,7 +148,6 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
       serviceId,
       bookingStatus,
       branchId,
-      employeeId: embeddedInReports ? employeeIdFilter : undefined,
     });
   }, [
     pagination.page,
@@ -165,8 +159,6 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
     serviceId,
     bookingStatus,
     branchId,
-    embeddedInReports,
-    employeeIdFilter,
   ]);
 
   const fetchVisitors = useCallback(async () => {
@@ -221,14 +213,6 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
       .catch(() => setBranches([]));
   }, [userProfile?.role]);
 
-  useEffect(() => {
-    if (!embeddedInReports || !userProfile?.tenant_id) return;
-    apiFetch('/reports/filter-employees', { headers: getAuthHeaders() })
-      .then((res) => res.json())
-      .then((data) => setEmployees(data.employees || []))
-      .catch(() => setEmployees([]));
-  }, [embeddedInReports, userProfile?.tenant_id]);
-
   const handleFilter = () => {
     setPagination((p) => ({ ...p, page: 1 }));
     setTimeout(() => fetchVisitors(), 0);
@@ -243,7 +227,6 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
     setServiceId('');
     setBookingStatus('');
     setBranchId('all');
-    setEmployeeIdFilter('');
     setPagination((p) => ({ ...p, page: 1 }));
     setTimeout(() => fetchVisitors(), 0);
   };
@@ -394,7 +377,11 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
         <div>
           {embeddedInReports && tenantSlug && (
             <Link
-              to={`/${tenantSlug}/admin/reports`}
+              to={
+                location.pathname.includes('/reception/reports')
+                  ? `/${tenantSlug}/reception/reports`
+                  : `/${tenantSlug}/admin/reports`
+              }
               className="text-sm text-blue-600 hover:text-blue-800 mb-2 inline-block"
             >
               ← {t('reports.backToReports', 'Back to Reports')}
@@ -407,7 +394,7 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {embeddedInReports
-              ? t('reports.visitors.subtitle', 'Same filters as Visitors, with serving staff and exports')
+              ? t('reports.visitors.subtitle', 'Same filters as Visitors, with exports')
               : t('visitors.subtitle', 'Manage and export visitor data')}
           </p>
         </div>
@@ -679,25 +666,6 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                 </select>
               </div>
             )}
-            {embeddedInReports && employees.length > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t('reports.visitors.employeeFilter', 'Employee (assigned on booking)')}
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  value={employeeIdFilter}
-                  onChange={(e) => setEmployeeIdFilter(e.target.value)}
-                >
-                  <option value="">{t('reports.allEmployees', 'All employees')}</option>
-                  {employees.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {i18n.language === 'ar' ? e.full_name_ar || e.full_name : e.full_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
           </div>
           <div className="flex gap-2 mt-4">
             <Button variant="primary" icon={<Filter className="w-4 h-4" />} onClick={handleFilter}>
@@ -771,7 +739,7 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[900px]">
+                <table className="w-full min-w-[760px]">
                   <thead>
                     <tr className="bg-slate-100/80 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider border-b border-slate-200">
                       <th className="px-4 py-3.5 w-12" title={t('visitors.selectForExport', 'Select for export')}>
@@ -786,7 +754,6 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                       <th className="px-4 py-3.5 text-center">{t('visitors.packageBookings', 'Package')}</th>
                       <th className="px-4 py-3.5 text-center">{t('visitors.paidBookings', 'Paid')}</th>
                       <th className="px-4 py-3.5">{t('visitors.lastBooking', 'Last Booking')}</th>
-                      <th className="px-4 py-3.5 min-w-[140px]">{t('reports.visitors.servingStaff', 'Serving staff')}</th>
                       <th className="px-4 py-3.5">{t('visitors.status', 'Status')}</th>
                     </tr>
                   </thead>
@@ -866,11 +833,6 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                               <Calendar className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                               {row.last_booking_date ? format(parseISO(row.last_booking_date), 'MMM d, yyyy') : '—'}
                             </span>
-                          </td>
-                          <td className="px-4 py-3 align-middle text-sm text-gray-700 max-w-[200px]">
-                            {row.serving_employees?.length
-                              ? row.serving_employees.join(', ')
-                              : '—'}
                           </td>
                           <td className="px-4 py-3 align-middle">
                             <span
@@ -1023,7 +985,6 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                       <th className="px-3 py-2.5 text-left">{t('visitors.createdBy', 'Created By')}</th>
                       <th className="px-3 py-2.5 text-left">{t('visitors.paymentMethod', 'Payment Method')}</th>
                       <th className="px-3 py-2.5 text-left">{t('visitors.transactionReference', 'Transaction Reference')}</th>
-                      <th className="px-3 py-2.5 text-left">{t('reports.visitors.servingEmployee', 'Employee')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -1044,11 +1005,6 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                         <td className="px-3 py-2 text-gray-600">{b.created_by === 'staff' ? t('visitors.staff', 'Admin/Receptionist') : t('visitors.customer', 'Customer')}</td>
                         <td className="px-3 py-2 text-gray-600">{b.payment_method || '—'}</td>
                         <td className="px-3 py-2 font-mono text-xs text-gray-500">{b.transaction_reference || '—'}</td>
-                        <td className="px-3 py-2 text-gray-700">
-                          {i18n.language === 'ar'
-                            ? b.employee_name_ar || b.employee_name || '—'
-                            : b.employee_name || b.employee_name_ar || '—'}
-                        </td>
                       </tr>
                     ))}
                   </tbody>

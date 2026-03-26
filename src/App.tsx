@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { AdminLayout } from './components/layout/AdminLayout';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +16,7 @@ import { SupportTicketsPage } from './pages/admin/SupportTicketsPage';
 import { TenantFeaturesPage } from './pages/admin/TenantFeaturesPage';
 import { TenantDashboard } from './pages/tenant/TenantDashboard';
 import { ServicesPage } from './pages/tenant/ServicesPage';
+import { TagsPage } from './pages/tenant/TagsPage';
 import { BookingsPage } from './pages/tenant/BookingsPage';
 import { VisitorsPage } from './pages/tenant/VisitorsPage';
 import { EmployeesPage } from './pages/tenant/EmployeesPage';
@@ -53,6 +54,12 @@ import { CustomerLandingPage } from './pages/customer/CustomerLandingPage';
 import { NavigationTest } from './components/debug/NavigationTest';
 import './lib/i18n';
 
+/** Old reception visitors URL → visitors report under reception reports */
+function ReceptionVisitorsLegacyRedirect() {
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  return <Navigate to={`/${tenantSlug}/reception/reports/visitors`} replace />;
+}
+
 function AppContent() {
   const { i18n } = useTranslation();
 
@@ -77,6 +84,7 @@ function AppContent() {
       <Route path="/:tenantSlug/admin" element={<AdminLayout />}>
         <Route index element={<TenantDashboard />} />
         <Route path="services" element={<ServicesPage />} />
+        <Route path="tags" element={<TagsPage />} />
         <Route path="branches" element={<ErrorBoundary><BranchesPage /></ErrorBoundary>} />
         <Route path="branches/:branchId" element={<ErrorBoundary><BranchDetailPage /></ErrorBoundary>} />
         <Route path="packages" element={<PackagesPage />} />
@@ -99,8 +107,14 @@ function AppContent() {
         <Route path="debug/navigation" element={<NavigationTest />} />
       </Route>
 
-      {/* Reception: /reception, /reception/visitors, /reception/assign-fixing-ticket all use ReceptionPage (reception layout, no admin sidebar) */}
-      <Route path="/:tenantSlug/reception/visitors" element={<ReceptionPage />} />
+      {/* Reception: same reports as admin, under /reception/reports/* */}
+      <Route path="/:tenantSlug/reception/reports/visitors" element={<ReceptionPage />} />
+      <Route path="/:tenantSlug/reception/reports/transactions" element={<ReceptionPage />} />
+      <Route path="/:tenantSlug/reception/reports/bookings" element={<ReceptionPage />} />
+      <Route path="/:tenantSlug/reception/reports" element={<ReceptionPage />} />
+      {/* Legacy: /reception/visitors → reports visitors */}
+      <Route path="/:tenantSlug/reception/visitors" element={<ReceptionVisitorsLegacyRedirect />} />
+      {/* Reception: /reception, /reception/assign-fixing-ticket */}
       <Route path="/:tenantSlug/reception/assign-fixing-ticket" element={<ReceptionPage />} />
       <Route path="/:tenantSlug/reception" element={<ReceptionPage />} />
       <Route path="/:tenantSlug/cashier/assign-fixing-ticket" element={<CashierPage />} />

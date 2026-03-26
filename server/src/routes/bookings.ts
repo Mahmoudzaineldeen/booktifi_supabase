@@ -11,6 +11,7 @@ import {
 } from '../utils/employeeAvailabilityCache';
 import { formatTimeTo12Hour } from '../utils/timeFormat';
 import { getPermissionsForUserByUserId } from '../permissions.js';
+import { resolveBookingTagForCreate } from '../services/tagPricingResolve.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -1514,6 +1515,9 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
     console.warn('[Booking Creation] ⚠️ Attempted to send response twice, ignoring second attempt');
   };
 
+  let bookingTagIdForDb: string | null = null;
+  let bookingAppliedTagFeeForDb = 0;
+
   try {
     // RBAC: staff (non-customer) must have create_booking permission (resolve from DB so role changes take effect)
     const userRole = req.user?.role;
@@ -1902,6 +1906,23 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       console.error(`[Booking Creation]    → Corrected: packageCoveredQty=${packageCoveredQty}, paidQty=${paidQty}`);
     }
 
+    // ============================================================================
+    // Pricing tag (required for staff; optional for customers — defaults server-side)
+    // ============================================================================
+    const isStaffBooking = !!(userRole && userRole !== 'customer');
+    const tagRes = await resolveBookingTagForCreate(supabase, {
+      tenantId: tenant_id,
+      serviceId: service_id,
+      tagIdFromClient: req.body.tag_id,
+      requireExplicitTag: isStaffBooking,
+    });
+    if (tagRes.ok === false) {
+      return sendResponse(tagRes.status, { error: tagRes.error });
+    }
+    bookingTagIdForDb = tagRes.tagId;
+    bookingAppliedTagFeeForDb = paidQty > 0 ? tagRes.appliedFee : 0;
+    finalTotalPrice = Number(finalTotalPrice) + bookingAppliedTagFeeForDb;
+
     // Use RPC for transaction - handles all validation, lock checking, and booking creation
     console.log(`[Booking Creation] Calling create_booking_with_lock RPC function...`);
     console.log(`[Booking Creation]    Package: ${shouldUsePackage ? 'YES' : 'NO'}, Price: ${finalTotalPrice}`);
@@ -2218,6 +2239,10 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       } else if (actualBooking.service_id) {
         const { data: firstBranch } = await supabase.from('service_branches').select('branch_id').eq('service_id', actualBooking.service_id).limit(1).maybeSingle();
         if (firstBranch?.branch_id) updatePayload.branch_id = firstBranch.branch_id;
+      }
+      if (bookingTagIdForDb) {
+        updatePayload.tag_id = bookingTagIdForDb;
+        updatePayload.applied_tag_fee = bookingAppliedTagFeeForDb;
       }
       if (Object.keys(updatePayload).length > 1) {
         await supabase.from('bookings').update(updatePayload).eq('id', actualBooking.id);
@@ -2789,6 +2814,9 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
 // Creates all bookings atomically, generates ONE invoice, and ONE ticket PDF
 // CRITICAL: authenticateReceptionistOrTenantAdmin middleware MUST run first
 router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, res) => {
+  let bulkTagId: string | null = null;
+  let bulkAppliedFeeTotal = 0;
+
   try {
     const {
       slot_ids, // Array of slot IDs to book
@@ -2998,6 +3026,19 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       }
     }
 
+    const bulkTagRes = await resolveBookingTagForCreate(supabase, {
+      tenantId: tenant_id,
+      serviceId: service_id,
+      tagIdFromClient: req.body.tag_id,
+      requireExplicitTag: true,
+    });
+    if (bulkTagRes.ok === false) {
+      return res.status(bulkTagRes.status).json({ error: bulkTagRes.error });
+    }
+    bulkTagId = bulkTagRes.tagId;
+    bulkAppliedFeeTotal = paidQty > 0 ? bulkTagRes.appliedFee : 0;
+    finalTotalPrice = Number(finalTotalPrice) + bulkAppliedFeeTotal;
+
     // CRITICAL: Validate that number of slots matches visitor_count
     // In bulk booking, each slot gets 1 visitor
     if (slot_ids.length !== visitor_count) {
@@ -3194,6 +3235,33 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       }
       if (req.user?.branch_id) bulkUpdate.branch_id = req.user.branch_id;
       await supabase.from('bookings').update(bulkUpdate).in('id', bookingIds);
+    }
+
+    if (bookingIds.length > 0 && bulkTagId) {
+      const { data: bRows } = await supabase
+        .from('bookings')
+        .select('id, paid_quantity')
+        .in('id', bookingIds)
+        .order('created_at', { ascending: true });
+      const paidIds = (bRows || []).filter((b: any) => Number(b.paid_quantity ?? 0) > 0).map((b: any) => b.id);
+      const n = paidIds.length;
+      if (n === 0) {
+        await supabase.from('bookings').update({ tag_id: bulkTagId, applied_tag_fee: 0 }).in('id', bookingIds);
+      } else {
+        const total = bulkAppliedFeeTotal;
+        let allocated = 0;
+        for (let i = 0; i < n; i++) {
+          const id = paidIds[i];
+          const isLast = i === n - 1;
+          const part = isLast ? Math.round((total - allocated) * 100) / 100 : Math.round((total / n) * 100) / 100;
+          allocated = Math.round((allocated + part) * 100) / 100;
+          await supabase.from('bookings').update({ tag_id: bulkTagId, applied_tag_fee: part }).eq('id', id);
+        }
+        const unpaidIds = bookingIds.filter((id) => !paidIds.includes(id));
+        if (unpaidIds.length) {
+          await supabase.from('bookings').update({ tag_id: bulkTagId, applied_tag_fee: 0 }).in('id', unpaidIds);
+        }
+      }
     }
 
     // ============================================================================

@@ -1,12 +1,14 @@
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '../../../components/ui/Card';
 import { Users, Receipt, Calendar } from 'lucide-react';
 
 export function ReportsHubPage() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  const { pathname } = useLocation();
   const { t } = useTranslation();
-  const base = `/${tenantSlug}/admin/reports`;
+  const isReception = pathname.includes('/reception/reports');
+  const base = `/${tenantSlug}/${isReception ? 'reception' : 'admin'}/reports`;
 
   const items = [
     {

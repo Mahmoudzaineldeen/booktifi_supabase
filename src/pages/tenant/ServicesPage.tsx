@@ -58,7 +58,7 @@ interface Shift {
 
 export function ServicesPage() {
   const { t, i18n } = useTranslation();
-  const { userProfile } = useAuth();
+  const { userProfile, hasPermission } = useAuth();
   const { features: tenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
   const { formatPrice, formatPriceString } = useCurrency();
   const globalSchedulingMode = tenantFeatures?.scheduling_mode ?? 'service_slot_based';
@@ -108,6 +108,10 @@ export function ServicesPage() {
 
   const [branches, setBranches] = useState<Array<{ id: string; name: string; location: string | null }>>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
+  const [pricingTagsCatalog, setPricingTagsCatalog] = useState<Array<{ id: string; name: string; is_default?: boolean }>>([]);
+  const [serviceTagIds, setServiceTagIds] = useState<string[]>([]);
+  const canAssignTagsToServices =
+    hasPermission('assign_tags_to_services') || hasPermission('manage_services');
 
   const [categoryForm, setCategoryForm] = useState({
     name: '',
@@ -541,6 +545,20 @@ export function ServicesPage() {
         }
       }
 
+      if (savedServiceId != null && canAssignTagsToServices && serviceTagIds.length > 0) {
+        try {
+          const tr = await apiFetch(`/tags/services/${savedServiceId}/assignments`, {
+            method: 'PUT',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tag_ids: serviceTagIds }),
+          });
+          const td = await tr.json().catch(() => ({}));
+          if (!tr.ok) showNotification('error', (td as any).error || t('tags.assignFailed', 'Could not save tag assignments'));
+        } catch {
+          showNotification('error', t('tags.assignFailed', 'Could not save tag assignments'));
+        }
+      }
+
       setIsServiceModalOpen(false);
       setEditingService(null);
       resetServiceForm();
@@ -824,10 +842,20 @@ export function ServicesPage() {
     setIsServiceModalOpen(true);
     (async () => {
       try {
-        const res = await apiFetch(`/branches/by-service/${service.id}/branches`, { headers: getAuthHeaders() });
-        const data = await res.json();
-        if (res.ok && data.data?.branch_ids) {
-          setServiceForm(prev => ({ ...prev, branch_ids: data.data.branch_ids }));
+        const [tagsRes, branchesRes, assignRes] = await Promise.all([
+          apiFetch('/tags', { headers: getAuthHeaders() }).then((r) => r.json()),
+          apiFetch(`/branches/by-service/${service.id}/branches`, { headers: getAuthHeaders() }).then((r) => r.json()),
+          apiFetch(`/tags/services/${service.id}`, { headers: getAuthHeaders() }).then((r) => r.json()),
+        ]);
+        const list = tagsRes.tags || [];
+        setPricingTagsCatalog(list);
+        if (assignRes.tag_ids?.length) setServiceTagIds(assignRes.tag_ids);
+        else {
+          const def = list.find((t: { is_default?: boolean }) => t.is_default);
+          setServiceTagIds(def?.id ? [def.id] : []);
+        }
+        if (branchesRes.data?.branch_ids) {
+          setServiceForm((prev) => ({ ...prev, branch_ids: branchesRes.data.branch_ids }));
         }
       } catch {
         // ignore
@@ -870,6 +898,42 @@ export function ServicesPage() {
       scheduling_type: 'slot_based',
       assignment_mode: null,
       branch_ids: [],
+    });
+    setPricingTagsCatalog([]);
+    setServiceTagIds([]);
+  }
+
+  async function loadPricingTagsForNewService() {
+    try {
+      const tagsRes = await apiFetch('/tags', { headers: getAuthHeaders() });
+      const tagsData = await tagsRes.json();
+      if (!tagsRes.ok) throw new Error(tagsData.error);
+      const list = tagsData.tags || [];
+      setPricingTagsCatalog(list);
+      const def = list.find((t: { is_default?: boolean }) => t.is_default);
+      setServiceTagIds(def?.id ? [def.id] : []);
+    } catch {
+      setPricingTagsCatalog([]);
+      setServiceTagIds([]);
+    }
+  }
+
+  function openAddServiceModal() {
+    setEditingService(null);
+    resetServiceForm();
+    setIsServiceModalOpen(true);
+    void loadPricingTagsForNewService();
+  }
+
+  function toggleServiceTag(tagId: string) {
+    const defId = pricingTagsCatalog.find((t) => t.is_default)?.id;
+    if (tagId === defId) return;
+    setServiceTagIds((prev) => {
+      const s = new Set(prev);
+      if (s.has(tagId)) s.delete(tagId);
+      else s.add(tagId);
+      if (defId) s.add(defId);
+      return [...s];
     });
   }
 
@@ -1102,10 +1166,7 @@ export function ServicesPage() {
           >
             {t('service.categories', 'Categories')}
           </Button>
-          <Button
-            onClick={() => setIsServiceModalOpen(true)}
-            icon={<Plus className="w-4 h-4" />}
-          >
+          <Button onClick={openAddServiceModal} icon={<Plus className="w-4 h-4" />}>
             {t('service.addService', 'Add Service')}
           </Button>
         </div>
@@ -1164,7 +1225,7 @@ export function ServicesPage() {
                 <Briefcase className="w-16 h-16 text-slate-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">{t('service.noServicesYet', 'No services yet')}</h3>
                 <p className="text-gray-600 mb-6">{t('service.getStarted', 'Get started by adding your first service')}</p>
-                <Button onClick={() => setIsServiceModalOpen(true)} icon={<Plus className="w-4 h-4" />}>
+                <Button onClick={openAddServiceModal} icon={<Plus className="w-4 h-4" />}>
                   {t('service.addService', 'Add Service')}
                 </Button>
               </CardContent>
@@ -1322,6 +1383,32 @@ export function ServicesPage() {
               placeholder="وصف الخدمة بالعربية"
             />
           </div>
+
+          {canAssignTagsToServices && pricingTagsCatalog.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('tags.serviceAssignments', 'Pricing tags for this service')}
+              </label>
+              <p className="text-xs text-gray-500 mb-2">{t('tags.defaultAlwaysOn', 'The Default tag is always included.')}</p>
+              <div className="border border-gray-300 rounded-lg p-3 max-h-36 overflow-y-auto space-y-2">
+                {pricingTagsCatalog.map((tg) => (
+                  <label key={tg.id} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={serviceTagIds.includes(tg.id)}
+                      disabled={!!tg.is_default}
+                      onChange={() => toggleServiceTag(tg.id)}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-900">
+                      {tg.name}
+                      {tg.is_default ? ` (${t('tags.default', 'Default')})` : ''}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

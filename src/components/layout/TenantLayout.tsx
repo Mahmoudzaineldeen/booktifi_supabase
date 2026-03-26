@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { showNotification } from '../../contexts/NotificationContext';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, UserCircle, Clock, Building2, Wrench, UserX, Shield, BarChart3, ChevronDown } from 'lucide-react';
+import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, UserCircle, Clock, Building2, Wrench, UserX, Shield, BarChart3, ChevronDown, Tag } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface TenantLayoutProps {
@@ -72,6 +72,16 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       visible: hasPermission('manage_services'),
     },
     {
+      name: t('navigation.pricingTags', 'Pricing tags'),
+      href: `/${tenantSlug}/admin/tags`,
+      icon: Tag,
+      current: location.pathname.startsWith(`/${tenantSlug}/admin/tags`),
+      visible:
+        hasPermission('manage_tags') ||
+        hasPermission('view_tags') ||
+        hasPermission('assign_tags_to_services'),
+    },
+    {
       name: t('navigation.packages'),
       href: `/${tenantSlug}/admin/packages`,
       icon: Package,
@@ -109,9 +119,12 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
     },
     {
       name: t('navigation.visitors', 'Visitors'),
-      href: useAdminVisitorsPath ? `/${tenantSlug}/admin/visitors` : `/${tenantSlug}/reception/visitors`,
+      href: useAdminVisitorsPath ? `/${tenantSlug}/admin/visitors` : `/${tenantSlug}/reception/reports/visitors`,
       icon: UserCircle,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/visitors`) || location.pathname.startsWith(`/${tenantSlug}/reception/visitors`),
+      current:
+        location.pathname.startsWith(`/${tenantSlug}/admin/visitors`) ||
+        location.pathname.startsWith(`/${tenantSlug}/reception/reports/visitors`) ||
+        location.pathname.startsWith(`/${tenantSlug}/reception/visitors`),
       visible: canAccessVisitors,
     },
     {
