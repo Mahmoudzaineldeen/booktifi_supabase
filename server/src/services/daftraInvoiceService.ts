@@ -13,6 +13,7 @@ import {
   mapBookingGroupToUnifiedInvoice,
   mapBookingToUnifiedInvoice,
 } from './invoices/unifiedInvoiceMapper';
+import { effectivePaidQuantityForInvoice } from './invoices/invoicePaidQuantity';
 import type { UnifiedBookingGroupInvoice, UnifiedBookingInvoice } from './invoices/unifiedInvoiceTypes';
 
 export type DaftraTenantSettings = {
@@ -407,7 +408,11 @@ export class DaftraInvoiceService {
         .select('paid_quantity, package_covered_quantity, visitor_count, total_price')
         .eq('id', bookingId)
         .maybeSingle();
-      const paidQty = paidRow?.paid_quantity ?? paidRow?.visitor_count ?? 0;
+      const paidQty = effectivePaidQuantityForInvoice({
+        paid_quantity: paidRow?.paid_quantity,
+        visitor_count: paidRow?.visitor_count,
+        package_covered_quantity: paidRow?.package_covered_quantity,
+      });
       const totalPrice = parseFloat(paidRow?.total_price?.toString() || '0');
       if (paidQty <= 0 || totalPrice <= 0) {
         return { invoiceId: '', success: true };
@@ -503,9 +508,18 @@ export class DaftraInvoiceService {
       const unified = await mapBookingGroupToUnifiedInvoice(bookingGroupId);
       const paidCheck = await supabase
         .from('bookings')
-        .select('paid_quantity, total_price')
+        .select('paid_quantity, package_covered_quantity, visitor_count, total_price')
         .eq('booking_group_id', bookingGroupId);
-      const totalPaid = (paidCheck.data || []).reduce((s, b) => s + (b.paid_quantity || 0), 0);
+      const totalPaid = (paidCheck.data || []).reduce(
+        (s, b) =>
+          s +
+          effectivePaidQuantityForInvoice({
+            paid_quantity: b.paid_quantity,
+            visitor_count: b.visitor_count,
+            package_covered_quantity: b.package_covered_quantity,
+          }),
+        0
+      );
       const totalAmt = (paidCheck.data || []).reduce((s, b) => s + parseFloat(String(b.total_price || 0)), 0);
       if (totalPaid <= 0 || totalAmt <= 0) {
         return { invoiceId: '', success: true };

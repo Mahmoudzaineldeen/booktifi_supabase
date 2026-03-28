@@ -16,6 +16,7 @@
  */
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { supabase } from '../db';
+import { effectivePaidQuantityForInvoice } from './invoices/invoicePaidQuantity';
 import dotenv from 'dotenv';
 import { zohoCredentials } from '../config/zohoCredentials';
 
@@ -1230,7 +1231,16 @@ class ZohoService {
       }
 
       // Check if there's any paid quantity across all bookings
-      const totalPaidQty = bookings.reduce((sum, b) => sum + (b.paid_quantity || 0), 0);
+      const totalPaidQty = bookings.reduce(
+        (sum, b) =>
+          sum +
+          effectivePaidQuantityForInvoice({
+            paid_quantity: b.paid_quantity,
+            visitor_count: b.visitor_count,
+            package_covered_quantity: b.package_covered_quantity,
+          }),
+        0
+      );
       const totalPackageCoveredQty = bookings.reduce((sum, b) => sum + (b.package_covered_quantity || 0), 0);
 
       console.log(`[ZohoService] 📊 Bulk booking partial coverage check:`);
@@ -1298,7 +1308,16 @@ class ZohoService {
           : firstBooking.services.description;
 
         // Sum paid quantities for this service
-        const paidQtyForService = serviceBookings.reduce((sum, b) => sum + (b.paid_quantity || 0), 0);
+        const paidQtyForService = serviceBookings.reduce(
+          (sum, b) =>
+            sum +
+            effectivePaidQuantityForInvoice({
+              paid_quantity: b.paid_quantity,
+              visitor_count: b.visitor_count,
+              package_covered_quantity: b.package_covered_quantity,
+            }),
+          0
+        );
         const packageCoveredQtyForService = serviceBookings.reduce((sum, b) => sum + (b.package_covered_quantity || 0), 0);
 
         if (paidQtyForService > 0) {
@@ -1583,7 +1602,11 @@ class ZohoService {
         .eq('id', bookingId)
         .maybeSingle();
       
-      const paidQty = bookingWithPaidQty?.paid_quantity ?? (bookingWithPaidQty?.visitor_count || 0);
+      const paidQty = effectivePaidQuantityForInvoice({
+        paid_quantity: bookingWithPaidQty?.paid_quantity,
+        visitor_count: bookingWithPaidQty?.visitor_count,
+        package_covered_quantity: bookingWithPaidQty?.package_covered_quantity,
+      });
       const packageCoveredQty = bookingWithPaidQty?.package_covered_quantity ?? 0;
       
       console.log(`[ZohoService] 📊 Partial coverage check for invoice:`);

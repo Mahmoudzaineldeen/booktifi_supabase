@@ -1,4 +1,5 @@
 import { supabase } from '../db';
+import { effectivePaidQuantityForInvoice } from '../services/invoices/invoicePaidQuantity';
 import { invoiceRoutingService } from '../services/invoiceRoutingService';
 
 interface QueueJob {
@@ -44,7 +45,7 @@ async function processReceiptJob(job: QueueJob): Promise<{ success: boolean; err
     // Check if booking exists and get invoice-related fields
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
-      .select('zoho_invoice_id, daftra_invoice_id, payment_status, paid_quantity, package_covered_quantity, total_price')
+      .select('zoho_invoice_id, daftra_invoice_id, payment_status, paid_quantity, package_covered_quantity, visitor_count, total_price')
       .eq('id', booking_id)
       .maybeSingle();
 
@@ -77,9 +78,11 @@ async function processReceiptJob(job: QueueJob): Promise<{ success: boolean; err
     // 1. paid_quantity > 0 (has paid portion)
     // 2. total_price > 0 (money is owed)
     // ============================================================================
-    const paidQty = booking.paid_quantity ?? (booking.package_covered_quantity !== undefined 
-      ? (booking.package_covered_quantity === 0 ? 1 : 0) // Fallback: if package_covered exists and is 0, assume all paid
-      : 1); // Fallback: if fields don't exist, assume paid (backward compatibility)
+    const paidQty = effectivePaidQuantityForInvoice({
+      paid_quantity: booking.paid_quantity,
+      visitor_count: booking.visitor_count,
+      package_covered_quantity: booking.package_covered_quantity,
+    });
     const totalPrice = parseFloat(booking.total_price?.toString() || '0');
     
     // Skip if booking shouldn't have an invoice (strict billing rule)

@@ -1,5 +1,6 @@
 import { supabase } from '../../db';
 import { formatTimeTo12Hour } from '../../utils/timeFormat';
+import { effectivePaidQuantityForInvoice } from './invoicePaidQuantity';
 import type { UnifiedBookingGroupInvoice, UnifiedBookingInvoice, UnifiedLineItem } from './unifiedInvoiceTypes';
 
 function normalizeCurrency(code: string | undefined | null): string {
@@ -156,10 +157,11 @@ export async function mapBookingToUnifiedInvoice(bookingId: string): Promise<Uni
   let serviceDescription = (svc?.description_ar || svc?.description || '') as string;
   serviceDescription = serviceDescription.trim();
 
-  const paidQty =
-    bookings.paid_quantity !== null && bookings.paid_quantity !== undefined
-      ? bookings.paid_quantity
-      : bookings.visitor_count || 1;
+  const paidQty = effectivePaidQuantityForInvoice({
+    paid_quantity: bookings.paid_quantity,
+    visitor_count: bookings.visitor_count,
+    package_covered_quantity: bookings.package_covered_quantity,
+  });
   const packageCoveredQty = bookings.package_covered_quantity || 0;
 
   if (paidQty <= 0) {
@@ -395,7 +397,16 @@ export async function mapBookingGroupToUnifiedInvoice(bookingGroupId: string): P
     const serviceName = (gsvc?.name_ar || gsvc?.name || 'Service').trim() || 'Service';
     const serviceDescription = (gsvc?.description_ar || gsvc?.description || '').trim();
 
-    const paidQtyForService = serviceBookings.reduce((sum, b) => sum + (b.paid_quantity || 0), 0);
+    const paidQtyForService = serviceBookings.reduce(
+      (sum, b) =>
+        sum +
+        effectivePaidQuantityForInvoice({
+          paid_quantity: b.paid_quantity,
+          visitor_count: b.visitor_count,
+          package_covered_quantity: b.package_covered_quantity,
+        }),
+      0
+    );
     const packageCoveredQtyForService = serviceBookings.reduce((sum, b) => sum + (b.package_covered_quantity || 0), 0);
 
     if (paidQtyForService > 0) {
