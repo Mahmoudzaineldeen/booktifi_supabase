@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import { testWhatsAppConnection } from '../services/whatsappService';
 import { testEmailConnection, sendEmail, type SendEmailOptions } from '../services/emailApiService';
+import { exchangeDaftraPdfOauthPassword } from '../services/daftraInvoiceService';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -1625,6 +1626,12 @@ router.get('/invoice-provider-settings', authenticateTenantAdmin, async (req, re
       country_code: typeof raw.country_code === 'string' ? raw.country_code : 'SA',
       fallback_to_zoho: raw.fallback_to_zoho === true,
       api_token_set: hasToken,
+      pdf_oauth_client_id: typeof raw.pdf_oauth_client_id === 'string' ? raw.pdf_oauth_client_id : '',
+      pdf_oauth_username: typeof raw.pdf_oauth_username === 'string' ? raw.pdf_oauth_username : '',
+      pdf_oauth_refresh_token_set:
+        typeof raw.pdf_oauth_refresh_token === 'string' && raw.pdf_oauth_refresh_token.length > 0,
+      pdf_oauth_client_secret_set:
+        typeof raw.pdf_oauth_client_secret === 'string' && raw.pdf_oauth_client_secret.length > 0,
     };
 
     res.json({
@@ -1676,6 +1683,42 @@ router.put('/invoice-provider-settings', authenticateTenantAdmin, async (req, re
       if (typeof newTok === 'string' && newTok.trim().length > 0) {
         merged.api_token = newTok.trim();
       }
+      if (typeof daftra_settings.pdf_oauth_client_id === 'string') {
+        merged.pdf_oauth_client_id = daftra_settings.pdf_oauth_client_id.trim();
+      }
+      if (typeof daftra_settings.pdf_oauth_client_secret === 'string' && daftra_settings.pdf_oauth_client_secret.trim()) {
+        merged.pdf_oauth_client_secret = daftra_settings.pdf_oauth_client_secret.trim();
+      }
+      if (typeof daftra_settings.pdf_oauth_username === 'string') {
+        merged.pdf_oauth_username = daftra_settings.pdf_oauth_username.trim();
+      }
+      if (typeof daftra_settings.pdf_oauth_refresh_token === 'string' && daftra_settings.pdf_oauth_refresh_token.trim()) {
+        merged.pdf_oauth_refresh_token = daftra_settings.pdf_oauth_refresh_token.trim();
+      }
+      const pdfPwd =
+        typeof daftra_settings.pdf_oauth_password === 'string' ? daftra_settings.pdf_oauth_password.trim() : '';
+      if (pdfPwd) {
+        const sub = typeof merged.subdomain === 'string' ? merged.subdomain.trim() : '';
+        const user =
+          (typeof daftra_settings.pdf_oauth_username === 'string' && daftra_settings.pdf_oauth_username.trim()) ||
+          (typeof merged.pdf_oauth_username === 'string' ? merged.pdf_oauth_username : '');
+        const cid = typeof merged.pdf_oauth_client_id === 'string' ? merged.pdf_oauth_client_id : '';
+        const sec = typeof merged.pdf_oauth_client_secret === 'string' ? merged.pdf_oauth_client_secret : '';
+        if (!sub || !user || !cid || !sec) {
+          return res.status(400).json({
+            error:
+              'Daftra PDF OAuth: subdomain, client id, client secret, and username must be set before saving a password (to obtain a refresh token).',
+          });
+        }
+        try {
+          const tok = await exchangeDaftraPdfOauthPassword(sub, cid, sec, user, pdfPwd);
+          if (typeof tok.refresh_token === 'string' && tok.refresh_token.length > 0) {
+            merged.pdf_oauth_refresh_token = tok.refresh_token;
+          }
+        } catch (e: any) {
+          return res.status(400).json({ error: e?.message || 'Daftra PDF OAuth password grant failed' });
+        }
+      }
       nextDaftra = merged;
     }
 
@@ -1716,6 +1759,12 @@ router.put('/invoice-provider-settings', authenticateTenantAdmin, async (req, re
         country_code: typeof raw.country_code === 'string' ? raw.country_code : 'SA',
         fallback_to_zoho: raw.fallback_to_zoho === true,
         api_token_set: hasToken,
+        pdf_oauth_client_id: typeof raw.pdf_oauth_client_id === 'string' ? raw.pdf_oauth_client_id : '',
+        pdf_oauth_username: typeof raw.pdf_oauth_username === 'string' ? raw.pdf_oauth_username : '',
+        pdf_oauth_refresh_token_set:
+          typeof raw.pdf_oauth_refresh_token === 'string' && raw.pdf_oauth_refresh_token.length > 0,
+        pdf_oauth_client_secret_set:
+          typeof raw.pdf_oauth_client_secret === 'string' && raw.pdf_oauth_client_secret.length > 0,
       },
     });
   } catch (e: any) {
