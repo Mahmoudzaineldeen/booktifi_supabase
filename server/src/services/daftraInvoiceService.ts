@@ -98,11 +98,29 @@ function parseDaftraStoreIds(payload: unknown): number[] {
   return [];
 }
 
+/** Merge corrected `store_id` into tenant JSON so Settings and future loads stay in sync (no repeated warnings). */
+async function persistCorrectedDaftraStoreId(tenantId: string, newStoreId: number): Promise<void> {
+  const { data, error } = await supabase.from('tenants').select('daftra_settings').eq('id', tenantId).maybeSingle();
+  if (error || !data?.daftra_settings || typeof data.daftra_settings !== 'object') return;
+  const cur = data.daftra_settings as Record<string, unknown>;
+  if (cur.store_id === newStoreId) return;
+  const next = { ...cur, store_id: newStoreId };
+  const { error: upErr } = await supabase.from('tenants').update({ daftra_settings: next, updated_at: new Date().toISOString() }).eq('id', tenantId);
+  if (upErr) {
+    console.warn(`[DaftraInvoice] Could not persist corrected store_id: ${upErr.message}`);
+  } else {
+    console.log(`[DaftraInvoice] Updated tenant Daftra store_id ${cur.store_id} → ${newStoreId} (was not a valid warehouse).`);
+  }
+}
+
 /**
  * Invoice `store_id` must be a warehouse from /api2/stores.json. Tenants often paste product `site_id`
  * (e.g. 4375361), which Daftra rejects ("no permission for this warehouse").
  */
-async function resolveDaftraInvoiceStoreId(settings: DaftraTenantSettings): Promise<number> {
+async function resolveDaftraInvoiceStoreId(
+  settings: DaftraTenantSettings,
+  tenantId?: string | null
+): Promise<number> {
   const configured = settings.store_id;
   const base = apiBase(settings.subdomain);
   try {
@@ -115,9 +133,12 @@ async function resolveDaftraInvoiceStoreId(settings: DaftraTenantSettings): Prom
     if (allowed.length === 0) return configured;
     if (allowed.includes(configured)) return configured;
     const fallback = allowed.includes(1) ? 1 : allowed[0];
-    if (fallback !== configured) {
+    if (fallback !== configured && tenantId) {
+      await persistCorrectedDaftraStoreId(tenantId, fallback);
+      settings.store_id = fallback;
+    } else if (fallback !== configured) {
       console.warn(
-        `[DaftraInvoice] store_id ${configured} is not an allowed warehouse; using ${fallback}. Update tenant Daftra settings (store ID from /api2/stores.json).`
+        `[DaftraInvoice] store_id ${configured} is not an allowed warehouse; using ${fallback} (tenant id missing — cannot persist).`
       );
     }
     return fallback;
@@ -226,9 +247,10 @@ async function createDaftraInvoice(
   clientId: number,
   u: UnifiedBookingInvoice | UnifiedBookingGroupInvoice,
   notes: string,
-  poNumber: string
+  poNumber: string,
+  tenantId?: string | null
 ): Promise<number> {
-  const storeId = await resolveDaftraInvoiceStoreId(settings);
+  const storeId = await resolveDaftraInvoiceStoreId(settings, tenantId);
   const base = apiBase(settings.subdomain);
   const items = u.line_items.map((li) => ({
     product_id: settings.default_product_id,
@@ -436,7 +458,7 @@ export class DaftraInvoiceService {
         currency_code: unified.currency_code,
       });
 
-      const invoiceNum = await createDaftraInvoice(settings, clientId, unified, daftraNotes, unified.booking_id);
+      const invoiceNum = await createDaftraInvoice(settings, clientId, unified, daftraNotes, unified.booking_id, booking.tenant_id);
       const invoiceIdStr = String(invoiceNum);
 
       await supabase
@@ -534,7 +556,7 @@ export class DaftraInvoiceService {
         booking_id: unified.primary_booking_id,
         currency_code: unified.currency_code,
       });
-      const invoiceNum = await createDaftraInvoice(settings, clientId, unified, notes, unified.booking_group_id);
+      const invoiceNum = await createDaftraInvoice(settings, clientId, unified, notes, unified.booking_group_id, tenantId);
       const invoiceIdStr = String(invoiceNum);
 
       await supabase
