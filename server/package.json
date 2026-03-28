@@ -9,7 +9,8 @@
     "build": "echo 'Skipping build - using tsx directly'",
     "start": "tsx src/index.ts",
     "ensure-lamia": "tsx scripts/ensure-lamia-user.ts",
-    "set-password": "tsx scripts/set-user-password.ts"
+    "set-password": "tsx scripts/set-user-password.ts",
+    "admin-booking-daftra": "tsx scripts/admin-booking-daftra-invoice.ts"
   },
   "keywords": [],
   "author": "",

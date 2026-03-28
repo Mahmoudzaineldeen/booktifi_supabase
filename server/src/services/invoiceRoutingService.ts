@@ -28,18 +28,30 @@ export const invoiceRoutingService = {
     }
 
     const provider = await getInvoiceProviderForTenant(tenantId);
+    console.log(`[InvoiceRouting] booking=${bookingId} tenant=${tenantId} provider=${provider}`);
+
     if (provider === 'daftra') {
       const daftra = await daftraInvoiceService.generateReceipt(bookingId, options);
-      if (!daftra.success && daftra.error) {
+      if (daftra.success && daftra.invoiceId) {
+        console.log(`[InvoiceRouting] Daftra OK invoice_id=${daftra.invoiceId}`);
+      } else if (daftra.success && !daftra.invoiceId) {
+        console.log(`[InvoiceRouting] Daftra OK — no invoice id (e.g. nothing to bill)`);
+      }
+      if (!daftra.success) {
         const settings = await loadDaftraSettingsForTenant(tenantId);
         if (settings?.fallback_to_zoho) {
-          console.warn(`[InvoiceRouting] Daftra failed (${daftra.error}), falling back to Zoho`);
-          return zohoService.generateReceipt(bookingId, options);
+          console.warn(`[InvoiceRouting] Daftra failed (${daftra.error || 'unknown'}), falling back to Zoho`);
+          const zoho = await zohoService.generateReceipt(bookingId, options);
+          if (zoho.success && zoho.invoiceId) {
+            console.log(`[InvoiceRouting] Zoho (fallback) OK invoice_id=${zoho.invoiceId}`);
+          }
+          return zoho;
         }
       }
       return daftra;
     }
 
+    console.log(`[InvoiceRouting] Using Zoho for booking=${bookingId}`);
     return zohoService.generateReceipt(bookingId, options);
   },
 
@@ -56,12 +68,17 @@ export const invoiceRoutingService = {
     }
 
     const provider = await getInvoiceProviderForTenant(tenantId);
+    console.log(`[InvoiceRouting] group=${bookingGroupId} tenant=${tenantId} provider=${provider}`);
+
     if (provider === 'daftra') {
       const daftra = await daftraInvoiceService.generateReceiptForBookingGroup(bookingGroupId);
-      if (!daftra.success && daftra.error) {
+      if (daftra.success && daftra.invoiceId) {
+        console.log(`[InvoiceRouting] Daftra group OK invoice_id=${daftra.invoiceId}`);
+      }
+      if (!daftra.success) {
         const settings = await loadDaftraSettingsForTenant(tenantId);
         if (settings?.fallback_to_zoho) {
-          console.warn(`[InvoiceRouting] Daftra group failed (${daftra.error}), falling back to Zoho`);
+          console.warn(`[InvoiceRouting] Daftra group failed (${daftra.error || 'unknown'}), falling back to Zoho`);
           return zohoService.generateReceiptForBookingGroup(bookingGroupId);
         }
       }

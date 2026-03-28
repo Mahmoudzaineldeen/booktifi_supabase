@@ -359,7 +359,7 @@ async function deliverDaftraInvoice(
     await sendEmail(tenantId, {
       to: customerEmail,
       from,
-      subject: `Invoice #${invoiceIdNum}`,
+      subject: `Invoice #${invoiceIdNum} (Daftra)`,
       html: `<p>${caption.replace(/\n/g, '<br/>')}</p>`,
       attachments,
     }).catch((e) => console.error(`[DaftraInvoice] Email failed: ${e.message}`));
@@ -460,6 +460,7 @@ export class DaftraInvoiceService {
 
       const invoiceNum = await createDaftraInvoice(settings, clientId, unified, daftraNotes, unified.booking_id, booking.tenant_id);
       const invoiceIdStr = String(invoiceNum);
+      console.log(`[DaftraInvoice] Created invoice in Daftra id=${invoiceIdStr} booking=${bookingId}`);
 
       await supabase
         .from('bookings')
@@ -600,3 +601,20 @@ export class DaftraInvoiceService {
 }
 
 export const daftraInvoiceService = new DaftraInvoiceService();
+
+/** Download invoice PDF from Daftra (for API route / staff UI). */
+export async function downloadDaftraInvoicePdfForTenant(tenantId: string, invoiceId: string | number): Promise<Buffer> {
+  const settings = await loadDaftraSettingsForTenant(tenantId);
+  if (!settings) {
+    throw new Error('Daftra is not configured for this tenant');
+  }
+  const num = typeof invoiceId === 'string' ? parseInt(invoiceId, 10) : invoiceId;
+  if (!Number.isFinite(num)) {
+    throw new Error('Invalid Daftra invoice id');
+  }
+  const pdf = await tryDownloadDaftraInvoicePdf(settings, num);
+  if (!pdf || pdf.length < 100) {
+    throw new Error('Daftra did not return a PDF for this invoice (check Daftra invoice id and API permissions)');
+  }
+  return pdf;
+}
