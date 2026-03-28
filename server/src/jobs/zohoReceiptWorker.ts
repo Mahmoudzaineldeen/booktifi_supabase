@@ -1,5 +1,5 @@
 import { supabase } from '../db';
-import { zohoService } from '../services/zohoService';
+import { invoiceRoutingService } from '../services/invoiceRoutingService';
 
 interface QueueJob {
   id: string;
@@ -44,7 +44,7 @@ async function processReceiptJob(job: QueueJob): Promise<{ success: boolean; err
     // Check if booking exists and get invoice-related fields
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
-      .select('zoho_invoice_id, payment_status, paid_quantity, package_covered_quantity, total_price')
+      .select('zoho_invoice_id, daftra_invoice_id, payment_status, paid_quantity, package_covered_quantity, total_price')
       .eq('id', booking_id)
       .maybeSingle();
 
@@ -60,7 +60,7 @@ async function processReceiptJob(job: QueueJob): Promise<{ success: boolean; err
     }
 
     // Skip if invoice already created
-    if (booking.zoho_invoice_id) {
+    if (booking.zoho_invoice_id || booking.daftra_invoice_id) {
       console.log(`[ZohoReceiptWorker] Invoice already exists for booking ${booking_id}, marking job as completed`);
       await supabase.from('bookings').update({ invoice_processing_status: 'completed', invoice_last_error: null }).eq('id', booking_id);
       await supabase
@@ -108,7 +108,7 @@ async function processReceiptJob(job: QueueJob): Promise<{ success: boolean; err
     }
 
     // Generate receipt (create Zoho invoice, record payment if paid, send email/WhatsApp)
-    const result = await zohoService.generateReceipt(booking_id);
+    const result = await invoiceRoutingService.generateReceipt(booking_id);
 
     if (result.success) {
       await supabase.from('bookings').update({ invoice_processing_status: 'completed', invoice_last_error: null }).eq('id', booking_id);

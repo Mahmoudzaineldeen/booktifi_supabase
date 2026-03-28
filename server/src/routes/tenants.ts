@@ -1594,6 +1594,135 @@ router.put('/settings', authenticateTenantAdmin, async (req, res) => {
   }
 });
 
+// ============================================================================
+// Invoice provider (Zoho vs Daftra) + Daftra credentials
+// ============================================================================
+router.get('/invoice-provider-settings', authenticateTenantAdmin, async (req, res) => {
+  if (req.user?.role === 'customer_admin' || req.user?.role === 'admin_user') {
+    return res.status(403).json({
+      error: 'Access denied. This role does not have permission to access settings.',
+      userRole: req.user.role,
+    });
+  }
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const { data, error } = await supabase
+      .from('tenants')
+      .select('invoice_provider, daftra_settings')
+      .eq('id', tenantId)
+      .single();
+
+    if (error) {
+      return res.status(500).json({ error: error.message || 'Failed to load invoice settings' });
+    }
+
+    const raw = (data?.daftra_settings || {}) as Record<string, unknown>;
+    const hasToken = typeof raw.api_token === 'string' && raw.api_token.length > 0;
+    const safe = {
+      subdomain: typeof raw.subdomain === 'string' ? raw.subdomain : '',
+      store_id: raw.store_id ?? '',
+      default_product_id: raw.default_product_id ?? '',
+      country_code: typeof raw.country_code === 'string' ? raw.country_code : 'SA',
+      fallback_to_zoho: raw.fallback_to_zoho === true,
+      api_token_set: hasToken,
+    };
+
+    res.json({
+      invoice_provider: data?.invoice_provider === 'daftra' ? 'daftra' : 'zoho',
+      daftra_settings: safe,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Internal server error' });
+  }
+});
+
+router.put('/invoice-provider-settings', authenticateTenantAdmin, async (req, res) => {
+  if (req.user?.role === 'customer_admin' || req.user?.role === 'admin_user') {
+    return res.status(403).json({
+      error: 'Access denied. This role does not have permission to access settings.',
+      userRole: req.user.role,
+    });
+  }
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const { invoice_provider, daftra_settings } = req.body as {
+      invoice_provider?: string;
+      daftra_settings?: Record<string, unknown>;
+    };
+
+    if (invoice_provider !== undefined && invoice_provider !== 'zoho' && invoice_provider !== 'daftra') {
+      return res.status(400).json({ error: 'invoice_provider must be "zoho" or "daftra"' });
+    }
+
+    const { data: current } = await supabase.from('tenants').select('daftra_settings').eq('id', tenantId).single();
+    const prev = (current?.daftra_settings || {}) as Record<string, unknown>;
+
+    let nextDaftra = prev;
+    if (daftra_settings && typeof daftra_settings === 'object') {
+      const merged = { ...prev };
+      if (typeof daftra_settings.subdomain === 'string') merged.subdomain = daftra_settings.subdomain.trim();
+      if (daftra_settings.store_id !== undefined && daftra_settings.store_id !== '') {
+        merged.store_id = typeof daftra_settings.store_id === 'number' ? daftra_settings.store_id : parseInt(String(daftra_settings.store_id), 10);
+      }
+      if (daftra_settings.default_product_id !== undefined && daftra_settings.default_product_id !== '') {
+        merged.default_product_id =
+          typeof daftra_settings.default_product_id === 'number'
+            ? daftra_settings.default_product_id
+            : parseInt(String(daftra_settings.default_product_id), 10);
+      }
+      if (typeof daftra_settings.country_code === 'string') merged.country_code = daftra_settings.country_code.trim();
+      if (daftra_settings.fallback_to_zoho !== undefined) merged.fallback_to_zoho = daftra_settings.fallback_to_zoho === true;
+      const newTok = daftra_settings.api_token;
+      if (typeof newTok === 'string' && newTok.trim().length > 0) {
+        merged.api_token = newTok.trim();
+      }
+      nextDaftra = merged;
+    }
+
+    const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (invoice_provider !== undefined) updatePayload.invoice_provider = invoice_provider;
+    if (daftra_settings && typeof daftra_settings === 'object') updatePayload.daftra_settings = nextDaftra;
+
+    if (Object.keys(updatePayload).length <= 1) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from('tenants')
+      .update(updatePayload)
+      .eq('id', tenantId)
+      .select('invoice_provider, daftra_settings')
+      .single();
+
+    if (updateError) {
+      if (updateError.code === '42703' || updateError.message?.includes('does not exist')) {
+        return res.status(500).json({
+          error: 'Database migration required',
+          hint: 'Run migration 20260328000000_invoice_provider_daftra.sql',
+        });
+      }
+      return res.status(500).json({ error: updateError.message });
+    }
+
+    const raw = (updated?.daftra_settings || {}) as Record<string, unknown>;
+    const hasToken = typeof raw.api_token === 'string' && raw.api_token.length > 0;
+    res.json({
+      success: true,
+      invoice_provider: updated?.invoice_provider === 'daftra' ? 'daftra' : 'zoho',
+      daftra_settings: {
+        subdomain: typeof raw.subdomain === 'string' ? raw.subdomain : '',
+        store_id: raw.store_id ?? '',
+        default_product_id: raw.default_product_id ?? '',
+        country_code: typeof raw.country_code === 'string' ? raw.country_code : 'SA',
+        fallback_to_zoho: raw.fallback_to_zoho === true,
+        api_token_set: hasToken,
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Internal server error' });
+  }
+});
+
 // Update currency settings (Tenant Provider only)
 router.put('/currency', authenticateTenantAdminOnly, async (req, res) => {
   try {

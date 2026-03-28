@@ -3281,11 +3281,11 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
           console.log(`[Bulk Booking Creation]    Package covered: ${packageCoveredQty}`);
           console.log(`[Bulk Booking Creation]    → Proceeding with invoice creation`);
           
-          const { zohoService } = await import('../services/zohoService.js');
+          const { invoiceRoutingService } = await import('../services/invoiceRoutingService.js');
           
           // Generate invoice for the booking group (uses first booking ID as reference)
           // The generateReceiptForBookingGroup function will check paid_quantity internally
-          const invoiceResult = await zohoService.generateReceiptForBookingGroup(bookingGroupId);
+          const invoiceResult = await invoiceRoutingService.generateReceiptForBookingGroup(bookingGroupId);
           if (invoiceResult.success) {
             console.log(`[Bulk Booking Creation] ✅ Invoice created: ${invoiceResult.invoiceId}`);
           } else {
@@ -5473,7 +5473,7 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
 
     let zohoSyncResult: { success: boolean; error?: string; paymentId?: string } | null = null;
     let invoiceSendWarning: string | undefined;
-    let invoiceId = currentBooking.zoho_invoice_id;
+    let invoiceId = currentBooking.zoho_invoice_id || (currentBooking as any).daftra_invoice_id;
     const totalPrice = Number((updatedBooking || currentBooking).total_price) || 0;
     const phone = (updatedBooking || currentBooking).customer_phone || '';
 
@@ -5520,12 +5520,17 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
     }
     if (!invoiceId && totalPrice > 0 && shouldCreateInvoiceAndRecordPayment) {
       try {
-        const { zohoService } = await import('../services/zohoService.js');
-        const invoiceResult = await zohoService.generateReceipt(bookingId);
+        const { invoiceRoutingService } = await import('../services/invoiceRoutingService.js');
+        const invoiceResult = await invoiceRoutingService.generateReceipt(bookingId);
         if (invoiceResult.success && invoiceResult.invoiceId) {
           invoiceId = invoiceResult.invoiceId;
-          const { data: refetch } = await supabase.from('bookings').select('zoho_invoice_id').eq('id', bookingId).single();
+          const { data: refetch } = await supabase
+            .from('bookings')
+            .select('zoho_invoice_id, daftra_invoice_id')
+            .eq('id', bookingId)
+            .single();
           if (refetch?.zoho_invoice_id) invoiceId = refetch.zoho_invoice_id;
+          else if (refetch?.daftra_invoice_id) invoiceId = refetch.daftra_invoice_id;
         } else {
           invoiceCreateError = invoiceResult.error || 'Invoice creation failed';
         }
@@ -5537,56 +5542,68 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
 
     if (shouldCreateInvoiceAndRecordPayment && invoiceId && totalPrice > 0) {
       const { zohoService } = await import('../services/zohoService.js');
-      const paymentMode = payMethod === 'transfer' ? 'banktransfer' as const : 'cash' as const;
-      const referenceNumber = payMethod === 'transfer' ? refNum : 'Paid On Site';
+      const { data: idRow } = await supabase
+        .from('bookings')
+        .select('zoho_invoice_id')
+        .eq('id', bookingId)
+        .maybeSingle();
+      const zohoInvoiceIdOnly = idRow?.zoho_invoice_id;
 
-      try {
-        const recordResult = await zohoService.recordCustomerPayment(
-          tenantId,
-          invoiceId,
-          totalPrice,
-          paymentMode,
-          referenceNumber
-        );
-        zohoSyncResult = { success: recordResult.success, error: recordResult.error, paymentId: recordResult.paymentId };
+      if (zohoInvoiceIdOnly) {
+        const paymentMode = payMethod === 'transfer' ? ('banktransfer' as const) : ('cash' as const);
+        const referenceNumber = payMethod === 'transfer' ? refNum : 'Paid On Site';
 
-        await supabase
-          .from('bookings')
-          .update({
-            zoho_payment_id: recordResult.paymentId || null,
-            zoho_sync_status: recordResult.success ? 'synced' : 'pending',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', bookingId);
-
-        if (!recordResult.success) {
-          logger.error('Zoho record payment failed (non-blocking)', { bookingId, error: recordResult.error });
-        }
-      } catch (e: any) {
-        zohoSyncResult = { success: false, error: e?.message || 'Zoho payment record failed' };
-        await supabase
-          .from('bookings')
-          .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
-          .eq('id', bookingId);
-      }
-
-      if (phone && phone.trim()) {
         try {
-          const invoiceMessage = payMethod === 'transfer'
-            ? `Your booking invoice is attached. Transfer Reference: ${refNum}. Thank you for your booking!`
-            : 'Your booking invoice is attached. Payment Method: Paid On Site. Thank you for your booking!';
-          await zohoService.sendInvoiceViaWhatsApp(tenantId, invoiceId, phone.trim(), invoiceMessage);
-        } catch (waErr: any) {
-          logger.error('Send invoice via WhatsApp failed (non-blocking)', { bookingId, error: waErr?.message });
-          if (waErr?.message?.includes('payment has not been completed')) {
-            invoiceSendWarning = 'Invoice cannot be sent because payment has not been completed.';
+          const recordResult = await zohoService.recordCustomerPayment(
+            tenantId,
+            zohoInvoiceIdOnly,
+            totalPrice,
+            paymentMode,
+            referenceNumber
+          );
+          zohoSyncResult = { success: recordResult.success, error: recordResult.error, paymentId: recordResult.paymentId };
+
+          await supabase
+            .from('bookings')
+            .update({
+              zoho_payment_id: recordResult.paymentId || null,
+              zoho_sync_status: recordResult.success ? 'synced' : 'pending',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', bookingId);
+
+          if (!recordResult.success) {
+            logger.error('Zoho record payment failed (non-blocking)', { bookingId, error: recordResult.error });
+          }
+        } catch (e: any) {
+          zohoSyncResult = { success: false, error: e?.message || 'Zoho payment record failed' };
+          await supabase
+            .from('bookings')
+            .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
+            .eq('id', bookingId);
+        }
+
+        if (phone && phone.trim()) {
+          try {
+            const invoiceMessage = payMethod === 'transfer'
+              ? `Your booking invoice is attached. Transfer Reference: ${refNum}. Thank you for your booking!`
+              : 'Your booking invoice is attached. Payment Method: Paid On Site. Thank you for your booking!';
+            await zohoService.sendInvoiceViaWhatsApp(tenantId, zohoInvoiceIdOnly, phone.trim(), invoiceMessage);
+          } catch (waErr: any) {
+            logger.error('Send invoice via WhatsApp failed (non-blocking)', { bookingId, error: waErr?.message });
+            if (waErr?.message?.includes('payment has not been completed')) {
+              invoiceSendWarning = 'Invoice cannot be sent because payment has not been completed.';
+            }
           }
         }
       }
     } else if (invoiceId && !shouldCreateInvoiceAndRecordPayment && isPaidOrPaidManual) {
       try {
         const { zohoService } = await import('../services/zohoService.js');
-        zohoSyncResult = await zohoService.updateInvoiceStatus(tenantId, invoiceId, payment_status);
+        const { data: zRow } = await supabase.from('bookings').select('zoho_invoice_id').eq('id', bookingId).maybeSingle();
+        if (zRow?.zoho_invoice_id) {
+          zohoSyncResult = await zohoService.updateInvoiceStatus(tenantId, zRow.zoho_invoice_id, payment_status);
+        }
       } catch (zohoError: any) {
         zohoSyncResult = { success: false, error: zohoError.message };
       }
@@ -5681,19 +5698,24 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
     );
 
     let invoiceSendWarning: string | undefined;
-    let invoiceId = currentBooking.zoho_invoice_id;
+    let invoiceId = currentBooking.zoho_invoice_id || (currentBooking as any).daftra_invoice_id;
     const totalPrice = Number(updatedBooking?.total_price || currentBooking.total_price) || 0;
     const phone = (updatedBooking?.customer_phone || currentBooking.customer_phone || '').trim();
 
     // If no invoice yet (e.g. booking was created as unpaid), create invoice first then record payment and send
     if (!invoiceId && totalPrice > 0) {
       try {
-        const { zohoService } = await import('../services/zohoService.js');
-        const invoiceResult = await zohoService.generateReceipt(bookingId);
+        const { invoiceRoutingService } = await import('../services/invoiceRoutingService.js');
+        const invoiceResult = await invoiceRoutingService.generateReceipt(bookingId);
         if (invoiceResult.success && invoiceResult.invoiceId) {
           invoiceId = invoiceResult.invoiceId;
-          const { data: refetch } = await supabase.from('bookings').select('zoho_invoice_id').eq('id', bookingId).single();
+          const { data: refetch } = await supabase
+            .from('bookings')
+            .select('zoho_invoice_id, daftra_invoice_id')
+            .eq('id', bookingId)
+            .single();
           if (refetch?.zoho_invoice_id) invoiceId = refetch.zoho_invoice_id;
+          else if (refetch?.daftra_invoice_id) invoiceId = refetch.daftra_invoice_id;
         }
       } catch (e: any) {
         logger.error('[Mark Paid] Create invoice failed (non-blocking)', { bookingId, error: e?.message });
@@ -5702,47 +5724,52 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
 
     if (invoiceId && totalPrice > 0) {
       const { zohoService } = await import('../services/zohoService.js');
-      const paymentMode = payMethod === 'transfer' ? 'banktransfer' as const : 'cash' as const;
-      const referenceNumber = payMethod === 'transfer' ? refNum : 'Paid On Site';
+      const { data: zohoRow } = await supabase.from('bookings').select('zoho_invoice_id').eq('id', bookingId).maybeSingle();
+      const zohoOnly = zohoRow?.zoho_invoice_id;
 
-      try {
-        const recordResult = await zohoService.recordCustomerPayment(
-          tenantId,
-          invoiceId,
-          totalPrice,
-          paymentMode,
-          referenceNumber
-        );
-        await supabase
-          .from('bookings')
-          .update({
-            zoho_payment_id: recordResult.paymentId || null,
-            zoho_sync_status: recordResult.success ? 'synced' : 'pending',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', bookingId);
+      if (zohoOnly) {
+        const paymentMode = payMethod === 'transfer' ? ('banktransfer' as const) : ('cash' as const);
+        const referenceNumber = payMethod === 'transfer' ? refNum : 'Paid On Site';
 
-        if (!recordResult.success) {
-          logger.error('[Mark Paid] Zoho record payment failed (non-blocking)', { bookingId, error: recordResult.error });
-        }
-      } catch (e: any) {
-        await supabase
-          .from('bookings')
-          .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
-          .eq('id', bookingId);
-        logger.error('[Mark Paid] Zoho payment error (non-blocking):', e?.message);
-      }
-
-      if (phone) {
         try {
-          const invoiceMessage = payMethod === 'transfer'
-            ? `Your booking invoice is attached. Transfer Reference: ${refNum}. Thank you for your booking!`
-            : 'Your booking invoice is attached. Payment Method: Paid On Site. Thank you for your booking!';
-          await zohoService.sendInvoiceViaWhatsApp(tenantId, invoiceId, phone, invoiceMessage);
-        } catch (waErr: any) {
-          logger.error('[Mark Paid] Send invoice via WhatsApp failed (non-blocking):', waErr?.message);
-          if (waErr?.message?.includes('payment has not been completed')) {
-            invoiceSendWarning = 'Invoice cannot be sent because payment has not been completed.';
+          const recordResult = await zohoService.recordCustomerPayment(
+            tenantId,
+            zohoOnly,
+            totalPrice,
+            paymentMode,
+            referenceNumber
+          );
+          await supabase
+            .from('bookings')
+            .update({
+              zoho_payment_id: recordResult.paymentId || null,
+              zoho_sync_status: recordResult.success ? 'synced' : 'pending',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', bookingId);
+
+          if (!recordResult.success) {
+            logger.error('[Mark Paid] Zoho record payment failed (non-blocking)', { bookingId, error: recordResult.error });
+          }
+        } catch (e: any) {
+          await supabase
+            .from('bookings')
+            .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
+            .eq('id', bookingId);
+          logger.error('[Mark Paid] Zoho payment error (non-blocking):', e?.message);
+        }
+
+        if (phone) {
+          try {
+            const invoiceMessage = payMethod === 'transfer'
+              ? `Your booking invoice is attached. Transfer Reference: ${refNum}. Thank you for your booking!`
+              : 'Your booking invoice is attached. Payment Method: Paid On Site. Thank you for your booking!';
+            await zohoService.sendInvoiceViaWhatsApp(tenantId, zohoOnly, phone, invoiceMessage);
+          } catch (waErr: any) {
+            logger.error('[Mark Paid] Send invoice via WhatsApp failed (non-blocking):', waErr?.message);
+            if (waErr?.message?.includes('payment has not been completed')) {
+              invoiceSendWarning = 'Invoice cannot be sent because payment has not been completed.';
+            }
           }
         }
       }

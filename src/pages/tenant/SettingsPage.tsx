@@ -99,6 +99,19 @@ export function SettingsPage() {
     token_expires_at: string | null;
   } | null>(null);
 
+  const [invoiceProvider, setInvoiceProvider] = useState<'zoho' | 'daftra'>('zoho');
+  const [daftraForm, setDaftraForm] = useState({
+    subdomain: '',
+    store_id: '',
+    default_product_id: '',
+    api_token: '',
+    country_code: 'SA',
+    fallback_to_zoho: false,
+  });
+  const [daftraTokenSet, setDaftraTokenSet] = useState(false);
+  const [invoiceProviderLoading, setInvoiceProviderLoading] = useState(false);
+  const [invoiceProviderMessage, setInvoiceProviderMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // Currency settings state
   const { currencyCode: currentCurrencyCode, refreshCurrency } = useCurrency();
   const [selectedCurrencyCode, setSelectedCurrencyCode] = useState<string>('SAR');
@@ -341,6 +354,47 @@ export function SettingsPage() {
     }
 
     loadZohoSettings();
+  }, [tenant]);
+
+  useEffect(() => {
+    async function loadInvoiceProviderSettings() {
+      if (!tenant?.id) return;
+      try {
+        const token = localStorage.getItem('auth_token');
+        const API_URL = getApiUrl();
+        const res = await fetch(`${API_URL}/tenants/invoice-provider-settings`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.invoice_provider === 'daftra' || data.invoice_provider === 'zoho') {
+          setInvoiceProvider(data.invoice_provider);
+        }
+        if (data.daftra_settings) {
+          setDaftraForm((f) => ({
+            ...f,
+            subdomain: String(data.daftra_settings.subdomain || ''),
+            store_id: data.daftra_settings.store_id !== '' && data.daftra_settings.store_id != null
+              ? String(data.daftra_settings.store_id)
+              : '',
+            default_product_id:
+              data.daftra_settings.default_product_id !== '' && data.daftra_settings.default_product_id != null
+                ? String(data.daftra_settings.default_product_id)
+                : '',
+            country_code: String(data.daftra_settings.country_code || 'SA'),
+            fallback_to_zoho: !!data.daftra_settings.fallback_to_zoho,
+            api_token: '',
+          }));
+          setDaftraTokenSet(!!data.daftra_settings.api_token_set);
+        }
+      } catch (e) {
+        console.error('Error loading invoice provider settings:', e);
+      }
+    }
+    loadInvoiceProviderSettings();
   }, [tenant]);
 
   async function handleSmtpSave(e: React.FormEvent) {
@@ -753,6 +807,66 @@ export function SettingsPage() {
       setZohoMessage({ type: 'error', text: err.message || t('settings.zoho.failedToSave') });
     } finally {
       setZohoLoading(false);
+    }
+  }
+
+  async function handleInvoiceProviderSave(e: React.FormEvent) {
+    e.preventDefault();
+    setInvoiceProviderMessage(null);
+    if (!tenant?.id) {
+      setInvoiceProviderMessage({ type: 'error', text: t('settings.zoho.tenantNotFound') });
+      return;
+    }
+    if (invoiceProvider === 'daftra') {
+      if (!daftraForm.subdomain.trim()) {
+        setInvoiceProviderMessage({ type: 'error', text: t('settings.invoiceProvider.subdomainRequired') });
+        return;
+      }
+      const sid = parseInt(daftraForm.store_id, 10);
+      const pid = parseInt(daftraForm.default_product_id, 10);
+      if (!Number.isFinite(sid) || !Number.isFinite(pid)) {
+        setInvoiceProviderMessage({ type: 'error', text: t('settings.invoiceProvider.idsRequired') });
+        return;
+      }
+      if (!daftraTokenSet && !daftraForm.api_token.trim()) {
+        setInvoiceProviderMessage({ type: 'error', text: t('settings.invoiceProvider.tokenRequired') });
+        return;
+      }
+    }
+    setInvoiceProviderLoading(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const API_URL = getApiUrl();
+      const body: Record<string, unknown> = { invoice_provider: invoiceProvider };
+      if (invoiceProvider === 'daftra') {
+        body.daftra_settings = {
+          subdomain: daftraForm.subdomain.trim(),
+          store_id: parseInt(daftraForm.store_id, 10),
+          default_product_id: parseInt(daftraForm.default_product_id, 10),
+          country_code: (daftraForm.country_code || 'SA').trim(),
+          fallback_to_zoho: daftraForm.fallback_to_zoho,
+          ...(daftraForm.api_token.trim() ? { api_token: daftraForm.api_token.trim() } : {}),
+        };
+      }
+      const response = await fetch(`${API_URL}/tenants/invoice-provider-settings`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+      setInvoiceProviderMessage({ type: 'success', text: t('settings.invoiceProvider.saved') });
+      setDaftraForm((f) => ({ ...f, api_token: '' }));
+      if (data.daftra_settings?.api_token_set) setDaftraTokenSet(true);
+    } catch (err: any) {
+      setInvoiceProviderMessage({ type: 'error', text: err.message || t('settings.invoiceProvider.saveFailed') });
+    } finally {
+      setInvoiceProviderLoading(false);
     }
   }
 
@@ -2016,6 +2130,114 @@ export function SettingsPage() {
                   </Button>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="bg-gradient-to-r from-slate-600 to-slate-800 text-white rounded-t-lg">
+              <CardTitle className="flex items-center gap-2 text-white">
+                <Building2 className="w-5 h-5" />
+                {t('settings.invoiceProvider.title')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6">
+              <p className="text-sm text-gray-600 mb-4">{t('settings.invoiceProvider.subtitle')}</p>
+              {invoiceProviderMessage && (
+                <div
+                  className={`p-3 rounded-lg text-sm mb-4 ${
+                    invoiceProviderMessage.type === 'success'
+                      ? 'bg-green-50 border border-green-200 text-green-700'
+                      : 'bg-red-50 border border-red-200 text-red-700'
+                  }`}
+                >
+                  {invoiceProviderMessage.text}
+                </div>
+              )}
+              <form onSubmit={handleInvoiceProviderSave} className="space-y-4">
+                <div className="flex flex-col gap-2">
+                  <span className="text-sm font-medium text-gray-700">{t('settings.invoiceProvider.activeLabel')}</span>
+                  <div className="flex flex-wrap gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="invoice_provider"
+                        checked={invoiceProvider === 'zoho'}
+                        onChange={() => setInvoiceProvider('zoho')}
+                      />
+                      {t('settings.invoiceProvider.zoho')}
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="invoice_provider"
+                        checked={invoiceProvider === 'daftra'}
+                        onChange={() => setInvoiceProvider('daftra')}
+                      />
+                      {t('settings.invoiceProvider.daftra')}
+                    </label>
+                  </div>
+                </div>
+                <a
+                  href="https://docs.daftara.dev/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+                >
+                  {t('settings.invoiceProvider.docsLink')}
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+                {invoiceProvider === 'daftra' && (
+                  <div className="space-y-3 pt-2 border-t border-gray-200">
+                    <Input
+                      label={t('settings.invoiceProvider.daftraSubdomain')}
+                      value={daftraForm.subdomain}
+                      onChange={(e) => setDaftraForm({ ...daftraForm, subdomain: e.target.value })}
+                      placeholder="mycompany"
+                    />
+                    <p className="text-xs text-gray-500">{t('settings.invoiceProvider.daftraSubdomainHint')}</p>
+                    <Input
+                      label={t('settings.invoiceProvider.storeId')}
+                      type="number"
+                      value={daftraForm.store_id}
+                      onChange={(e) => setDaftraForm({ ...daftraForm, store_id: e.target.value })}
+                    />
+                    <Input
+                      label={t('settings.invoiceProvider.productId')}
+                      type="number"
+                      value={daftraForm.default_product_id}
+                      onChange={(e) => setDaftraForm({ ...daftraForm, default_product_id: e.target.value })}
+                    />
+                    <Input
+                      label={t('settings.invoiceProvider.apiToken')}
+                      type="password"
+                      value={daftraForm.api_token}
+                      onChange={(e) => setDaftraForm({ ...daftraForm, api_token: e.target.value })}
+                      placeholder={daftraTokenSet ? '••••••••' : ''}
+                    />
+                    <p className="text-xs text-gray-500">{t('settings.invoiceProvider.apiTokenHint')}</p>
+                    {daftraTokenSet && (
+                      <p className="text-xs text-green-700">{t('settings.invoiceProvider.tokenOnFile')}</p>
+                    )}
+                    <Input
+                      label={t('settings.invoiceProvider.countryCode')}
+                      value={daftraForm.country_code}
+                      onChange={(e) => setDaftraForm({ ...daftraForm, country_code: e.target.value })}
+                      maxLength={3}
+                    />
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={daftraForm.fallback_to_zoho}
+                        onChange={(e) => setDaftraForm({ ...daftraForm, fallback_to_zoho: e.target.checked })}
+                      />
+                      {t('settings.invoiceProvider.fallbackZoho')}
+                    </label>
+                  </div>
+                )}
+                <Button type="submit" loading={invoiceProviderLoading} icon={<Save className="w-4 h-4" />}>
+                  {t('settings.invoiceProvider.save')}
+                </Button>
+              </form>
             </CardContent>
           </Card>
 

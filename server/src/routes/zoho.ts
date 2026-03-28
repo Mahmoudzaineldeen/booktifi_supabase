@@ -1,6 +1,7 @@
 import express from 'express';
 import { supabase } from '../db';
 import { zohoService } from '../services/zohoService';
+import { invoiceRoutingService } from '../services/invoiceRoutingService';
 import { zohoCredentials } from '../config/zohoCredentials';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
@@ -568,7 +569,7 @@ router.post('/test-invoice', async (req, res) => {
       return res.status(400).json({ error: 'tenant_id and booking_id are required' });
     }
 
-    const result = await zohoService.generateReceipt(booking_id);
+    const result = await invoiceRoutingService.generateReceipt(booking_id);
 
     if (result.success) {
       res.json({

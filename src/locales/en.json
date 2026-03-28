@@ -1755,6 +1755,29 @@
       "failedToDisconnect": "Failed to disconnect Zoho integration",
       "organizationIdLabel": "Zoho Organization ID",
       "organizationIdHint": "Required for recording payments (package/booking invoices). Find it in Zoho Invoice → Settings → Organization Profile."
+    },
+    "invoiceProvider": {
+      "title": "Invoice provider",
+      "subtitle": "Choose where new booking invoices are created. Existing invoices are never modified when you switch.",
+      "activeLabel": "Active provider for new invoices",
+      "zoho": "Zoho Books / Invoice",
+      "daftra": "Daftra",
+      "save": "Save invoice settings",
+      "saved": "Invoice settings saved",
+      "saveFailed": "Failed to save invoice settings",
+      "docsLink": "Daftra API documentation",
+      "daftraSubdomain": "Daftra subdomain",
+      "daftraSubdomainHint": "From your URL: https://YOURSUBDOMAIN.daftra.com — enter only YOURSUBDOMAIN.",
+      "storeId": "Store ID",
+      "productId": "Default product ID",
+      "apiToken": "API token (Bearer)",
+      "apiTokenHint": "Leave blank to keep the current token. Generate from your Daftra account.",
+      "tokenOnFile": "A token is already saved for this tenant.",
+      "tokenRequired": "Enter your Daftra API token or save one first.",
+      "countryCode": "Country code (ISO, e.g. SA)",
+      "fallbackZoho": "If Daftra fails, fall back to Zoho (requires Zoho connected)",
+      "subdomainRequired": "Daftra subdomain is required.",
+      "idsRequired": "Valid numeric Store ID and Default product ID are required."
     }
   },
   "reviews": {

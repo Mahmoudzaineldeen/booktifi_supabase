@@ -60,8 +60,6 @@ add a commotion side with both a static number of commotion this means if employ
 
 intgerate with google analytics and google tag manager
 
-
-
 add enable and disable landing page from superadmin
 
 done add login as button 
@@ -82,14 +80,20 @@ add new role (agency) link with the agency id so if any one created a link throu
 Deep Tissue Massage
 
 
-in search in packages subscribers add when search by package add a drop down menu for packages name
-make a main called reports that has 3 pages under it our normal visitors and a small detail in each visitor detail add the employee that served him 
+done in search in packages subscribers add when search by package add a drop down menu for packages name
+done make a main called reports page that has 3 pages under it our normal visitors and a small detail in each visitor detail add the employee that served him 
 and another reports  transactions only
-and other one with bookings data like the one in the displayed bookings and add filter by employee 
+and other one with bookings data like the one in the displayed bookings and add filter by employee the architecture should look like this 
+and we need to add all filters same as visitors page and same ability for export reports in csv or excel or pdf 
+reports
+ ->visitors
+ ->transactions
+ ->bookings
+enhance this prompt and ensure to apply this changes in a compatible way with our project 
+                                                                      
+done make a tag mechanism so the admin can name a tag and add option of extra fees where he name the fee and its value and add option to assign it to service or more services and each service can be assigned to multi tags and the is a tag called default that has no fees when the receptionist is making a booking or the admin he must choose the tag before creating the booking so the fee is added to the service value and there is a description for each fee and add  ensure all edits takes its affect on the role managements system(all the previous created services is assigned to default tag) enhance this prompts and ensure to apply this changes in a compatible way with our project
 
-place where the booking made in indoor or outdoor while booking 
-option called additional cost to add delivery cost while creating or editing existed service add field to name additional cost and its value for both 
-
-make a tag mechanism so the admin can name a tag and add option of extra fees where he name the fee and its value and add option to assign it to service or more services and each service can be assigned to multi tags and the is a tag called default that has no fees when the receptionist is making a booking or the admin he must choose the tag before creating the booking so the fee is added to the service value and there is a description for each fee and add  ensure all edits takes its affect on the role managements system
+quick fixes when loginas from superadmin to employee in dont work as excpected
+in reports there are unpaid that shows as paid in customer more details
 
 integrate with daftara
