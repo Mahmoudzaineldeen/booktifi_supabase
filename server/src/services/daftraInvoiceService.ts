@@ -5,6 +5,7 @@
  */
 import axios from 'axios';
 import crypto from 'crypto';
+import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
 import { supabase } from '../db';
 import { sendEmail } from './emailApiService';
@@ -289,23 +290,163 @@ async function createDaftraInvoice(
   throw new Error(`Daftra invoice failed (${res.status}): ${JSON.stringify(res.data)}`);
 }
 
-async function tryDownloadDaftraInvoicePdf(settings: DaftraTenantSettings, invoiceId: number): Promise<Buffer | null> {
-  const base = apiBase(settings.subdomain);
-  const paths = [`/invoices/${invoiceId}.pdf`, `/invoice_pdf/${invoiceId}.pdf`, `/invoices/view/${invoiceId}.pdf`];
-  for (const p of paths) {
-    try {
-      const res = await axios.get(`${base}${p}`, {
-        responseType: 'arraybuffer',
-        headers: { apikey: settings.api_token, Accept: 'application/pdf' },
-        validateStatus: (s) => s === 200,
-        timeout: 20000,
-      });
-      if (res.data && res.data.byteLength > 100) return Buffer.from(res.data);
-    } catch {
-      /* try next */
+/** Flatten Daftra GET invoice JSON (shape varies: nested Invoice or flat `data`). */
+function normalizeDaftraInvoiceRecord(apiBody: any): {
+  invoice: Record<string, any>;
+  items: any[];
+  client: Record<string, any> | null;
+  pdfUrl: string | null;
+} {
+  const data = apiBody?.data ?? apiBody;
+  const invoice =
+    data?.Invoice && typeof data.Invoice === 'object' && !Array.isArray(data.Invoice)
+      ? data.Invoice
+      : data && typeof data === 'object'
+        ? data
+        : {};
+  const itemsRaw = invoice.InvoiceItem ?? data?.InvoiceItem;
+  let items: any[] = [];
+  if (Array.isArray(itemsRaw)) items = itemsRaw;
+  else if (itemsRaw && typeof itemsRaw === 'object') items = [itemsRaw];
+  const client = (invoice.Client ?? data?.Client ?? null) as Record<string, any> | null;
+  const pdfUrl =
+    (typeof invoice.invoice_pdf_url === 'string' && invoice.invoice_pdf_url) ||
+    (typeof data?.invoice_pdf_url === 'string' && data.invoice_pdf_url) ||
+    null;
+  return { invoice, items, client, pdfUrl };
+}
+
+/**
+ * Daftra's `invoice_pdf_url` is a portal link that returns the login page for server-side requests
+ * (session cookie required). Build a usable PDF from the same invoice JSON the API already returns.
+ */
+async function buildDaftraInvoicePdfFromApiBody(
+  subdomain: string,
+  apiBody: any,
+  invoiceId: number
+): Promise<Buffer> {
+  const { invoice, items, client } = normalizeDaftraInvoiceRecord(apiBody);
+  const doc = new PDFDocument({ margin: 50, size: 'A4' });
+  const chunks: Buffer[] = [];
+  doc.on('data', (c: Buffer) => chunks.push(c));
+  const bufPromise = new Promise<Buffer>((resolve, reject) => {
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+  });
+
+  const fmt = (v: unknown) => {
+    if (v == null || v === '') return '—';
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    if (!Number.isFinite(n)) return String(v);
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  doc.fontSize(16).text('Tax invoice (Daftra)', { align: 'center' });
+  doc.fontSize(9).fillColor('#444').text(`${subdomain}.daftra.com · API id ${invoiceId}`, { align: 'center' });
+  doc.fillColor('#000000').moveDown(1.2);
+  doc.fontSize(10);
+  doc.text(`Invoice no.: ${invoice?.no ?? invoiceId}`);
+  doc.text(`Date: ${invoice?.date ?? '—'}`);
+  doc.text(`Currency: ${invoice?.currency_code ?? 'SAR'}`);
+  doc.moveDown(0.6);
+  const cust =
+    client?.business_name ||
+    client?.name ||
+    [invoice?.client_first_name, invoice?.client_last_name].filter(Boolean).join(' ').trim() ||
+    invoice?.client_business_name ||
+    '—';
+  doc.text(`Bill to: ${cust}`);
+  const em = client?.email || invoice?.client_email;
+  if (em) doc.text(`Email: ${em}`);
+  const ph = client?.phone1 || client?.phone || invoice?.client_phone;
+  if (ph) doc.text(`Phone: ${ph}`);
+  doc.moveDown(0.8);
+  doc.fontSize(10).text('Line items', { underline: true });
+  doc.moveDown(0.4);
+  if (!items.length) {
+    doc.fontSize(9).fillColor('#666666').text('(No line items in API response)');
+    doc.fillColor('#000000');
+  } else {
+    for (const line of items) {
+      const desc = String(line.description || line.name || line.product_name || 'Item').trim() || 'Item';
+      const qty = line.quantity ?? line.qty ?? 1;
+      const up = line.unit_price ?? line.price ?? 0;
+      const tot = line.total ?? line.line_total ?? null;
+      const lineTot = tot != null && String(tot) !== '' ? fmt(tot) : fmt(Number(qty) * Number(up));
+      doc.fontSize(9).text(desc, { width: 490 });
+      doc.fontSize(8).fillColor('#333333').text(`  ${qty} × ${fmt(up)} = ${lineTot}`, { indent: 12 });
+      doc.fillColor('#000000');
+      doc.moveDown(0.25);
     }
   }
-  return null;
+  doc.moveDown(0.8);
+  doc.fontSize(10);
+  if (invoice?.summary_subtotal != null || invoice?.summary_total != null) {
+    doc.text(`Subtotal: ${fmt(invoice.summary_subtotal)}`);
+    if (invoice?.summary_tax1 != null && String(invoice.summary_tax1) !== '' && Number(invoice.summary_tax1) !== 0) {
+      doc.text(`Tax: ${fmt(invoice.summary_tax1)}`);
+    }
+    doc.fontSize(11).text(`Total: ${fmt(invoice.summary_total)}`);
+  } else {
+    doc.text(`Total: ${fmt(invoice.summary_total)}`);
+  }
+  if (invoice?.notes) {
+    doc.moveDown(0.6);
+    doc.fontSize(8).fillColor('#444444').text(`Notes: ${String(invoice.notes).slice(0, 500)}`, { width: 490 });
+  }
+  doc.fontSize(7).fillColor('#888888').text(
+    'PDF generated by Bookati from Daftra API data. The branded PDF in Daftra requires signing in to Daftra.',
+    50,
+    doc.page.height - 70,
+    { width: 490, align: 'center' }
+  );
+  doc.end();
+  return bufPromise;
+}
+
+async function tryDownloadDaftraInvoicePdf(settings: DaftraTenantSettings, invoiceId: number): Promise<Buffer | null> {
+  const base = apiBase(settings.subdomain);
+  const headers = { ...daftraAuthHeaders(settings.api_token) };
+
+  let meta: any;
+  try {
+    const res = await axios.get(`${base}/invoices/${invoiceId}.json`, {
+      headers,
+      validateStatus: (s) => s === 200,
+      timeout: 20000,
+    });
+    meta = res.data;
+  } catch {
+    return null;
+  }
+
+  if (!meta) return null;
+
+  const { pdfUrl } = normalizeDaftraInvoiceRecord(meta);
+  if (pdfUrl) {
+    try {
+      const pdfRes = await axios.get(pdfUrl, {
+        responseType: 'arraybuffer',
+        headers: { apikey: settings.api_token, Accept: 'application/pdf,*/*' },
+        validateStatus: (s) => s === 200,
+        timeout: 15000,
+        maxRedirects: 5,
+      });
+      const buf = pdfRes.data && Buffer.from(pdfRes.data);
+      if (buf && buf.length > 100 && buf.subarray(0, 4).toString() === '%PDF') {
+        return buf;
+      }
+    } catch {
+      /* portal URL often returns HTML login — fall back */
+    }
+  }
+
+  try {
+    return await buildDaftraInvoicePdfFromApiBody(settings.subdomain, meta, invoiceId);
+  } catch (e: any) {
+    console.warn('[DaftraInvoice] Could not build PDF from invoice JSON:', e?.message);
+    return null;
+  }
 }
 
 async function getSmtpFromAddress(tenantId: string): Promise<string> {
