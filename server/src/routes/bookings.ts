@@ -1031,7 +1031,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       });
     }
 
-    type EffectiveShift = { employee_id: string; start_time_utc: string; end_time_utc: string; days_of_week: number[]; is_custom?: boolean };
+    type EffectiveShift = { employee_id: string; start_time_utc: string; end_time_utc: string; days_of_week: number[] };
     const effectiveShifts: EffectiveShift[] = [];
     for (const eid of availableEmployeeIds) {
       const branchId = employeeBranchId.get(eid);
@@ -1045,7 +1045,6 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
             start_time_utc: toTimeStr(bs.start_time),
             end_time_utc: toTimeStr(bs.end_time),
             days_of_week: days,
-            is_custom: false,
           });
         }
       }
@@ -1058,7 +1057,6 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
           start_time_utc: toTimeStr(es.start_time_utc),
           end_time_utc: toTimeStr(es.end_time_utc),
           days_of_week: days,
-          is_custom: true,
         });
       }
       if (!branchId && customShifts.length === 0) {
@@ -1167,12 +1165,6 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
     };
 
-    // Branch rule: employees must not have shifts from 5 PM to 8 PM (no availability in that window).
-    const NO_AVAILABILITY_START_M = 17 * 60;   // 5:00 PM
-    const NO_AVAILABILITY_END_M = 20 * 60;     // 8:00 PM
-    const slotStartsInForbiddenWindow = (slotStartM: number) =>
-      slotStartM >= NO_AVAILABILITY_START_M && slotStartM < NO_AVAILABILITY_END_M;
-
     // --- Build availability in memory: for each (shift, time window) compute overlap count and decide insert ---
     type SlotRow = {
       tenant_id: string;
@@ -1205,10 +1197,6 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       for (const range of ranges) {
         let slotStartM = range.start;
         while (slotStartM + durationMinutes <= range.end) {
-          if (!(es as any).is_custom && slotStartsInForbiddenWindow(slotStartM)) {
-            slotStartM += durationMinutes;
-            continue;
-          }
           const slotEndM = slotStartM + durationMinutes;
           const startTime = toTime(slotStartM);
           const endTime = toTime(slotEndM);

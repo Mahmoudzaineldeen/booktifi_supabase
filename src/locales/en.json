@@ -755,6 +755,7 @@
     "qrScanned": "QR scanned",
     "noInvoiceForBooking": "No invoice for this booking",
     "downloadPdf": "Download PDF",
+    "downloadDaftraPdf": "Download Daftra PDF",
     "invoice": "Invoice",
     "bookingDetails": "Booking details",
     "mode": "Mode",
@@ -1779,7 +1780,18 @@
       "countryCode": "Country code (ISO, e.g. SA)",
       "fallbackZoho": "If Daftra fails, fall back to Zoho (requires Zoho connected)",
       "subdomainRequired": "Daftra subdomain is required.",
-      "idsRequired": "Valid numeric Store ID and Default product ID are required."
+      "idsRequired": "Valid numeric Store ID and Default product ID are required.",
+      "daftraPdfOauthTitle": "Native Daftra PDF (OAuth)",
+      "daftraPdfOauthHint": "Daftra’s official invoice PDF links require a portal login. Add an OAuth app (Daftra developer / integrations) and the same account you use to sign in to Daftra. After you save with password once, we store only a refresh token (like Zoho). Downloads then use Daftra’s real PDF.",
+      "daftraPdfOauthClientId": "OAuth client ID",
+      "daftraPdfOauthClientSecret": "OAuth client secret",
+      "daftraPdfOauthSecretOnFile": "OAuth client secret is saved.",
+      "daftraPdfOauthUsername": "Daftra login username",
+      "daftraPdfOauthUsernameHint": "Email or username for your Daftra account",
+      "daftraPdfOauthPassword": "Daftra login password (one-time)",
+      "daftraPdfOauthPasswordHint": "Used only when you save to obtain a refresh token. It is not stored. Leave blank after setup.",
+      "daftraPdfOauthRefreshToken": "Refresh token (optional)",
+      "daftraPdfOauthRefreshOnFile": "Refresh token is saved — native PDF download is enabled."
     }
   },
   "reviews": {

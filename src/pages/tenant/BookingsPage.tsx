@@ -69,6 +69,8 @@ interface Booking {
   created_at: string;
   zoho_invoice_id?: string | null;
   zoho_invoice_created_at?: string | null;
+  daftra_invoice_id?: string | null;
+  daftra_invoice_created_at?: string | null;
   service_id: string;
   slot_id: string;
   services: {
@@ -698,6 +700,8 @@ export function BookingsPage() {
           created_at,
           zoho_invoice_id,
           zoho_invoice_created_at,
+          daftra_invoice_id,
+          daftra_invoice_created_at,
           package_covered_quantity,
           paid_quantity,
           package_subscription_id,
@@ -874,7 +878,7 @@ export function BookingsPage() {
     return layout;
   }
 
-  async function downloadInvoice(bookingId: string, zohoInvoiceId: string) {
+  async function downloadInvoice(bookingId: string, invoiceId: string, provider: 'zoho' | 'daftra' = 'zoho') {
     try {
       setDownloadingInvoice(bookingId);
       
@@ -885,11 +889,12 @@ export function BookingsPage() {
       
       // Ensure API_URL doesn't have trailing slash
       const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+      const pathSeg = provider === 'daftra' ? 'daftra' : 'zoho';
       // Add token as query parameter to bypass CORS header issues
-      const downloadUrl = `${baseUrl}/zoho/invoices/${zohoInvoiceId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      const downloadUrl = `${baseUrl}/${pathSeg}/invoices/${invoiceId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
       
       const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
-      console.log('[BookingsPage] Downloading invoice:', zohoInvoiceId);
+      console.log('[BookingsPage] Downloading invoice:', invoiceId, provider);
       console.log('[BookingsPage] Environment:', { isBolt, API_URL, downloadUrl: downloadUrl.replace(token || '', '***') });
       
       // Use fetch to download the PDF and create a blob URL
@@ -916,7 +921,7 @@ export function BookingsPage() {
         const blobUrl = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = blobUrl;
-        link.download = `invoice-${zohoInvoiceId}.pdf`;
+        link.download = `invoice-${invoiceId}.pdf`;
         link.style.display = 'none';
         document.body.appendChild(link);
         link.click();
@@ -935,7 +940,7 @@ export function BookingsPage() {
         console.log('[BookingsPage] Falling back to direct link approach');
         const link = document.createElement('a');
         link.href = downloadUrl;
-        link.download = `invoice-${zohoInvoiceId}.pdf`;
+        link.download = `invoice-${invoiceId}.pdf`;
         link.target = '_blank';
         link.style.display = 'none';
         document.body.appendChild(link);
@@ -1634,6 +1639,8 @@ export function BookingsPage() {
         created_at: b.created_at,
         zoho_invoice_id: b.zoho_invoice_id,
         zoho_invoice_created_at: b.zoho_invoice_created_at,
+        daftra_invoice_id: b.daftra_invoice_id,
+        daftra_invoice_created_at: b.daftra_invoice_created_at,
         package_covered_quantity: b.package_covered_quantity,
         paid_quantity: b.paid_quantity,
         package_subscription_id: b.package_subscription_id,
@@ -2035,20 +2042,44 @@ export function BookingsPage() {
 
                     {/* Invoice row + actions */}
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-gray-100">
-                      {booking.zoho_invoice_id ? (
-                        <div className="flex items-center gap-2 text-sm">
-                          <FileText className="h-4 w-4 text-blue-600" />
-                          <span className="text-gray-600 font-mono text-xs">{booking.zoho_invoice_id}</span>
-                          <Button
-                            onClick={() => downloadInvoice(booking.id, booking.zoho_invoice_id!)}
-                            disabled={downloadingInvoice === booking.id}
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 text-xs"
-                          >
-                            <Download className="h-3.5 w-3.5 mr-1" />
-                            {downloadingInvoice === booking.id ? t('billing.downloading') : t('reception.downloadPdf')}
-                          </Button>
+                      {booking.zoho_invoice_id || booking.daftra_invoice_id ? (
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                          {booking.zoho_invoice_id && (
+                            <div className="flex items-center gap-2">
+                              <FileText className="h-4 w-4 text-blue-600" />
+                              <span className="text-gray-600 font-mono text-xs" title="Zoho">
+                                {booking.zoho_invoice_id}
+                              </span>
+                              <Button
+                                onClick={() => downloadInvoice(booking.id, booking.zoho_invoice_id!, 'zoho')}
+                                disabled={downloadingInvoice === booking.id}
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-xs"
+                              >
+                                <Download className="h-3.5 w-3.5 mr-1" />
+                                {downloadingInvoice === booking.id ? t('billing.downloading') : t('reception.downloadPdf')}
+                              </Button>
+                            </div>
+                          )}
+                          {booking.daftra_invoice_id && (
+                            <div className="flex items-center gap-2">
+                              <FileText className="h-4 w-4 text-violet-600" />
+                              <span className="text-gray-600 font-mono text-xs" title="Daftra">
+                                {booking.daftra_invoice_id}
+                              </span>
+                              <Button
+                                onClick={() => downloadInvoice(booking.id, booking.daftra_invoice_id!, 'daftra')}
+                                disabled={downloadingInvoice === booking.id}
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-xs"
+                              >
+                                <Download className="h-3.5 w-3.5 mr-1" />
+                                {downloadingInvoice === booking.id ? t('billing.downloading') : t('reception.downloadDaftraPdf', 'Download PDF (Daftra)')}
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <p className="text-xs text-gray-400 flex items-center gap-1.5">
@@ -2318,7 +2349,7 @@ export function BookingsPage() {
             setPaymentStatusModalReference('');
           }
         } : undefined}
-        onDownloadInvoice={(bookingId, invoiceId) => downloadInvoice(bookingId, invoiceId)}
+        onDownloadInvoice={(bookingId, invoiceId, provider) => downloadInvoice(bookingId, invoiceId, provider)}
       />
 
       {/* Payment status modal: when setting to paid, collect payment method + transaction reference */}

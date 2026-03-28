@@ -107,8 +107,15 @@ export function SettingsPage() {
     api_token: '',
     country_code: 'SA',
     fallback_to_zoho: false,
+    pdf_oauth_client_id: '',
+    pdf_oauth_client_secret: '',
+    pdf_oauth_username: '',
+    pdf_oauth_password: '',
+    pdf_oauth_refresh_token: '',
   });
   const [daftraTokenSet, setDaftraTokenSet] = useState(false);
+  const [daftraPdfOauthSecretSet, setDaftraPdfOauthSecretSet] = useState(false);
+  const [daftraPdfOauthRefreshSet, setDaftraPdfOauthRefreshSet] = useState(false);
   const [invoiceProviderLoading, setInvoiceProviderLoading] = useState(false);
   const [invoiceProviderMessage, setInvoiceProviderMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -387,8 +394,15 @@ export function SettingsPage() {
             country_code: String(data.daftra_settings.country_code || 'SA'),
             fallback_to_zoho: !!data.daftra_settings.fallback_to_zoho,
             api_token: '',
+            pdf_oauth_client_id: String(data.daftra_settings.pdf_oauth_client_id || ''),
+            pdf_oauth_client_secret: '',
+            pdf_oauth_username: String(data.daftra_settings.pdf_oauth_username || ''),
+            pdf_oauth_password: '',
+            pdf_oauth_refresh_token: '',
           }));
           setDaftraTokenSet(!!data.daftra_settings.api_token_set);
+          setDaftraPdfOauthSecretSet(!!data.daftra_settings.pdf_oauth_client_secret_set);
+          setDaftraPdfOauthRefreshSet(!!data.daftra_settings.pdf_oauth_refresh_token_set);
         }
       } catch (e) {
         console.error('Error loading invoice provider settings:', e);
@@ -846,6 +860,17 @@ export function SettingsPage() {
           country_code: (daftraForm.country_code || 'SA').trim(),
           fallback_to_zoho: daftraForm.fallback_to_zoho,
           ...(daftraForm.api_token.trim() ? { api_token: daftraForm.api_token.trim() } : {}),
+          ...(daftraForm.pdf_oauth_client_id.trim() ? { pdf_oauth_client_id: daftraForm.pdf_oauth_client_id.trim() } : {}),
+          ...(daftraForm.pdf_oauth_client_secret.trim()
+            ? { pdf_oauth_client_secret: daftraForm.pdf_oauth_client_secret.trim() }
+            : {}),
+          ...(daftraForm.pdf_oauth_username.trim() ? { pdf_oauth_username: daftraForm.pdf_oauth_username.trim() } : {}),
+          ...(daftraForm.pdf_oauth_refresh_token.trim()
+            ? { pdf_oauth_refresh_token: daftraForm.pdf_oauth_refresh_token.trim() }
+            : {}),
+          ...(daftraForm.pdf_oauth_password.trim()
+            ? { pdf_oauth_password: daftraForm.pdf_oauth_password.trim() }
+            : {}),
         };
       }
       const response = await fetch(`${API_URL}/tenants/invoice-provider-settings`, {
@@ -861,8 +886,20 @@ export function SettingsPage() {
         throw new Error(data.error || `HTTP ${response.status}`);
       }
       setInvoiceProviderMessage({ type: 'success', text: t('settings.invoiceProvider.saved') });
-      setDaftraForm((f) => ({ ...f, api_token: '' }));
+      setDaftraForm((f) => ({
+        ...f,
+        api_token: '',
+        pdf_oauth_client_secret: '',
+        pdf_oauth_password: '',
+        pdf_oauth_refresh_token: '',
+      }));
       if (data.daftra_settings?.api_token_set) setDaftraTokenSet(true);
+      if (data.daftra_settings?.pdf_oauth_client_secret_set != null) {
+        setDaftraPdfOauthSecretSet(!!data.daftra_settings.pdf_oauth_client_secret_set);
+      }
+      if (data.daftra_settings?.pdf_oauth_refresh_token_set != null) {
+        setDaftraPdfOauthRefreshSet(!!data.daftra_settings.pdf_oauth_refresh_token_set);
+      }
     } catch (err: any) {
       setInvoiceProviderMessage({ type: 'error', text: err.message || t('settings.invoiceProvider.saveFailed') });
     } finally {
@@ -2234,6 +2271,48 @@ export function SettingsPage() {
                       />
                       {t('settings.invoiceProvider.fallbackZoho')}
                     </label>
+                    <div className="pt-4 border-t border-gray-200 space-y-3">
+                      <p className="text-sm font-medium text-gray-800">{t('settings.invoiceProvider.daftraPdfOauthTitle')}</p>
+                      <p className="text-xs text-gray-600">{t('settings.invoiceProvider.daftraPdfOauthHint')}</p>
+                      <Input
+                        label={t('settings.invoiceProvider.daftraPdfOauthClientId')}
+                        value={daftraForm.pdf_oauth_client_id}
+                        onChange={(e) => setDaftraForm({ ...daftraForm, pdf_oauth_client_id: e.target.value })}
+                      />
+                      <Input
+                        label={t('settings.invoiceProvider.daftraPdfOauthClientSecret')}
+                        type="password"
+                        value={daftraForm.pdf_oauth_client_secret}
+                        onChange={(e) => setDaftraForm({ ...daftraForm, pdf_oauth_client_secret: e.target.value })}
+                        placeholder={daftraPdfOauthSecretSet ? '••••••••' : ''}
+                      />
+                      {daftraPdfOauthSecretSet && (
+                        <p className="text-xs text-green-700">{t('settings.invoiceProvider.daftraPdfOauthSecretOnFile')}</p>
+                      )}
+                      <Input
+                        label={t('settings.invoiceProvider.daftraPdfOauthUsername')}
+                        value={daftraForm.pdf_oauth_username}
+                        onChange={(e) => setDaftraForm({ ...daftraForm, pdf_oauth_username: e.target.value })}
+                        placeholder={t('settings.invoiceProvider.daftraPdfOauthUsernameHint')}
+                      />
+                      <Input
+                        label={t('settings.invoiceProvider.daftraPdfOauthPassword')}
+                        type="password"
+                        value={daftraForm.pdf_oauth_password}
+                        onChange={(e) => setDaftraForm({ ...daftraForm, pdf_oauth_password: e.target.value })}
+                      />
+                      <p className="text-xs text-gray-500">{t('settings.invoiceProvider.daftraPdfOauthPasswordHint')}</p>
+                      <Input
+                        label={t('settings.invoiceProvider.daftraPdfOauthRefreshToken')}
+                        type="password"
+                        value={daftraForm.pdf_oauth_refresh_token}
+                        onChange={(e) => setDaftraForm({ ...daftraForm, pdf_oauth_refresh_token: e.target.value })}
+                        placeholder={daftraPdfOauthRefreshSet ? '••••••••' : ''}
+                      />
+                      {daftraPdfOauthRefreshSet && (
+                        <p className="text-xs text-green-700">{t('settings.invoiceProvider.daftraPdfOauthRefreshOnFile')}</p>
+                      )}
+                    </div>
                   </div>
                 )}
                 <Button type="submit" loading={invoiceProviderLoading} icon={<Save className="w-4 h-4" />}>

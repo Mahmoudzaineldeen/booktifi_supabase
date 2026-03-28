@@ -333,6 +333,7 @@
     "paid": "مدفوع",
     "unpaid": "غير مدفوع",
     "downloadPdf": "تنزيل PDF",
+    "downloadDaftraPdf": "تنزيل فاتورة دفترة (PDF)",
     "noInvoiceForBooking": "لا توجد فاتورة لهذا الحجز",
     "scanQR": "مسح QR",
     "qrScanned": "تم مسح QR",

@@ -45,6 +45,8 @@ export interface BookingDetailsModalBooking {
   created_at?: string;
   zoho_invoice_id?: string | null;
   zoho_invoice_created_at?: string | null;
+  daftra_invoice_id?: string | null;
+  daftra_invoice_created_at?: string | null;
   service_id?: string;
   slot_id?: string;
   services?: { name: string; name_ar?: string | null };
@@ -71,7 +73,7 @@ export interface BookingDetailsModalProps {
   onComplete?: (bookingId: string) => void;
   onCancelBooking?: (bookingId: string) => void;
   onUpdatePaymentStatus?: (bookingId: string, value: 'unpaid' | 'paid_onsite' | 'bank_transfer') => void;
-  onDownloadInvoice?: (bookingId: string, invoiceId: string) => void;
+  onDownloadInvoice?: (bookingId: string, invoiceId: string, provider: 'zoho' | 'daftra') => void;
   /** When true, show payment dropdown in modal; when false, only show "Mark as paid" button */
   showPaymentDropdown?: boolean;
   downloadingInvoice?: string | null;
@@ -497,12 +499,26 @@ export function BookingDetailsModal({
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => onDownloadInvoice(displayBooking.id, displayBooking.zoho_invoice_id!)}
+                      onClick={() => onDownloadInvoice(displayBooking.id, displayBooking.zoho_invoice_id!, 'zoho')}
                       disabled={downloadingInvoice === displayBooking.id}
                       icon={<Download className="h-4 w-4" />}
                       className="rounded-xl border border-gray-200 hover:bg-gray-50"
                     >
                       {downloadingInvoice === displayBooking.id ? t('common.downloading', 'Downloading...') : t('reception.downloadPdf', 'Download PDF')}
+                    </Button>
+                  )}
+                  {displayBooking.daftra_invoice_id && onDownloadInvoice && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onDownloadInvoice(displayBooking.id, displayBooking.daftra_invoice_id!, 'daftra')}
+                      disabled={downloadingInvoice === displayBooking.id}
+                      icon={<Download className="h-4 w-4" />}
+                      className="rounded-xl border border-gray-200 hover:bg-gray-50"
+                    >
+                      {downloadingInvoice === displayBooking.id
+                        ? t('common.downloading', 'Downloading...')
+                        : t('reception.downloadDaftraPdf', 'Download PDF (Daftra)')}
                     </Button>
                   )}
                 </div>
