@@ -2201,12 +2201,14 @@ export function SettingsPage() {
                       value={daftraForm.store_id}
                       onChange={(e) => setDaftraForm({ ...daftraForm, store_id: e.target.value })}
                     />
+                    <p className="text-xs text-gray-500">{t('settings.invoiceProvider.storeIdHint')}</p>
                     <Input
                       label={t('settings.invoiceProvider.productId')}
                       type="number"
                       value={daftraForm.default_product_id}
                       onChange={(e) => setDaftraForm({ ...daftraForm, default_product_id: e.target.value })}
                     />
+                    <p className="text-xs text-gray-500">{t('settings.invoiceProvider.productIdHint')}</p>
                     <Input
                       label={t('settings.invoiceProvider.apiToken')}
                       type="password"

@@ -69,6 +69,62 @@ function daftraAuthHeaders(apiToken: string): Record<string, string> {
   };
 }
 
+/** Parse numeric store/warehouse ids from GET /api2/stores.json (shape varies by account). */
+function parseDaftraStoreIds(payload: unknown): number[] {
+  const ids: number[] = [];
+  const push = (raw: unknown) => {
+    const n = typeof raw === 'string' ? parseInt(raw, 10) : typeof raw === 'number' ? raw : NaN;
+    if (Number.isFinite(n)) ids.push(n);
+  };
+  const walkRow = (row: unknown) => {
+    if (!row || typeof row !== 'object') return;
+    const r = row as Record<string, unknown>;
+    const wrapped = r.Store ?? r.store;
+    if (wrapped && typeof wrapped === 'object') {
+      push((wrapped as Record<string, unknown>).id);
+    } else {
+      push(r.id);
+    }
+  };
+  if (Array.isArray(payload)) {
+    for (const row of payload) walkRow(row);
+    return [...new Set(ids)];
+  }
+  if (payload && typeof payload === 'object') {
+    const data = (payload as Record<string, unknown>).data;
+    if (Array.isArray(data)) return parseDaftraStoreIds(data);
+  }
+  return [];
+}
+
+/**
+ * Invoice `store_id` must be a warehouse from /api2/stores.json. Tenants often paste product `site_id`
+ * (e.g. 4375361), which Daftra rejects ("no permission for this warehouse").
+ */
+async function resolveDaftraInvoiceStoreId(settings: DaftraTenantSettings): Promise<number> {
+  const configured = settings.store_id;
+  const base = apiBase(settings.subdomain);
+  try {
+    const res = await axios.get(`${base}/stores.json`, {
+      headers: daftraAuthHeaders(settings.api_token),
+      validateStatus: (s) => s === 200,
+      timeout: 15000,
+    });
+    const allowed = parseDaftraStoreIds(res.data);
+    if (allowed.length === 0) return configured;
+    if (allowed.includes(configured)) return configured;
+    const fallback = allowed.includes(1) ? 1 : allowed[0];
+    if (fallback !== configured) {
+      console.warn(
+        `[DaftraInvoice] store_id ${configured} is not an allowed warehouse; using ${fallback}. Update tenant Daftra settings (store ID from /api2/stores.json).`
+      );
+    }
+    return fallback;
+  } catch {
+    return configured;
+  }
+}
+
 function buildDaftraInvoiceNotes(u: UnifiedBookingInvoice): string {
   const c = u.context;
   const parts = [
@@ -171,6 +227,7 @@ async function createDaftraInvoice(
   notes: string,
   poNumber: string
 ): Promise<number> {
+  const storeId = await resolveDaftraInvoiceStoreId(settings);
   const base = apiBase(settings.subdomain);
   const items = u.line_items.map((li) => ({
     product_id: settings.default_product_id,
@@ -180,17 +237,18 @@ async function createDaftraInvoice(
     col_4: (li.description || '').toString().slice(0, 255),
   }));
 
+  /** Daftra parses line items only when `InvoiceItem` is a top-level key next to `Invoice` (nested `Invoice.InvoiceItem` yields "Invoice is empty"). */
   const body = {
     Invoice: {
       client_id: clientId,
-      store_id: settings.store_id,
+      store_id: storeId,
       currency_code: u.currency_code,
       date: u.date,
       draft: 0,
       notes: notes.slice(0, 65000),
       po_number: poNumber.slice(0, 255),
-      InvoiceItem: items,
     },
+    InvoiceItem: items,
   };
 
   const res = await axios.post(`${base}/invoices.json`, body, {
