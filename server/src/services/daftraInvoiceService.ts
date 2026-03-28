@@ -1,6 +1,7 @@
 /**
  * Daftra invoicing (https://docs.daftara.dev/).
- * Uses POST /api2/invoices.json and POST /api2/clients.json with Bearer token auth.
+ * Uses POST /api2/invoices.json and POST /api2/clients.json.
+ * Daftra API keys use the `apikey` header (not Authorization: Bearer) — see https://docs.daftara.dev/933385m0
  */
 import axios from 'axios';
 import crypto from 'crypto';
@@ -60,6 +61,14 @@ function apiBase(subdomain: string): string {
   return `https://${subdomain}.daftra.com/api2`;
 }
 
+/** Daftra: Settings → API Key must be sent as `apikey` header; Bearer returns 401 for API keys. */
+function daftraAuthHeaders(apiToken: string): Record<string, string> {
+  return {
+    apikey: apiToken,
+    Accept: 'application/json',
+  };
+}
+
 function buildDaftraInvoiceNotes(u: UnifiedBookingInvoice): string {
   const c = u.context;
   const parts = [
@@ -103,9 +112,8 @@ async function postDaftraClient(settings: DaftraTenantSettings, body: Record<str
   const base = apiBase(settings.subdomain);
   const res = await axios.post(`${base}/clients.json`, body, {
     headers: {
-      Authorization: `Bearer ${settings.api_token}`,
+      ...daftraAuthHeaders(settings.api_token),
       'Content-Type': 'application/json',
-      Accept: 'application/json',
     },
     validateStatus: () => true,
   });
@@ -187,9 +195,8 @@ async function createDaftraInvoice(
 
   const res = await axios.post(`${base}/invoices.json`, body, {
     headers: {
-      Authorization: `Bearer ${settings.api_token}`,
+      ...daftraAuthHeaders(settings.api_token),
       'Content-Type': 'application/json',
-      Accept: 'application/json',
     },
     validateStatus: () => true,
   });
@@ -208,7 +215,7 @@ async function tryDownloadDaftraInvoicePdf(settings: DaftraTenantSettings, invoi
     try {
       const res = await axios.get(`${base}${p}`, {
         responseType: 'arraybuffer',
-        headers: { Authorization: `Bearer ${settings.api_token}`, Accept: 'application/pdf' },
+        headers: { apikey: settings.api_token, Accept: 'application/pdf' },
         validateStatus: (s) => s === 200,
         timeout: 20000,
       });
