@@ -311,7 +311,14 @@ async function postDaftraClient(settings: DaftraTenantSettings, body: Record<str
 
 async function ensureDaftraClient(
   settings: DaftraTenantSettings,
-  u: Pick<UnifiedBookingInvoice, 'customer_name' | 'customer_email' | 'customer_phone' | 'booking_id' | 'currency_code'>
+  u: Pick<UnifiedBookingInvoice, 'customer_name' | 'customer_email' | 'customer_phone' | 'booking_id' | 'currency_code'> & {
+    address_line1?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postcode?: string | null;
+    business_info_1?: string | null;
+    business_info_2?: string | null;
+  }
 ): Promise<number> {
   const primaryEmail = (
     u.customer_email && u.customer_email.includes('@') ? u.customer_email.trim() : guestEmail(u.booking_id)
@@ -322,15 +329,22 @@ async function ensureDaftraClient(
   const buildBody = (email: string) => ({
     Client: {
       type: 2,
-      business_name: u.customer_name.slice(0, 100),
+      business_name: (u.customer_name || '-').slice(0, 100),
       first_name: first.slice(0, 255),
       last_name: last.slice(0, 255),
       email,
       password: `${password}_${email.length}`,
-      phone1: (u.customer_phone || '').slice(0, 50),
+      phone1: (u.customer_phone || '-').slice(0, 50),
       country_code: (settings.country_code || 'SA').slice(0, 3),
       default_currency_code: u.currency_code?.slice(0, 5) || 'SAR',
       notes: `Bookati booking ${u.booking_id}`,
+      // Fill common printable client fields used by Daftra templates to avoid null placeholders.
+      address1: (u.address_line1 || '').toString().slice(0, 255),
+      city: (u.city || '').toString().slice(0, 120),
+      state: (u.state || '').toString().slice(0, 120),
+      postal_code: (u.postcode || '').toString().slice(0, 40),
+      business_info_1: (u.business_info_1 || '').toString().slice(0, 255),
+      business_info_2: (u.business_info_2 || '').toString().slice(0, 255),
     },
   });
 
@@ -361,8 +375,12 @@ async function createDaftraInvoice(
   const base = apiBase(settings.subdomain);
   const items = u.line_items.map((li) => ({
     product_id: settings.default_product_id,
+    // Daftra standard item table fields.
+    item: (li.name || 'Item').slice(0, 255),
+    description: (li.description || '').toString().slice(0, 255),
     quantity: li.quantity,
     unit_price: li.rate,
+    // Keep custom layout columns for templates that already bind to col_3/col_4.
     col_3: (li.name || 'Item').slice(0, 255),
     col_4: (li.description || '').toString().slice(0, 255),
   }));
@@ -377,6 +395,17 @@ async function createDaftraInvoice(
       draft: 0,
       notes: notes.slice(0, 65000),
       po_number: poNumber.slice(0, 255),
+      // Keep template-friendly client fields mirrored on invoice when available.
+      client_business_name: (u.customer_name || '-').slice(0, 255),
+      client_first_name: splitCustomerName(u.customer_name).first.slice(0, 255),
+      client_last_name: splitCustomerName(u.customer_name).last.slice(0, 255),
+      client_email: (u.customer_email || '').slice(0, 255),
+      client_phone: (u.customer_phone || '').slice(0, 50),
+      client_address1: ((u as any)?.context?.branch_address || '').toString().slice(0, 255),
+      client_city: '',
+      client_state: '',
+      client_postal_code: '',
+      client_country_code: (settings.country_code || 'SA').slice(0, 3),
     },
     InvoiceItem: items,
   };
@@ -728,6 +757,9 @@ export class DaftraInvoiceService {
         customer_phone: unified.customer_phone,
         booking_id: unified.booking_id,
         currency_code: unified.currency_code,
+        address_line1: unified.context.branch_address || '',
+        business_info_1: unified.context.tenant_name || '',
+        business_info_2: unified.context.branch_name || '',
       });
 
       const invoiceNum = await createDaftraInvoice(settings, clientId, unified, daftraNotes, unified.booking_id, booking.tenant_id);
@@ -828,6 +860,8 @@ export class DaftraInvoiceService {
         customer_phone: unified.customer_phone,
         booking_id: unified.primary_booking_id,
         currency_code: unified.currency_code,
+        business_info_1: `Booking group ${unified.booking_group_id}`,
+        business_info_2: `Primary booking ${unified.primary_booking_id}`,
       });
       const invoiceNum = await createDaftraInvoice(settings, clientId, unified, notes, unified.booking_group_id, tenantId);
       const invoiceIdStr = String(invoiceNum);

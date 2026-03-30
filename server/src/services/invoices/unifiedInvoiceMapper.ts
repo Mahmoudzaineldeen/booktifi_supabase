@@ -188,11 +188,13 @@ export async function mapBookingToUnifiedInvoice(bookingId: string): Promise<Uni
   }
 
   const qtyNote = paidQty > 1 ? ` (${paidQty} tickets)` : '';
+  const unitRate = paidQty > 0 ? Math.round((totalPrice / paidQty) * 1000000) / 1000000 : totalPrice;
   lineItems.push({
     name: itemName,
     description: [itemDescription, qtyNote].filter(Boolean).join(' ').trim() || undefined,
-    rate: Math.round(totalPrice * 100) / 100,
-    quantity: 1,
+    // Use unit-rate x quantity so Daftra prints a natural receipt grid (Qty / Price / Total).
+    rate: unitRate,
+    quantity: paidQty,
     unit: 'ticket',
   });
 
