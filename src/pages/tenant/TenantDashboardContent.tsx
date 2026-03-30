@@ -58,21 +58,31 @@ export function TenantDashboardContent() {
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [dashboardBookings, setDashboardBookings] = useState<any[]>([]);
   const [selectedBookingForDetails, setSelectedBookingForDetails] = useState<any | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const isInitialLoadRef = useRef(true);
 
   useEffect(() => {
-    // Don't redirect during initial load - let TenantDashboard handle auth checks
-    if (!userProfile) {
-      return;
-    }
+    if (!userProfile) return;
     const isDateRangeChange = !isInitialLoadRef.current;
     fetchStats(isDateRangeChange);
-    if (viewMode === 'calendar') {
-      fetchCalendarBookings();
-    } else {
-      fetchDashboardBookings();
-    }
-  }, [userProfile, timeRange, customStartDate, customEndDate, viewMode, calendarDate]);
+  }, [userProfile, timeRange, customStartDate, customEndDate, i18n.language]);
+
+  useEffect(() => {
+    if (!userProfile) return;
+    if (viewMode === 'calendar') fetchCalendarBookings();
+    else fetchDashboardBookings();
+  }, [userProfile, viewMode, calendarDate]);
+
+  // Lightweight auto-refresh for real-time feel without heavy load.
+  useEffect(() => {
+    if (!userProfile) return;
+    const interval = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      fetchStats(true);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [userProfile, timeRange, customStartDate, customEndDate, i18n.language]);
 
   function getDateRange(): { start?: Date; end?: Date } {
     const now = new Date();
@@ -157,11 +167,23 @@ export function TenantDashboardContent() {
             : [],
         }))
       );
+      setLastUpdatedAt(new Date());
     } catch (err) {
       console.error('Error fetching stats:', err);
     } finally {
       isInitialLoadRef.current = false;
       setLoading(false);
+    }
+  }
+
+  async function refreshNow() {
+    setIsRefreshing(true);
+    try {
+      await fetchStats(true);
+      if (viewMode === 'calendar') await fetchCalendarBookings();
+      else await fetchDashboardBookings();
+    } finally {
+      setIsRefreshing(false);
     }
   }
 
@@ -529,6 +551,20 @@ export function TenantDashboardContent() {
             <span className="hidden sm:inline">{t('dashboard.viewMode.calendar', 'Calendar')}</span>
           </button>
         </div>
+      </div>
+
+      <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-xs text-gray-500">
+        <div>
+          {t('dashboard.lastUpdated', 'Last updated')}: {lastUpdatedAt ? format(lastUpdatedAt, 'MMM d, yyyy h:mm a') : '—'} | {t('dashboard.metricBasis', 'KPIs use booking created date; transaction timing is in Reports > Transactions.')}
+        </div>
+        <button
+          type="button"
+          onClick={refreshNow}
+          disabled={isRefreshing}
+          className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {isRefreshing ? t('dashboard.refreshing', 'Refreshing...') : t('dashboard.refreshNow', 'Refresh now')}
+        </button>
       </div>
 
       {viewMode === 'dashboard' && (
