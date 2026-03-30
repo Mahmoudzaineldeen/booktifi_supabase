@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { db } from '../lib/db';
 import { User, UserRole, Tenant } from '../types';
+import { showNotification } from './NotificationContext';
 
 interface AuthUser {
   id: string;
@@ -10,6 +11,8 @@ interface AuthUser {
 
 const IMPERSONATION_LOG_ID_KEY = 'impersonation_log_id';
 const IMPERSONATION_ORIGINAL_SESSION_KEY = 'impersonation_original_session';
+const AUTH_LAST_ACTIVITY_KEY = 'auth_last_activity_ms';
+const IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour idle timeout
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -56,6 +59,20 @@ const debugLog = (event: string, data: any) => {
   }
 };
 
+function parseJwtExpiryMs(token: string | null): number | null {
+  if (!token) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payloadJson = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+    const payload = JSON.parse(payloadJson);
+    if (!payload?.exp) return null;
+    return Number(payload.exp) * 1000;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [userProfile, setUserProfile] = useState<User | null>(null);
@@ -68,6 +85,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
   const fetchingProfileRef = React.useRef<string | null>(null);
   const userProfileRef = React.useRef<User | null>(null);
+  const idleCheckIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  const lastActivityWriteRef = React.useRef<number>(0);
+  const sessionExpiryHandledRef = React.useRef(false);
+
+  const markActivity = React.useCallback(() => {
+    const now = Date.now();
+    if (now - lastActivityWriteRef.current < 15000) return; // throttle writes
+    lastActivityWriteRef.current = now;
+    try {
+      localStorage.setItem(AUTH_LAST_ACTIVITY_KEY, String(now));
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
+  const getLastActivityMs = React.useCallback(() => {
+    const raw = localStorage.getItem(AUTH_LAST_ACTIVITY_KEY);
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) ? n : Date.now();
+  }, []);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -470,6 +507,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.access_token && typeof localStorage !== 'undefined') {
           localStorage.setItem('auth_token', session.access_token);
         }
+        sessionExpiryHandledRef.current = false;
+        markActivity();
         debugLog('Sign In Successful', {
           userId: userProfile.id,
           role: userProfile.role,
@@ -504,22 +543,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Token refresh interval reference
   const tokenRefreshIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
 
+  async function handleSessionExpired(message: string) {
+    if (sessionExpiryHandledRef.current) return;
+    sessionExpiryHandledRef.current = true;
+    try {
+      showNotification('warning', message);
+    } catch {
+      // notification is best-effort
+    }
+    await signOut();
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
+  }
+
   function startTokenRefreshInterval() {
     // Clear existing interval if any
     if (tokenRefreshIntervalRef.current) {
       clearInterval(tokenRefreshIntervalRef.current);
     }
 
-    // Refresh token before idle expiry (token lifetime ~30 min; refresh every 15 min when active)
+    // Refresh token periodically while active (token lifetime ~90 min; refresh every 15 min when active)
     const refreshIntervalMs = 15 * 60 * 1000; // 15 minutes
     tokenRefreshIntervalRef.current = setInterval(async () => {
       try {
+        const now = Date.now();
+        const idleForMs = now - getLastActivityMs();
+        if (idleForMs >= IDLE_TIMEOUT_MS) {
+          await handleSessionExpired('Session expired due to inactivity. Please sign in again.');
+          return;
+        }
+
         const { data, error } = await db.auth.refreshSession();
         if (error) {
           debugLog('Token refresh failed', { error: error.message });
-          // Don't clear session on refresh failure - token might still be valid
+          const msg = String((error as any)?.message || '').toLowerCase();
+          if (msg.includes('expired') || msg.includes('invalid') || msg.includes('unauthorized') || msg.includes('401')) {
+            await handleSessionExpired('Your session has expired. Please sign in again.');
+          }
         } else if (data) {
           debugLog('Token refreshed successfully', {});
+          markActivity();
         }
       } catch (err) {
         debugLog('Token refresh exception', { error: (err as Error).message });
@@ -533,6 +597,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       tokenRefreshIntervalRef.current = null;
     }
   }
+
+  // Track user activity + enforce idle/session expiry checks.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!userProfileRef.current || !localStorage.getItem('auth_token')) return;
+
+    const activityEvents: Array<keyof WindowEventMap> = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
+    const onActivity = () => markActivity();
+    activityEvents.forEach((evt) => window.addEventListener(evt, onActivity, { passive: true }));
+    document.addEventListener('visibilitychange', onActivity);
+
+    // Ensure key exists for current session.
+    if (!localStorage.getItem(AUTH_LAST_ACTIVITY_KEY)) {
+      markActivity();
+    }
+
+    if (idleCheckIntervalRef.current) clearInterval(idleCheckIntervalRef.current);
+    idleCheckIntervalRef.current = setInterval(async () => {
+      const token = localStorage.getItem('auth_token');
+      if (!token || !userProfileRef.current) return;
+
+      const now = Date.now();
+      const idleForMs = now - getLastActivityMs();
+      if (idleForMs >= IDLE_TIMEOUT_MS) {
+        await handleSessionExpired('Session expired due to inactivity. Please sign in again.');
+        return;
+      }
+
+      const tokenExpiryMs = parseJwtExpiryMs(token);
+      if (tokenExpiryMs && now >= tokenExpiryMs) {
+        await handleSessionExpired('Your session has expired. Please sign in again.');
+      }
+    }, 60000);
+
+    return () => {
+      activityEvents.forEach((evt) => window.removeEventListener(evt, onActivity));
+      document.removeEventListener('visibilitychange', onActivity);
+      if (idleCheckIntervalRef.current) {
+        clearInterval(idleCheckIntervalRef.current);
+        idleCheckIntervalRef.current = null;
+      }
+    };
+  }, [markActivity, getLastActivityMs, userProfile?.id]);
 
   async function signUp(
     email: string,
@@ -567,12 +674,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function signOut() {
     debugLog('Sign Out Started', {});
     stopTokenRefreshInterval();
+    if (idleCheckIntervalRef.current) {
+      clearInterval(idleCheckIntervalRef.current);
+      idleCheckIntervalRef.current = null;
+    }
     await db.auth.signOut();
     setUser(null);
     setUserProfile(null);
     setTenant(null);
     userProfileRef.current = null;
     fetchingProfileRef.current = null;
+    localStorage.removeItem(AUTH_LAST_ACTIVITY_KEY);
+    sessionExpiryHandledRef.current = false;
     debugLog('Sign Out Complete', {});
   }
 
@@ -610,6 +723,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUserProfile(userProfileData);
     setTenant(tenantData || null);
     userProfileRef.current = userProfileData;
+    sessionExpiryHandledRef.current = false;
+    markActivity();
     startTokenRefreshInterval();
     if (session?.access_token && typeof window !== 'undefined') {
       import('../lib/apiUrl').then(({ getApiUrl }) => {
@@ -670,6 +785,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setTenant(original.tenant || null);
     userProfileRef.current = original.userProfile;
     setIsImpersonating(false);
+    sessionExpiryHandledRef.current = false;
+    markActivity();
     startTokenRefreshInterval();
   }
 

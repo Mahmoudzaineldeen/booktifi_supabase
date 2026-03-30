@@ -6,11 +6,11 @@ import { sendOTPEmail } from '../services/emailService.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-// Idle timeout: token expires after this if no refresh (default 30 min)
-const JWT_EXPIRY = process.env.JWT_EXPIRY || '30m';
+// Access token lifetime for admin/system sessions (default 90 min = 1.5h)
+const JWT_EXPIRY = process.env.JWT_EXPIRY || '90m';
 const JWT_EXPIRY_SECONDS = parseJwtExpiryToSeconds(JWT_EXPIRY);
-// Absolute session cap: no refresh after this from first login (default 120 min)
-const JWT_MAX_AGE = process.env.JWT_MAX_AGE || '120m';
+// Absolute session cap (default 90 min = 1.5h)
+const JWT_MAX_AGE = process.env.JWT_MAX_AGE || '90m';
 const JWT_MAX_AGE_SECONDS = parseJwtExpiryToSeconds(JWT_MAX_AGE);
 
 function parseJwtExpiryToSeconds(expiry: string): number {
