@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
-import { safeTranslateStatus, safeTranslate } from '../../lib/safeTranslation';
+import { safeTranslateStatus } from '../../lib/safeTranslation';
 import { getPaymentDisplayLabel, getPaymentDisplayValue, PAYMENT_DISPLAY_KEYS } from '../../lib/paymentDisplay';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
@@ -12,11 +12,11 @@ import { Input } from '../../components/ui/Input';
 import { searchBarWrapperClass, searchSelectClass } from '../../components/ui/SearchInput';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
-import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Edit, CalendarClock, Ban, Wrench, UserX, BarChart3, ChevronDown } from 'lucide-react';
+import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Ban, Wrench, UserX, BarChart3, ChevronDown } from 'lucide-react';
 import { ReceptionPackagesPage } from './ReceptionPackagesPage';
 import { ReceptionReportsSection } from './ReceptionReportsSection';
 import { QRScanner } from '../../components/qr/QRScanner';
-import { format, addDays, startOfWeek, isSameDay, parseISO, startOfDay, endOfDay, addMinutes, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
+import { format, addDays, startOfWeek, isSameDay, parseISO, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { countryCodes } from '../../lib/countryCodes';
@@ -25,9 +25,9 @@ import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { extractBookingIdFromQR } from '../../lib/qrUtils';
-import { fetchAvailableSlots as fetchAvailableSlotsUtil, Slot as AvailabilitySlot } from '../../lib/bookingAvailability';
+import { fetchAvailableSlots as fetchAvailableSlotsUtil } from '../../lib/bookingAvailability';
 import { BookingConfirmationModal } from '../../components/shared/BookingConfirmationModal';
-import { BookingDetailsModal } from '../../components/shared/BookingDetailsModal';
+import { BookingDetailsModal, type BookingDetailsModalBooking } from '../../components/shared/BookingDetailsModal';
 import { SubscriptionConfirmationModal, type SubscriptionConfirmationData } from '../../components/shared/SubscriptionConfirmationModal';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
@@ -148,6 +148,7 @@ export function ReceptionPage() {
   const { t, i18n } = useTranslation();
   const { userProfile, tenant, signOut, loading: authLoading, isImpersonating, exitImpersonation, hasPermission } = useAuth();
   const { formatPrice, formatPriceString } = useCurrency();
+  const formatPriceForModal = (n: number) => formatPriceString(n);
   const navigate = useNavigate();
   const location = useLocation();
   const { tenantSlug: routeTenantSlug } = useParams<{ tenantSlug?: string }>();
@@ -187,7 +188,6 @@ export function ReceptionPage() {
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [currentView, setCurrentView] = useState<'bookings' | 'packages'>('bookings');
   const [selectedBookingForDetails, setSelectedBookingForDetails] = useState<Booking | null>(null);
-  const [isEditBookingModalOpen, setIsEditBookingModalOpen] = useState(false);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [editingTimeDate, setEditingTimeDate] = useState<Date>(new Date());
   const [availableTimeSlots, setAvailableTimeSlots] = useState<Slot[]>([]);
@@ -1269,6 +1269,7 @@ export function ReceptionPage() {
 
   async function fetchAvailableSlots() {
     if (!userProfile?.tenant_id || !selectedService || !selectedDate) return;
+    const tenantId = userProfile.tenant_id;
 
     const branchId = (userProfile as { branch_id?: string | null }).branch_id ?? null;
 
@@ -1282,7 +1283,7 @@ export function ReceptionPage() {
         const { data: empServ } = await db
           .from('employee_services')
           .select('employee_id')
-          .eq('tenant_id', userProfile!.tenant_id)
+          .eq('tenant_id', tenantId)
           .eq('service_id', selectedService);
         const ids = [...new Set((empServ ?? []).map((es: { employee_id: string }) => es.employee_id))];
         if (ids.length > 0) {
@@ -1290,7 +1291,7 @@ export function ReceptionPage() {
             .from('users')
             .select('id')
             .in('id', ids)
-            .eq('tenant_id', userProfile!.tenant_id)
+            .eq('tenant_id', tenantId)
             .eq('branch_id', branchId);
           branchEmployeeIds = new Set((branchUsers ?? []).map((u: { id: string }) => u.id));
         } else {
@@ -1300,7 +1301,7 @@ export function ReceptionPage() {
 
       // Use shared availability logic (SAME as customer page)
       const result = await fetchAvailableSlotsUtil({
-        tenantId: userProfile.tenant_id,
+        tenantId,
         serviceId: selectedService,
         date: selectedDate,
         includePastSlots: false,
@@ -1317,7 +1318,7 @@ export function ReceptionPage() {
           const allResults = await Promise.all(
             mixServiceIds.map((sid) =>
               fetchAvailableSlotsUtil({
-                tenantId: userProfile.tenant_id,
+                tenantId,
                 serviceId: sid,
                 date: selectedDate,
                 includePastSlots: false,
@@ -1329,9 +1330,13 @@ export function ReceptionPage() {
           const slotKey = (s: Slot) => `${s.employee_id ?? ''}|${s.start_time}|${s.end_time}`;
           let intersectionKeys: Set<string> | null = null;
           for (const res of allResults) {
-            const keys = new Set((res.slots as Slot[]).map(slotKey));
-            if (intersectionKeys === null) intersectionKeys = keys;
-            else intersectionKeys = new Set([...intersectionKeys].filter((k) => keys.has(k)));
+            const keys = new Set<string>((res.slots as Slot[]).map(slotKey));
+            if (intersectionKeys === null) {
+              intersectionKeys = keys;
+            } else {
+              const prev: Set<string> = intersectionKeys;
+              intersectionKeys = new Set([...prev].filter((k) => keys.has(k)));
+            }
           }
           if (intersectionKeys && intersectionKeys.size > 0) {
             slotsToShow = slotsToShow.filter((s) => intersectionKeys!.has(slotKey(s)));
@@ -1739,7 +1744,7 @@ export function ReceptionPage() {
             slot_id: slotWithEnoughCapacity.id,
             employee_id: slotWithEnoughCapacity.employee_id || null,
             offer_id: selectedOffer || null,
-            ...(bookingSelectedCustomer?.id && { customer_id: bookingSelectedCustomer.id }),
+            ...(bookingSelectedCustomer?.id != null ? { customer_id: bookingSelectedCustomer.id } : {}),
             customer_name: bookingForm.customer_name,
             customer_phone: fullPhoneNumber,
             customer_email: bookingForm.customer_email || null,
@@ -1837,12 +1842,8 @@ export function ReceptionPage() {
     // Save or update customer (consecutive with manual selection)
     await saveOrUpdateCustomer(fullPhoneNumber);
 
-    let firstBookingId: string | null = null;
-    if (bookingForm.booking_option === 'parallel' && slotsAtTime.length > 1) {
-      firstBookingId = await handleParallelBooking(service, slotsAtTime, quantity, fullPhoneNumber);
-    } else {
-      firstBookingId = await handleConsecutiveBooking(service, quantity, fullPhoneNumber);
-    }
+    // Parallel mode already returned above; remaining path is consecutive with manual slot selection
+    const firstBookingId = await handleConsecutiveBooking(service, quantity, fullPhoneNumber);
 
     setBookingCreationLoadingStep('creating_invoice');
     await new Promise(r => setTimeout(r, 700));
@@ -1927,7 +1928,9 @@ export function ReceptionPage() {
         slot_ids: slotsToUse.map(s => s.id),
         service_id: serviceId,
         tenant_id: tenantId,
-        ...(bookingSelectedCustomer?.id && { customer_id: bookingSelectedCustomer.id }),
+        ...(bookingSelectedCustomer != null && bookingSelectedCustomer.id != null
+          ? { customer_id: bookingSelectedCustomer.id }
+          : {}),
         customer_name: bookingForm.customer_name,
         customer_phone: fullPhoneNumber,
         customer_email: bookingForm.customer_email || null,
@@ -1993,7 +1996,9 @@ export function ReceptionPage() {
         slot_ids: slotsToUse.map(s => s.id),
         service_id: serviceIdConsec,
         tenant_id: tenantIdConsec,
-        ...(bookingSelectedCustomer?.id && { customer_id: bookingSelectedCustomer.id }),
+        ...(bookingSelectedCustomer != null && bookingSelectedCustomer.id != null
+          ? { customer_id: bookingSelectedCustomer.id }
+          : {}),
         customer_name: bookingForm.customer_name,
         customer_phone: fullPhoneNumber,
         customer_email: bookingForm.customer_email || null,
@@ -2126,7 +2131,7 @@ export function ReceptionPage() {
               slot_id: item.slot.id,
               employee_id: item.employeeId || null,
               offer_id: selectedOffer || null,
-              ...(bookingSelectedCustomer?.id && { customer_id: bookingSelectedCustomer.id }),
+              ...(bookingSelectedCustomer?.id != null ? { customer_id: bookingSelectedCustomer.id } : {}),
               customer_name: bookingForm.customer_name,
               customer_phone: fullPhoneNumber,
               customer_email: bookingForm.customer_email || null,
@@ -2310,10 +2315,11 @@ export function ReceptionPage() {
       showNotification('warning', t('reception.slotNoLongerAvailable') || 'Selected slot is no longer available. Please choose another time.');
       return;
     }
-    showNotification('warning', t('reception.noServicesSelected'));
-    return;
+    if (!selectedService) {
+      showNotification('warning', t('reception.noServicesSelected'));
+      return;
+    }
 
-    if (!userProfile?.tenant_id || !selectedService) return;
     const service = services.find(s => s.id === selectedService);
     if (!service) return;
 
@@ -2341,8 +2347,8 @@ export function ReceptionPage() {
       }
 
       // Handle single booking (original logic)
-      let employeeId: string;
-      let slotId: string;
+      let employeeId = '';
+      let slotId = '';
 
       if (assignmentMode === 'automatic') {
         // Same as admin: use the exact slot from selection so one booking = one slot (not the whole period)
@@ -2363,11 +2369,13 @@ export function ReceptionPage() {
 
         // Use the slot from selection (one slot only) — same as admin createSlotId / createSelectedSlots
         if (slotIdFromSelection) {
-          const chosenSlot = slots.find(s => s.id === slotIdFromSelection);
-          if (chosenSlot && (chosenSlot.available_capacity ?? 0) > 0) {
-            slotId = chosenSlot.id;
-            employeeId = chosenSlot.employee_id || '';
-            console.log('Using selected slot (one booking = one slot):', slotId, 'Employee ID:', employeeId || 'None');
+          const chosenSlot = slots.find((s) => s.id === slotIdFromSelection);
+          if (chosenSlot) {
+            if ((chosenSlot.available_capacity ?? 0) > 0) {
+              slotId = chosenSlot.id;
+              employeeId = chosenSlot.employee_id || '';
+              console.log('Using selected slot (one booking = one slot):', slotId, 'Employee ID:', employeeId || 'None');
+            }
           }
         }
         if (!slotId && timeSlot) {
@@ -2478,13 +2486,16 @@ export function ReceptionPage() {
       }
 
       try {
+        const receptionCustomerId = bookingSelectedCustomer?.id;
         const result = await createBookingViaAPI({
           tenant_id: userProfile!.tenant_id,
           service_id: selectedService,
           slot_id: slotId,
           employee_id: employeeId || null,
           offer_id: selectedOffer || null,
-          ...(bookingSelectedCustomer?.id && { customer_id: bookingSelectedCustomer.id }),
+          ...(receptionCustomerId !== undefined && receptionCustomerId !== null
+            ? { customer_id: receptionCustomerId }
+            : {}),
           customer_name: bookingForm.customer_name,
           customer_phone: fullPhoneNumber,
           customer_email: bookingForm.customer_email || null,
@@ -2662,7 +2673,6 @@ export function ReceptionPage() {
       const result = await response.json().catch(() => ({}));
       await fetchBookings();
       if (!skipClose) {
-        setIsEditBookingModalOpen(false);
         setEditingBooking(null);
       }
       const msg = (result.message && String(result.message).trim()) || t('bookings.bookingUpdatedSuccessfully') || 'Booking updated successfully!';
@@ -2675,13 +2685,12 @@ export function ReceptionPage() {
   }
 
   /** Open combined Edit modal: details + change time in one place */
-  async function openEditBooking(booking: Booking) {
+  async function openEditBooking(booking: Booking | BookingDetailsModalBooking) {
     if (!userProfile?.tenant_id || !(booking as any).service_id) {
       showNotification('warning', t('bookings.cannotEditBookingTime') || 'Cannot edit booking time');
       return;
     }
-    setEditingBooking(booking);
-    setIsEditBookingModalOpen(true);
+    setEditingBooking(booking as Booking);
     let initialDate: Date;
     if (booking.slots?.slot_date) {
       const [year, month, day] = booking.slots.slot_date.split('-').map(Number);
@@ -2715,7 +2724,6 @@ export function ReceptionPage() {
       if (timeChanged) {
         await updateBookingTime(editingBooking, true);
       } else {
-        setIsEditBookingModalOpen(false);
         setEditingBooking(null);
         setSelectedNewSlotId('');
         setChangeTimeEmployeeId('');
@@ -2919,7 +2927,6 @@ export function ReceptionPage() {
       }
 
       setEditingBooking(null);
-      setIsEditBookingModalOpen(false);
       setSelectedNewSlotId('');
       setChangeTimeEmployeeId('');
       setAvailableTimeSlots([]);
@@ -5913,7 +5920,7 @@ export function ReceptionPage() {
         isOpen={!!selectedBookingForDetails}
         onClose={() => setSelectedBookingForDetails(null)}
         booking={selectedBookingForDetails}
-        formatPrice={formatPrice}
+        formatPrice={formatPriceForModal}
         isCoordinator={isCoordinator}
         onEdit={(b) => {
           setSelectedBookingForDetails(null);
@@ -6231,7 +6238,6 @@ export function ReceptionPage() {
                 <Button
                   onClick={() => {
                     const bookingToReopen = editingBooking;
-                    setIsEditBookingModalOpen(false);
                     setEditingBooking(null);
                     setSelectedNewSlotId('');
                     setChangeTimeEmployeeId('');

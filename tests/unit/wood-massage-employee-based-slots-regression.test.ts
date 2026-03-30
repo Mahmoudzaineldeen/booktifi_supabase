@@ -52,4 +52,17 @@ describe('ensure-employee-based-slots slot loop (mirrors server logic)', () => {
     const shiftDaysMissingWed = [0, 1, 2, 4, 5, 6];
     expect(shiftDaysMissingWed.includes(wed)).toBe(false);
   });
+
+  it('explains UI showing only 1:00 PM and 2:00 PM: two 60-min slots ⇒ shift window 13:00–15:00 (not a UI cap)', () => {
+    const startM = 13 * 60;
+    const endM = 15 * 60;
+    const duration = 60;
+    let n = 0;
+    let m = startM;
+    while (m + duration <= endM) {
+      n++;
+      m += duration;
+    }
+    expect(n).toBe(2);
+  });
 });

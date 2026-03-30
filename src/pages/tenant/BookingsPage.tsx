@@ -3063,7 +3063,7 @@ export function BookingsPage() {
                     <p className="text-gray-600">{t('reception.noSlotsAvailable')}</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                  <div className="grid grid-cols-2 gap-2 max-h-96 overflow-y-auto">
                     {(() => {
                       const timeMap = new Map<string, Slot[]>();
                       displaySlots.forEach(slot => {

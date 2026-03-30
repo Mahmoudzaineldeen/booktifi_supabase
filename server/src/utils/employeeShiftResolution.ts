@@ -56,6 +56,36 @@ export function toTimeStr(t: unknown): string {
   return s;
 }
 
+/**
+ * When an employee has no users.branch_id, inherit the most common branch among peers
+ * assigned to the same service. Otherwise they only get employee_shifts (often a short
+ * partial window) and miss branch_shifts — e.g. only 1:00–2:00 PM slots from a 13:00–15:00
+ * custom row while colleagues show 1:00–11:00 PM from the branch.
+ */
+export function inferBranchIdFromPeers(
+  eid: string,
+  availableEmployeeIds: string[],
+  employeeBranchId: Map<string, string | null | undefined>
+): string | null {
+  const tally = new Map<string, number>();
+  for (const id of availableEmployeeIds) {
+    if (id === eid) continue;
+    const b = employeeBranchId.get(id);
+    if (b) {
+      tally.set(b, (tally.get(b) || 0) + 1);
+    }
+  }
+  let best: string | null = null;
+  let bestN = 0;
+  for (const [bid, n] of tally) {
+    if (n > bestN) {
+      bestN = n;
+      best = bid;
+    }
+  }
+  return best;
+}
+
 export function buildEffectiveEmployeeShifts(options: {
   availableEmployeeIds: string[];
   employeeBranchId: Map<string, string | null | undefined>;
@@ -67,7 +97,8 @@ export function buildEffectiveEmployeeShifts(options: {
   const effectiveShifts: EffectiveShift[] = [];
 
   for (const eid of availableEmployeeIds) {
-    const branchId = employeeBranchId.get(eid);
+    const branchId =
+      employeeBranchId.get(eid) || inferBranchIdFromPeers(eid, availableEmployeeIds, employeeBranchId);
     const customShifts = list.filter((s) => s.employee_id === eid);
 
     for (const es of customShifts) {

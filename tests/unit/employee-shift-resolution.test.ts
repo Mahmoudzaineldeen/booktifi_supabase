@@ -7,6 +7,7 @@ import {
   buildEffectiveEmployeeShifts,
   mergeEffectiveShiftsForCalendarDay,
   sameDayIntervalSubsumedByOvernight,
+  inferBranchIdFromPeers,
 } from '../../server/src/utils/employeeShiftResolution';
 
 describe('buildEffectiveEmployeeShifts', () => {
@@ -94,6 +95,61 @@ describe('buildEffectiveEmployeeShifts', () => {
       empShifts: [],
     });
     expect(out).toHaveLength(0);
+  });
+
+  /**
+   * Regression: employee with branch_id null but peers on same service have branch b1 —
+   * inherit b1 branch_shifts so custom short row (e.g. 13:00–15:00) merges with full branch hours.
+   */
+  it('infers branch from peers when employee has no branch_id', () => {
+    const empWithBranch = 'e-with-branch';
+    const empNoBranch = 'e-no-branch';
+    const out = buildEffectiveEmployeeShifts({
+      availableEmployeeIds: [empWithBranch, empNoBranch],
+      employeeBranchId: new Map([
+        [empWithBranch, branchId],
+        [empNoBranch, null],
+      ]),
+      branchShiftsList: [
+        {
+          branch_id: branchId,
+          days_of_week: [3],
+          start_time: '13:00:00',
+          end_time: '23:00:00',
+        },
+      ],
+      empShifts: [
+        {
+          employee_id: empNoBranch,
+          days_of_week: [3],
+          start_time_utc: '13:00:00',
+          end_time_utc: '15:00:00',
+        },
+      ],
+    });
+    expect(out.length).toBeGreaterThanOrEqual(2);
+    const branchRows = out.filter((r) => r.employee_id === empNoBranch && r.end_time_utc === '23:00:00');
+    expect(branchRows.length).toBeGreaterThan(0);
+  });
+});
+
+describe('inferBranchIdFromPeers', () => {
+  it('returns the most common branch among peers', () => {
+    const m = new Map<string, string | null>([
+      ['a', 'b1'],
+      ['b', 'b1'],
+      ['c', 'b2'],
+      ['d', null],
+    ]);
+    expect(inferBranchIdFromPeers('d', ['a', 'b', 'c', 'd'], m)).toBe('b1');
+  });
+
+  it('returns null when no peer has a branch', () => {
+    const m = new Map<string, string | null>([
+      ['x', null],
+      ['y', null],
+    ]);
+    expect(inferBranchIdFromPeers('x', ['x', 'y'], m)).toBe(null);
   });
 });
 
