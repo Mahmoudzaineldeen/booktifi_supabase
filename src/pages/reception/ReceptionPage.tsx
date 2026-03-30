@@ -278,6 +278,10 @@ export function ReceptionPage() {
   // Create booking: payment method (when booking has payable amount). 'unpaid' | 'onsite' | 'transfer'
   const [createPaymentMethod, setCreatePaymentMethod] = useState<'unpaid' | 'onsite' | 'transfer'>('onsite');
   const [createTransactionReference, setCreateTransactionReference] = useState('');
+  // Reception booking behavior:
+  // - In employee-based mode, always use manual employee selection (no mode toggle in UI)
+  // - In service-slot mode, keep existing automatic behavior
+  const effectiveAssignmentMode: 'automatic' | 'manual' = isEmployeeBasedMode ? 'manual' : assignmentMode;
 
   const isCoordinator = (userProfile?.role as string) === 'coordinator';
 
@@ -2255,12 +2259,12 @@ export function ReceptionPage() {
               }
             }
           }
-        } else if (assignmentMode === 'automatic' && selectedTimeSlot || assignmentMode === 'manual' && selectedSlot) {
+        } else if (effectiveAssignmentMode === 'automatic' && selectedTimeSlot || effectiveAssignmentMode === 'manual' && selectedSlot) {
           // Single booking or quantity 1
           let slotToAdd: Slot | undefined;
           let employeeId = '';
 
-          if (assignmentMode === 'automatic') {
+          if (effectiveAssignmentMode === 'automatic') {
             const slotsAtTime = slots.filter(
               s => s.start_time === selectedTimeSlot!.start_time &&
                    s.end_time === selectedTimeSlot!.end_time &&
@@ -2313,12 +2317,12 @@ export function ReceptionPage() {
     //   return;
     // }
 
-    if (assignmentMode === 'automatic' && !selectedTimeSlot) {
+    if (effectiveAssignmentMode === 'automatic' && !selectedTimeSlot) {
       showNotification('warning', t('common.pleaseSelectTimeSlot'));
       return;
     }
 
-    if (assignmentMode === 'manual' && !selectedSlot) {
+    if (effectiveAssignmentMode === 'manual' && !selectedSlot) {
       showNotification('warning', t('common.pleaseSelectTimeSlot'));
       return;
     }
@@ -2334,7 +2338,7 @@ export function ReceptionPage() {
       let employeeId = '';
       let slotId = '';
 
-      if (assignmentMode === 'automatic') {
+      if (effectiveAssignmentMode === 'automatic') {
         // Same as admin: use the exact slot from selection so one booking = one slot (not the whole period)
         const slotIdFromSelection = selectedSlots.length === 1 ? selectedSlots[0].slot_id : selectedSlot || null;
         if (!slotIdFromSelection && !selectedTimeSlot) {
@@ -4596,7 +4600,7 @@ export function ReceptionPage() {
                         </div>
                       </div>
                       <div className="text-sm text-gray-600">
-                        {assignmentMode === 'automatic' ? t('reception.autoAssigned') : t('reception.manualAssignment')}
+                        {effectiveAssignmentMode === 'automatic' ? t('reception.autoAssigned') : t('reception.manualAssignment')}
                       </div>
                     </div>
                   ) : (
@@ -5112,7 +5116,7 @@ export function ReceptionPage() {
           })()}
 
           {/* Add Service Button */}
-          {selectedService && (assignmentMode === 'automatic' && selectedTimeSlot || assignmentMode === 'manual' && selectedSlot) && (
+          {selectedService && (effectiveAssignmentMode === 'automatic' && selectedTimeSlot || effectiveAssignmentMode === 'manual' && selectedSlot) && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <p className="text-sm text-blue-800 mb-2">
                 {t('reception.multiServiceNote')}
@@ -5126,7 +5130,7 @@ export function ReceptionPage() {
                   let slotToAdd: Slot | undefined;
                   let employeeId = '';
 
-                  if (assignmentMode === 'automatic') {
+                  if (effectiveAssignmentMode === 'automatic') {
                     // Find the slot at the selected time
                     const slotsAtTime = slots.filter(
                       s => s.start_time === selectedTimeSlot!.start_time &&
@@ -5282,66 +5286,7 @@ export function ReceptionPage() {
                 )}
               </div>
 
-              {/* Employee-based mode only: show assignment (Auto / Manual). Manual is an instruction to receptionist, not a button. */}
-              {isEmployeeBasedMode && (tenantAssignmentMode === 'both' || tenantAssignmentMode === 'automatic' || tenantAssignmentMode === 'manual') && (
-                <div className="mb-3">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('reception.employeeAssignment') || 'Employee assignment'}
-                  </label>
-                  <div className="space-y-2">
-                    {(tenantAssignmentMode === 'both' || tenantAssignmentMode === 'automatic') && (
-                      <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
-                        assignmentMode === 'automatic'
-                          ? 'border-blue-600 bg-blue-50'
-                          : 'border-gray-200 bg-white hover:border-gray-300'
-                      }`}>
-                        <input
-                          type="radio"
-                          name="assignmentMode"
-                          checked={assignmentMode === 'automatic'}
-                          onChange={() => {
-                            setAssignmentMode('automatic');
-                            setSelectedSlot('');
-                            setSelectedEmployee('');
-                            setSelectedTimeSlot(null);
-                          }}
-                          className="mt-1 w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                        />
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-900">{t('reception.automaticAssignment')}</div>
-                          <div className="text-xs text-gray-600 mt-0.5">{t('reception.autoAssignDescription') || 'System assigns to employee with least bookings'}</div>
-                        </div>
-                      </label>
-                    )}
-                    {(tenantAssignmentMode === 'both' || tenantAssignmentMode === 'manual') && (
-                      <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
-                        assignmentMode === 'manual'
-                          ? 'border-blue-600 bg-blue-50'
-                          : 'border-gray-200 bg-white hover:border-gray-300'
-                      }`}>
-                        <input
-                          type="radio"
-                          name="assignmentMode"
-                          checked={assignmentMode === 'manual'}
-                          onChange={() => {
-                            setAssignmentMode('manual');
-                            setSelectedSlot('');
-                            setSelectedEmployee('');
-                            setSelectedTimeSlot(null);
-                          }}
-                          className="mt-1 w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                        />
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-900">{t('reception.manualAssignment')}</div>
-                          <p className="text-xs text-gray-600 mt-0.5">
-                            {t('reception.manualAssignInstruction') || 'Receptionist should choose specific employee and time.'}
-                          </p>
-                        </div>
-                      </label>
-                    )}
-                  </div>
-                </div>
-              )}
+              {/* Reception in employee-based mode always uses manual employee selection. */}
 
                 {/* Employee distribution display - optional, kept commented */}
                 {/* {assignmentMode === 'automatic' && availableEmployees.length > 0 && (
@@ -5398,7 +5343,7 @@ export function ReceptionPage() {
                 )}
 
                 {/* Employee-based + manual: show employee dropdown */}
-                {isEmployeeBasedMode && assignmentMode === 'manual' && (
+                {isEmployeeBasedMode && effectiveAssignmentMode === 'manual' && (
                   <div className="mb-3">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       {t('reception.selectEmployee')} *
@@ -5410,7 +5355,7 @@ export function ReceptionPage() {
                         setSelectedEmployee(e.target.value);
                         setSelectedSlot('');
                       }}
-                      required={assignmentMode === 'manual'}
+                      required={effectiveAssignmentMode === 'manual'}
                     >
                       <option value="">{t('reception.chooseEmployee')}</option>
                       {availableEmployees.map((emp) => (
@@ -5489,7 +5434,7 @@ export function ReceptionPage() {
                     <Clock className="w-12 h-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-gray-600">{t('reception.selectServiceAndDateFirst') || 'Please select a service and date to see available times.'}</p>
                   </div>
-                ) : (selectedService && selectedDate && (assignmentMode !== 'manual' || selectedEmployee) && loadingTimeSlots) ? (
+                ) : (selectedService && selectedDate && (effectiveAssignmentMode !== 'manual' || selectedEmployee) && loadingTimeSlots) ? (
                   <div className="rounded-lg border border-gray-200 bg-gray-50 p-4" role="status" aria-label={t('reception.loadingSlots') || 'Loading available times...'}>
                     <div className="flex items-center justify-center gap-3 py-6">
                       <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent" />
@@ -5501,7 +5446,7 @@ export function ReceptionPage() {
                       ))}
                     </div>
                   </div>
-                ) : assignmentMode === 'manual' && !selectedEmployee ? (
+                ) : effectiveAssignmentMode === 'manual' && !selectedEmployee ? (
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
                     <User className="w-12 h-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-gray-600">{t('reception.selectEmployeeFirst') || 'Please select an employee first.'}</p>
@@ -5509,7 +5454,7 @@ export function ReceptionPage() {
                       <p className="text-xs text-amber-600 mt-2">{t('reception.noEmployeesForServiceDate') || 'No employees with shifts for this service on the selected date. Add work schedule in Settings → Employees.'}</p>
                     )}
                   </div>
-                ) : assignmentMode === 'manual' && selectedEmployee && slots.filter(s => s.employee_id === selectedEmployee).length === 0 ? (
+                ) : effectiveAssignmentMode === 'manual' && selectedEmployee && slots.filter(s => s.employee_id === selectedEmployee).length === 0 ? (
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
                     <Clock className="w-12 h-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-gray-600">{t('reception.noSlotsAvailable')}</p>
@@ -5523,7 +5468,7 @@ export function ReceptionPage() {
                         : t('reception.noSlotsForEmployeeHint')}
                     </p>
                   </div>
-                ) : assignmentMode === 'automatic' && slots.length === 0 ? (
+                ) : effectiveAssignmentMode === 'automatic' && slots.length === 0 ? (
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
                     <Clock className="w-12 h-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-gray-600">{t('reception.noSlotsAvailable')}</p>
@@ -5580,7 +5525,7 @@ export function ReceptionPage() {
                       </div>
                     )}
                   <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                    {assignmentMode === 'automatic' ? (
+                    {effectiveAssignmentMode === 'automatic' ? (
                       // For automatic mode, group slots by time and show unique time slots
                       (() => {
                         const timeSlotMap = new Map<string, Slot[]>();
@@ -5615,6 +5560,7 @@ export function ReceptionPage() {
                             ? uniqueGrouped.find((s: Slot) => s.employee_id === nextEmployeeIdForRotation) ?? firstSlot
                             : firstSlot;
                           // Total spots = sum of available_capacity (so "X أماكن متبقية" matches UI spec)
+                          // Manual single-employee mode: show the selected slot capacity (same behavior as admin create form).
                           const totalAvailable = uniqueGrouped.reduce((sum, s) => sum + (s.available_capacity ?? 0), 0);
 
                           return (
@@ -5666,7 +5612,7 @@ export function ReceptionPage() {
                         return entries.map(([timeKey, groupedSlots]) => {
                           const uniqueGrouped = groupedSlots.filter((s, i, arr) => arr.findIndex((x) => x.id === s.id) === i);
                           const slot = uniqueGrouped[0];
-                          const totalAvailable = uniqueGrouped.reduce((sum, s) => sum + (s.available_capacity ?? 0), 0);
+                          const totalAvailable = slot.available_capacity ?? 0;
 
                           return (
                             <button
@@ -5700,7 +5646,7 @@ export function ReceptionPage() {
             // 1. Manual assignment mode is selected
             // 2. Quantity > 1
             // 3. Parallel + Extension scenario (quantity > numEmployees)
-            if (assignmentMode === 'manual' && bookingForm.visitor_count > 1 && selectedTimeSlot && bookingForm.booking_option === 'parallel') {
+            if (effectiveAssignmentMode === 'manual' && bookingForm.visitor_count > 1 && selectedTimeSlot && bookingForm.booking_option === 'parallel') {
               const slotsInTimeRange = slots.filter(
                 s => s.start_time === selectedTimeSlot.start_time && s.end_time === selectedTimeSlot.end_time
               );
