@@ -4,7 +4,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Calendar } from 'lucide-react';
 
-export type TimeRange = 'today' | 'yesterday' | 'last_week' | 'last_month' | 'custom';
+export type TimeRange = 'all_time' | 'today' | 'yesterday' | 'last_week' | 'last_month' | 'custom';
 
 interface TimeFilterProps {
   selectedRange: TimeRange;
@@ -24,6 +24,7 @@ export function TimeFilter({
   const { t } = useTranslation();
 
   const ranges: { value: TimeRange; label: string }[] = [
+    { value: 'all_time', label: t('dashboard.allTime', 'All Time') },
     { value: 'today', label: t('dashboard.today') },
     { value: 'yesterday', label: t('dashboard.yesterday') },
     { value: 'last_week', label: t('dashboard.lastWeek') },

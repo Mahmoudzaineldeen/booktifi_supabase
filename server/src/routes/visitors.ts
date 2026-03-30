@@ -55,6 +55,19 @@ function parsePrice(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+const PAYMENT_PAID_STATUSES = new Set(['paid', 'paid_manual']);
+
+function isPaymentPaidStatus(paymentStatus: unknown): boolean {
+  if (paymentStatus == null) return false;
+  return PAYMENT_PAID_STATUSES.has(String(paymentStatus).toLowerCase());
+}
+
+function detailBookingType(packageCoveredQty: unknown, paymentStatus: unknown): 'PACKAGE' | 'PAID' | 'UNPAID' {
+  const isPackage = Number(packageCoveredQty ?? 0) > 0;
+  if (isPackage) return 'PACKAGE';
+  return isPaymentPaidStatus(paymentStatus) ? 'PAID' : 'UNPAID';
+}
+
 /** Escape ILIKE/LIKE special chars (%, _) so search is literal. */
 function escapeIlike(s: string): string {
   return (s || '')
@@ -305,9 +318,6 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
     }
     const servingEmployeesMap = buildServingEmployeesMap(filteredBookings);
 
-    const PAYMENT_PAID_STATUSES = new Set(['paid', 'paid_manual']);
-    const isPaymentPaid = (ps: string) => ps && PAYMENT_PAID_STATUSES.has(String(ps).toLowerCase());
-
     // Package purchase spend (total spent = bookings + package purchases)
     const packageSpendByCustomer = await fetchPackageSpendByCustomer(tenantId, filters.branchId || undefined);
 
@@ -320,7 +330,7 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
       const pc = b.package_covered_quantity ?? 0;
       const isPackage = pc > 0;
       const amount = parsePrice(b.total_price);
-      const paid = !isPackage && isPaymentPaid(b.payment_status);
+      const paid = !isPackage && isPaymentPaidStatus(b.payment_status);
       const addToSpent = paid ? amount : 0;
       const addOnSite = paid && b.payment_method === 'onsite' ? amount : 0;
       const addTransfer = paid && b.payment_method === 'transfer' ? amount : 0;
@@ -334,7 +344,8 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
         agg.spent += addToSpent;
         agg.spentOnSite += addOnSite;
         agg.spentTransfer += addTransfer;
-        if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
+        if (isPackage) agg.packageCount += 1;
+        else if (paid) agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       } else {
         const phone = (b.customer_phone || '').trim();
@@ -357,7 +368,8 @@ router.get('/', authenticateVisitorsAccess, async (req, res) => {
         agg.spent += addToSpent;
         agg.spentOnSite += addOnSite;
         agg.spentTransfer += addTransfer;
-        if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
+        if (isPackage) agg.packageCount += 1;
+        else if (paid) agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       }
     }
@@ -563,8 +575,6 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
     const servingEmployeesMapExport = buildServingEmployeesMap(filteredBookings);
 
     const packageSpendByCustomerExport = await fetchPackageSpendByCustomer(tenantId, effectiveExportBranchId);
-    const PAYMENT_PAID_STATUSES = new Set(['paid', 'paid_manual']);
-    const isPaymentPaidExport = (ps: string) => ps && PAYMENT_PAID_STATUSES.has(String(ps).toLowerCase());
     const byCustomerId: Record<string, { total: number; spent: number; spentOnSite: number; spentTransfer: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
     const byGuestPhone: Record<string, { name: string; email: string | null; total: number; spent: number; spentOnSite: number; spentTransfer: number; packageCount: number; paidCount: number; lastDate: string | null }> = {};
     for (const b of filteredBookings) {
@@ -572,7 +582,7 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
       const pc = b.package_covered_quantity ?? 0;
       const isPackage = pc > 0;
       const amount = parsePrice(b.total_price);
-      const paid = !isPackage && isPaymentPaidExport(b.payment_status);
+      const paid = !isPackage && isPaymentPaidStatus(b.payment_status);
       const addToSpent = paid ? amount : 0;
       const addOnSite = paid && b.payment_method === 'onsite' ? amount : 0;
       const addTransfer = paid && b.payment_method === 'transfer' ? amount : 0;
@@ -583,7 +593,8 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         agg.spent += addToSpent;
         agg.spentOnSite += addOnSite;
         agg.spentTransfer += addTransfer;
-        if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
+        if (isPackage) agg.packageCount += 1;
+        else if (paid) agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       } else {
         const phone = (b.customer_phone || '').trim();
@@ -594,7 +605,8 @@ router.get('/export/:format', authenticateVisitorsAccess, async (req, res) => {
         agg.spent += addToSpent;
         agg.spentOnSite += addOnSite;
         agg.spentTransfer += addTransfer;
-        if (isPackage) agg.packageCount += 1; else agg.paidCount += 1;
+        if (isPackage) agg.packageCount += 1;
+        else if (paid) agg.paidCount += 1;
         if (slotDate && (!agg.lastDate || slotDate > agg.lastDate)) agg.lastDate = slotDate;
       }
     }
@@ -1102,7 +1114,7 @@ async function getVisitorDetailStructured(
     const { data: bookings } = await supabase
       .from('bookings')
       .select(`
-        id, customer_name, customer_phone, customer_email, total_price, status, visitor_count,
+        id, customer_name, customer_phone, customer_email, total_price, status, payment_status, visitor_count,
         package_covered_quantity, created_by_user_id, service_id, slot_id,
         payment_method, transaction_reference,
         employee_id,
@@ -1248,7 +1260,7 @@ async function getVisitorDetail(
       return s + parsePrice(b.total_price);
     }, 0);
     const packageCount = list.filter((b) => (b.package_covered_quantity ?? 0) > 0).length;
-    const paidCount = list.length - packageCount;
+    const paidCount = list.filter((b) => (b.package_covered_quantity ?? 0) <= 0 && isPaymentPaidStatus(b.payment_status)).length;
     const lastBooking = list.length ? list[0] : null;
 
     return {
@@ -1266,21 +1278,25 @@ async function getVisitorDetail(
         status: 'active',
         active_packages: [],
       },
-      bookings: list.map((b) => ({
+      bookings: list.map((b) => {
+        const bookingType = detailBookingType(b.package_covered_quantity, b.payment_status);
+        return ({
         id: b.id,
         service_name: b.services?.name || '',
         date: b.slots?.slot_date,
         time: b.slots?.start_time,
         visitors_count: b.visitor_count,
-        booking_type: (b.package_covered_quantity ?? 0) > 0 ? 'PACKAGE' : 'PAID',
-        amount_paid: b.total_price,
+        booking_type: bookingType,
+        amount_paid: bookingType === 'PAID' ? b.total_price : 0,
         status: b.status,
         created_by: b.created_by_user_id ? 'staff' : 'customer',
+        payment_status: b.payment_status ?? null,
         payment_method: b.payment_method ? (b.payment_method === 'transfer' ? 'Transfer' : 'On Site') : null,
         transaction_reference: b.transaction_reference ?? null,
         employee_name: employeeDisplayFromBooking(b) || null,
         employee_name_ar: (b as any).users?.full_name_ar || null,
-      })),
+      });
+      }),
     };
   }
 
@@ -1295,7 +1311,7 @@ async function getVisitorDetail(
   const { data: bookings } = await supabase
     .from('bookings')
     .select(`
-      id, customer_name, total_price, status, visitor_count,
+      id, customer_name, total_price, status, payment_status, visitor_count,
       package_covered_quantity, paid_quantity, package_subscription_id, created_at, created_by_user_id,
       payment_method, transaction_reference,
       service_id, slot_id, employee_id,
@@ -1324,7 +1340,7 @@ async function getVisitorDetail(
   const packageSpent = (paidSubs || []).reduce((s: number, row: any) => s + parsePrice(row?.service_packages?.total_price), 0);
   totalSpent += packageSpent;
   const packageCount = list.filter((b) => ((b as any).package_covered_quantity ?? 0) > 0).length;
-  const paidCount = list.length - packageCount;
+  const paidCount = list.filter((b) => (b.package_covered_quantity ?? 0) <= 0 && isPaymentPaidStatus(b.payment_status)).length;
   const lastBooking = list.length ? list[0] : null;
 
   const { data: subs } = await supabase
@@ -1357,21 +1373,25 @@ async function getVisitorDetail(
       status: (customer as any).is_blocked ? 'blocked' : 'active',
       active_packages: activePackages,
     },
-    bookings: list.map((b: any) => ({
+    bookings: list.map((b: any) => {
+      const bookingType = detailBookingType(b.package_covered_quantity, b.payment_status);
+      return ({
       id: b.id,
       service_name: b.services?.name || '',
       date: b.slots?.slot_date,
       time: b.slots?.start_time,
       visitors_count: b.visitor_count,
-      booking_type: (b.package_covered_quantity ?? 0) > 0 ? 'PACKAGE' : 'PAID',
-      amount_paid: b.total_price,
+      booking_type: bookingType,
+      amount_paid: bookingType === 'PAID' ? b.total_price : 0,
       status: b.status,
       created_by: b.created_by_user_id ? 'staff' : 'customer',
+      payment_status: b.payment_status ?? null,
       payment_method: b.payment_method ? (b.payment_method === 'transfer' ? 'Transfer' : 'On Site') : null,
       transaction_reference: b.transaction_reference ?? null,
       employee_name: employeeDisplayFromBooking(b) || null,
       employee_name_ar: b.users?.full_name_ar || null,
-    })),
+    });
+    }),
   };
 }
 

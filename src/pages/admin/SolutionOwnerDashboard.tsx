@@ -469,9 +469,17 @@ export function SolutionOwnerDashboard() {
       setShowLoginAsModal(false);
       setLoginAsEmail('');
       const slug = data.tenant?.slug;
-      const role = data.user?.role;
+      const role = data.user?.role as string | undefined;
       const path = slug
-        ? (role === 'receptionist' || role === 'cashier' ? `/${slug}/reception` : `/${slug}/admin`)
+        ? (
+            role === 'receptionist' || role === 'coordinator'
+              ? `/${slug}/reception`
+              : role === 'cashier'
+                ? `/${slug}/cashier`
+                : role === 'employee'
+                  ? `/${slug}/employee`
+                  : `/${slug}/admin`
+          )
         : '/';
       window.location.href = `${window.location.origin}${path}`;
     } catch (err: any) {

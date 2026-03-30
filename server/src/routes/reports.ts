@@ -100,6 +100,35 @@ function formatCreatedAtForExport(iso: string | null | undefined): string {
   return d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 }
 
+const PAID_BOOKING_PAYMENT_STATUSES = new Set(['paid', 'paid_manual']);
+
+function isPaidBookingStatus(paymentStatus: unknown): boolean {
+  if (paymentStatus == null) return false;
+  return PAID_BOOKING_PAYMENT_STATUSES.has(String(paymentStatus).toLowerCase());
+}
+
+function bookingDateKey(b: any): string {
+  return String(b?.slots?.slot_date || (b?.created_at || '').slice(0, 10) || '');
+}
+
+function bookingCreatedDateKey(b: any): string {
+  return String((b?.created_at || '').slice(0, 10) || '');
+}
+
+function buildDateKeys(startDate?: string, endDate?: string): string[] {
+  if (!startDate || !endDate) return [];
+  const out: string[] = [];
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return out;
+  let cur = start;
+  while (cur <= end) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur = new Date(cur.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return out;
+}
+
 async function fetchAllBookingsTenant(tenantId: string, branchId?: string | null) {
   const out: any[] = [];
   let offset = 0;
@@ -181,11 +210,46 @@ async function fetchPaidSubscriptionsTenant(tenantId: string, branchId?: string 
   return out;
 }
 
+function isPaidStatusForTransaction(status: unknown): boolean {
+  const s = String(status || '').toLowerCase();
+  return s === 'paid' || s === 'paid_manual';
+}
+
+async function fetchLatestPaidEventAtByBooking(tenantId: string, bookingIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!Array.isArray(bookingIds) || bookingIds.length === 0) return out;
+
+  const CHUNK = 500;
+  for (let i = 0; i < bookingIds.length; i += CHUNK) {
+    const ids = bookingIds.slice(i, i + CHUNK);
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('resource_id, created_at, new_values')
+      .eq('tenant_id', tenantId)
+      .eq('resource_type', 'booking')
+      .eq('action_type', 'payment_status_update')
+      .in('resource_id', ids)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+
+    for (const row of (data || []) as any[]) {
+      const bookingId = String(row?.resource_id || '');
+      if (!bookingId || out.has(bookingId)) continue;
+      const newStatus = row?.new_values?.payment_status;
+      if (!isPaidStatusForTransaction(newStatus)) continue;
+      const ts = String(row?.created_at || '');
+      if (ts) out.set(bookingId, ts);
+    }
+  }
+  return out;
+}
+
 type TxType = 'all' | 'booking_payment' | 'package_purchase';
 
 function buildTransactionRows(
   bookings: any[],
   subs: any[],
+  bookingPaidEventAtMap: Map<string, string>,
   filters: {
     startDate?: string;
     endDate?: string;
@@ -208,10 +272,12 @@ function buildTransactionRows(
   if (filters.txType === 'all' || filters.txType === 'booking_payment') {
     for (const b of bookings) {
       if (filters.employeeId && b.employee_id !== filters.employeeId) continue;
-      const slotDate = b.slots?.slot_date || '';
-      const sortKey = slotDate || (b.created_at || '').slice(0, 10);
-      if (filters.startDate && sortKey && sortKey < filters.startDate) continue;
-      if (filters.endDate && sortKey && sortKey > filters.endDate) continue;
+      const createdAt = String(b.created_at || '');
+      const paidEventAt = bookingPaidEventAtMap.get(String(b.id || ''));
+      const transactionAt = paidEventAt || createdAt || '';
+      const dateKey = transactionAt.slice(0, 10);
+      if (filters.startDate && dateKey && dateKey < filters.startDate) continue;
+      if (filters.endDate && dateKey && dateKey > filters.endDate) continue;
       const pm = paymentLabel(b.payment_method);
       if (!rowMatchesPaymentMethod(b.payment_method)) continue;
       const emp = (b.users?.full_name || b.users?.full_name_ar || '').trim() || null;
@@ -224,7 +290,8 @@ function buildTransactionRows(
         amount: parsePrice(b.total_price),
         payment_method: pm || (b.payment_method ?? ''),
         payment_status: b.payment_status || '',
-        date: sortKey,
+        date: dateKey,
+        transaction_at: transactionAt || null,
         time: b.slots?.start_time ? formatTimeTo12Hour(b.slots.start_time) : '',
         service_name: b.services?.name || '',
         package_name: null as string | null,
@@ -238,9 +305,10 @@ function buildTransactionRows(
 
   if (filters.txType === 'all' || filters.txType === 'package_purchase') {
     for (const s of subs) {
-      const sortKey = (s.subscribed_at || '').slice(0, 10);
-      if (filters.startDate && sortKey && sortKey < filters.startDate) continue;
-      if (filters.endDate && sortKey && sortKey > filters.endDate) continue;
+      const transactionAt = String(s.subscribed_at || '');
+      const dateKey = transactionAt.slice(0, 10);
+      if (filters.startDate && dateKey && dateKey < filters.startDate) continue;
+      if (filters.endDate && dateKey && dateKey > filters.endDate) continue;
       const pm = paymentLabel(s.payment_method);
       if (!rowMatchesPaymentMethod(s.payment_method)) continue;
       rows.push({
@@ -252,7 +320,8 @@ function buildTransactionRows(
         amount: parsePrice(s.service_packages?.total_price),
         payment_method: pm || (s.payment_method ?? ''),
         payment_status: s.payment_status || '',
-        date: sortKey,
+        date: dateKey,
+        transaction_at: transactionAt || null,
         time: '',
         service_name: '',
         package_name: s.service_packages?.name || '',
@@ -264,7 +333,7 @@ function buildTransactionRows(
     }
   }
 
-  rows.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.id).localeCompare(String(a.id)));
+  rows.sort((a, b) => String(b.transaction_at || b.date || '').localeCompare(String(a.transaction_at || a.date || '')) || String(b.id).localeCompare(String(a.id)));
   return rows;
 }
 
@@ -284,7 +353,11 @@ router.get('/transactions', authenticateVisitorsAccess, async (req, res) => {
       fetchAllBookingsTenant(tenantId, branchId),
       fetchPaidSubscriptionsTenant(tenantId, branchId),
     ]);
-    const merged = buildTransactionRows(bookings, subs, {
+    const bookingPaidEventDateMap = await fetchLatestPaidEventAtByBooking(
+      tenantId,
+      bookings.map((b: any) => String(b.id || '')).filter(Boolean)
+    );
+    const merged = buildTransactionRows(bookings, subs, bookingPaidEventDateMap, {
       startDate,
       endDate,
       paymentMethod,
@@ -513,7 +586,11 @@ router.get('/transactions/export/:format', authenticateVisitorsAccess, async (re
       fetchAllBookingsTenant(tenantId, branchId),
       fetchPaidSubscriptionsTenant(tenantId, branchId),
     ]);
-    const merged = buildTransactionRows(bookings, subs, {
+    const bookingPaidEventDateMap = await fetchLatestPaidEventAtByBooking(
+      tenantId,
+      bookings.map((b: any) => String(b.id || '')).filter(Boolean)
+    );
+    const merged = buildTransactionRows(bookings, subs, bookingPaidEventDateMap, {
       startDate,
       endDate,
       paymentMethod,
@@ -524,6 +601,148 @@ router.get('/transactions/export/:format', authenticateVisitorsAccess, async (re
   } catch (e: any) {
     logger.error('Reports transactions export error', e);
     res.status(500).json({ error: e.message || 'Export failed' });
+  }
+});
+
+router.get('/dashboard-summary', authenticateVisitorsAccess, async (req, res) => {
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const branchId = branchScope(req, req.query.branch_id as string);
+    const startDate = (req.query.startDate as string)?.trim() || undefined;
+    const endDate = (req.query.endDate as string)?.trim() || undefined;
+
+    const [allBookings, paidSubs] = await Promise.all([
+      fetchAllBookingsTenant(tenantId, branchId),
+      fetchPaidSubscriptionsTenant(tenantId, branchId),
+    ]);
+
+    const filteredBookings = allBookings.filter((b) => {
+      const d = bookingCreatedDateKey(b);
+      if (startDate && d && d < startDate) return false;
+      if (endDate && d && d > endDate) return false;
+      return true;
+    });
+
+    const totalBookings = filteredBookings.length;
+    const paidBookings = filteredBookings.filter((b) => isPaidBookingStatus(b?.payment_status)).length;
+    const unpaidBookings = Math.max(0, totalBookings - paidBookings);
+    const completedBookings = filteredBookings.filter((b) => String(b.status || '').toLowerCase() === 'completed').length;
+    const paidBookingRevenue = filteredBookings.reduce((sum, b) => {
+      const isPackage = Number(b?.package_covered_quantity ?? 0) > 0;
+      if (isPackage) return sum;
+      if (!isPaidBookingStatus(b?.payment_status)) return sum;
+      return sum + parsePrice(b?.total_price);
+    }, 0);
+    const unpaidBookingRevenue = filteredBookings.reduce((sum, b) => {
+      const isPackage = Number(b?.package_covered_quantity ?? 0) > 0;
+      if (isPackage) return sum;
+      if (isPaidBookingStatus(b?.payment_status)) return sum;
+      return sum + parsePrice(b?.total_price);
+    }, 0);
+    const bookingRevenue = filteredBookings.reduce((sum, b) => {
+      const isPackage = Number(b?.package_covered_quantity ?? 0) > 0;
+      if (isPackage) return sum;
+      return sum + parsePrice(b?.total_price);
+    }, 0);
+
+    const packageSubsInRange = paidSubs.filter((s) => {
+      const d = String((s?.subscribed_at || '').slice(0, 10));
+      if (startDate && d && d < startDate) return false;
+      if (endDate && d && d > endDate) return false;
+      return true;
+    });
+
+    const packageSubscriptions = packageSubsInRange.length;
+    const packageRevenue = packageSubsInRange.reduce((sum, s) => sum + parsePrice(s?.service_packages?.total_price), 0);
+    const averageBookingValue = totalBookings > 0 ? bookingRevenue / totalBookings : 0;
+
+    const dateKeys = buildDateKeys(startDate, endDate);
+    const serviceMap = new Map<string, {
+      id: string;
+      name: string;
+      name_ar: string;
+      bookings: number;
+      revenue: number;
+      paidRevenue: number;
+      unpaidRevenue: number;
+      dailyData: Map<string, { bookings: number; revenue: number }>;
+    }>();
+
+    for (const b of filteredBookings) {
+      const serviceId = String(b?.service_id || '');
+      if (!serviceId) continue;
+      const date = bookingCreatedDateKey(b);
+      const serviceName = String(b?.services?.name || '');
+      const serviceNameAr = String(b?.services?.name_ar || '');
+      // Keep chart behavior aligned with previous dashboard:
+      // revenue distribution uses booking totals by service (not only paid subset).
+      const revenue = parsePrice(b?.total_price);
+      const isPackage = Number(b?.package_covered_quantity ?? 0) > 0;
+      const isPaid = isPaidBookingStatus(b?.payment_status);
+      const paidRevenue = !isPackage && isPaid ? revenue : 0;
+      const unpaidRevenue = !isPackage && !isPaid ? revenue : 0;
+
+      if (!serviceMap.has(serviceId)) {
+        serviceMap.set(serviceId, {
+          id: serviceId,
+          name: serviceName,
+          name_ar: serviceNameAr,
+          bookings: 0,
+          revenue: 0,
+          paidRevenue: 0,
+          unpaidRevenue: 0,
+          dailyData: new Map<string, { bookings: number; revenue: number }>(),
+        });
+      }
+      const agg = serviceMap.get(serviceId)!;
+      agg.bookings += 1;
+      agg.revenue += revenue;
+      agg.paidRevenue += paidRevenue;
+      agg.unpaidRevenue += unpaidRevenue;
+
+      if (date) {
+        const row = agg.dailyData.get(date) || { bookings: 0, revenue: 0 };
+        row.bookings += 1;
+        row.revenue += revenue;
+        agg.dailyData.set(date, row);
+      }
+    }
+
+    const servicePerformance = Array.from(serviceMap.values())
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        name_ar: s.name_ar,
+        bookings: s.bookings,
+        revenue: s.revenue,
+        paidRevenue: s.paidRevenue,
+        unpaidRevenue: s.unpaidRevenue,
+        dailyData: (dateKeys.length ? dateKeys : Array.from(s.dailyData.keys()).sort()).map((d) => {
+          const row = s.dailyData.get(d);
+          return { date: d, bookings: row?.bookings ?? 0, revenue: row?.revenue ?? 0 };
+        }),
+      }))
+      .sort((a, b) => b.revenue - a.revenue);
+
+    return res.json({
+      summary: {
+        totalBookings,
+        paidBookings,
+        unpaidBookings,
+        bookingRevenue,
+        paidBookingRevenue,
+        unpaidBookingRevenue,
+        packageSubscriptions,
+        packageRevenue,
+        completedBookings,
+        averageBookingValue,
+        totalRevenueCombined: bookingRevenue + packageRevenue,
+      },
+      servicePerformance,
+    });
+  } catch (e: any) {
+    logger.error('Reports dashboard summary error', e);
+    return res.status(500).json({ error: e.message || 'Failed to load dashboard summary' });
   }
 });
 

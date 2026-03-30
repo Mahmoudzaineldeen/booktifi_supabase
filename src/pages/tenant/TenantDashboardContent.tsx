@@ -6,6 +6,8 @@ import { useCurrency } from '../../contexts/CurrencyContext';
 import { safeTranslateStatus } from '../../lib/safeTranslation';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { db } from '../../lib/db';
+import { getApiUrl } from '../../lib/apiUrl';
+import { getAuthHeaders } from '../../lib/apiClient';
 import { Card, CardContent } from '../../components/ui/Card';
 import { TimeFilter, TimeRange } from '../../components/dashboard/TimeFilter';
 import { PerformanceChart } from '../../components/dashboard/PerformanceChart';
@@ -22,6 +24,8 @@ interface ServicePerformance {
   name: string;
   bookings: number;
   revenue: number;
+  paidRevenue: number;
+  unpaidRevenue: number;
   dailyData: { date: string; bookings: number; revenue: number }[];
 }
 
@@ -30,14 +34,18 @@ export function TenantDashboardContent() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { userProfile, tenant } = useAuth();
-  const { formatPrice } = useCurrency();
+  const { formatPrice, formatPriceString } = useCurrency();
   const { features } = useTenantFeatures(tenant?.id);
-  const [timeRange, setTimeRange] = useState<TimeRange>('today');
+  const [timeRange, setTimeRange] = useState<TimeRange>('all_time');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [stats, setStats] = useState({
     totalBookings: 0,
+    paidBookings: 0,
+    unpaidBookings: 0,
     totalRevenue: 0,
+    paidBookingRevenue: 0,
+    unpaidBookingRevenue: 0,
     packageSubscriptions: 0,
     packageRevenue: 0,
     completedBookings: 0,
@@ -66,10 +74,12 @@ export function TenantDashboardContent() {
     }
   }, [userProfile, timeRange, customStartDate, customEndDate, viewMode, calendarDate]);
 
-  function getDateRange(): { start: Date; end: Date } {
+  function getDateRange(): { start?: Date; end?: Date } {
     const now = new Date();
 
     switch (timeRange) {
+      case 'all_time':
+        return {};
       case 'today':
         return { start: startOfDay(now), end: endOfDay(now) };
       case 'yesterday':
@@ -87,9 +97,9 @@ export function TenantDashboardContent() {
             end: endOfDay(new Date(customEndDate)),
           };
         }
-        return { start: startOfDay(now), end: endOfDay(now) };
+        return {};
       default:
-        return { start: startOfDay(now), end: endOfDay(now) };
+        return {};
     }
   }
 
@@ -103,111 +113,49 @@ export function TenantDashboardContent() {
     const { start, end } = getDateRange();
 
     try {
-      const { data: bookings, error: bookingsError } = await db
-        .from('bookings')
-        .select(`
-          id,
-          total_price,
-          status,
-          service_id,
-          created_at,
-          services:service_id (
-            id,
-            name,
-            name_ar
-          )
-        `)
-        .eq('tenant_id', userProfile.tenant_id)
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
-
-      if (bookingsError) throw bookingsError;
-
-      const totalBookings = bookings?.length || 0;
-      const totalRevenue = bookings?.reduce((sum, b) => sum + (parseFloat(b.total_price?.toString() || '0')), 0) || 0;
-      const completedBookings = bookings?.filter(b => b.status === 'completed').length || 0;
-      const averageBookingValue = totalBookings > 0 ? totalRevenue / totalBookings : 0;
-
-      // Package metrics (same date range: subscribed_at)
-      let packageSubscriptions = 0;
-      let packageRevenue = 0;
-      try {
-        const { data: subs, error: subsError } = await db
-          .from('package_subscriptions')
-          .select('id, subscribed_at, service_packages(total_price)')
-          .eq('tenant_id', userProfile.tenant_id)
-          .gte('subscribed_at', start.toISOString())
-          .lte('subscribed_at', end.toISOString());
-
-        if (!subsError && subs?.length) {
-          packageSubscriptions = subs.length;
-          packageRevenue = subs.reduce((sum, s) => {
-            const pkg = s.service_packages as { total_price?: number } | null;
-            const price = pkg?.total_price != null ? parseFloat(String(pkg.total_price)) : 0;
-            return sum + price;
-          }, 0);
-        }
-      } catch (e) {
-        console.warn('Dashboard: could not fetch package stats', e);
+      const qs = new URLSearchParams();
+      if (start && end) {
+        qs.set('startDate', format(start, 'yyyy-MM-dd'));
+        qs.set('endDate', format(end, 'yyyy-MM-dd'));
       }
+      const response = await fetch(`${getApiUrl()}/reports/dashboard-summary?${qs.toString()}`, {
+        headers: getAuthHeaders(),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json?.error || 'Failed to load dashboard summary');
+
+      const summary = json?.summary || {};
+      const services = Array.isArray(json?.servicePerformance) ? json.servicePerformance : [];
 
       setStats({
-        totalBookings,
-        totalRevenue,
-        packageSubscriptions,
-        packageRevenue,
-        completedBookings,
-        averageBookingValue,
+        totalBookings: Number(summary.totalBookings || 0),
+        paidBookings: Number(summary.paidBookings || 0),
+        unpaidBookings: Number(summary.unpaidBookings || 0),
+        totalRevenue: Number(summary.bookingRevenue || 0),
+        paidBookingRevenue: Number(summary.paidBookingRevenue || 0),
+        unpaidBookingRevenue: Number(summary.unpaidBookingRevenue || 0),
+        packageSubscriptions: Number(summary.packageSubscriptions || 0),
+        packageRevenue: Number(summary.packageRevenue || 0),
+        completedBookings: Number(summary.completedBookings || 0),
+        averageBookingValue: Number(summary.averageBookingValue || 0),
       });
-
-      const allDates = eachDayOfInterval({ start, end }).map(date => format(date, 'yyyy-MM-dd'));
-
-      const serviceMap = new Map<string, ServicePerformance>();
-
-      bookings?.forEach((booking) => {
-        const bookingDate = format(parseISO(booking.created_at), 'yyyy-MM-dd');
-        const serviceId = booking.service_id;
-        const service = booking.services as any;
-        const serviceName = i18n.language === 'ar' && service?.name_ar ? service.name_ar : (service?.name || t('service.unknown'));
-        const revenue = parseFloat(booking.total_price?.toString() || '0');
-
-        if (serviceId) {
-          const existing = serviceMap.get(serviceId);
-          if (existing) {
-            existing.bookings += 1;
-            existing.revenue += revenue;
-            const dayData = existing.dailyData.find(d => d.date === bookingDate);
-            if (dayData) {
-              dayData.bookings += 1;
-              dayData.revenue += revenue;
-            } else {
-              existing.dailyData.push({ date: bookingDate, bookings: 1, revenue });
-            }
-          } else {
-            serviceMap.set(serviceId, {
-              id: serviceId,
-              name: serviceName,
-              bookings: 1,
-              revenue,
-              dailyData: [{ date: bookingDate, bookings: 1, revenue }],
-            });
-          }
-        }
-      });
-
-      const normalizeData = (items: Map<string, ServicePerformance>) => {
-        return Array.from(items.values()).map(item => ({
-          ...item,
-          dailyData: allDates.map(date => {
-            const existing = item.dailyData.find(d => d.date === date);
-            return existing || { date, bookings: 0, revenue: 0 };
-          }),
-        }));
-      };
 
       setServicePerformance(
-        normalizeData(serviceMap)
-          .sort((a, b) => b.revenue - a.revenue)
+        services.map((service: any) => ({
+          id: service.id,
+          name: i18n.language === 'ar' && service.name_ar ? service.name_ar : (service.name || t('service.unknown')),
+          bookings: Number(service.bookings || 0),
+          revenue: Number(service.revenue || 0),
+          paidRevenue: Number(service.paidRevenue || 0),
+          unpaidRevenue: Number(service.unpaidRevenue || 0),
+          dailyData: Array.isArray(service.dailyData)
+            ? service.dailyData.map((d: any) => ({
+                date: String(d.date || ''),
+                bookings: Number(d.bookings || 0),
+                revenue: Number(d.revenue || 0),
+              }))
+            : [],
+        }))
       );
     } catch (err) {
       console.error('Error fetching stats:', err);
@@ -435,12 +383,12 @@ export function TenantDashboardContent() {
     color: colors[index % colors.length],
   }));
 
-  const totalRevenueForPie = stats.totalRevenue > 0 ? stats.totalRevenue : 1;
   const servicePieData = servicePerformance.slice(0, 8).map((service, index) => ({
     label: service.name,
     value: service.revenue,
     color: colors[index % colors.length],
-    percentage: (service.revenue / totalRevenueForPie) * 100,
+    paidLabel: formatPriceString(service.paidRevenue),
+    unpaidLabel: formatPriceString(service.unpaidRevenue),
   }));
 
   const serviceComparisonSeries = servicePerformance.slice(0, 5).map((service, index) => ({
@@ -608,9 +556,26 @@ export function TenantDashboardContent() {
         <StatCard
           title={t('dashboard.bookingRevenue', 'Booking Revenue')}
           value={formatPrice(stats.totalRevenue)}
+          subtitle={`${t('dashboard.paidLabel', 'Paid')}: ${formatPriceString(stats.paidBookingRevenue)} | ${t('dashboard.unpaidLabel', 'Unpaid')}: ${formatPriceString(stats.unpaidBookingRevenue)}`}
           icon={DollarSign}
           iconColor="text-green-600"
           iconBgColor="bg-green-100"
+        />
+
+        <StatCard
+          title={t('dashboard.paidBookings', 'Paid Bookings')}
+          value={stats.paidBookings}
+          icon={CheckCircle}
+          iconColor="text-emerald-600"
+          iconBgColor="bg-emerald-100"
+        />
+
+        <StatCard
+          title={t('dashboard.unpaidBookings', 'Unpaid Bookings')}
+          value={stats.unpaidBookings}
+          icon={XCircle}
+          iconColor="text-amber-600"
+          iconBgColor="bg-amber-100"
         />
 
         <StatCard

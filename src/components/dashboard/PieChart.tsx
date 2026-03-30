@@ -5,7 +5,9 @@ interface PieChartData {
   label: string;
   value: number;
   color: string;
-  percentage: number;
+  percentage?: number;
+  paidLabel?: string;
+  unpaidLabel?: string;
 }
 
 interface PieChartProps {
@@ -116,7 +118,7 @@ export function PieChart({ title, data }: PieChartProps) {
         </div>
 
         <div className="w-full grid grid-cols-1 gap-2">
-          {data.map((item, index) => (
+          {segments.map((item, index) => (
             <div
               key={index}
               className="flex items-center justify-between bg-white rounded-lg px-4 py-2 hover:bg-blue-50 transition-colors border border-gray-100"
@@ -130,11 +132,18 @@ export function PieChart({ title, data }: PieChartProps) {
                   {item.label}
                 </span>
               </div>
-              <div className="text-sm flex items-center gap-2">
-                <span className="font-bold text-blue-700">
-                  ({item.percentage.toFixed(1)}%)
-                </span>
-                <span className="text-gray-600">{item.value.toFixed(2)}</span>
+              <div className="text-right">
+                <div className="text-sm flex items-center justify-end gap-2">
+                  <span className="font-bold text-blue-700">
+                    ({item.percentage.toFixed(1)}%)
+                  </span>
+                  <span className="text-gray-600">{item.value.toFixed(2)}</span>
+                </div>
+                <div className="text-xs mt-0.5 text-gray-600">
+                  <span className="font-medium text-emerald-700">{t('payment.paid', 'Paid')}: {item.paidLabel ?? '—'}</span>
+                  <span className="mx-2 text-gray-300">|</span>
+                  <span className="font-medium text-amber-700">{t('payment.unpaid', 'Unpaid')}: {item.unpaidLabel ?? '—'}</span>
+                </div>
               </div>
             </div>
           ))}

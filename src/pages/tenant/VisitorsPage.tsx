@@ -54,10 +54,11 @@ interface VisitorDetailBooking {
   date: string;
   time: string;
   visitors_count: number;
-  booking_type: 'PACKAGE' | 'PAID';
+  booking_type: 'PACKAGE' | 'PAID' | 'UNPAID';
   amount_paid: number;
   status: string;
   created_by: string;
+  payment_status?: string | null;
   payment_method?: string | null;
   transaction_reference?: string | null;
 }
@@ -996,8 +997,18 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                         <td className="px-3 py-2 text-gray-700 tabular-nums">{b.time ? formatTimeTo12Hour(b.time) : '—'}</td>
                         <td className="px-3 py-2 text-gray-700 tabular-nums">{b.visitors_count}</td>
                         <td className="px-3 py-2">
-                          <span className={`inline-flex px-2 py-0.5 rounded-md text-xs font-medium ${b.booking_type === 'PACKAGE' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
-                            {b.booking_type}
+                          <span
+                            className={`inline-flex px-2 py-0.5 rounded-md text-xs font-medium ${
+                              b.booking_type === 'PACKAGE'
+                                ? 'bg-purple-100 text-purple-800'
+                                : b.booking_type === 'PAID'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {b.booking_type === 'UNPAID'
+                              ? t('payment.displayUnpaid', 'Unpaid')
+                              : b.booking_type}
                           </span>
                         </td>
                         <td className="px-3 py-2 text-right font-medium text-gray-900 tabular-nums">{formatPrice(b.amount_paid)}</td>

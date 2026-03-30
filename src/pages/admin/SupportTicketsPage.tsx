@@ -274,10 +274,18 @@ export function SupportTicketsPage() {
       });
       showNotification('success', t('support.impersonationStarted', 'Logged in as employee. Use "Exit Impersonation" to return.'));
       const slug = data.tenant?.slug;
-      // Redirect to reception for receptionist/cashier so they land on Reception Desk directly (no admin layout + loading then redirect)
-      const role = data.user?.role;
+      // Redirect by role so impersonation lands on the correct workspace page.
+      const role = data.user?.role as string | undefined;
       const path = slug
-        ? (role === 'receptionist' || role === 'cashier' ? `/${slug}/reception` : `/${slug}/admin`)
+        ? (
+            role === 'receptionist' || role === 'coordinator'
+              ? `/${slug}/reception`
+              : role === 'cashier'
+                ? `/${slug}/cashier`
+                : role === 'employee'
+                  ? `/${slug}/employee`
+                  : `/${slug}/admin`
+          )
         : '/';
       window.location.href = `${window.location.origin}${path}`;
     } catch (e: any) {
