@@ -5,6 +5,8 @@
  */
 import axios from 'axios';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
 import { supabase } from '../db';
@@ -83,8 +85,13 @@ function apiBase(subdomain: string): string {
   return `https://${subdomain}.daftra.com/api2`;
 }
 
-function daftraOAuthTokenUrl(subdomain: string): string {
-  return `${apiBase(subdomain)}/v2/oauth/token`;
+function daftraOAuthTokenUrls(subdomain: string): string[] {
+  // Daftra tenants vary by OAuth route; try common variants.
+  return [
+    `https://${subdomain}.daftra.com/v2/oauth/token`,
+    `${apiBase(subdomain)}/oauth/token`,
+    `${apiBase(subdomain)}/v2/oauth/token`,
+  ];
 }
 
 type DaftraOAuthTokenResponse = {
@@ -96,27 +103,34 @@ type DaftraOAuthTokenResponse = {
 
 async function postDaftraOAuthToken(
   bareSubdomain: string,
-  params: Record<string, string>
+  params: Record<string, string>,
+  onError?: (message: string) => void
 ): Promise<DaftraOAuthTokenResponse | null> {
-  try {
-    const body = new URLSearchParams(params);
-    const res = await axios.post(daftraOAuthTokenUrl(bareSubdomain), body.toString(), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept: 'application/json',
-      },
-      validateStatus: () => true,
-      timeout: 30000,
-    });
-    if (res.status >= 200 && res.status < 300 && res.data && typeof res.data.access_token === 'string') {
-      return res.data as DaftraOAuthTokenResponse;
+  const body = new URLSearchParams(params);
+  const attempts: string[] = [];
+  for (const url of daftraOAuthTokenUrls(bareSubdomain)) {
+    try {
+      const res = await axios.post(url, body.toString(), {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json',
+        },
+        validateStatus: () => true,
+        timeout: 30000,
+      });
+      if (res.status >= 200 && res.status < 300 && res.data && typeof res.data.access_token === 'string') {
+        return res.data as DaftraOAuthTokenResponse;
+      }
+      const details = typeof res.data === 'object' ? JSON.stringify(res.data).slice(0, 300) : String(res.data || '');
+      attempts.push(`${url} -> ${res.status}${details ? ` ${details}` : ''}`);
+    } catch (e: any) {
+      attempts.push(`${url} -> request failed: ${e?.message || 'unknown error'}`);
     }
-    console.warn('[DaftraOAuth] token error', res.status, typeof res.data === 'object' ? JSON.stringify(res.data).slice(0, 500) : res.data);
-    return null;
-  } catch (e: any) {
-    console.warn('[DaftraOAuth] token request failed:', e?.message);
-    return null;
   }
+  const msg = attempts.join(' | ');
+  console.warn('[DaftraOAuth] token request failed across endpoints:', msg);
+  if (onError) onError(msg);
+  return null;
 }
 
 /** One-shot password grant (call from settings save only; do not persist password). */
@@ -128,15 +142,20 @@ export async function exchangeDaftraPdfOauthPassword(
   password: string
 ): Promise<DaftraOAuthTokenResponse> {
   const sub = normalizeSubdomain(subdomain);
+  let oauthErrorDetail = '';
   const tok = await postDaftraOAuthToken(sub, {
     grant_type: 'password',
     client_id: clientId,
     client_secret: clientSecret,
     username,
     password,
+  }, (m) => {
+    oauthErrorDetail = m;
   });
   if (!tok?.access_token) {
-    throw new Error('Daftra OAuth password grant failed. Check client id/secret, username, password, and subdomain.');
+    throw new Error(
+      `Daftra OAuth password grant failed. Check client id/secret, username, password, and subdomain. ${oauthErrorDetail ? `Details: ${oauthErrorDetail}` : ''}`.trim()
+    );
   }
   return tok;
 }
@@ -284,6 +303,13 @@ function buildDaftraInvoiceNotes(u: UnifiedBookingInvoice): string {
   return parts.filter((x) => x != null && x !== '').join('\n');
 }
 
+function formatInvoiceDateLabel(raw?: string | null): string {
+  if (!raw) return '—';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return String(raw);
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
 function escapeHtml(input: string): string {
   return input
     .replace(/&/g, '&amp;')
@@ -293,18 +319,42 @@ function escapeHtml(input: string): string {
     .replace(/'/g, '&#39;');
 }
 
-async function buildDaftraHtmlNotesWithQr(notes: string, qrDataJson?: string | null): Promise<string | undefined> {
+function buildBookingDetailsHtml(u: UnifiedBookingInvoice): string {
+  const c = u.context;
+  const rows: Array<{ label: string; value: string }> = [
+    { label: 'Booking ID', value: c.booking_id || '—' },
+    { label: 'Payment', value: c.payment_summary || '—' },
+    { label: 'Date', value: formatInvoiceDateLabel(c.slot_date || null) },
+    { label: 'Time', value: c.slot_time_range || '—' },
+    { label: 'Staff', value: c.employee_name || '—' },
+    { label: 'Branch', value: c.branch_name || '—' },
+  ];
+  const tr = rows
+    .map(
+      (r) =>
+        `<tr><td style="padding:4px 10px 4px 0;font-weight:600;white-space:nowrap;color:#111827">${escapeHtml(r.label)}:</td><td style="padding:4px 0;color:#111827">${escapeHtml(r.value)}</td></tr>`
+    )
+    .join('');
+  return `<div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.5;color:#111827"><div style="font-weight:700;font-size:13px;margin-bottom:6px">Booking Details</div><table style="border-collapse:collapse">${tr}</table></div>`;
+}
+
+async function buildDaftraHtmlNotesWithQr(
+  notes: string,
+  qrDataJson?: string | null,
+  detailsHtml?: string
+): Promise<string | undefined> {
   const textPart = escapeHtml((notes || '').trim()).replace(/\r?\n/g, '<br/>');
+  const base = detailsHtml || textPart;
   if (!qrDataJson) return textPart || undefined;
   try {
     const qrPng = await QRCode.toBuffer(qrDataJson, { type: 'png', width: 260, margin: 1 });
     const qrBase64 = qrPng.toString('base64');
-    const withQr = `${textPart}<br/><br/><div style="text-align:center"><img alt="QR" style="width:140px;height:140px" src="data:image/png;base64,${qrBase64}" /></div>`;
+    const withQr = `${base}<br/><br/><div style="text-align:center"><img alt="QR" style="width:140px;height:140px" src="data:image/png;base64,${qrBase64}" /></div>`;
     // Keep payload safe for Daftra API limits while preserving valid base64 image.
-    if (withQr.length > 64000) return textPart || undefined;
+    if (withQr.length > 64000) return base || undefined;
     return withQr;
   } catch {
-    return textPart || undefined;
+    return base || undefined;
   }
 }
 
@@ -492,7 +542,7 @@ async function buildDaftraInvoicePdfFromApiBody(
   invoiceId: number
 ): Promise<Buffer> {
   const { invoice, items, client } = normalizeDaftraInvoiceRecord(apiBody);
-  const doc = new PDFDocument({ margin: 50, size: 'A4' });
+  const doc = new PDFDocument({ margin: 14, size: [302, 820] });
   const chunks: Buffer[] = [];
   doc.on('data', (c: Buffer) => chunks.push(c));
   const bufPromise = new Promise<Buffer>((resolve, reject) => {
@@ -500,72 +550,133 @@ async function buildDaftraInvoicePdfFromApiBody(
     doc.on('error', reject);
   });
 
+  const pickFont = (): string | null => {
+    const candidates = [
+      'C:\\Windows\\Fonts\\arial.ttf',
+      'C:\\Windows\\Fonts\\tahoma.ttf',
+      '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+      '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
+    ];
+    for (const p of candidates) {
+      try {
+        if (fs.existsSync(p)) return p;
+      } catch {
+        /* ignore */
+      }
+    }
+    return null;
+  };
+  const fontPath = pickFont();
+  if (fontPath) {
+    doc.font(fontPath);
+  }
+
   const fmt = (v: unknown) => {
     if (v == null || v === '') return '—';
     const n = typeof v === 'number' ? v : parseFloat(String(v));
     if (!Number.isFinite(n)) return String(v);
-    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   };
 
-  doc.fontSize(16).text('Tax invoice (Daftra)', { align: 'center' });
-  doc.fontSize(9).fillColor('#444').text(`${subdomain}.daftra.com · API id ${invoiceId}`, { align: 'center' });
-  doc.fillColor('#000000').moveDown(1.2);
-  doc.fontSize(10);
-  doc.text(`Invoice no.: ${invoice?.no ?? invoiceId}`);
-  doc.text(`Date: ${invoice?.date ?? '—'}`);
-  doc.text(`Currency: ${invoice?.currency_code ?? 'SAR'}`);
-  doc.moveDown(0.6);
+  doc.fontSize(18).text('Invoice', { align: 'center' });
+  doc.fontSize(13).text(client?.business_info_1 || subdomain, { align: 'center' });
+  doc.moveDown(0.4);
+  const companyLine1 = invoice?.company_name || client?.business_name || '';
+  const companyLine2 = [invoice?.company_address1, invoice?.company_city].filter(Boolean).join(', ');
+  if (companyLine1) doc.fontSize(9).text(String(companyLine1), { align: 'center' });
+  if (companyLine2) doc.fontSize(9).text(String(companyLine2), { align: 'center' });
+  doc.moveDown(1.1);
+
+  doc.fontSize(10).text(`Invoice No`, 22, doc.y);
+  doc.text(String(invoice?.no ?? invoiceId), 130, doc.y - 11);
+  doc.text(`Invoice Date`, 22, doc.y + 2);
+  doc.text(String(invoice?.date ?? '—'), 130, doc.y - 11);
+  doc.moveDown(1.2);
+
+  const tableLeft = 18;
+  const totalWidth = 266;
+  const col = {
+    item: 80,
+    desc: 84,
+    qty: 28,
+    price: 36,
+    subtotal: 38,
+  };
+  let y = doc.y;
+  doc.rect(tableLeft, y, totalWidth, 24).lineWidth(1).stroke('#111');
+  let x = tableLeft;
+  for (const w of [col.item, col.desc, col.qty, col.price]) {
+    x += w;
+    doc.moveTo(x, y).lineTo(x, y + 24).stroke('#111');
+  }
+  doc.fontSize(10).fillColor('#000');
+  doc.text('Item name', tableLeft + 4, y + 7, { width: col.item - 8 });
+  doc.text('Description', tableLeft + col.item + 4, y + 7, { width: col.desc - 8 });
+  doc.text('Qty', tableLeft + col.item + col.desc + 4, y + 7, { width: col.qty - 8, align: 'center' });
+  doc.text('Price', tableLeft + col.item + col.desc + col.qty + 4, y + 7, { width: col.price - 8, align: 'center' });
+  doc.text('Subtotal', tableLeft + col.item + col.desc + col.qty + col.price + 2, y + 7, { width: col.subtotal - 4, align: 'center' });
+  y += 24;
+
+  const lines = items.length ? items : [{ item: 'Item', description: '', quantity: 1, unit_price: 0, subtotal: 0 }];
+  for (const line of lines) {
+    const qty = Number(line.quantity ?? line.qty ?? 1);
+    const unit = Number(line.unit_price ?? line.price ?? 0);
+    const sub = Number(line.subtotal ?? line.total ?? qty * unit);
+    const rowH = 28;
+    doc.rect(tableLeft, y, totalWidth, rowH).lineWidth(0.8).stroke('#111');
+    let vx = tableLeft;
+    for (const w of [col.item, col.desc, col.qty, col.price]) {
+      vx += w;
+      doc.moveTo(vx, y).lineTo(vx, y + rowH).stroke('#111');
+    }
+    doc.fontSize(11).text(String(line.item || line.name || line.product_name || 'Item'), tableLeft + 4, y + 8, { width: col.item - 8 });
+    doc.fontSize(10).text(String(line.description || ''), tableLeft + col.item + 4, y + 8, { width: col.desc - 8 });
+    doc.fontSize(10).text(String(qty), tableLeft + col.item + col.desc + 4, y + 8, { width: col.qty - 8, align: 'center' });
+    doc.fontSize(10).text(fmt(unit), tableLeft + col.item + col.desc + col.qty + 4, y + 8, { width: col.price - 8, align: 'center' });
+    doc.fontSize(10).text(fmt(sub), tableLeft + col.item + col.desc + col.qty + col.price + 2, y + 8, { width: col.subtotal - 4, align: 'center' });
+    y += rowH;
+  }
+
+  const summaryRows = [
+    ['Items Total', fmt(invoice?.summary_subtotal ?? invoice?.summary_total)],
+    ['Total', fmt(invoice?.summary_total)],
+    ['Paid', fmt(invoice?.summary_paid ?? 0)],
+    ['Balance Due', fmt(invoice?.summary_unpaid ?? invoice?.summary_total ?? 0)],
+  ];
+  for (const [label, value] of summaryRows) {
+    const rowH = 34;
+    doc.rect(tableLeft, y, totalWidth, rowH).lineWidth(1).stroke('#111');
+    doc.fontSize(13).text(label, tableLeft + 8, y + 10, { width: 150 });
+    doc.fontSize(13).text(`﷼ ${value}`, tableLeft + 170, y + 10, { width: 90, align: 'right' });
+    y += rowH;
+  }
+
+  y += 10;
   const cust =
     client?.business_name ||
     client?.name ||
     [invoice?.client_first_name, invoice?.client_last_name].filter(Boolean).join(' ').trim() ||
     invoice?.client_business_name ||
     '—';
-  doc.text(`Bill to: ${cust}`);
-  const em = client?.email || invoice?.client_email;
-  if (em) doc.text(`Email: ${em}`);
-  const ph = client?.phone1 || client?.phone || invoice?.client_phone;
-  if (ph) doc.text(`Phone: ${ph}`);
-  doc.moveDown(0.8);
-  doc.fontSize(10).text('Line items', { underline: true });
-  doc.moveDown(0.4);
-  if (!items.length) {
-    doc.fontSize(9).fillColor('#666666').text('(No line items in API response)');
-    doc.fillColor('#000000');
-  } else {
-    for (const line of items) {
-      const desc = String(line.description || line.name || line.product_name || 'Item').trim() || 'Item';
-      const qty = line.quantity ?? line.qty ?? 1;
-      const up = line.unit_price ?? line.price ?? 0;
-      const tot = line.total ?? line.line_total ?? null;
-      const lineTot = tot != null && String(tot) !== '' ? fmt(tot) : fmt(Number(qty) * Number(up));
-      doc.fontSize(9).text(desc, { width: 490 });
-      doc.fontSize(8).fillColor('#333333').text(`  ${qty} × ${fmt(up)} = ${lineTot}`, { indent: 12 });
-      doc.fillColor('#000000');
-      doc.moveDown(0.25);
-    }
+  const notesText = String(invoice?.notes || '').trim();
+  doc.fontSize(12);
+  if (notesText) doc.text(notesText, tableLeft, y, { width: totalWidth });
+
+  const bookingIdMatch = notesText.match(/Booking ID:\s*([^\n]+)/i);
+  const qrPayload = bookingIdMatch
+    ? JSON.stringify({ booking_id: bookingIdMatch[1].trim(), invoice_id: String(invoice?.no ?? invoiceId), type: 'booking_invoice' })
+    : JSON.stringify({ invoice_id: String(invoice?.no ?? invoiceId), client: cust || '—', amount: invoice?.summary_total ?? 0 });
+  try {
+    const qr = await QRCode.toBuffer(qrPayload, { type: 'png', width: 220, margin: 1 });
+    const qrY = Math.min(doc.y + 10, doc.page.height - 240);
+    doc.image(qr, tableLeft + 20, qrY, { fit: [220, 220], align: 'center' });
+  } catch {
+    /* keep PDF generation resilient */
   }
-  doc.moveDown(0.8);
-  doc.fontSize(10);
-  if (invoice?.summary_subtotal != null || invoice?.summary_total != null) {
-    doc.text(`Subtotal: ${fmt(invoice.summary_subtotal)}`);
-    if (invoice?.summary_tax1 != null && String(invoice.summary_tax1) !== '' && Number(invoice.summary_tax1) !== 0) {
-      doc.text(`Tax: ${fmt(invoice.summary_tax1)}`);
-    }
-    doc.fontSize(11).text(`Total: ${fmt(invoice.summary_total)}`);
-  } else {
-    doc.text(`Total: ${fmt(invoice.summary_total)}`);
-  }
+
   if (invoice?.notes) {
-    doc.moveDown(0.6);
-    doc.fontSize(8).fillColor('#444444').text(`Notes: ${String(invoice.notes).slice(0, 500)}`, { width: 490 });
+    doc.moveDown(0.2);
   }
-  doc.fontSize(7).fillColor('#888888').text(
-    'PDF generated by Bookati from Daftra API data. The branded PDF in Daftra requires signing in to Daftra.',
-    50,
-    doc.page.height - 70,
-    { width: 490, align: 'center' }
-  );
   doc.end();
   return bufPromise;
 }
@@ -573,10 +684,13 @@ async function buildDaftraInvoicePdfFromApiBody(
 async function tryDownloadDaftraInvoicePdf(
   settings: DaftraTenantSettings,
   invoiceId: number,
-  tenantId: string | null
+  tenantId: string | null,
+  options?: { allowGeneratedFallback?: boolean; generatedOnly?: boolean }
 ): Promise<Buffer | null> {
   const base = apiBase(settings.subdomain);
   const headers = { ...daftraAuthHeaders(settings.api_token) };
+  const allowGeneratedFallback = options?.allowGeneratedFallback !== false;
+  const generatedOnly = options?.generatedOnly === true;
 
   let meta: any;
   try {
@@ -591,6 +705,15 @@ async function tryDownloadDaftraInvoicePdf(
   }
 
   if (!meta) return null;
+
+  if (generatedOnly) {
+    try {
+      return await buildDaftraInvoicePdfFromApiBody(settings.subdomain, meta, invoiceId);
+    } catch (e: any) {
+      console.warn('[DaftraInvoice] Could not build PDF from invoice JSON:', e?.message);
+      return null;
+    }
+  }
 
   const { pdfUrl } = normalizeDaftraInvoiceRecord(meta);
   if (pdfUrl) {
@@ -630,6 +753,29 @@ async function tryDownloadDaftraInvoicePdf(
     } catch {
       /* portal URL often returns HTML login — fall back */
     }
+  }
+
+  // Try direct API PDF endpoints for accounts that expose raw PDF via API key.
+  for (const url of [`${base}/invoices/${invoiceId}.pdf`, `${base}/invoices/${invoiceId}?format=pdf`]) {
+    try {
+      const pdfRes = await axios.get(url, {
+        responseType: 'arraybuffer',
+        headers: { ...headers, Accept: 'application/pdf,*/*' },
+        validateStatus: (s) => s === 200,
+        timeout: 20000,
+        maxRedirects: 5,
+      });
+      const buf = pdfRes.data && Buffer.from(pdfRes.data);
+      if (buf && buf.length > 100 && buf.subarray(0, 4).toString() === '%PDF') {
+        return buf;
+      }
+    } catch {
+      /* continue */
+    }
+  }
+
+  if (!allowGeneratedFallback) {
+    return null;
   }
 
   try {
@@ -782,7 +928,8 @@ export class DaftraInvoiceService {
       }
 
       const daftraNotes = buildDaftraInvoiceNotes(unified);
-      const daftraHtmlNotes = await buildDaftraHtmlNotesWithQr(daftraNotes, unified.context.qr_data_json);
+      const detailsHtml = buildBookingDetailsHtml(unified);
+      const daftraHtmlNotes = await buildDaftraHtmlNotesWithQr(daftraNotes, unified.context.qr_data_json, detailsHtml);
       const clientId = await ensureDaftraClient(settings, {
         customer_name: unified.customer_name,
         customer_email: unified.customer_email,
@@ -972,9 +1119,10 @@ export async function downloadDaftraInvoicePdfForTenant(tenantId: string, invoic
   if (!Number.isFinite(num)) {
     throw new Error('Invalid Daftra invoice id');
   }
-  const pdf = await tryDownloadDaftraInvoicePdf(settings, num, tenantId);
+  // User-triggered download uses the local renderer to ensure consistent output.
+  const pdf = await tryDownloadDaftraInvoicePdf(settings, num, tenantId, { allowGeneratedFallback: true, generatedOnly: true });
   if (!pdf || pdf.length < 100) {
-    throw new Error('Daftra did not return a PDF for this invoice (check Daftra invoice id and API permissions)');
+    throw new Error('Failed to generate local Daftra invoice PDF.');
   }
   return pdf;
 }

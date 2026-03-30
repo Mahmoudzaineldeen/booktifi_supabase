@@ -276,6 +276,8 @@ router.get('/invoices', authenticate, async (req, res) => {
         id,
         zoho_invoice_id,
         zoho_invoice_created_at,
+        daftra_invoice_id,
+        daftra_invoice_created_at,
         total_price,
         status,
         payment_status,
@@ -294,17 +296,18 @@ router.get('/invoices', authenticate, async (req, res) => {
         )
       `, { count: 'exact' })
       .eq('customer_id', customerId)
-      .not('zoho_invoice_id', 'is', null);
+      .or('zoho_invoice_id.not.is.null,daftra_invoice_id.not.is.null');
 
     // Add search filter if provided
     if (search && search.trim()) {
       const searchTerm = search.trim();
-      query = query.or(`services.name.ilike.%${searchTerm}%,services.name_ar.ilike.%${searchTerm}%,zoho_invoice_id.ilike.%${searchTerm}%,customer_name.ilike.%${searchTerm}%`);
+      query = query.or(
+        `services.name.ilike.%${searchTerm}%,services.name_ar.ilike.%${searchTerm}%,zoho_invoice_id.ilike.%${searchTerm}%,daftra_invoice_id.ilike.%${searchTerm}%,customer_name.ilike.%${searchTerm}%`
+      );
     }
 
     // Add pagination and ordering
     const { data, error, count } = await query
-      .order('zoho_invoice_created_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -315,9 +318,14 @@ router.get('/invoices', authenticate, async (req, res) => {
 
     // Transform the nested data structure to match the original flat structure
     const transformedData = data.map((booking: any) => ({
+      invoice_provider: booking.daftra_invoice_id ? 'daftra' : 'zoho',
+      invoice_id: booking.daftra_invoice_id || booking.zoho_invoice_id,
+      invoice_created_at: booking.daftra_invoice_created_at || booking.zoho_invoice_created_at || booking.created_at,
       id: booking.id,
       zoho_invoice_id: booking.zoho_invoice_id,
       zoho_invoice_created_at: booking.zoho_invoice_created_at,
+      daftra_invoice_id: booking.daftra_invoice_id,
+      daftra_invoice_created_at: booking.daftra_invoice_created_at,
       total_price: booking.total_price,
       status: booking.status,
       payment_status: booking.payment_status,
@@ -335,8 +343,8 @@ router.get('/invoices', authenticate, async (req, res) => {
     // Log for debugging
     console.log(`[Customer Invoices API] Customer: ${userId}, Page: ${page}, Limit: ${limit}, Total: ${total}, Results: ${transformedData.length}`);
     if (transformedData.length > 0) {
-      const firstDate = transformedData[0].zoho_invoice_created_at || transformedData[0].created_at;
-      const lastDate = transformedData[transformedData.length - 1].zoho_invoice_created_at || transformedData[transformedData.length - 1].created_at;
+      const firstDate = transformedData[0].invoice_created_at || transformedData[0].created_at;
+      const lastDate = transformedData[transformedData.length - 1].invoice_created_at || transformedData[transformedData.length - 1].created_at;
       console.log(`[Customer Invoices API] Date range: ${new Date(firstDate).toLocaleString()} to ${new Date(lastDate).toLocaleString()}`);
     }
 
@@ -373,10 +381,9 @@ router.get('/invoices/latest', authenticate, async (req, res) => {
 
     const { data, error } = await supabase
       .from('bookings')
-      .select('zoho_invoice_id, zoho_invoice_created_at, created_at')
+      .select('zoho_invoice_id, zoho_invoice_created_at, daftra_invoice_id, daftra_invoice_created_at, created_at')
       .eq('customer_id', customerId)
-      .not('zoho_invoice_id', 'is', null)
-      .order('zoho_invoice_created_at', { ascending: false, nullsFirst: false })
+      .or('zoho_invoice_id.not.is.null,daftra_invoice_id.not.is.null')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -384,9 +391,11 @@ router.get('/invoices/latest', authenticate, async (req, res) => {
     if (error) throw error;
 
     if (data) {
+      const invoiceId = data.daftra_invoice_id || data.zoho_invoice_id || null;
+      const timestamp = data.daftra_invoice_created_at || data.zoho_invoice_created_at || data.created_at || null;
       res.json({
-        invoice_id: data.zoho_invoice_id,
-        timestamp: data.zoho_invoice_created_at || data.created_at,
+        invoice_id: invoiceId,
+        timestamp,
       });
     } else {
       res.json({

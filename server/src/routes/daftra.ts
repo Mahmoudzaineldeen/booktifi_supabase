@@ -69,7 +69,9 @@ router.get('/invoices/:invoiceId/download', async (req, res) => {
   } catch (err: any) {
     console.error('[Daftra Routes] Download error:', err?.message || err);
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.status(500).json({ error: err?.message || 'Failed to download invoice' });
+    const msg = err?.message || 'Failed to download invoice';
+    const status = msg.includes('branded PDF is unavailable') ? 409 : 500;
+    res.status(status).json({ error: msg });
   }
 });
 

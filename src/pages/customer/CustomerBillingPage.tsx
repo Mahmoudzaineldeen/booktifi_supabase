@@ -17,8 +17,13 @@ import { showNotification } from '../../contexts/NotificationContext';
 interface Invoice {
   id: string;
   booking_id: string;
-  zoho_invoice_id: string;
-  zoho_invoice_created_at: string;
+  invoice_provider: 'zoho' | 'daftra';
+  invoice_id: string;
+  invoice_created_at: string;
+  zoho_invoice_id?: string | null;
+  zoho_invoice_created_at?: string | null;
+  daftra_invoice_id?: string | null;
+  daftra_invoice_created_at?: string | null;
   service_name: string;
   service_name_ar: string;
   slot_date: string;
@@ -240,8 +245,8 @@ export function CustomerBillingPage() {
       // Debug: Log invoice dates
       if (result.data && result.data.length > 0) {
         const dates = result.data.map((inv: any) => ({
-          id: inv.zoho_invoice_id,
-          invoiceDate: inv.zoho_invoice_created_at,
+          id: inv.invoice_id,
+          invoiceDate: inv.invoice_created_at,
           bookingDate: inv.created_at,
         }));
         console.log('[CustomerBillingPage] Invoice dates:', dates.slice(0, 3));
@@ -251,8 +256,13 @@ export function CustomerBillingPage() {
       const formattedInvoices: Invoice[] = (result.data || []).map((invoice: any) => ({
         id: invoice.id,
         booking_id: invoice.id,
-        zoho_invoice_id: invoice.zoho_invoice_id,
-        zoho_invoice_created_at: invoice.zoho_invoice_created_at,
+        invoice_provider: invoice.invoice_provider === 'daftra' ? 'daftra' : 'zoho',
+        invoice_id: invoice.invoice_id || invoice.daftra_invoice_id || invoice.zoho_invoice_id || '',
+        invoice_created_at: invoice.invoice_created_at || invoice.daftra_invoice_created_at || invoice.zoho_invoice_created_at || invoice.created_at || '',
+        zoho_invoice_id: invoice.zoho_invoice_id ?? null,
+        zoho_invoice_created_at: invoice.zoho_invoice_created_at ?? null,
+        daftra_invoice_id: invoice.daftra_invoice_id ?? null,
+        daftra_invoice_created_at: invoice.daftra_invoice_created_at ?? null,
         service_name: invoice.service_name || t('billing.unknownService'),
         service_name_ar: invoice.service_name_ar || '',
         slot_date: invoice.slot_date || '',
@@ -305,7 +315,7 @@ export function CustomerBillingPage() {
     fetchInvoices(newPage, searchQuery, true);
   };
 
-  async function downloadInvoice(invoiceId: string, zohoInvoiceId: string) {
+  async function downloadInvoice(invoiceId: string, provider: 'zoho' | 'daftra', invoiceRef: string) {
     try {
       setDownloadingInvoice(invoiceId);
       
@@ -316,18 +326,19 @@ export function CustomerBillingPage() {
       
       // Ensure API_URL doesn't have trailing slash
       const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+      const pathSeg = provider === 'daftra' ? 'daftra' : 'zoho';
       // Add token as query parameter to bypass CORS header issues
-      const downloadUrl = `${baseUrl}/zoho/invoices/${zohoInvoiceId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      const downloadUrl = `${baseUrl}/${pathSeg}/invoices/${invoiceRef}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
       
       const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
-      console.log('[CustomerBillingPage] Downloading invoice:', zohoInvoiceId);
+      console.log('[CustomerBillingPage] Downloading invoice:', invoiceRef, 'provider:', provider);
       console.log('[CustomerBillingPage] Environment:', { isBolt, API_URL, downloadUrl: downloadUrl.replace(token || '', '***') });
       
       // Use direct link approach - this bypasses CORS completely
       // The browser will handle the download natively
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = `invoice-${zohoInvoiceId}.pdf`;
+      link.download = `invoice-${invoiceRef}.pdf`;
       link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
@@ -561,17 +572,17 @@ export function CustomerBillingPage() {
                           <div>
                             <span className="font-medium">{t('common.displayedOnPage')}</span>{' '}
                             <span className="font-mono">
-                              {formatDateTimeTo12Hour(invoices[0].zoho_invoice_created_at || invoices[0].created_at)}
+                              {formatDateTimeTo12Hour(invoices[0].invoice_created_at || invoices[0].created_at)}
                             </span>
-                            {invoices[0].zoho_invoice_id && (
+                            {invoices[0].invoice_id && (
                               <span className="ml-2 text-gray-500">
-                                (ID: {invoices[0].zoho_invoice_id})
+                                (ID: {invoices[0].invoice_id})
                               </span>
                             )}
                           </div>
                           {(() => {
                             const dbTime = latestInvoiceFromDB.timestamp ? new Date(latestInvoiceFromDB.timestamp).getTime() : 0;
-                            const displayedTime = new Date(invoices[0].zoho_invoice_created_at || invoices[0].created_at).getTime();
+                            const displayedTime = new Date(invoices[0].invoice_created_at || invoices[0].created_at).getTime();
                             const isMatch = Math.abs(dbTime - displayedTime) < 1000; // Within 1 second
                             const isNewerInDB = dbTime > displayedTime;
                             
@@ -711,7 +722,7 @@ export function CustomerBillingPage() {
                       <p className="font-mono text-sm font-medium bg-white px-3 py-2 rounded border" style={{
                         borderColor: `${primaryColor}20`
                       }}>
-                        {invoice.zoho_invoice_id}
+                        {invoice.invoice_id || '—'}
                       </p>
                     </div>
                     <div>
@@ -721,8 +732,8 @@ export function CustomerBillingPage() {
                       <p className="text-sm font-medium bg-white px-3 py-2 rounded border" style={{
                         borderColor: `${primaryColor}20`
                       }}>
-                        {invoice.zoho_invoice_created_at 
-                          ? formatDateTimeTo12Hour(invoice.zoho_invoice_created_at)
+                        {invoice.invoice_created_at
+                          ? formatDateTimeTo12Hour(invoice.invoice_created_at)
                           : 'N/A'}
                       </p>
                     </div>
@@ -732,8 +743,8 @@ export function CustomerBillingPage() {
                     borderColor: `${primaryColor}20`
                   }}>
                     <Button
-                      onClick={() => downloadInvoice(invoice.id, invoice.zoho_invoice_id)}
-                      disabled={downloadingInvoice === invoice.id}
+                      onClick={() => downloadInvoice(invoice.id, invoice.invoice_provider, invoice.invoice_id)}
+                      disabled={downloadingInvoice === invoice.id || !invoice.invoice_id}
                       className="flex items-center gap-2 px-6 py-2 font-semibold transition-all duration-300 hover:scale-105"
                       style={{ 
                         background: downloadingInvoice === invoice.id
