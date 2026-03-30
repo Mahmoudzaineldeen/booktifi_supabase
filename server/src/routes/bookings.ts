@@ -1343,7 +1343,38 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       if (page.length < PAGE_SIZE) break;
     }
     // Global time lock: do not return slots where employee is busy in that time (any service)
-    const slotsForResponse = slotsFromDb.filter((s: any) => {
+    // Safety: dedupe by employee/time window for response payload.
+    // Pick the row with highest available capacity (then lowest booked_count) to avoid
+    // inflated "spots left" in UI when historical duplicate rows exist.
+    const dedupedSlotsMap = new Map<string, any>();
+    for (const s of slotsFromDb) {
+      const key = `${s.employee_id ?? ''}|${s.start_time}|${s.end_time}`;
+      const prev = dedupedSlotsMap.get(key);
+      if (!prev) {
+        dedupedSlotsMap.set(key, s);
+        continue;
+      }
+      const prevAvail = Number(prev.available_capacity ?? 0);
+      const currAvail = Number(s.available_capacity ?? 0);
+      const prevBooked = Number(prev.booked_count ?? 0);
+      const currBooked = Number(s.booked_count ?? 0);
+      if (currAvail > prevAvail || (currAvail === prevAvail && currBooked < prevBooked)) {
+        dedupedSlotsMap.set(key, s);
+      }
+    }
+    const dedupedSlotsFromDb = Array.from(dedupedSlotsMap.values()).sort((a: any, b: any) =>
+      String(a.start_time || '').localeCompare(String(b.start_time || ''))
+    );
+    if (dedupedSlotsFromDb.length !== slotsFromDb.length) {
+      logger.warn('ensure-employee-based-slots: duplicate rows deduped for response', {
+        serviceId,
+        dateStr,
+        before: slotsFromDb.length,
+        after: dedupedSlotsFromDb.length,
+      });
+    }
+
+    const slotsForResponse = dedupedSlotsFromDb.filter((s: any) => {
       if (!s.employee_id) return true;
       const busyRanges = globalBusyRangesByEmployee.get(s.employee_id) || [];
       const sStart = (s.start_time || '').slice(0, 8);
