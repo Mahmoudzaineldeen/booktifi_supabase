@@ -1060,15 +1060,29 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     const employeeIdsFromShifts = [...new Set((shiftsForDay as any[]).map((es: any) => es.employee_id))];
 
     // 1) All slots for these employees on this date (any shift) — for overlap + booking count
-    const { data: allSlotsForDate } = await supabase
-      .from('slots')
-      .select('id, employee_id, start_time, end_time')
-      .eq('tenant_id', tenantId)
-      .in('employee_id', employeeIdsFromShifts)
-      .eq('slot_date', dateStr);
+    // IMPORTANT: paginate to avoid PostgREST default 1000-row truncation.
+    const PAGE_SIZE = 1000;
+    const allSlotsForDate: any[] = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const to = from + PAGE_SIZE - 1;
+      const { data: page, error: allSlotsErr } = await supabase
+        .from('slots')
+        .select('id, employee_id, start_time, end_time')
+        .eq('tenant_id', tenantId)
+        .in('employee_id', employeeIdsFromShifts)
+        .eq('slot_date', dateStr)
+        .range(from, to);
+      if (allSlotsErr) {
+        logger.error('ensure-employee-based-slots: allSlotsForDate fetch', allSlotsErr);
+        return res.status(500).json({ error: allSlotsErr.message });
+      }
+      if (!page || page.length === 0) break;
+      allSlotsForDate.push(...page);
+      if (page.length < PAGE_SIZE) break;
+    }
 
     // 2) Booking counts per slot_id (non-cancelled only)
-    const slotIdsForBookings = (allSlotsForDate || []).map((s: any) => s.id);
+    const slotIdsForBookings = allSlotsForDate.map((s: any) => s.id);
     let bookingCountBySlotId: Record<string, number> = {};
     // Global employee time lock: busy ranges per employee (any service) for this date
     const globalBusyRangesByEmployee = new Map<string, { startM: number; endM: number }[]>();
@@ -1081,7 +1095,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       (bookingsList || []).forEach((b: any) => {
         if (b.slot_id) bookingCountBySlotId[b.slot_id] = (bookingCountBySlotId[b.slot_id] || 0) + 1;
         if (b.employee_id && b.slot_id) {
-          const slot = (allSlotsForDate || []).find((s: any) => s.id === b.slot_id);
+          const slot = allSlotsForDate.find((s: any) => s.id === b.slot_id);
           if (slot && slot.start_time != null && slot.end_time != null) {
             const startParts = (slot.start_time || '').slice(0, 8).split(':').map(Number);
             const endParts = (slot.end_time || '').slice(0, 8).split(':').map(Number);
@@ -1124,15 +1138,27 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     }
 
     // 3) Existing employee-based slots (virtual shift, this date) — remove slots with no bookings so we can regenerate from current branch shifts only
-    const { data: existingSlots } = await supabase
-      .from('slots')
-      .select('id, employee_id, start_time')
-      .eq('shift_id', virtualShiftId)
-      .in('employee_id', employeeIdsFromShifts)
-      .eq('slot_date', dateStr);
-    const existingSlotKeys = new Set((existingSlots || []).map((s: any) => `${s.employee_id}:${s.start_time}`));
+    const existingSlots: any[] = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const to = from + PAGE_SIZE - 1;
+      const { data: page, error: existingErr } = await supabase
+        .from('slots')
+        .select('id, employee_id, start_time')
+        .eq('shift_id', virtualShiftId)
+        .in('employee_id', employeeIdsFromShifts)
+        .eq('slot_date', dateStr)
+        .range(from, to);
+      if (existingErr) {
+        logger.error('ensure-employee-based-slots: existingSlots fetch', existingErr);
+        return res.status(500).json({ error: existingErr.message });
+      }
+      if (!page || page.length === 0) break;
+      existingSlots.push(...page);
+      if (page.length < PAGE_SIZE) break;
+    }
+    const existingSlotKeys = new Set(existingSlots.map((s: any) => `${s.employee_id}:${s.start_time}`));
     const slotIdsWithBookings = new Set(Object.keys(bookingCountBySlotId));
-    const toDelete = (existingSlots || []).filter((s: any) => !slotIdsWithBookings.has(s.id));
+    const toDelete = existingSlots.filter((s: any) => !slotIdsWithBookings.has(s.id));
     const slotIdsToDelete = toDelete.map((s: any) => s.id);
     if (slotIdsToDelete.length > 0) {
       await supabase.from('slots').delete().in('id', slotIdsToDelete);
@@ -1209,7 +1235,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
             continue;
           }
           // Overlapping slots (same employee, time overlap) — minute-based (strings break at midnight)
-          const overlapping = (allSlotsForDate || []).filter((s: any) => {
+          const overlapping = allSlotsForDate.filter((s: any) => {
             if (s.employee_id !== es.employee_id) return false;
             const sStartM = toMinutes((s.start_time || '').slice(0, 8));
             const sEndRaw = toMinutes((s.end_time || '').slice(0, 8));
@@ -1297,15 +1323,27 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     logger.info('ensure-employee-based-slots: done', { serviceId, dateStr, slotsCreated, employeesWithShifts: shiftsForDay.length });
 
     // --- Optional: return slots + employees for frontend (reduces round-trips) ---
-    const { data: slotsFromDb } = await supabase
-      .from('slots')
-      .select('id, slot_date, start_time, end_time, available_capacity, booked_count, employee_id, shift_id, users:employee_id(full_name, full_name_ar)')
-      .eq('shift_id', virtualShiftId)
-      .eq('slot_date', dateStr)
-      .eq('is_available', true)
-      .order('start_time');
+    const slotsFromDb: any[] = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const to = from + PAGE_SIZE - 1;
+      const { data: page, error: slotsRespErr } = await supabase
+        .from('slots')
+        .select('id, slot_date, start_time, end_time, available_capacity, booked_count, employee_id, shift_id, users:employee_id(full_name, full_name_ar)')
+        .eq('shift_id', virtualShiftId)
+        .eq('slot_date', dateStr)
+        .eq('is_available', true)
+        .order('start_time')
+        .range(from, to);
+      if (slotsRespErr) {
+        logger.error('ensure-employee-based-slots: slotsFromDb fetch', slotsRespErr);
+        return res.status(500).json({ error: slotsRespErr.message });
+      }
+      if (!page || page.length === 0) break;
+      slotsFromDb.push(...page);
+      if (page.length < PAGE_SIZE) break;
+    }
     // Global time lock: do not return slots where employee is busy in that time (any service)
-    const slotsForResponse = (slotsFromDb || []).filter((s: any) => {
+    const slotsForResponse = slotsFromDb.filter((s: any) => {
       if (!s.employee_id) return true;
       const busyRanges = globalBusyRangesByEmployee.get(s.employee_id) || [];
       const sStart = (s.start_time || '').slice(0, 8);
