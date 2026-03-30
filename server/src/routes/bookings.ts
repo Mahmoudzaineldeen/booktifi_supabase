@@ -827,6 +827,21 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     // e.g. 2025-02-25 is Wednesday in all timezones; midnight UTC would be Tuesday.
     const dayOfWeek = new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay();
 
+    const MINUTES_PER_DAY = 24 * 60;
+    const toMinutes = (t: string) => {
+      const parts = (t || '00:00').split(':').map(Number);
+      return (parts[0] || 0) * 60 + (parts[1] || 0);
+    };
+    /** DB end 00:00 after PM start = end of calendar day (not minute 0). */
+    const slotEndExclusiveMinutes = (startM: number, endRawM: number) =>
+      endRawM === 0 && startM > 0 ? MINUTES_PER_DAY : endRawM;
+    const intervalsOverlapExclusive = (
+      aStart: number,
+      aEndEx: number,
+      bStart: number,
+      bEndEx: number
+    ) => aStart < bEndEx && bStart < aEndEx;
+
     const { data: service, error: serviceError } = await supabase
       .from('services')
       .select('id, tenant_id, scheduling_type, duration_minutes, service_duration_minutes')
@@ -905,11 +920,13 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
             .select('id, start_time, end_time')
             .in('id', slotIdsFromBookings)
             .eq('slot_date', dateStr);
-          const toM = (t: string) => {
-            const parts = (t || '').slice(0, 8).split(':').map(Number);
-            return (parts[0] || 0) * 60 + (parts[1] || 0);
-          };
-          const slotTimeMap = new Map((cacheSlots || []).map((s: any) => [s.id, { startM: toM(s.start_time), endM: toM(s.end_time) }]));
+          const slotTimeMap = new Map(
+            (cacheSlots || []).map((s: any) => {
+              const startM = toMinutes((s.start_time || '').slice(0, 8));
+              const endRaw = toMinutes((s.end_time || '').slice(0, 8));
+              return [s.id, { startM, endM: slotEndExclusiveMinutes(startM, endRaw) }];
+            })
+          );
           (cacheBookings || []).forEach((b: any) => {
             if (!b.employee_id || !b.slot_id) return;
             const t = slotTimeMap.get(b.slot_id);
@@ -923,9 +940,11 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
           const busyRanges = cacheBusyRanges.get(s.employee_id) || [];
           const sStart = (s.start_time || '').slice(0, 8);
           const sEnd = (s.end_time || '').slice(0, 8);
-          const slotStartM = (() => { const p = sStart.split(':').map(Number); return (p[0] || 0) * 60 + (p[1] || 0); })();
-          const slotEndM = (() => { const p = sEnd.split(':').map(Number); return (p[0] || 0) * 60 + (p[1] || 0); })();
-          const isBusy = busyRanges.some((r: { startM: number; endM: number }) => r.startM < slotEndM && r.endM > slotStartM);
+          const slotStartM = toMinutes(sStart);
+          const slotEndEx = slotEndExclusiveMinutes(slotStartM, toMinutes(sEnd));
+          const isBusy = busyRanges.some((r: { startM: number; endM: number }) =>
+            intervalsOverlapExclusive(slotStartM, slotEndEx, r.startM, r.endM)
+          );
           return !isBusy;
         });
         const out = { ...cached, slots: filteredSlots };
@@ -1067,7 +1086,8 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
             const startParts = (slot.start_time || '').slice(0, 8).split(':').map(Number);
             const endParts = (slot.end_time || '').slice(0, 8).split(':').map(Number);
             const startM = (startParts[0] || 0) * 60 + (startParts[1] || 0);
-            const endM = (endParts[0] || 0) * 60 + (endParts[1] || 0);
+            const endRawM = (endParts[0] || 0) * 60 + (endParts[1] || 0);
+            const endM = slotEndExclusiveMinutes(startM, endRawM);
             if (!globalBusyRangesByEmployee.has(b.employee_id)) globalBusyRangesByEmployee.set(b.employee_id, []);
             globalBusyRangesByEmployee.get(b.employee_id)!.push({ startM, endM });
           }
@@ -1096,7 +1116,8 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
         const startParts = (slot.start_time || '').slice(0, 8).split(':').map(Number);
         const endParts = (slot.end_time || '').slice(0, 8).split(':').map(Number);
         const startM = (startParts[0] || 0) * 60 + (startParts[1] || 0);
-        const endM = (endParts[0] || 0) * 60 + (endParts[1] || 0);
+        const endRawM = (endParts[0] || 0) * 60 + (endParts[1] || 0);
+        const endM = slotEndExclusiveMinutes(startM, endRawM);
         if (!globalBusyRangesByEmployee.has(b.employee_id)) globalBusyRangesByEmployee.set(b.employee_id, []);
         globalBusyRangesByEmployee.get(b.employee_id)!.push({ startM, endM });
       });
@@ -1119,17 +1140,24 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     }
 
     const startTimeStr = (t: string) => (t || '').slice(0, 8);
-    const toMinutes = (t: string) => {
-      const parts = (t || '00:00').split(':').map(Number);
-      return (parts[0] || 0) * 60 + (parts[1] || 0);
-    };
-    const MINUTES_PER_DAY = 24 * 60;
     const toTime = (mins: number) => {
       const normalized = mins >= MINUTES_PER_DAY ? mins % MINUTES_PER_DAY : mins;
       const h = Math.floor(normalized / 60);
       const m = normalized % 60;
       return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
     };
+
+    logger.info('ensure-employee-based-slots: shift resolution', {
+      dateStr,
+      dayOfWeek,
+      durationMinutes,
+      serviceId,
+      shiftsForDay: (shiftsForDay as any[]).map((es: any) => ({
+        employee_id: es.employee_id,
+        start: es.start_time_utc,
+        end: es.end_time_utc,
+      })),
+    });
 
     // --- Build availability in memory: for each (shift, time window) compute overlap count and decide insert ---
     type SlotRow = {
@@ -1180,12 +1208,15 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
             slotStartM += durationMinutes;
             continue;
           }
-          // Overlapping slots (same employee, time overlap) — in memory from allSlotsForDate
+          // Overlapping slots (same employee, time overlap) — minute-based (strings break at midnight)
           const overlapping = (allSlotsForDate || []).filter((s: any) => {
             if (s.employee_id !== es.employee_id) return false;
-            const sStart = (s.start_time || '').slice(0, 8);
-            const sEnd = (s.end_time || '').slice(0, 8);
-            return sStart < endTime && sEnd > startTime;
+            const sStartM = toMinutes((s.start_time || '').slice(0, 8));
+            const sEndRaw = toMinutes((s.end_time || '').slice(0, 8));
+            const sEndM = slotEndExclusiveMinutes(sStartM, sEndRaw);
+            const candStartM = slotStartM;
+            const candEndM = slotEndM;
+            return intervalsOverlapExclusive(candStartM, candEndM, sStartM, sEndM);
           });
           let overlapCount = 0;
           overlapping.forEach((s: any) => {
@@ -1218,6 +1249,34 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
         }
       }
     }
+
+    const beforeDedupe = rowsToInsert.length;
+    const seenSlotKeys = new Set<string>();
+    const dedupedRows: SlotRow[] = [];
+    for (const row of rowsToInsert) {
+      const k = `${row.employee_id}:${row.start_time}`;
+      if (seenSlotKeys.has(k)) continue;
+      seenSlotKeys.add(k);
+      dedupedRows.push(row);
+    }
+    if (beforeDedupe !== dedupedRows.length) {
+      logger.warn('ensure-employee-based-slots: deduped duplicate slot rows', {
+        dateStr,
+        serviceId,
+        before: beforeDedupe,
+        after: dedupedRows.length,
+      });
+    }
+    rowsToInsert.length = 0;
+    rowsToInsert.push(...dedupedRows);
+
+    logger.info('ensure-employee-based-slots: generated slot rows (pre-insert)', {
+      dateStr,
+      serviceId,
+      durationMinutes,
+      count: rowsToInsert.length,
+      sampleStarts: rowsToInsert.slice(0, 12).map((r) => r.start_time),
+    });
 
     // --- Bulk insert (no DB calls inside loops) ---
     let slotsCreated = 0;
@@ -1252,8 +1311,10 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       const sStart = (s.start_time || '').slice(0, 8);
       const sEnd = (s.end_time || '').slice(0, 8);
       const slotStartM = toMinutes(sStart);
-      const slotEndM = toMinutes(sEnd);
-      const isBusy = busyRanges.some((r: { startM: number; endM: number }) => r.startM < slotEndM && r.endM > slotStartM);
+      const slotEndEx = slotEndExclusiveMinutes(slotStartM, toMinutes(sEnd));
+      const isBusy = busyRanges.some((r: { startM: number; endM: number }) =>
+        intervalsOverlapExclusive(slotStartM, slotEndEx, r.startM, r.endM)
+      );
       return !isBusy;
     });
     const payload: { shiftIds: string[]; slots?: any[]; employees?: { id: string; name: string; available_slots: any[] }[] } = {

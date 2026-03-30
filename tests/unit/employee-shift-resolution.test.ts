@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildEffectiveEmployeeShifts,
   mergeEffectiveShiftsForCalendarDay,
+  sameDayIntervalSubsumedByOvernight,
 } from '../../server/src/utils/employeeShiftResolution';
 
 describe('buildEffectiveEmployeeShifts', () => {
@@ -133,5 +134,42 @@ describe('mergeEffectiveShiftsForCalendarDay', () => {
     ];
     const out = mergeEffectiveShiftsForCalendarDay(shiftsForDay, wed);
     expect(out).toHaveLength(2);
+  });
+
+  /**
+   * Regression: full-week 13:00→midnight (overnight) + Wed-only 13:00–16:00 previously emitted BOTH,
+   * duplicating 13:00 slots and breaking bulk insert — only 13:00 appeared for Wood Massage on Wed.
+   */
+  it('drops Wed-only same-day row when it is contained in a full-week overnight shift (13:00→00:00)', () => {
+    const shiftsForDay = [
+      {
+        employee_id: emp,
+        start_time_utc: '13:00:00',
+        end_time_utc: '00:00:00',
+        days_of_week: [0, 1, 2, 3, 4, 5, 6],
+      },
+      {
+        employee_id: emp,
+        start_time_utc: '13:00:00',
+        end_time_utc: '16:00:00',
+        days_of_week: [3],
+      },
+    ];
+    const out = mergeEffectiveShiftsForCalendarDay(shiftsForDay, wed);
+    expect(out).toHaveLength(1);
+    expect(out[0].start_time_utc).toBe('13:00:00');
+    expect(out[0].end_time_utc).toBe('00:00:00');
+  });
+});
+
+describe('sameDayIntervalSubsumedByOvernight', () => {
+  it('detects 13:00–16:00 inside 13:00→midnight', () => {
+    const a = 13 * 60;
+    const b = 16 * 60;
+    expect(sameDayIntervalSubsumedByOvernight(a, b, 13 * 60, 0)).toBe(true);
+  });
+
+  it('does not mark 09:00–12:00 as subsumed by 13:00→midnight', () => {
+    expect(sameDayIntervalSubsumedByOvernight(9 * 60, 12 * 60, 13 * 60, 0)).toBe(false);
   });
 });
