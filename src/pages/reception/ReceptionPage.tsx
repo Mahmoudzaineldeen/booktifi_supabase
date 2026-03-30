@@ -16,7 +16,7 @@ import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut,
 import { ReceptionPackagesPage } from './ReceptionPackagesPage';
 import { ReceptionReportsSection } from './ReceptionReportsSection';
 import { QRScanner } from '../../components/qr/QRScanner';
-import { format, addDays, startOfWeek, isSameDay, parseISO, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
+import { format, addDays, startOfWeek, isSameDay, parseISO } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { countryCodes } from '../../lib/countryCodes';
@@ -236,7 +236,7 @@ export function ReceptionPage() {
   });
   const [manualSlotAssignments, setManualSlotAssignments] = useState<Array<{slotIndex: number, employeeId: string, slotId: string}>>([]);
   const [showPreview, setShowPreview] = useState(false);
-  const [previewData, setPreviewData] = useState<any>(null);
+  const [, setPreviewData] = useState<any>(null);
   /** When set, create booking modal is closed and full-screen loading overlay is shown (creating_booking -> creating_invoice) */
   const [bookingCreationLoadingStep, setBookingCreationLoadingStep] = useState<null | 'creating_booking' | 'creating_invoice'>(null);
   const [selectedSlots, setSelectedSlots] = useState<Array<{slot_id: string, start_time: string, end_time: string, employee_id: string, slot_date: string}>>([]);
@@ -755,14 +755,6 @@ export function ReceptionPage() {
     }
   }
 
-  function formatPhoneNumber(phone: string, code: string): string {
-    const gulfCountries = ['+966', '+971', '+968', '+965', '+973', '+974'];
-    if (gulfCountries.includes(code) && phone.startsWith('0')) {
-      return phone.substring(1);
-    }
-    return phone;
-  }
-
   async function lookupSubscriptionCustomer(fullPhoneNumber: string) {
     if (!fullPhoneNumber || fullPhoneNumber.length < 10 || !userProfile?.tenant_id) {
       setSubscriptionCustomerLookup(null);
@@ -773,13 +765,10 @@ export function ReceptionPage() {
     setIsLookingUpSubscriptionCustomer(true);
     
     try {
-      // Extract country code and phone number
+      // Strip dial prefix for display in form (DB lookup uses fullPhoneNumber)
       let phoneNumber = fullPhoneNumber;
-      let code = tenantDefaultCountry;
-      
       for (const country of countryCodes) {
         if (fullPhoneNumber.startsWith(country.code)) {
-          code = country.code;
           phoneNumber = fullPhoneNumber.replace(country.code, '');
           break;
         }
@@ -2081,16 +2070,14 @@ export function ReceptionPage() {
 
         // Determine how many bookings can use package for this service
         const packageCheck = checkServiceInPackage(serviceId);
-        const service = services.find(s => s.id === serviceId);
         let packageUsedCount = 0;
 
-        return items.map(async (item, index) => {
+        return items.map(async (item) => {
           console.log('Creating booking for service:', item.service.name, 'slot:', item.slot.id, 'group:', bookingGroupId);
 
           // Determine if this specific booking can use the package
           const canUsePackage = packageCheck.available && packageUsedCount < packageCheck.remaining;
           const usePackage = canUsePackage;
-          const price = usePackage ? 0 : (service?.base_price || 0);
 
           if (usePackage) {
             packageUsedCount++;
@@ -2161,9 +2148,6 @@ export function ReceptionPage() {
       console.log('All bookings created successfully:', results);
 
       // Count package vs paid bookings
-      const packageBookings = results.filter(r => r.usedPackage).length;
-      const paidBookings = results.length - packageBookings;
-
       // Wait a moment for database triggers to complete
       await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -2551,34 +2535,6 @@ export function ReceptionPage() {
     } catch (err: any) {
       console.error('Error updating booking:', err);
       showNotification('error', t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
-    }
-  }
-
-  async function updatePaymentStatus(bookingId: string, paymentStatus: string) {
-    if (paymentStatus === 'paid_manual') {
-      setMarkPaidBookingId(bookingId);
-      setMarkPaidMethod('onsite');
-      setMarkPaidReference('');
-      return;
-    }
-    try {
-      const API_URL = getApiUrl();
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch(`${API_URL}/bookings/${bookingId}/payment-status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && token.trim() ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ payment_status: paymentStatus }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Failed to update payment status');
-      fetchBookings();
-      showNotification('success', t('reception.paymentStatusUpdatedSuccessfully'));
-    } catch (err: any) {
-      console.error('Error updating payment status:', err);
-      showNotification('error', err.message || t('common.error'));
     }
   }
 
@@ -3350,18 +3306,7 @@ export function ReceptionPage() {
     if (!fullPhoneNumber || fullPhoneNumber.length < 10 || !userProfile?.tenant_id) return;
 
     setIsLookingUpCustomer(true);
-    
-    // Extract country code and phone number
-    let phoneNumber = fullPhoneNumber;
-    let code = tenantDefaultCountry; // Use tenant's default country code
-    
-    for (const country of countryCodes) {
-      if (fullPhoneNumber.startsWith(country.code)) {
-        code = country.code;
-        phoneNumber = fullPhoneNumber.replace(country.code, '');
-        break;
-      }
-    }
+
     setCustomerPackages([]);
     setCustomerIsBlocked(false);
     try {
@@ -3582,33 +3527,12 @@ export function ReceptionPage() {
     return Array.from({ length: 8 }, (_, i) => addDays(today, i));
   }
 
-  function getCalendarWeeks() {
-    // Get start of current week (Sunday)
-    const weekStart = startOfWeek(new Date(), { weekStartsOn: 0 });
-    // Generate 5 weeks (35 days)
-    const weeks: Date[][] = [];
-    for (let week = 0; week < 5; week++) {
-      const weekDays: Date[] = [];
-      for (let day = 0; day < 7; day++) {
-        weekDays.push(addDays(weekStart, week * 7 + day));
-      }
-      weeks.push(weekDays);
-    }
-    return weeks;
-  }
-
   function getBookingsForDate(date: Date) {
     const dateStr = format(date, 'yyyy-MM-dd');
     return displayBookings.filter(booking => {
       const bookingDate = booking.slots?.slot_date;
       return bookingDate === dateStr;
     });
-  }
-
-  function getCalendarDaysInMonth() {
-    const start = startOfMonth(calendarDate);
-    const end = endOfMonth(calendarDate);
-    return eachDayOfInterval({ start, end });
   }
 
   function generateTimeSlots() {
@@ -3791,7 +3715,7 @@ export function ReceptionPage() {
               </p>
               <p className="text-sm font-medium text-gray-900 truncate">
                 {getBookingEmployees(booking).length > 0
-                  ? getBookingEmployees(booking).map((emp, idx) =>
+                  ? getBookingEmployees(booking).map((emp) =>
                       (i18n.language === 'ar' ? (emp.full_name_ar || emp.full_name) : emp.full_name)
                     ).join(', ')
                   : '—'}
@@ -6274,10 +6198,8 @@ export function ReceptionPage() {
                 if (subscriptionSelectedCustomer && value !== subscriptionSelectedCustomer.phone) setSubscriptionSelectedCustomer(null);
                 setSubscriptionPhoneFull(value);
                 let phoneNumber = value;
-                let code = tenantDefaultCountry;
                 for (const country of countryCodes) {
                   if (value.startsWith(country.code)) {
-                    code = country.code;
                     phoneNumber = value.replace(country.code, '');
                     break;
                   }
