@@ -22,6 +22,7 @@ export type DaftraTenantSettings = {
   api_token: string;
   store_id: number;
   default_product_id: number;
+  invoice_layout_id?: number;
   country_code?: string;
   fallback_to_zoho?: boolean;
   /**
@@ -50,6 +51,8 @@ function parseDaftraSettings(raw: unknown): DaftraTenantSettings | null {
   const store_id = typeof o.store_id === 'number' ? o.store_id : parseInt(String(o.store_id || ''), 10);
   const default_product_id =
     typeof o.default_product_id === 'number' ? o.default_product_id : parseInt(String(o.default_product_id || ''), 10);
+  const invoice_layout_id =
+    typeof o.invoice_layout_id === 'number' ? o.invoice_layout_id : parseInt(String(o.invoice_layout_id || ''), 10);
   if (!subdomain || !api_token || !Number.isFinite(store_id) || !Number.isFinite(default_product_id)) return null;
   const pdf_oauth_client_id = typeof o.pdf_oauth_client_id === 'string' ? o.pdf_oauth_client_id.trim() : '';
   const pdf_oauth_client_secret = typeof o.pdf_oauth_client_secret === 'string' ? o.pdf_oauth_client_secret.trim() : '';
@@ -60,6 +63,7 @@ function parseDaftraSettings(raw: unknown): DaftraTenantSettings | null {
     api_token,
     store_id,
     default_product_id,
+    ...(Number.isFinite(invoice_layout_id) ? { invoice_layout_id } : {}),
     country_code: typeof o.country_code === 'string' ? o.country_code : 'SA',
     fallback_to_zoho: o.fallback_to_zoho === true,
     ...(pdf_oauth_client_id ? { pdf_oauth_client_id } : {}),
@@ -280,6 +284,30 @@ function buildDaftraInvoiceNotes(u: UnifiedBookingInvoice): string {
   return parts.filter((x) => x != null && x !== '').join('\n');
 }
 
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function buildDaftraHtmlNotesWithQr(notes: string, qrDataJson?: string | null): Promise<string | undefined> {
+  const textPart = escapeHtml((notes || '').trim()).replace(/\r?\n/g, '<br/>');
+  if (!qrDataJson) return textPart || undefined;
+  try {
+    const qrPng = await QRCode.toBuffer(qrDataJson, { type: 'png', width: 260, margin: 1 });
+    const qrBase64 = qrPng.toString('base64');
+    const withQr = `${textPart}<br/><br/><div style="text-align:center"><img alt="QR" style="width:140px;height:140px" src="data:image/png;base64,${qrBase64}" /></div>`;
+    // Keep payload safe for Daftra API limits while preserving valid base64 image.
+    if (withQr.length > 64000) return textPart || undefined;
+    return withQr;
+  } catch {
+    return textPart || undefined;
+  }
+}
+
 function splitCustomerName(full: string): { first: string; last: string } {
   const t = full.trim();
   if (!t) return { first: '-', last: '-' };
@@ -368,6 +396,7 @@ async function createDaftraInvoice(
   clientId: number,
   u: UnifiedBookingInvoice | UnifiedBookingGroupInvoice,
   notes: string,
+  htmlNotes: string | undefined,
   poNumber: string,
   tenantId?: string | null
 ): Promise<number> {
@@ -390,10 +419,12 @@ async function createDaftraInvoice(
     Invoice: {
       client_id: clientId,
       store_id: storeId,
+      ...(Number.isFinite(settings.invoice_layout_id) ? { invoice_layout_id: settings.invoice_layout_id } : {}),
       currency_code: u.currency_code,
       date: u.date,
       draft: 0,
       notes: notes.slice(0, 65000),
+      ...(htmlNotes ? { html_notes: htmlNotes } : {}),
       po_number: poNumber.slice(0, 255),
       // Keep template-friendly client fields mirrored on invoice when available.
       client_business_name: (u.customer_name || '-').slice(0, 255),
@@ -751,6 +782,7 @@ export class DaftraInvoiceService {
       }
 
       const daftraNotes = buildDaftraInvoiceNotes(unified);
+      const daftraHtmlNotes = await buildDaftraHtmlNotesWithQr(daftraNotes, unified.context.qr_data_json);
       const clientId = await ensureDaftraClient(settings, {
         customer_name: unified.customer_name,
         customer_email: unified.customer_email,
@@ -762,7 +794,15 @@ export class DaftraInvoiceService {
         business_info_2: unified.context.branch_name || '',
       });
 
-      const invoiceNum = await createDaftraInvoice(settings, clientId, unified, daftraNotes, unified.booking_id, booking.tenant_id);
+      const invoiceNum = await createDaftraInvoice(
+        settings,
+        clientId,
+        unified,
+        daftraNotes,
+        daftraHtmlNotes,
+        unified.booking_id,
+        booking.tenant_id
+      );
       const invoiceIdStr = String(invoiceNum);
       console.log(`[DaftraInvoice] Created invoice in Daftra id=${invoiceIdStr} booking=${bookingId}`);
 
@@ -854,6 +894,12 @@ export class DaftraInvoiceService {
 
       const notes =
         `${unified.notes}\n\n---\nBooking group ${unified.booking_group_id}\nPrimary booking: ${unified.primary_booking_id}`;
+      const groupQrJson = JSON.stringify({
+        booking_group_id: unified.booking_group_id,
+        primary_booking_id: unified.primary_booking_id,
+        type: 'booking_group_ticket',
+      });
+      const groupHtmlNotes = await buildDaftraHtmlNotesWithQr(notes, groupQrJson);
       const clientId = await ensureDaftraClient(settings, {
         customer_name: unified.customer_name,
         customer_email: unified.customer_email,
@@ -863,7 +909,15 @@ export class DaftraInvoiceService {
         business_info_1: `Booking group ${unified.booking_group_id}`,
         business_info_2: `Primary booking ${unified.primary_booking_id}`,
       });
-      const invoiceNum = await createDaftraInvoice(settings, clientId, unified, notes, unified.booking_group_id, tenantId);
+      const invoiceNum = await createDaftraInvoice(
+        settings,
+        clientId,
+        unified,
+        notes,
+        groupHtmlNotes,
+        unified.booking_group_id,
+        tenantId
+      );
       const invoiceIdStr = String(invoiceNum);
 
       await supabase

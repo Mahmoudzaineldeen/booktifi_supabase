@@ -1623,6 +1623,7 @@ router.get('/invoice-provider-settings', authenticateTenantAdmin, async (req, re
       subdomain: typeof raw.subdomain === 'string' ? raw.subdomain : '',
       store_id: raw.store_id ?? '',
       default_product_id: raw.default_product_id ?? '',
+      invoice_layout_id: raw.invoice_layout_id ?? '',
       country_code: typeof raw.country_code === 'string' ? raw.country_code : 'SA',
       fallback_to_zoho: raw.fallback_to_zoho === true,
       api_token_set: hasToken,
@@ -1676,6 +1677,16 @@ router.put('/invoice-provider-settings', authenticateTenantAdmin, async (req, re
           typeof daftra_settings.default_product_id === 'number'
             ? daftra_settings.default_product_id
             : parseInt(String(daftra_settings.default_product_id), 10);
+      }
+      if (daftra_settings.invoice_layout_id !== undefined) {
+        if (daftra_settings.invoice_layout_id === '' || daftra_settings.invoice_layout_id === null) {
+          delete merged.invoice_layout_id;
+        } else {
+          merged.invoice_layout_id =
+            typeof daftra_settings.invoice_layout_id === 'number'
+              ? daftra_settings.invoice_layout_id
+              : parseInt(String(daftra_settings.invoice_layout_id), 10);
+        }
       }
       if (typeof daftra_settings.country_code === 'string') merged.country_code = daftra_settings.country_code.trim();
       if (daftra_settings.fallback_to_zoho !== undefined) merged.fallback_to_zoho = daftra_settings.fallback_to_zoho === true;
@@ -1756,6 +1767,7 @@ router.put('/invoice-provider-settings', authenticateTenantAdmin, async (req, re
         subdomain: typeof raw.subdomain === 'string' ? raw.subdomain : '',
         store_id: raw.store_id ?? '',
         default_product_id: raw.default_product_id ?? '',
+        invoice_layout_id: raw.invoice_layout_id ?? '',
         country_code: typeof raw.country_code === 'string' ? raw.country_code : 'SA',
         fallback_to_zoho: raw.fallback_to_zoho === true,
         api_token_set: hasToken,

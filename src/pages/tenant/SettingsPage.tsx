@@ -104,6 +104,7 @@ export function SettingsPage() {
     subdomain: '',
     store_id: '',
     default_product_id: '',
+    invoice_layout_id: '',
     api_token: '',
     country_code: 'SA',
     fallback_to_zoho: false,
@@ -390,6 +391,10 @@ export function SettingsPage() {
             default_product_id:
               data.daftra_settings.default_product_id !== '' && data.daftra_settings.default_product_id != null
                 ? String(data.daftra_settings.default_product_id)
+                : '',
+            invoice_layout_id:
+              data.daftra_settings.invoice_layout_id !== '' && data.daftra_settings.invoice_layout_id != null
+                ? String(data.daftra_settings.invoice_layout_id)
                 : '',
             country_code: String(data.daftra_settings.country_code || 'SA'),
             fallback_to_zoho: !!data.daftra_settings.fallback_to_zoho,
@@ -846,6 +851,16 @@ export function SettingsPage() {
         setInvoiceProviderMessage({ type: 'error', text: t('settings.invoiceProvider.tokenRequired') });
         return;
       }
+      if (daftraForm.invoice_layout_id.trim()) {
+        const layoutId = parseInt(daftraForm.invoice_layout_id, 10);
+        if (!Number.isFinite(layoutId)) {
+          setInvoiceProviderMessage({
+            type: 'error',
+            text: t('settings.invoiceProvider.layoutIdInvalid', 'Invoice layout ID must be a valid number'),
+          });
+          return;
+        }
+      }
     }
     setInvoiceProviderLoading(true);
     try {
@@ -857,6 +872,9 @@ export function SettingsPage() {
           subdomain: daftraForm.subdomain.trim(),
           store_id: parseInt(daftraForm.store_id, 10),
           default_product_id: parseInt(daftraForm.default_product_id, 10),
+          ...(daftraForm.invoice_layout_id.trim()
+            ? { invoice_layout_id: parseInt(daftraForm.invoice_layout_id, 10) }
+            : {}),
           country_code: (daftraForm.country_code || 'SA').trim(),
           fallback_to_zoho: daftraForm.fallback_to_zoho,
           ...(daftraForm.api_token.trim() ? { api_token: daftraForm.api_token.trim() } : {}),
@@ -2246,6 +2264,18 @@ export function SettingsPage() {
                       onChange={(e) => setDaftraForm({ ...daftraForm, default_product_id: e.target.value })}
                     />
                     <p className="text-xs text-gray-500">{t('settings.invoiceProvider.productIdHint')}</p>
+                    <Input
+                      label={t('settings.invoiceProvider.layoutId', 'Invoice Layout ID (optional)')}
+                      type="number"
+                      value={daftraForm.invoice_layout_id}
+                      onChange={(e) => setDaftraForm({ ...daftraForm, invoice_layout_id: e.target.value })}
+                    />
+                    <p className="text-xs text-gray-500">
+                      {t(
+                        'settings.invoiceProvider.layoutIdHint',
+                        'Force a specific Daftra template layout id for all created invoices.'
+                      )}
+                    </p>
                     <Input
                       label={t('settings.invoiceProvider.apiToken')}
                       type="password"
