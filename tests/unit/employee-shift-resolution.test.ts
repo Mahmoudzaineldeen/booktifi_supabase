@@ -3,7 +3,10 @@
  * Merging caused short windows (e.g. 13:00–16:00 custom + full branch) to dominate or duplicate slot rows.
  */
 import { describe, it, expect } from 'vitest';
-import { buildEffectiveEmployeeShifts } from '../../server/src/utils/employeeShiftResolution';
+import {
+  buildEffectiveEmployeeShifts,
+  mergeEffectiveShiftsForCalendarDay,
+} from '../../server/src/utils/employeeShiftResolution';
 
 describe('buildEffectiveEmployeeShifts', () => {
   const branchId = 'b1';
@@ -84,5 +87,51 @@ describe('buildEffectiveEmployeeShifts', () => {
       empShifts: [],
     });
     expect(out).toHaveLength(0);
+  });
+});
+
+describe('mergeEffectiveShiftsForCalendarDay', () => {
+  const emp = 'e1';
+  /** Wed = 3 — same day as 2026-04-01 in UTC-noon weekday logic */
+  const wed = 3;
+
+  it('merges overlapping windows into one span (full week row + redundant Wed-only short row)', () => {
+    const shiftsForDay = [
+      {
+        employee_id: emp,
+        start_time_utc: '13:00:00',
+        end_time_utc: '23:00:00',
+        days_of_week: [0, 1, 2, 3, 4, 5, 6],
+      },
+      {
+        employee_id: emp,
+        start_time_utc: '13:00:00',
+        end_time_utc: '16:00:00',
+        days_of_week: [3],
+      },
+    ];
+    const out = mergeEffectiveShiftsForCalendarDay(shiftsForDay, wed);
+    expect(out).toHaveLength(1);
+    expect(out[0].start_time_utc).toBe('13:00:00');
+    expect(out[0].end_time_utc).toBe('23:00:00');
+  });
+
+  it('keeps disjoint intervals as separate rows', () => {
+    const shiftsForDay = [
+      {
+        employee_id: emp,
+        start_time_utc: '09:00:00',
+        end_time_utc: '12:00:00',
+        days_of_week: [3],
+      },
+      {
+        employee_id: emp,
+        start_time_utc: '14:00:00',
+        end_time_utc: '18:00:00',
+        days_of_week: [3],
+      },
+    ];
+    const out = mergeEffectiveShiftsForCalendarDay(shiftsForDay, wed);
+    expect(out).toHaveLength(2);
   });
 });

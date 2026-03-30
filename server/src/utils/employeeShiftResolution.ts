@@ -93,3 +93,83 @@ export function buildEffectiveEmployeeShifts(options: {
 
   return effectiveShifts;
 }
+
+const MINUTES_PER_DAY = 24 * 60;
+
+function timeStrToMinutes(t: string): number {
+  const parts = (t || '00:00:00').slice(0, 8).split(':').map(Number);
+  return (parts[0] || 0) * 60 + (parts[1] || 0);
+}
+
+function minutesToTimeStr(mins: number): string {
+  const normalized = ((mins % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+  const h = Math.floor(normalized / 60);
+  const m = normalized % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+}
+
+/**
+ * For one calendar day, merge overlapping/adjacent same-day intervals per employee.
+ * Fixes split configs: e.g. branch row "Sun–Tue, Thu–Sat 13:00–23:00" + row "Wed 13:00–16:00"
+ * becomes a single 13:00–23:00 window on Wed when both rows apply (union), not only the short row.
+ * Overnight shifts (end <= start on the clock) are passed through without merging.
+ */
+export function mergeEffectiveShiftsForCalendarDay(
+  shiftsForDay: EffectiveShift[],
+  dayOfWeek: number
+): EffectiveShift[] {
+  if (shiftsForDay.length <= 1) return shiftsForDay;
+
+  const byEmployee = new Map<string, EffectiveShift[]>();
+  for (const s of shiftsForDay) {
+    if (!byEmployee.has(s.employee_id)) byEmployee.set(s.employee_id, []);
+    byEmployee.get(s.employee_id)!.push(s);
+  }
+
+  const out: EffectiveShift[] = [];
+
+  for (const [eid, list] of byEmployee) {
+    if (list.length === 1) {
+      out.push(list[0]);
+      continue;
+    }
+
+    const overnight: EffectiveShift[] = [];
+    const intervals: { start: number; end: number }[] = [];
+
+    for (const s of list) {
+      const sm = timeStrToMinutes(s.start_time_utc);
+      const em = timeStrToMinutes(s.end_time_utc);
+      if (em <= sm) {
+        overnight.push(s);
+        continue;
+      }
+      intervals.push({ start: sm, end: em });
+    }
+
+    intervals.sort((a, b) => a.start - b.start);
+    const merged: { start: number; end: number }[] = [];
+    for (const iv of intervals) {
+      const last = merged[merged.length - 1];
+      if (!last || iv.start > last.end) {
+        merged.push({ ...iv });
+      } else {
+        last.end = Math.max(last.end, iv.end);
+      }
+    }
+
+    for (const m of merged) {
+      out.push({
+        employee_id: eid,
+        start_time_utc: minutesToTimeStr(m.start),
+        end_time_utc: minutesToTimeStr(m.end),
+        days_of_week: [dayOfWeek],
+      });
+    }
+    for (const s of overnight) {
+      out.push(s);
+    }
+  }
+
+  return out;
+}

@@ -12,7 +12,7 @@ import {
 import { formatTimeTo12Hour } from '../utils/timeFormat';
 import { getPermissionsForUserByUserId } from '../permissions.js';
 import { resolveBookingTagForCreate } from '../services/tagPricingResolve.js';
-import { buildEffectiveEmployeeShifts, type EffectiveShift } from '../utils/employeeShiftResolution';
+import { buildEffectiveEmployeeShifts, mergeEffectiveShiftsForCalendarDay, type EffectiveShift } from '../utils/employeeShiftResolution';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -1028,7 +1028,9 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       empShifts: empShifts || [],
     });
 
-    const shiftsForDay = effectiveShifts.filter((es: EffectiveShift) => es.days_of_week.includes(dayOfWeek));
+    let shiftsForDay = effectiveShifts.filter((es: EffectiveShift) => es.days_of_week.includes(dayOfWeek));
+    // Union overlapping windows when multiple branch/custom rows apply the same day (e.g. Mon–Sun long + redundant Wed-only short).
+    shiftsForDay = mergeEffectiveShiftsForCalendarDay(shiftsForDay, dayOfWeek);
     if (shiftsForDay.length === 0) {
       const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
       logger.warn('ensure-employee-based-slots: no shifts for this day of week', { serviceId, dateStr, dayOfWeek, dayName: dayNames[dayOfWeek], effectiveShiftsCount: effectiveShifts.length });
