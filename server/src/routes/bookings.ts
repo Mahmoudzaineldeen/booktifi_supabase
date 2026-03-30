@@ -12,6 +12,7 @@ import {
 import { formatTimeTo12Hour } from '../utils/timeFormat';
 import { getPermissionsForUserByUserId } from '../permissions.js';
 import { resolveBookingTagForCreate } from '../services/tagPricingResolve.js';
+import { buildEffectiveEmployeeShifts, type EffectiveShift } from '../utils/employeeShiftResolution';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -990,29 +991,18 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       return res.json({ shiftIds: [virtualShiftId] });
     }
 
-    // Normalize days_of_week: PostgreSQL can return array or string like "{0,1,2,3,4,5,6}"
-    const toDaysArray = (d: any): number[] => {
-      if (Array.isArray(d)) return d.map((x: any) => Number(x)).filter((n: number) => !Number.isNaN(n) && n >= 0 && n <= 6);
-      if (typeof d === 'string') return d.replace(/[{}]/g, '').split(',').map((x: string) => Number(x.trim())).filter((n: number) => !Number.isNaN(n) && n >= 0 && n <= 6);
-      return [];
-    };
-    const toTimeStr = (t: any): string => {
-      if (t == null) return '00:00:00';
-      const s = String(t);
-      if (s.length >= 8) return s.slice(0, 8);
-      if (s.length === 5) return `${s}:00`;
-      return s;
-    };
-
-    // Fetch employee_shifts (custom shifts) for all available employees
+    // Fetch employee_shifts (custom) for all available employees — when present, they override branch_shifts (see branch_shifts migration).
     const { data: empShifts, error: empShiftsError } = await supabase
       .from('employee_shifts')
       .select('id, employee_id, start_time_utc, end_time_utc, days_of_week')
       .eq('tenant_id', tenantId)
       .in('employee_id', availableEmployeeIds)
       .eq('is_active', true);
+    if (empShiftsError) {
+      logger.error('ensure-employee-based-slots: employee_shifts fetch', empShiftsError);
+      return res.status(500).json({ error: empShiftsError.message });
+    }
 
-    // Employees with a branch use ONLY branch default shifts (no custom). Employees without a branch use custom employee_shifts.
     const employeesWithBranch = availableEmployeeIds.filter((eid: string) => Boolean(employeeBranchId.get(eid)));
     const branchIds = [...new Set(employeesWithBranch.map((eid: string) => employeeBranchId.get(eid)).filter(Boolean))];
     let branchShiftsList: any[] = [];
@@ -1022,7 +1012,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
         .select('id, branch_id, days_of_week, start_time, end_time')
         .in('branch_id', branchIds);
       branchShiftsList = bShifts || [];
-      logger.info('ensure-employee-based-slots: applying branch default shifts', {
+      logger.info('ensure-employee-based-slots: resolving shifts (custom overrides branch when present)', {
         serviceId,
         dateStr,
         employeesWithBranch: employeesWithBranch.length,
@@ -1031,38 +1021,12 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       });
     }
 
-    type EffectiveShift = { employee_id: string; start_time_utc: string; end_time_utc: string; days_of_week: number[] };
-    const effectiveShifts: EffectiveShift[] = [];
-    for (const eid of availableEmployeeIds) {
-      const branchId = employeeBranchId.get(eid);
-      if (branchId) {
-        for (const bs of branchShiftsList) {
-          if (bs.branch_id !== branchId) continue;
-          const days = toDaysArray(bs.days_of_week);
-          if (days.length === 0) continue;
-          effectiveShifts.push({
-            employee_id: eid,
-            start_time_utc: toTimeStr(bs.start_time),
-            end_time_utc: toTimeStr(bs.end_time),
-            days_of_week: days,
-          });
-        }
-      }
-      const customShifts = (empShifts || []).filter((s: any) => s.employee_id === eid);
-      for (const es of customShifts) {
-        const days = toDaysArray(es.days_of_week);
-        if (days.length === 0) continue;
-        effectiveShifts.push({
-          employee_id: eid,
-          start_time_utc: toTimeStr(es.start_time_utc),
-          end_time_utc: toTimeStr(es.end_time_utc),
-          days_of_week: days,
-        });
-      }
-      if (!branchId && customShifts.length === 0) {
-        // employee without branch and no custom shifts: no slots
-      }
-    }
+    const effectiveShifts: EffectiveShift[] = buildEffectiveEmployeeShifts({
+      availableEmployeeIds,
+      employeeBranchId,
+      branchShiftsList,
+      empShifts: empShifts || [],
+    });
 
     const shiftsForDay = effectiveShifts.filter((es: EffectiveShift) => es.days_of_week.includes(dayOfWeek));
     if (shiftsForDay.length === 0) {

@@ -93,7 +93,19 @@ enhance this prompt and ensure to apply this changes in a compatible way with ou
                                                                       
 done make a tag mechanism so the admin can name a tag and add option of extra fees where he name the fee and its value and add option to assign it to service or more services and each service can be assigned to multi tags and the is a tag called default that has no fees when the receptionist is making a booking or the admin he must choose the tag before creating the booking so the fee is added to the service value and there is a description for each fee and add  ensure all edits takes its affect on the role managements system(all the previous created services is assigned to default tag) enhance this prompts and ensure to apply this changes in a compatible way with our project
 
-quick fixes when loginas from superadmin to employee in dont work as excpected
+quick fixes when login as from superadmin to employee in don't work as excepted
 in reports there are unpaid that shows as paid in customer more details
+
+in tags add time this means if we created a tag we can add time so if the service is 60 min we can add transaction time 60 so when we create the booking with a service that is will be 120 min so the employee is not available for 2 shifts if for this service 
+
+add gride view for bookings in the receptionist page 
+
+add date filter in search in bookings
+
+make the services 1 hours
+
+give the ability to book two or more services at same booking
+
+set option when create a booking we need to add option to consume from package or not
 
 integrate with daftara
