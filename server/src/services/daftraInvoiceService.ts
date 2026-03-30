@@ -267,26 +267,15 @@ async function resolveDaftraInvoiceStoreId(
 
 function buildDaftraInvoiceNotes(u: UnifiedBookingInvoice): string {
   const c = u.context;
+  // Keep Daftra note compact and customer-facing so printed invoices stay clean.
   const parts = [
-    u.notes,
-    '',
-    '--- Structured invoice data ---',
-    `Internal invoice ref: ${c.internal_invoice_ref}`,
     `Booking ID: ${c.booking_id}`,
-    c.package_id ? `Package ID: ${c.package_id}` : null,
-    c.package_name ? `Package name: ${c.package_name}` : null,
-    c.package_remaining_note,
     `Payment: ${c.payment_summary}`,
-    `Service date: ${c.slot_date || '—'}`,
+    c.slot_date ? `Date: ${c.slot_date}` : null,
     c.slot_time_range ? `Time: ${c.slot_time_range}` : null,
-    c.duration_minutes != null ? `Duration (minutes): ${c.duration_minutes}` : null,
     c.employee_name ? `Staff: ${c.employee_name}` : null,
     c.branch_name ? `Branch: ${c.branch_name}` : null,
-    c.branch_address ? `Location: ${c.branch_address}` : null,
-    c.offer_label ? `Offer / tag: ${c.offer_label}` : null,
-    '',
-    'QR payload (same structure as ticket PDF):',
-    c.qr_data_json,
+    c.offer_label ? `Offer: ${c.offer_label}` : null,
   ];
   return parts.filter((x) => x != null && x !== '').join('\n');
 }

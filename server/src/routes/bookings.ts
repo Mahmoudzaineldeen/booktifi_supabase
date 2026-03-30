@@ -4198,11 +4198,12 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
     const perms = await getPermissionsForUserByUserId(supabase, userId);
     const isCancelling = updateData && (updateData.status === 'cancelled' || (typeof updateData.status === 'string' && updateData.status.trim() === 'cancelled'));
     const onlyConfirming = req.user!.role === 'coordinator' && updateData && Object.keys(updateData).filter(k => !['status', 'updated_at', 'status_changed_at'].includes(k)).length === 0 && updateData.status === 'confirmed';
+    const onlyEmployeeCompleting = req.user!.role === 'employee' && updateData && Object.keys(updateData).filter(k => !['status', 'updated_at', 'status_changed_at'].includes(k)).length === 0 && updateData.status === 'completed';
     if (isCancelling) {
       if (!perms.includes('cancel_booking') && !perms.includes('manage_bookings')) {
         return res.status(403).json({ error: 'You do not have permission to cancel bookings.' });
       }
-    } else if (!onlyConfirming) {
+    } else if (!onlyConfirming && !onlyEmployeeCompleting) {
       if (!perms.includes('edit_booking') && !perms.includes('manage_bookings')) {
         return res.status(403).json({ error: 'You do not have permission to edit bookings.' });
       }
