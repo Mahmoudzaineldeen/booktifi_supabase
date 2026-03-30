@@ -5714,7 +5714,7 @@ export function ReceptionPage() {
                         });
                       })()
                     ) : (
-                      // For manual mode: show slots for selected employee only. Show only the earliest slot so user sees 1 option.
+                      // Manual mode: all times for the selected employee (same idea as tenant BookingsPage).
                       (() => {
                         const byEmployee = slots
                           .filter(slot => slot.employee_id === selectedEmployee && !selectedSlots.some(s => s.slot_id === slot.id));
@@ -5726,23 +5726,20 @@ export function ReceptionPage() {
                           }
                           timeSlotMap.get(timeKey)!.push(slot);
                         });
-                        let entries = Array.from(timeSlotMap.entries());
-                        // In manual mode with one employee selected: show only the earliest slot (one option)
-                        if (entries.length > 1) {
-                          entries = entries.sort((a, b) => {
-                            const startA = a[1][0]?.start_time ?? '';
-                            const startB = b[1][0]?.start_time ?? '';
-                            return startA.localeCompare(startB);
-                          });
-                          entries = [entries[0]];
-                        }
+                        let entries = Array.from(timeSlotMap.entries()).sort((a, b) => {
+                          const startA = a[1][0]?.start_time ?? '';
+                          const startB = b[1][0]?.start_time ?? '';
+                          return startA.localeCompare(startB);
+                        });
 
                         return entries.map(([timeKey, groupedSlots]) => {
-                          const slot = groupedSlots[0];
+                          const uniqueGrouped = groupedSlots.filter((s, i, arr) => arr.findIndex((x) => x.id === s.id) === i);
+                          const slot = uniqueGrouped[0];
+                          const totalAvailable = uniqueGrouped.reduce((sum, s) => sum + (s.available_capacity ?? 0), 0);
 
                           return (
                             <button
-                              key={slot.id}
+                              key={timeKey}
                               type="button"
                               onClick={(e) => handleSlotClick(slot, e)}
                               onContextMenu={(e) => {
@@ -5753,7 +5750,7 @@ export function ReceptionPage() {
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span className="font-medium">{formatTimeTo12Hour(slot.start_time)}</span>
-                                <span className="text-xs">{t('reception.spotsLeftCount', { count: slot.available_capacity })}</span>
+                                <span className="text-xs">{t('reception.spotsLeftCount', { count: totalAvailable })}</span>
                               </div>
                             </button>
                           );

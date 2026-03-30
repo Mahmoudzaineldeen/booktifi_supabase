@@ -1,10 +1,15 @@
 /**
  * Resolves which working hours apply per employee for employee-based slot generation.
  *
- * Matches supabase/migrations/20260221120000_branch_shifts.sql:
- * — If the employee has any custom employee_shifts → use only those (override branch defaults).
- * — Otherwise, if they have a branch → use that branch's branch_shifts.
- * — Otherwise no inherited shifts (employee has no branch and no custom rows).
+ * — If the employee has a branch → include that branch's branch_shifts.
+ * — If the employee has custom employee_shifts → include those too.
+ * — mergeEffectiveShiftsForCalendarDay() then merges per calendar day (union overlapping windows,
+ *   drop same-day rows subsumed by overnight, etc.).
+ *
+ * When both exist, branch + custom are combined so a stray partial custom row (e.g. Wed-only 13:00–16:00)
+ * does not hide full branch hours (13:00–midnight). To restrict an employee to shorter hours than the
+ * branch on the same weekdays, use only employee_shifts and clear branch_id (or align data so custom
+ * is the sole source of truth).
  */
 
 export type EffectiveShift = {
@@ -65,18 +70,18 @@ export function buildEffectiveEmployeeShifts(options: {
     const branchId = employeeBranchId.get(eid);
     const customShifts = list.filter((s) => s.employee_id === eid);
 
-    if (customShifts.length > 0) {
-      for (const es of customShifts) {
-        const days = toDaysArray(es.days_of_week);
-        if (days.length === 0) continue;
-        effectiveShifts.push({
-          employee_id: eid,
-          start_time_utc: toTimeStr(es.start_time_utc),
-          end_time_utc: toTimeStr(es.end_time_utc),
-          days_of_week: days,
-        });
-      }
-    } else if (branchId) {
+    for (const es of customShifts) {
+      const days = toDaysArray(es.days_of_week);
+      if (days.length === 0) continue;
+      effectiveShifts.push({
+        employee_id: eid,
+        start_time_utc: toTimeStr(es.start_time_utc),
+        end_time_utc: toTimeStr(es.end_time_utc),
+        days_of_week: days,
+      });
+    }
+
+    if (branchId) {
       for (const bs of branchShiftsList) {
         if (bs.branch_id !== branchId) continue;
         const days = toDaysArray(bs.days_of_week);

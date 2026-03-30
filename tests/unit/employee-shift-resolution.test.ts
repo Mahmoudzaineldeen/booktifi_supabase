@@ -1,6 +1,6 @@
 /**
- * Server util: custom employee_shifts must override branch_shifts (not merge).
- * Merging caused short windows (e.g. 13:00–16:00 custom + full branch) to dominate or duplicate slot rows.
+ * Server util: branch_shifts and employee_shifts are both included when present;
+ * mergeEffectiveShiftsForCalendarDay unions overlapping windows per day.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -36,7 +36,7 @@ describe('buildEffectiveEmployeeShifts', () => {
     });
   });
 
-  it('uses only custom employee_shifts when present (overrides branch — no merge)', () => {
+  it('includes both custom and branch rows when both exist (merge step unions same day)', () => {
     const out = buildEffectiveEmployeeShifts({
       availableEmployeeIds: [emp1],
       employeeBranchId: new Map([[emp1, branchId]]),
@@ -57,9 +57,15 @@ describe('buildEffectiveEmployeeShifts', () => {
         },
       ],
     });
-    expect(out).toHaveLength(1);
-    expect(out[0].end_time_utc).toBe('16:00:00');
-    expect(out[0].start_time_utc).toBe('13:00:00');
+    expect(out).toHaveLength(2);
+    const customs = out.filter((r) => r.end_time_utc === '16:00:00');
+    const branches = out.filter((r) => r.end_time_utc === '23:00:00');
+    expect(customs).toHaveLength(1);
+    expect(branches).toHaveLength(1);
+    const merged = mergeEffectiveShiftsForCalendarDay(out, 3);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].start_time_utc).toBe('13:00:00');
+    expect(merged[0].end_time_utc).toBe('23:00:00');
   });
 
   it('uses custom when employee has no branch', () => {
