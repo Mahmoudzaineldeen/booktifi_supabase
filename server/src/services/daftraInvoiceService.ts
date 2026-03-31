@@ -37,6 +37,8 @@ export type DaftraTenantSettings = {
   pdf_oauth_username?: string;
 };
 
+const DEFAULT_DAFTRA_INVOICE_LAYOUT_ID = 4375361;
+
 function normalizeSubdomain(raw: string): string {
   let s = raw.trim().toLowerCase().replace(/^https?:\/\//, '');
   s = s.replace(/\.daftra\.com.*$/i, '');
@@ -452,6 +454,9 @@ async function createDaftraInvoice(
 ): Promise<number> {
   const storeId = await resolveDaftraInvoiceStoreId(settings, tenantId);
   const base = apiBase(settings.subdomain);
+  const invoiceLayoutId = Number.isFinite(settings.invoice_layout_id)
+    ? Number(settings.invoice_layout_id)
+    : DEFAULT_DAFTRA_INVOICE_LAYOUT_ID;
   const items = u.line_items.map((li) => ({
     product_id: settings.default_product_id,
     // Daftra standard item table fields.
@@ -469,7 +474,7 @@ async function createDaftraInvoice(
     Invoice: {
       client_id: clientId,
       store_id: storeId,
-      ...(Number.isFinite(settings.invoice_layout_id) ? { invoice_layout_id: settings.invoice_layout_id } : {}),
+      invoice_layout_id: invoiceLayoutId,
       currency_code: u.currency_code,
       date: u.date,
       draft: 0,
@@ -577,30 +582,62 @@ async function buildDaftraInvoicePdfFromApiBody(
     if (!Number.isFinite(n)) return String(v);
     return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   };
+  const fmtCurrency = (v: unknown) => {
+    const n = typeof v === 'number' ? v : parseFloat(String(v ?? '0'));
+    if (!Number.isFinite(n)) return '0.00';
+    if (Math.abs(n) < 0.000001) return '0.00';
+    if (Math.abs(n % 1) < 0.000001) return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
 
-  doc.fontSize(18).text('Invoice', { align: 'center' });
-  doc.fontSize(13).text(client?.business_info_1 || subdomain, { align: 'center' });
-  doc.moveDown(0.4);
-  const companyLine1 = invoice?.company_name || client?.business_name || '';
-  const companyLine2 = [invoice?.company_address1, invoice?.company_city].filter(Boolean).join(', ');
-  if (companyLine1) doc.fontSize(9).text(String(companyLine1), { align: 'center' });
-  if (companyLine2) doc.fontSize(9).text(String(companyLine2), { align: 'center' });
+  const toStr = (v: unknown): string => (v == null ? '' : String(v).trim());
+  const companyRegister =
+    toStr(invoice?.company_register) ||
+    toStr(invoice?.company_registration_no) ||
+    toStr(invoice?.company_vat_no) ||
+    toStr(client?.business_info_1) ||
+    toStr(subdomain);
+  const companyAddress = [toStr(invoice?.company_address1), toStr(invoice?.company_address2), toStr(invoice?.company_city)]
+    .filter(Boolean)
+    .join(' ');
+  const customerName =
+    toStr(client?.business_name) ||
+    toStr(client?.name) ||
+    [toStr(invoice?.client_first_name), toStr(invoice?.client_last_name)].filter(Boolean).join(' ') ||
+    toStr(invoice?.client_business_name);
+  const customerNameAlt = toStr(client?.name_ar) || customerName;
+
+  doc.fontSize(22).text('Invoice', { align: 'center' });
+  doc.moveDown(0.15);
+  doc.fontSize(16).text(toStr(client?.business_info_1) || toStr(subdomain), { align: 'center' });
+  doc.moveDown(0.15);
+  doc.fontSize(11).text(`Company Register: ${companyRegister || '—'}`, { align: 'center' });
+  if (companyAddress) {
+    doc.fontSize(10).text(companyAddress, { align: 'center' });
+  }
   doc.moveDown(1.1);
+  if (customerName) {
+    doc.fontSize(14).text(customerName, 24, doc.y);
+    if (customerNameAlt) {
+      doc.fontSize(14).text(customerNameAlt, 24, doc.y + 2);
+    }
+    doc.moveDown(0.9);
+  }
 
-  doc.fontSize(10).text(`Invoice No`, 22, doc.y);
-  doc.text(String(invoice?.no ?? invoiceId), 130, doc.y - 11);
-  doc.text(`Invoice Date`, 22, doc.y + 2);
-  doc.text(String(invoice?.date ?? '—'), 130, doc.y - 11);
-  doc.moveDown(1.2);
+  doc.fontSize(13).font(fontPath || 'Helvetica-Bold').text(`Invoice No`, 24, doc.y);
+  doc.font(fontPath || 'Helvetica').text(String(invoice?.no ?? invoiceId), 116, doc.y - 15);
+  doc.font(fontPath || 'Helvetica-Bold').text(`Invoice Date`, 24, doc.y + 2);
+  doc.font(fontPath || 'Helvetica').text(String(invoice?.date ?? '—'), 116, doc.y - 15);
+  doc.moveDown(0.95);
 
   const tableLeft = 18;
   const totalWidth = 266;
   const col = {
-    item: 80,
-    desc: 84,
-    qty: 28,
-    price: 36,
-    subtotal: 38,
+    item: 68,
+    desc: 80,
+    qty: 30,
+    price: 38,
+    subtotal: 50,
   };
   let y = doc.y;
   doc.rect(tableLeft, y, totalWidth, 24).lineWidth(1).stroke('#111');
@@ -609,7 +646,7 @@ async function buildDaftraInvoicePdfFromApiBody(
     x += w;
     doc.moveTo(x, y).lineTo(x, y + 24).stroke('#111');
   }
-  doc.fontSize(10).fillColor('#000');
+  doc.font(fontPath || 'Helvetica').fontSize(10).fillColor('#000');
   doc.text('Item name', tableLeft + 4, y + 7, { width: col.item - 8 });
   doc.text('Description', tableLeft + col.item + 4, y + 7, { width: col.desc - 8 });
   doc.text('Qty', tableLeft + col.item + col.desc + 4, y + 7, { width: col.qty - 8, align: 'center' });
@@ -630,7 +667,7 @@ async function buildDaftraInvoicePdfFromApiBody(
       doc.moveTo(vx, y).lineTo(vx, y + rowH).stroke('#111');
     }
     doc.fontSize(11).text(String(line.item || line.name || line.product_name || 'Item'), tableLeft + 4, y + 8, { width: col.item - 8 });
-    doc.fontSize(10).text(String(line.description || ''), tableLeft + col.item + 4, y + 8, { width: col.desc - 8 });
+    doc.fontSize(11).text(String(line.description || ''), tableLeft + col.item + 4, y + 8, { width: col.desc - 8 });
     doc.fontSize(10).text(String(qty), tableLeft + col.item + col.desc + 4, y + 8, { width: col.qty - 8, align: 'center' });
     doc.fontSize(10).text(fmt(unit), tableLeft + col.item + col.desc + col.qty + 4, y + 8, { width: col.price - 8, align: 'center' });
     doc.fontSize(10).text(fmt(sub), tableLeft + col.item + col.desc + col.qty + col.price + 2, y + 8, { width: col.subtotal - 4, align: 'center' });
@@ -638,20 +675,25 @@ async function buildDaftraInvoicePdfFromApiBody(
   }
 
   const summaryRows = [
-    ['Items Total', fmt(invoice?.summary_subtotal ?? invoice?.summary_total)],
-    ['Total', fmt(invoice?.summary_total)],
-    ['Paid', fmt(invoice?.summary_paid ?? 0)],
-    ['Balance Due', fmt(invoice?.summary_unpaid ?? invoice?.summary_total ?? 0)],
+    ['Items Total', fmtCurrency(invoice?.summary_subtotal ?? invoice?.summary_total)],
+    ['Total', fmtCurrency(invoice?.summary_total)],
+    ['Paid', fmtCurrency(invoice?.summary_paid ?? 0)],
+    ['Balance Due', fmtCurrency(invoice?.summary_unpaid ?? invoice?.summary_total ?? 0)],
   ];
   for (const [label, value] of summaryRows) {
     const rowH = 34;
+    if (label === 'Total') {
+      doc.save();
+      doc.rect(tableLeft, y, totalWidth, rowH).fill('#eef0f2');
+      doc.restore();
+    }
     doc.rect(tableLeft, y, totalWidth, rowH).lineWidth(1).stroke('#111');
-    doc.fontSize(13).text(label, tableLeft + 8, y + 10, { width: 150 });
-    doc.fontSize(13).text(`﷼ ${value}`, tableLeft + 170, y + 10, { width: 90, align: 'right' });
+    doc.font(fontPath || 'Helvetica-Bold').fontSize(13).text(label, tableLeft + 8, y + 10, { width: 150 });
+    doc.font(fontPath || 'Helvetica').fontSize(13).text(`﷼ ${value}`, tableLeft + 170, y + 10, { width: 90, align: 'right' });
     y += rowH;
   }
 
-  y += 10;
+  y += 12;
   const cust =
     client?.business_name ||
     client?.name ||
@@ -659,8 +701,10 @@ async function buildDaftraInvoicePdfFromApiBody(
     invoice?.client_business_name ||
     '—';
   const notesText = String(invoice?.notes || '').trim();
-  doc.fontSize(12);
-  if (notesText) doc.text(notesText, tableLeft, y, { width: totalWidth });
+  doc.font(fontPath || 'Helvetica').fontSize(12);
+  if (notesText) {
+    doc.text(notesText, tableLeft + 2, y, { width: totalWidth - 4, lineGap: 2 });
+  }
 
   const bookingIdMatch = notesText.match(/Booking ID:\s*([^\n]+)/i);
   const qrPayload = bookingIdMatch
@@ -668,8 +712,8 @@ async function buildDaftraInvoicePdfFromApiBody(
     : JSON.stringify({ invoice_id: String(invoice?.no ?? invoiceId), client: cust || '—', amount: invoice?.summary_total ?? 0 });
   try {
     const qr = await QRCode.toBuffer(qrPayload, { type: 'png', width: 220, margin: 1 });
-    const qrY = Math.min(doc.y + 10, doc.page.height - 240);
-    doc.image(qr, tableLeft + 20, qrY, { fit: [220, 220], align: 'center' });
+    const qrY = Math.min(doc.y + 10, doc.page.height - 190);
+    doc.image(qr, tableLeft + 48, qrY, { fit: [170, 170], align: 'center' });
   } catch {
     /* keep PDF generation resilient */
   }

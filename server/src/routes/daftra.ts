@@ -63,6 +63,7 @@ router.get('/invoices/:invoiceId/download', async (req, res) => {
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
     res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('X-Invoice-Source', 'bookati-local-generator');
     res.setHeader('Content-Disposition', `attachment; filename="daftra-invoice-${invoiceId}.pdf"`);
     res.setHeader('Content-Length', pdfBuffer.length.toString());
     res.send(pdfBuffer);
