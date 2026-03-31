@@ -452,6 +452,27 @@ async function createDaftraInvoice(
 ): Promise<number> {
   const storeId = await resolveDaftraInvoiceStoreId(settings, tenantId);
   const base = apiBase(settings.subdomain);
+  let validProductId: number | null = null;
+  if (Number.isFinite(settings.default_product_id) && settings.default_product_id > 0) {
+    try {
+      const productProbe = await axios.get(`${base}/products/${settings.default_product_id}.json`, {
+        headers: daftraAuthHeaders(settings.api_token),
+        validateStatus: () => true,
+        timeout: 10000,
+      });
+      if (productProbe.status === 200) {
+        validProductId = settings.default_product_id;
+      } else {
+        console.warn(
+          `[DaftraInvoice] default_product_id=${settings.default_product_id} is invalid for this tenant (status ${productProbe.status}); sending line items without product_id`
+        );
+      }
+    } catch {
+      console.warn(
+        `[DaftraInvoice] Could not verify default_product_id=${settings.default_product_id}; sending line items without product_id`
+      );
+    }
+  }
   const items = u.line_items
     .map((li) => {
       const qty = Number(li.quantity ?? 0);
@@ -460,7 +481,7 @@ async function createDaftraInvoice(
         return null;
       }
       return {
-        product_id: settings.default_product_id,
+        ...(validProductId ? { product_id: validProductId } : {}),
         // Daftra standard item table fields.
         item: (li.name || 'Item').slice(0, 255),
         description: (li.description || '').toString().slice(0, 255),
@@ -501,6 +522,9 @@ async function createDaftraInvoice(
       client_state: '',
       client_postal_code: '',
       client_country_code: (settings.country_code || 'SA').slice(0, 3),
+      // Compatibility: some Daftra tenants parse items from nested Invoice.InvoiceItem.
+      // We still send top-level InvoiceItem below (documented shape) for other tenants.
+      InvoiceItem: items,
     },
     InvoiceItem: items,
   };
@@ -518,6 +542,34 @@ async function createDaftraInvoice(
     return Number(id);
   }
   throw new Error(`Daftra invoice failed (${res.status}): ${JSON.stringify(res.data)}`);
+}
+
+async function hasBillableContentInDaftraInvoice(
+  settings: DaftraTenantSettings,
+  invoiceId: number
+): Promise<boolean> {
+  try {
+    const res = await axios.get(`${apiBase(settings.subdomain)}/invoices/${invoiceId}.json`, {
+      headers: daftraAuthHeaders(settings.api_token),
+      validateStatus: (s) => s === 200,
+      timeout: 20000,
+    });
+    const { invoice, items } = normalizeDaftraInvoiceRecord(res.data);
+    const total = Number(invoice?.summary_total ?? 0);
+    if (Number.isFinite(total) && total > 0) return true;
+    if (!Array.isArray(items) || items.length === 0) return false;
+    const computed = items.reduce((sum, line) => {
+      const qty = Number((line as any)?.quantity ?? (line as any)?.qty ?? 0);
+      const unit = Number((line as any)?.unit_price ?? (line as any)?.price ?? 0);
+      const sub = Number((line as any)?.subtotal ?? (line as any)?.total ?? qty * unit);
+      const value = Number.isFinite(sub) ? sub : Number.isFinite(qty * unit) ? qty * unit : 0;
+      return sum + value;
+    }, 0);
+    return Number.isFinite(computed) && computed > 0;
+  } catch {
+    // If we cannot verify current invoice content, keep existing id to avoid duplicates.
+    return true;
+  }
 }
 
 function mapBookingPaymentMethodToDaftra(method?: string | null): string {
@@ -539,45 +591,18 @@ async function markDaftraInvoicePaid(params: {
   const { settings, invoiceId, amount, paymentMethod, transactionReference, paidAtIso } = params;
   const roundedAmount = Math.round(Number(amount || 0) * 100) / 100;
   if (!Number.isFinite(roundedAmount) || roundedAmount <= 0) return;
-
-  const base = apiBase(settings.subdomain);
-  const paidAt = new Date(paidAtIso || Date.now());
-  const fmtDate = `${paidAt.getFullYear()}-${String(paidAt.getMonth() + 1).padStart(2, '0')}-${String(paidAt.getDate()).padStart(2, '0')} ${String(
-    paidAt.getHours()
-  ).padStart(2, '0')}:${String(paidAt.getMinutes()).padStart(2, '0')}:${String(paidAt.getSeconds()).padStart(2, '0')}`;
-
-  const body = {
-    Payment: [
-      {
-        payment_method: mapBookingPaymentMethodToDaftra(paymentMethod),
-        amount: roundedAmount,
-        transaction_id: (transactionReference || '').toString().slice(0, 100) || undefined,
-        date: fmtDate,
-        staff_id: 0,
-      },
-    ],
-  };
-
-  const res = await axios.put(`${base}/invoices/${invoiceId}.json`, body, {
-    headers: {
-      ...daftraAuthHeaders(settings.api_token),
-      'Content-Type': 'application/json',
-    },
-    validateStatus: () => true,
-    timeout: 30000,
-  });
-
-  const ok =
-    (res.status >= 200 && res.status < 300) &&
-    (
-      (typeof (res.data as any)?.result === 'string' && ['successful', 'success'].includes(String((res.data as any).result).toLowerCase())) ||
-      typeof (res.data as any)?.code === 'number' ||
-      Object.keys((res.data || {}) as Record<string, unknown>).length > 0
-    );
-
-  if (!ok) {
-    throw new Error(`Daftra mark-paid failed (${res.status}): ${JSON.stringify(res.data)}`);
-  }
+  // IMPORTANT:
+  // Daftra PUT /invoices/:id with Payment payload is destructive in this environment:
+  // it clears InvoiceItem and resets summary totals to 0. Skip this call to preserve
+  // invoice data integrity. Payment details are still preserved in invoice notes.
+  void settings;
+  void invoiceId;
+  void paymentMethod;
+  void transactionReference;
+  void paidAtIso;
+  console.warn(
+    `[DaftraInvoice] Skipping mark-paid API call to avoid clearing invoice items. amount=${roundedAmount}`
+  );
 }
 
 /** Flatten Daftra GET invoice JSON (shape varies: nested Invoice or flat `data`). */
@@ -1111,7 +1136,18 @@ export class DaftraInvoiceService {
       }
 
       if (booking.daftra_invoice_id) {
-        return { invoiceId: String(booking.daftra_invoice_id), success: true };
+        const existingInvoiceId = Number(booking.daftra_invoice_id);
+        if (Number.isFinite(existingInvoiceId)) {
+          const existingIsBillable = await hasBillableContentInDaftraInvoice(settings, existingInvoiceId);
+          if (existingIsBillable) {
+            return { invoiceId: String(booking.daftra_invoice_id), success: true };
+          }
+          console.warn(
+            `[DaftraInvoice] Existing invoice ${booking.daftra_invoice_id} has no billable content; regenerating for booking ${bookingId}`
+          );
+        } else {
+          return { invoiceId: String(booking.daftra_invoice_id), success: true };
+        }
       }
 
       const { data: paidRow } = await supabase
@@ -1174,20 +1210,42 @@ export class DaftraInvoiceService {
             transactionReference: payRef || booking.transaction_reference,
             paidAtIso: new Date().toISOString(),
           });
-          console.log(`[DaftraInvoice] Marked invoice paid id=${invoiceIdStr} amount=${totalPrice}`);
+          console.log(`[DaftraInvoice] Paid status handling completed id=${invoiceIdStr} amount=${totalPrice}`);
         } catch (e: any) {
           console.warn(`[DaftraInvoice] Could not mark invoice paid id=${invoiceIdStr}: ${e?.message}`);
         }
       }
 
-      await supabase
+      // Atomic persist: only set invoice id if it is still null.
+      // This prevents concurrent workers from overwriting a good invoice with another one.
+      const { data: persistedRows, error: persistError } = await supabase
         .from('bookings')
         .update({
           daftra_invoice_id: invoiceIdStr,
           daftra_invoice_created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
-        .eq('id', bookingId);
+        .eq('id', bookingId)
+        .is('daftra_invoice_id', null)
+        .select('id');
+
+      if (persistError) {
+        console.warn(`[DaftraInvoice] Could not persist invoice id for booking ${bookingId}: ${persistError.message}`);
+      }
+
+      if (!persistedRows || persistedRows.length === 0) {
+        const { data: latest } = await supabase
+          .from('bookings')
+          .select('daftra_invoice_id')
+          .eq('id', bookingId)
+          .maybeSingle();
+        if (latest?.daftra_invoice_id) {
+          console.warn(
+            `[DaftraInvoice] Concurrent invoice detected for booking ${bookingId}; keeping existing invoice ${latest.daftra_invoice_id}, dropping new ${invoiceIdStr}`
+          );
+          return { invoiceId: String(latest.daftra_invoice_id), success: true };
+        }
+      }
 
       const qrPng = await QRCode.toBuffer(unified.context.qr_data_json, { type: 'png', width: 320, margin: 1 });
       const pdf = await tryDownloadDaftraInvoicePdf(settings, invoiceNum, booking.tenant_id);
@@ -1308,20 +1366,44 @@ export class DaftraInvoiceService {
             paymentMethod: 'cash',
             paidAtIso: new Date().toISOString(),
           });
-          console.log(`[DaftraInvoice] Marked group invoice paid id=${invoiceIdStr} amount=${totalAmt}`);
+          console.log(`[DaftraInvoice] Group paid status handling completed id=${invoiceIdStr} amount=${totalAmt}`);
         } catch (e: any) {
           console.warn(`[DaftraInvoice] Could not mark group invoice paid id=${invoiceIdStr}: ${e?.message}`);
         }
       }
 
-      await supabase
+      // Atomic persist for group: do not overwrite already-populated invoice ids.
+      const { data: persistedGroupRows, error: persistGroupError } = await supabase
         .from('bookings')
         .update({
           daftra_invoice_id: invoiceIdStr,
           daftra_invoice_created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
-        .eq('booking_group_id', bookingGroupId);
+        .eq('booking_group_id', bookingGroupId)
+        .is('daftra_invoice_id', null)
+        .select('id, daftra_invoice_id')
+        .limit(1);
+
+      if (persistGroupError) {
+        console.warn(`[DaftraInvoice] Could not persist group invoice id for group ${bookingGroupId}: ${persistGroupError.message}`);
+      }
+
+      if (!persistedGroupRows || persistedGroupRows.length === 0) {
+        const { data: existingGroup } = await supabase
+          .from('bookings')
+          .select('daftra_invoice_id')
+          .eq('booking_group_id', bookingGroupId)
+          .not('daftra_invoice_id', 'is', null)
+          .limit(1)
+          .maybeSingle();
+        if (existingGroup?.daftra_invoice_id) {
+          console.warn(
+            `[DaftraInvoice] Concurrent group invoice detected for group ${bookingGroupId}; keeping existing invoice ${existingGroup.daftra_invoice_id}, dropping new ${invoiceIdStr}`
+          );
+          return { invoiceId: String(existingGroup.daftra_invoice_id), success: true };
+        }
+      }
 
       const uSingle = await mapBookingToUnifiedInvoice(unified.primary_booking_id).catch(() => null);
       const qrJson = uSingle?.context.qr_data_json || JSON.stringify({ booking_id: unified.primary_booking_id, type: 'booking_ticket' });
