@@ -452,17 +452,31 @@ async function createDaftraInvoice(
 ): Promise<number> {
   const storeId = await resolveDaftraInvoiceStoreId(settings, tenantId);
   const base = apiBase(settings.subdomain);
-  const items = u.line_items.map((li) => ({
-    product_id: settings.default_product_id,
-    // Daftra standard item table fields.
-    item: (li.name || 'Item').slice(0, 255),
-    description: (li.description || '').toString().slice(0, 255),
-    quantity: li.quantity,
-    unit_price: li.rate,
-    // Keep custom layout columns for templates that already bind to col_3/col_4.
-    col_3: (li.name || 'Item').slice(0, 255),
-    col_4: (li.description || '').toString().slice(0, 255),
-  }));
+  const items = u.line_items
+    .map((li) => {
+      const qty = Number(li.quantity ?? 0);
+      const unitPrice = Number(li.rate ?? 0);
+      if (!Number.isFinite(qty) || !Number.isFinite(unitPrice) || qty <= 0 || unitPrice <= 0) {
+        return null;
+      }
+      return {
+        product_id: settings.default_product_id,
+        // Daftra standard item table fields.
+        item: (li.name || 'Item').slice(0, 255),
+        description: (li.description || '').toString().slice(0, 255),
+        quantity: qty,
+        unit_price: unitPrice,
+        // Keep custom layout columns for templates that already bind to col_3/col_4.
+        col_3: (li.name || 'Item').slice(0, 255),
+        col_4: (li.description || '').toString().slice(0, 255),
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => !!x);
+
+  const computedItemsTotal = items.reduce((sum, it) => sum + Number(it.quantity || 0) * Number(it.unit_price || 0), 0);
+  if (items.length === 0 || !Number.isFinite(computedItemsTotal) || computedItemsTotal <= 0) {
+    throw new Error('Cannot create Daftra invoice: no billable line items');
+  }
 
   /** Daftra parses line items only when `InvoiceItem` is a top-level key next to `Invoice` (nested `Invoice.InvoiceItem` yields "Invoice is empty"). */
   const body = {
@@ -580,10 +594,41 @@ function normalizeDaftraInvoiceRecord(apiBody: any): {
       : data && typeof data === 'object'
         ? data
         : {};
-  const itemsRaw = invoice.InvoiceItem ?? data?.InvoiceItem;
+
+  const extractItems = (raw: any): any[] => {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw !== 'object') return [];
+    if (Array.isArray((raw as any).data)) return (raw as any).data;
+    if (Array.isArray((raw as any).items)) return (raw as any).items;
+    const vals = Object.values(raw);
+    if (vals.length > 0 && vals.every((v) => v && typeof v === 'object')) return vals as any[];
+    return [raw];
+  };
+
+  const itemCandidates = [
+    invoice?.InvoiceItem,
+    (invoice as any)?.invoice_items,
+    (invoice as any)?.items,
+    data?.InvoiceItem,
+    data?.invoice_items,
+    data?.items,
+    data?.Invoice?.InvoiceItem,
+    data?.Invoice?.invoice_items,
+    data?.Invoice?.items,
+    apiBody?.InvoiceItem,
+    apiBody?.invoice_items,
+    apiBody?.items,
+  ];
+
   let items: any[] = [];
-  if (Array.isArray(itemsRaw)) items = itemsRaw;
-  else if (itemsRaw && typeof itemsRaw === 'object') items = [itemsRaw];
+  for (const candidate of itemCandidates) {
+    const extracted = extractItems(candidate);
+    if (extracted.length > 0) {
+      items = extracted;
+      break;
+    }
+  }
   const client = (invoice.Client ?? data?.Client ?? null) as Record<string, any> | null;
   const pdfUrl =
     (typeof invoice.invoice_pdf_url === 'string' && invoice.invoice_pdf_url) ||
@@ -647,6 +692,10 @@ async function buildDaftraInvoicePdfFromApiBody(
   };
 
   const toStr = (v: unknown): string => (v == null ? '' : String(v).trim());
+  const toNum = (v: unknown): number => {
+    const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''));
+    return Number.isFinite(n) ? n : 0;
+  };
   const companyRegister =
     toStr(invoice?.company_register) ||
     toStr(invoice?.company_registration_no) ||
@@ -738,6 +787,16 @@ async function buildDaftraInvoicePdfFromApiBody(
   y += headerRowH;
 
   const lines = items.length ? items : [{ item: 'Item', description: '', quantity: 1, unit_price: 0, subtotal: 0 }];
+  const derivedItemsTotal = items.reduce((sum, line) => {
+    const qty = toNum((line as any).quantity ?? (line as any).qty ?? 0);
+    const unit = toNum((line as any).unit_price ?? (line as any).price ?? 0);
+    const sub = toNum((line as any).subtotal ?? (line as any).total ?? qty * unit);
+    return sum + sub;
+  }, 0);
+  const summarySubtotal = toNum(invoice?.summary_subtotal ?? invoice?.summary_total);
+  const summaryTotal = toNum(invoice?.summary_total);
+  const summaryPaid = toNum(invoice?.summary_paid ?? 0);
+  const summaryUnpaid = toNum(invoice?.summary_unpaid ?? invoice?.summary_total ?? 0);
   for (const line of lines) {
     const qty = Number(line.quantity ?? line.qty ?? 1);
     const unit = Number(line.unit_price ?? line.price ?? 0);
@@ -760,10 +819,10 @@ async function buildDaftraInvoicePdfFromApiBody(
   }
 
   const summaryRows = [
-    ['Items Total', fmtCurrency(invoice?.summary_subtotal ?? invoice?.summary_total)],
-    ['Total', fmtCurrency(invoice?.summary_total)],
-    ['Paid', fmtCurrency(invoice?.summary_paid ?? 0)],
-    ['Balance Due', fmtCurrency(invoice?.summary_unpaid ?? invoice?.summary_total ?? 0)],
+    ['Items Total', fmtCurrency(summarySubtotal > 0 ? summarySubtotal : derivedItemsTotal)],
+    ['Total', fmtCurrency(summaryTotal > 0 ? summaryTotal : derivedItemsTotal)],
+    ['Paid', fmtCurrency(summaryPaid)],
+    ['Balance Due', fmtCurrency(summaryUnpaid > 0 ? summaryUnpaid : Math.max(0, derivedItemsTotal - summaryPaid))],
   ];
   for (const [label, value] of summaryRows) {
     const rowH = 30;

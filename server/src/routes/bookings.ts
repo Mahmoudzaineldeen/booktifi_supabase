@@ -2508,12 +2508,44 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
     console.log(`[Booking Creation]    Phone: ${normalizedPhone || customer_phone || 'not provided'}`);
 
     // Invoice in background: set pending so UI can show "Invoice is being prepared" (worker will process)
+    // We enqueue a fallback queue job here because some deployments may still have
+    // an older DB trigger that only handles payment_status='paid' (not 'paid_manual').
     const finalPriceAfterPackage = finalTotalPrice;
     const shouldCreateInvoice = (normalizedPhone || customer_phone || customer_email) && paidQty > 0 && finalPriceAfterPackage > 0;
     const createInvoiceNow = reqPaymentStatus !== 'unpaid' && reqPaymentStatus !== 'awaiting_payment';
     if (bookingId && shouldCreateInvoice && createInvoiceNow) {
       try {
         await supabase.from('bookings').update({ invoice_processing_status: 'pending' }).eq('id', bookingId);
+        // Idempotent fallback enqueue: avoid duplicates if trigger already queued it.
+        const { data: existingPendingJob } = await supabase
+          .from('queue_jobs')
+          .select('id')
+          .eq('job_type', 'zoho_receipt')
+          .in('status', ['pending', 'processing'])
+          .contains('payload', { booking_id: bookingId })
+          .limit(1)
+          .maybeSingle();
+
+        if (!existingPendingJob) {
+          const { error: queueInsertError } = await supabase
+            .from('queue_jobs')
+            .insert({
+              job_type: 'zoho_receipt',
+              payload: {
+                booking_id: bookingId,
+                tenant_id,
+                attempt: 0,
+              },
+              status: 'pending',
+            });
+          if (queueInsertError) {
+            console.warn(`[Booking Creation] ⚠️ Failed to enqueue fallback invoice job for booking ${bookingId}:`, queueInsertError);
+          } else {
+            console.log(`[Booking Creation] ✅ Enqueued fallback invoice job for booking ${bookingId}`);
+          }
+        } else {
+          console.log(`[Booking Creation] ℹ️ Invoice job already queued for booking ${bookingId}`);
+        }
       } catch (_) { /* non-blocking */ }
     }
 

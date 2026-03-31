@@ -412,8 +412,9 @@ export async function mapBookingGroupToUnifiedInvoice(bookingGroupId: string): P
     const packageCoveredQtyForService = serviceBookings.reduce((sum, b) => sum + (b.package_covered_quantity || 0), 0);
 
     if (paidQtyForService > 0) {
-      const pricePerTicket = parseFloat(String(gsvc?.base_price || 0));
       const totalPriceForService = serviceBookings.reduce((sum, b) => sum + parseFloat(String(b.total_price || 0)), 0);
+      const pricePerTicket =
+        paidQtyForService > 0 ? Math.round((totalPriceForService / paidQtyForService) * 1000000) / 1000000 : 0;
 
       const slotInfo = serviceBookings
         .map((b) => {
