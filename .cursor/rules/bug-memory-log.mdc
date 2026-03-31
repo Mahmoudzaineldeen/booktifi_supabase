@@ -1,0 +1,24 @@
+---
+description: Keep a local bug memory log after verified fixes
+alwaysApply: true
+---
+
+# Bug Memory Log Rule
+
+When a bug is solved, do not consider it complete until it is verified.
+
+After verification, always update:
+- `.local-ai-memory/bug-reference.md`
+
+For each new bug entry, include:
+- Symptom
+- Root cause
+- Fix applied (files/migrations/endpoints)
+- Verification proof (tests or real-case check)
+- Regression guard (test/checklist)
+
+Rules:
+- Add only confirmed solved bugs (not partial or unverified).
+- Keep entries concise, actionable, and dated.
+- If a bug is reopened, append an update to the same section with what changed.
+- Do not store secrets or tokens in the bug reference file.

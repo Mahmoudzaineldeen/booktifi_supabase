@@ -32,3 +32,6 @@ server/scripts/.dev-passwords.json
 # Note: These files may contain sensitive data - ensure they don't contain production secrets
 #/.env
 #!server/.env
+
+# Local AI memory/reference notes (never commit)
+.local-ai-memory/

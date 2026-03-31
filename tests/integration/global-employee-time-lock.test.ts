@@ -157,12 +157,12 @@ describe('Global Employee Time Lock (Employee-Based mode)', () => {
   }
 
   /** Create a booking for a given slot and employee (direct insert for test control) */
-  async function createBooking(slotId: string, serviceId: string, employeeId: string): Promise<void> {
+  async function createBooking(slotId: string, serviceId: string, employeeId: string | null): Promise<void> {
     const { error } = await db.from('bookings').insert({
       tenant_id: tenantId,
       service_id: serviceId,
       slot_id: slotId,
-      employee_id: employeeId,
+      employee_id: employeeId ?? null,
       customer_name: 'Test Customer',
       customer_phone: '+966501234567',
       visitor_count: 1,
@@ -241,6 +241,50 @@ describe('Global Employee Time Lock (Employee-Based mode)', () => {
 
     expect(at9To10.some((s: any) => s.employee_id === em2Id)).toBe(true);
     expect(at9To10.some((s: any) => s.employee_id === em1Id)).toBe(false);
+  }, 20000);
+
+  // ---------------------------------------------------------------------------
+  // Test 10: Legacy shape guard — booking.employee_id = NULL, slot.employee_id set.
+  // This used to leak busy employee slots in other services on ensure/cached responses.
+  // ---------------------------------------------------------------------------
+  it('Test 10: Employee busy filter works even when booking.employee_id is NULL (cache-safe)', async () => {
+    const base = getApiBase();
+    if (!base) {
+      console.warn('Skipping: VITE_API_URL or API_URL not set.');
+      return;
+    }
+
+    await db.from('bookings').delete().eq('tenant_id', tenantId);
+
+    // Warm both services so second call exercises cache-hit response filtering too.
+    await ensureSlots(serviceMixId, testDate);
+    await ensureSlots(serviceTestTimeId, testDate);
+
+    const { data: mixSlots } = await db
+      .from('slots')
+      .select('id, employee_id')
+      .eq('tenant_id', tenantId)
+      .eq('slot_date', testDate)
+      .eq('start_time', '09:00:00')
+      .eq('end_time', '10:00:00')
+      .eq('is_available', true);
+
+    const em1Slot = mixSlots!.find((s: any) => s.employee_id === em1Id);
+    expect(em1Slot).toBeDefined();
+
+    // Insert legacy-like booking shape: employee_id null, slot still belongs to EM1.
+    await createBooking(em1Slot!.id, serviceMixId, null);
+
+    const { slots: firstResponse } = await ensureSlots(serviceTestTimeId, testDate);
+    const firstAt9To10 = slotsAt9To10(firstResponse);
+    expect(firstAt9To10.some((s: any) => s.employee_id === em1Id)).toBe(false);
+
+    const { slots: secondResponse } = await ensureSlots(serviceTestTimeId, testDate);
+    const secondAt9To10 = slotsAt9To10(secondResponse);
+    expect(secondAt9To10.some((s: any) => s.employee_id === em1Id)).toBe(false);
+
+    // Keep test isolation stable for subsequent tests.
+    await db.from('bookings').delete().eq('tenant_id', tenantId);
   }, 20000);
 
   // ---------------------------------------------------------------------------
