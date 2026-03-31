@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { showNotification } from '../../contexts/NotificationContext';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, UserCircle, Clock, Building2, Wrench, UserX, Shield, BarChart3, ChevronDown, Tag } from 'lucide-react';
+import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, Clock, Building2, Wrench, UserX, Shield, BarChart3, ChevronDown, Tag } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface TenantLayoutProps {
@@ -55,7 +55,6 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
   // Permission-based visibility: custom roles see only what their permissions allow; built-in roles get permissions from role_permissions (seeded)
   const canAccessBookings = hasPermission('create_booking') || hasPermission('edit_booking') || hasPermission('cancel_booking') || hasPermission('manage_bookings') || hasPermission('view_schedules');
   const canAccessVisitors = hasPermission('register_visitors') || hasPermission('view_schedules') || hasPermission('manage_bookings');
-  const useAdminVisitorsPath = hasAssignedRole ? hasPermission('manage_bookings') : (userProfile?.role === 'receptionist' || userProfile?.role === 'coordinator' ? false : true);
   const baseNavigation = [
     {
       name: t('navigation.home'),
@@ -116,16 +115,6 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       icon: Calendar,
       current: location.pathname.startsWith(`/${tenantSlug}/admin/bookings`),
       visible: canAccessBookings,
-    },
-    {
-      name: t('navigation.visitors', 'Visitors'),
-      href: useAdminVisitorsPath ? `/${tenantSlug}/admin/visitors` : `/${tenantSlug}/reception/reports/visitors`,
-      icon: UserCircle,
-      current:
-        location.pathname.startsWith(`/${tenantSlug}/admin/visitors`) ||
-        location.pathname.startsWith(`/${tenantSlug}/reception/reports/visitors`) ||
-        location.pathname.startsWith(`/${tenantSlug}/reception/visitors`),
-      visible: canAccessVisitors,
     },
     {
       name: t('navigation.employees'),

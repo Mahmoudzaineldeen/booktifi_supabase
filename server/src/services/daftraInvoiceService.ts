@@ -37,8 +37,6 @@ export type DaftraTenantSettings = {
   pdf_oauth_username?: string;
 };
 
-const DEFAULT_DAFTRA_INVOICE_LAYOUT_ID = 4375361;
-
 function normalizeSubdomain(raw: string): string {
   let s = raw.trim().toLowerCase().replace(/^https?:\/\//, '');
   s = s.replace(/\.daftra\.com.*$/i, '');
@@ -454,9 +452,6 @@ async function createDaftraInvoice(
 ): Promise<number> {
   const storeId = await resolveDaftraInvoiceStoreId(settings, tenantId);
   const base = apiBase(settings.subdomain);
-  const invoiceLayoutId = Number.isFinite(settings.invoice_layout_id)
-    ? Number(settings.invoice_layout_id)
-    : DEFAULT_DAFTRA_INVOICE_LAYOUT_ID;
   const items = u.line_items.map((li) => ({
     product_id: settings.default_product_id,
     // Daftra standard item table fields.
@@ -474,7 +469,7 @@ async function createDaftraInvoice(
     Invoice: {
       client_id: clientId,
       store_id: storeId,
-      invoice_layout_id: invoiceLayoutId,
+      // Do not force invoice layout here; let Daftra apply the tenant/account default template.
       currency_code: u.currency_code,
       date: u.date,
       draft: 0,
@@ -509,6 +504,66 @@ async function createDaftraInvoice(
     return Number(id);
   }
   throw new Error(`Daftra invoice failed (${res.status}): ${JSON.stringify(res.data)}`);
+}
+
+function mapBookingPaymentMethodToDaftra(method?: string | null): string {
+  const m = (method || '').toLowerCase().trim();
+  if (!m) return 'cash';
+  if (m === 'onsite' || m === 'cash' || m === 'paid_onsite') return 'cash';
+  if (m === 'bank_transfer' || m === 'transfer' || m === 'bank') return 'bank transfer';
+  return m;
+}
+
+async function markDaftraInvoicePaid(params: {
+  settings: DaftraTenantSettings;
+  invoiceId: number;
+  amount: number;
+  paymentMethod?: string | null;
+  transactionReference?: string | null;
+  paidAtIso?: string | null;
+}): Promise<void> {
+  const { settings, invoiceId, amount, paymentMethod, transactionReference, paidAtIso } = params;
+  const roundedAmount = Math.round(Number(amount || 0) * 100) / 100;
+  if (!Number.isFinite(roundedAmount) || roundedAmount <= 0) return;
+
+  const base = apiBase(settings.subdomain);
+  const paidAt = new Date(paidAtIso || Date.now());
+  const fmtDate = `${paidAt.getFullYear()}-${String(paidAt.getMonth() + 1).padStart(2, '0')}-${String(paidAt.getDate()).padStart(2, '0')} ${String(
+    paidAt.getHours()
+  ).padStart(2, '0')}:${String(paidAt.getMinutes()).padStart(2, '0')}:${String(paidAt.getSeconds()).padStart(2, '0')}`;
+
+  const body = {
+    Payment: [
+      {
+        payment_method: mapBookingPaymentMethodToDaftra(paymentMethod),
+        amount: roundedAmount,
+        transaction_id: (transactionReference || '').toString().slice(0, 100) || undefined,
+        date: fmtDate,
+        staff_id: 0,
+      },
+    ],
+  };
+
+  const res = await axios.put(`${base}/invoices/${invoiceId}.json`, body, {
+    headers: {
+      ...daftraAuthHeaders(settings.api_token),
+      'Content-Type': 'application/json',
+    },
+    validateStatus: () => true,
+    timeout: 30000,
+  });
+
+  const ok =
+    (res.status >= 200 && res.status < 300) &&
+    (
+      (typeof (res.data as any)?.result === 'string' && ['successful', 'success'].includes(String((res.data as any).result).toLowerCase())) ||
+      typeof (res.data as any)?.code === 'number' ||
+      Object.keys((res.data || {}) as Record<string, unknown>).length > 0
+    );
+
+  if (!ok) {
+    throw new Error(`Daftra mark-paid failed (${res.status}): ${JSON.stringify(res.data)}`);
+  }
 }
 
 /** Flatten Daftra GET invoice JSON (shape varies: nested Invoice or flat `data`). */
@@ -547,7 +602,8 @@ async function buildDaftraInvoicePdfFromApiBody(
   invoiceId: number
 ): Promise<Buffer> {
   const { invoice, items, client } = normalizeDaftraInvoiceRecord(apiBody);
-  const doc = new PDFDocument({ margin: 14, size: [302, 820] });
+  const page = { width: 313, height: 808 };
+  const doc = new PDFDocument({ margin: 0, size: [page.width, page.height] });
   const chunks: Buffer[] = [];
   doc.on('data', (c: Buffer) => chunks.push(c));
   const bufPromise = new Promise<Buffer>((resolve, reject) => {
@@ -607,70 +663,99 @@ async function buildDaftraInvoicePdfFromApiBody(
     toStr(invoice?.client_business_name);
   const customerNameAlt = toStr(client?.name_ar) || customerName;
 
-  doc.fontSize(22).text('Invoice', { align: 'center' });
-  doc.moveDown(0.15);
-  doc.fontSize(16).text(toStr(client?.business_info_1) || toStr(subdomain), { align: 'center' });
-  doc.moveDown(0.15);
-  doc.fontSize(11).text(`Company Register: ${companyRegister || '—'}`, { align: 'center' });
-  if (companyAddress) {
-    doc.fontSize(10).text(companyAddress, { align: 'center' });
-  }
-  doc.moveDown(1.1);
-  if (customerName) {
-    doc.fontSize(14).text(customerName, 24, doc.y);
-    if (customerNameAlt) {
-      doc.fontSize(14).text(customerNameAlt, 24, doc.y + 2);
-    }
-    doc.moveDown(0.9);
-  }
+  const tableLeft = 22;
+  const totalWidth = 268;
+  const contentWidth = page.width - tableLeft * 2;
 
-  doc.fontSize(13).font(fontPath || 'Helvetica-Bold').text(`Invoice No`, 24, doc.y);
-  doc.font(fontPath || 'Helvetica').text(String(invoice?.no ?? invoiceId), 116, doc.y - 15);
-  doc.font(fontPath || 'Helvetica-Bold').text(`Invoice Date`, 24, doc.y + 2);
-  doc.font(fontPath || 'Helvetica').text(String(invoice?.date ?? '—'), 116, doc.y - 15);
-  doc.moveDown(0.95);
-
-  const tableLeft = 18;
-  const totalWidth = 266;
-  const col = {
-    item: 68,
-    desc: 80,
-    qty: 30,
-    price: 38,
-    subtotal: 50,
+  const setBaseFont = (size: number) => {
+    doc.font(fontPath || 'Helvetica');
+    doc.fontSize(size);
   };
-  let y = doc.y;
-  doc.rect(tableLeft, y, totalWidth, 24).lineWidth(1).stroke('#111');
+  const setBold = (size: number) => {
+    doc.font(fontPath ? fontPath : 'Helvetica-Bold');
+    doc.fontSize(size);
+  };
+  const setBoldItalic = (size: number) => {
+    doc.font('Helvetica-BoldOblique');
+    doc.fontSize(size);
+  };
+  const setItalic = (size: number) => {
+    doc.font('Helvetica-Oblique');
+    doc.fontSize(size);
+  };
+
+  // Header block: fixed coordinates for visual parity with target layout.
+  setBold(40 / 2.0);
+  doc.text('Invoice', 0, 6, { align: 'center', width: page.width });
+  setBaseFont(16);
+  doc.text(toStr(client?.business_info_1) || toStr(subdomain), 0, 40, { align: 'center', width: page.width });
+  setBaseFont(11);
+  doc.text(`Company Register: ${companyRegister || '—'}`, 0, 64, { align: 'center', width: page.width });
+  if (companyAddress) {
+    setBaseFont(10);
+    doc.text(companyAddress, 30, 80, { align: 'center', width: page.width - 60, lineGap: 1 });
+  }
+  if (customerName) {
+    setBaseFont(12);
+    doc.text(customerName, 28, 155, { width: 130 });
+    if (customerNameAlt) {
+      doc.text(customerNameAlt, 28, 172, { width: 130 });
+    }
+  }
+
+  setBold(31 / 2.4);
+  doc.text('Invoice No', 28, 220);
+  setBaseFont(14);
+  doc.text(String(invoice?.no ?? invoiceId), 116, 220);
+  setBold(31 / 2.4);
+  doc.text('Invoice Date', 28, 240);
+  setBaseFont(14);
+  doc.text(String(invoice?.date ?? '—'), 116, 240);
+
+  const tableTop = 272;
+  const col = {
+    item: 72,
+    desc: 84,
+    qty: 28,
+    price: 36,
+    subtotal: 48,
+  };
+  let y = tableTop;
+  const headerRowH = 22;
+  doc.rect(tableLeft, y, totalWidth, headerRowH).lineWidth(1).stroke('#000');
   let x = tableLeft;
   for (const w of [col.item, col.desc, col.qty, col.price]) {
     x += w;
-    doc.moveTo(x, y).lineTo(x, y + 24).stroke('#111');
+    doc.moveTo(x, y).lineTo(x, y + headerRowH).stroke('#000');
   }
-  doc.font(fontPath || 'Helvetica').fontSize(10).fillColor('#000');
-  doc.text('Item name', tableLeft + 4, y + 7, { width: col.item - 8 });
-  doc.text('Description', tableLeft + col.item + 4, y + 7, { width: col.desc - 8 });
-  doc.text('Qty', tableLeft + col.item + col.desc + 4, y + 7, { width: col.qty - 8, align: 'center' });
-  doc.text('Price', tableLeft + col.item + col.desc + col.qty + 4, y + 7, { width: col.price - 8, align: 'center' });
-  doc.text('Subtotal', tableLeft + col.item + col.desc + col.qty + col.price + 2, y + 7, { width: col.subtotal - 4, align: 'center' });
-  y += 24;
+  setBaseFont(10);
+  doc.fillColor('#000');
+  doc.text('Item name', tableLeft + 4, y + 6, { width: col.item - 8 });
+  doc.text('Description', tableLeft + col.item + 4, y + 6, { width: col.desc - 8 });
+  doc.text('Qty', tableLeft + col.item + col.desc + 4, y + 6, { width: col.qty - 8, align: 'center' });
+  doc.text('Price', tableLeft + col.item + col.desc + col.qty + 4, y + 6, { width: col.price - 8, align: 'center' });
+  doc.text('Subtotal', tableLeft + col.item + col.desc + col.qty + col.price + 2, y + 6, { width: col.subtotal - 4, align: 'center' });
+  y += headerRowH;
 
   const lines = items.length ? items : [{ item: 'Item', description: '', quantity: 1, unit_price: 0, subtotal: 0 }];
   for (const line of lines) {
     const qty = Number(line.quantity ?? line.qty ?? 1);
     const unit = Number(line.unit_price ?? line.price ?? 0);
     const sub = Number(line.subtotal ?? line.total ?? qty * unit);
-    const rowH = 28;
-    doc.rect(tableLeft, y, totalWidth, rowH).lineWidth(0.8).stroke('#111');
+    const rowH = 24;
+    doc.rect(tableLeft, y, totalWidth, rowH).lineWidth(0.8).stroke('#000');
     let vx = tableLeft;
     for (const w of [col.item, col.desc, col.qty, col.price]) {
       vx += w;
-      doc.moveTo(vx, y).lineTo(vx, y + rowH).stroke('#111');
+      doc.moveTo(vx, y).lineTo(vx, y + rowH).stroke('#000');
     }
-    doc.fontSize(11).text(String(line.item || line.name || line.product_name || 'Item'), tableLeft + 4, y + 8, { width: col.item - 8 });
-    doc.fontSize(11).text(String(line.description || ''), tableLeft + col.item + 4, y + 8, { width: col.desc - 8 });
-    doc.fontSize(10).text(String(qty), tableLeft + col.item + col.desc + 4, y + 8, { width: col.qty - 8, align: 'center' });
-    doc.fontSize(10).text(fmt(unit), tableLeft + col.item + col.desc + col.qty + 4, y + 8, { width: col.price - 8, align: 'center' });
-    doc.fontSize(10).text(fmt(sub), tableLeft + col.item + col.desc + col.qty + col.price + 2, y + 8, { width: col.subtotal - 4, align: 'center' });
+    setBaseFont(10.5);
+    doc.text(String(line.item || line.name || line.product_name || 'Item'), tableLeft + 4, y + 6, { width: col.item - 8 });
+    doc.text(String(line.description || ''), tableLeft + col.item + 4, y + 6, { width: col.desc - 8 });
+    setBaseFont(10);
+    doc.text(String(qty), tableLeft + col.item + col.desc + 4, y + 6, { width: col.qty - 8, align: 'center' });
+    doc.text(fmt(unit), tableLeft + col.item + col.desc + col.qty + 4, y + 6, { width: col.price - 8, align: 'center' });
+    doc.text(fmt(sub), tableLeft + col.item + col.desc + col.qty + col.price + 2, y + 6, { width: col.subtotal - 4, align: 'center' });
     y += rowH;
   }
 
@@ -681,19 +766,21 @@ async function buildDaftraInvoicePdfFromApiBody(
     ['Balance Due', fmtCurrency(invoice?.summary_unpaid ?? invoice?.summary_total ?? 0)],
   ];
   for (const [label, value] of summaryRows) {
-    const rowH = 34;
+    const rowH = 30;
     if (label === 'Total') {
       doc.save();
-      doc.rect(tableLeft, y, totalWidth, rowH).fill('#eef0f2');
+      doc.rect(tableLeft, y, totalWidth, rowH).fill('#ececec');
       doc.restore();
     }
-    doc.rect(tableLeft, y, totalWidth, rowH).lineWidth(1).stroke('#111');
-    doc.font(fontPath || 'Helvetica-Bold').fontSize(13).text(label, tableLeft + 8, y + 10, { width: 150 });
-    doc.font(fontPath || 'Helvetica').fontSize(13).text(`﷼ ${value}`, tableLeft + 170, y + 10, { width: 90, align: 'right' });
+    doc.rect(tableLeft, y, totalWidth, rowH).lineWidth(1).stroke('#000');
+    setBold(12);
+    doc.text(label, tableLeft + 8, y + 8, { width: 150 });
+    setBaseFont(12);
+    doc.text(`﷼ ${value}`, tableLeft + 166, y + 8, { width: 96, align: 'right' });
     y += rowH;
   }
 
-  y += 12;
+  y += 20;
   const cust =
     client?.business_name ||
     client?.name ||
@@ -701,9 +788,28 @@ async function buildDaftraInvoicePdfFromApiBody(
     invoice?.client_business_name ||
     '—';
   const notesText = String(invoice?.notes || '').trim();
-  doc.font(fontPath || 'Helvetica').fontSize(12);
-  if (notesText) {
-    doc.text(notesText, tableLeft + 2, y, { width: totalWidth - 4, lineGap: 2 });
+  const lineValue = (label: string): string => {
+    const m = notesText.match(new RegExp(`${label}:\\s*([^\\n]+)`, 'i'));
+    return m?.[1]?.trim() || '—';
+  };
+  const detailRows: Array<[string, string]> = [
+    ['Booking ID', lineValue('Booking ID')],
+    ['Payment', lineValue('Payment')],
+    ['Date', lineValue('Date')],
+    ['Time', lineValue('Time')],
+    ['Staff', lineValue('Staff')],
+    ['Branch', lineValue('Branch')],
+  ];
+  setBoldItalic(11.5);
+  doc.text('Booking Details', tableLeft + 6, y);
+  let detailsY = y + 24;
+  const compactValue = (v: string) => (v.length > 34 ? `${v.slice(0, 34)}...` : v);
+  for (const [label, value] of detailRows) {
+    setBoldItalic(11);
+    doc.text(`${label}:`, tableLeft + 6, detailsY, { width: 72 });
+    setItalic(11);
+    doc.text(compactValue(value), tableLeft + 84, detailsY, { width: totalWidth - 90, lineBreak: false });
+    detailsY += 21;
   }
 
   const bookingIdMatch = notesText.match(/Booking ID:\s*([^\n]+)/i);
@@ -712,14 +818,16 @@ async function buildDaftraInvoicePdfFromApiBody(
     : JSON.stringify({ invoice_id: String(invoice?.no ?? invoiceId), client: cust || '—', amount: invoice?.summary_total ?? 0 });
   try {
     const qr = await QRCode.toBuffer(qrPayload, { type: 'png', width: 220, margin: 1 });
-    const qrY = Math.min(doc.y + 10, doc.page.height - 190);
-    doc.image(qr, tableLeft + 48, qrY, { fit: [170, 170], align: 'center' });
+    const qrSize = 128;
+    const bottomPadding = 8;
+    let qrY = detailsY + 6;
+    let qrX = (page.width - qrSize) / 2;
+    const maxQrY = page.height - bottomPadding - qrSize;
+    if (qrY > maxQrY) qrY = maxQrY;
+
+    doc.image(qr, qrX, qrY, { fit: [qrSize, qrSize], align: 'center' });
   } catch {
     /* keep PDF generation resilient */
-  }
-
-  if (invoice?.notes) {
-    doc.moveDown(0.2);
   }
   doc.end();
   return bufPromise;
@@ -997,6 +1105,22 @@ export class DaftraInvoiceService {
       const invoiceIdStr = String(invoiceNum);
       console.log(`[DaftraInvoice] Created invoice in Daftra id=${invoiceIdStr} booking=${bookingId}`);
 
+      if (booking.payment_status === 'paid' || booking.payment_status === 'paid_manual') {
+        try {
+          await markDaftraInvoicePaid({
+            settings,
+            invoiceId: invoiceNum,
+            amount: totalPrice,
+            paymentMethod: payMethod || booking.payment_method,
+            transactionReference: payRef || booking.transaction_reference,
+            paidAtIso: new Date().toISOString(),
+          });
+          console.log(`[DaftraInvoice] Marked invoice paid id=${invoiceIdStr} amount=${totalPrice}`);
+        } catch (e: any) {
+          console.warn(`[DaftraInvoice] Could not mark invoice paid id=${invoiceIdStr}: ${e?.message}`);
+        }
+      }
+
       await supabase
         .from('bookings')
         .update({
@@ -1110,6 +1234,26 @@ export class DaftraInvoiceService {
         tenantId
       );
       const invoiceIdStr = String(invoiceNum);
+      const { data: first } = await supabase
+        .from('bookings')
+        .select('customer_email, customer_phone, payment_status')
+        .eq('id', unified.primary_booking_id)
+        .maybeSingle();
+
+      if (first?.payment_status === 'paid' || first?.payment_status === 'paid_manual') {
+        try {
+          await markDaftraInvoicePaid({
+            settings,
+            invoiceId: invoiceNum,
+            amount: totalAmt,
+            paymentMethod: 'cash',
+            paidAtIso: new Date().toISOString(),
+          });
+          console.log(`[DaftraInvoice] Marked group invoice paid id=${invoiceIdStr} amount=${totalAmt}`);
+        } catch (e: any) {
+          console.warn(`[DaftraInvoice] Could not mark group invoice paid id=${invoiceIdStr}: ${e?.message}`);
+        }
+      }
 
       await supabase
         .from('bookings')
@@ -1119,12 +1263,6 @@ export class DaftraInvoiceService {
           updated_at: new Date().toISOString(),
         })
         .eq('booking_group_id', bookingGroupId);
-
-      const { data: first } = await supabase
-        .from('bookings')
-        .select('customer_email, customer_phone, payment_status')
-        .eq('id', unified.primary_booking_id)
-        .maybeSingle();
 
       const uSingle = await mapBookingToUnifiedInvoice(unified.primary_booking_id).catch(() => null);
       const qrJson = uSingle?.context.qr_data_json || JSON.stringify({ booking_id: unified.primary_booking_id, type: 'booking_ticket' });
