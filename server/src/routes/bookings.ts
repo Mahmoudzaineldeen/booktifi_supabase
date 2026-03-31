@@ -13,6 +13,7 @@ import { formatTimeTo12Hour } from '../utils/timeFormat';
 import { getPermissionsForUserByUserId } from '../permissions.js';
 import { resolveBookingTagForCreate } from '../services/tagPricingResolve.js';
 import { buildEffectiveEmployeeShifts, mergeEffectiveShiftsForCalendarDay, type EffectiveShift } from '../utils/employeeShiftResolution';
+import { findOverlappingBooking } from '../utils/employeeBookingConflict';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -116,6 +117,82 @@ function normalizePhoneNumber(phone: string): string | null {
 
   // Return null if we can't determine the format
   return null;
+}
+
+type SlotWindow = {
+  tenantId: string;
+  slotDate: string;
+  startTime: string;
+  endTime: string;
+  employeeId: string | null;
+};
+
+async function getSlotWindowById(slotId: string): Promise<SlotWindow | null> {
+  const { data: slotRow, error: slotError } = await supabase
+    .from('slots')
+    .select('tenant_id, slot_date, start_time, end_time, employee_id')
+    .eq('id', slotId)
+    .maybeSingle();
+  if (slotError || !slotRow) return null;
+  return {
+    tenantId: (slotRow as any).tenant_id,
+    slotDate: (slotRow as any).slot_date,
+    startTime: (slotRow as any).start_time,
+    endTime: (slotRow as any).end_time,
+    employeeId: (slotRow as any).employee_id ?? null,
+  };
+}
+
+async function findEmployeeBookingConflict(params: {
+  tenantId: string;
+  employeeId: string;
+  slotDate: string;
+  startTime: string;
+  endTime: string;
+  excludeBookingId?: string;
+}) {
+  const { tenantId, employeeId, slotDate, startTime, endTime, excludeBookingId } = params;
+  let bookingQuery = supabase
+    .from('bookings')
+    .select('id, slot_id, slots:slot_id(slot_date, start_time, end_time)')
+    .eq('tenant_id', tenantId)
+    .eq('employee_id', employeeId)
+    .neq('status', 'cancelled');
+
+  if (excludeBookingId) {
+    bookingQuery = bookingQuery.neq('id', excludeBookingId);
+  }
+
+  const { data: existingBookings, error: existingBookingsError } = await bookingQuery;
+  if (existingBookingsError) {
+    throw existingBookingsError;
+  }
+
+  const bookedWindows = (existingBookings || [])
+    .map((booking: any) => {
+      const slot = Array.isArray(booking.slots) ? booking.slots[0] : booking.slots;
+      if (!slot?.slot_date || !slot?.start_time || !slot?.end_time) return null;
+      return {
+        bookingId: booking.id,
+        slotId: booking.slot_id,
+        slotDate: slot.slot_date,
+        startTime: slot.start_time,
+        endTime: slot.end_time,
+      };
+    })
+    .filter(Boolean) as Array<{
+      bookingId: string;
+      slotId: string;
+      slotDate: string;
+      startTime: string;
+      endTime: string;
+    }>;
+
+  return findOverlappingBooking(
+    { slotDate, startTime, endTime },
+    bookedWindows,
+    excludeBookingId ? { excludeBookingId } : undefined
+  );
 }
 
 // Extend Express Request type
@@ -1702,6 +1779,38 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       });
     }
 
+    // Guard against cross-service double-booking for the same employee/time.
+    const selectedSlot = await getSlotWindowById(slot_id);
+    if (!selectedSlot) {
+      return sendResponse(404, { error: 'Selected slot not found' });
+    }
+    if (selectedSlot.tenantId !== tenant_id) {
+      return sendResponse(403, { error: 'Selected slot does not belong to this tenant' });
+    }
+    const effectiveEmployeeIdForCreate = employee_id || selectedSlot.employeeId;
+    if (effectiveEmployeeIdForCreate) {
+      const employeeConflict = await findEmployeeBookingConflict({
+        tenantId: tenant_id,
+        employeeId: effectiveEmployeeIdForCreate,
+        slotDate: selectedSlot.slotDate,
+        startTime: selectedSlot.startTime,
+        endTime: selectedSlot.endTime,
+      });
+      if (employeeConflict) {
+        return sendResponse(409, {
+          error: 'Selected employee is already booked in another assigned service at this time.',
+          code: 'EMPLOYEE_TIME_CONFLICT',
+          conflict: {
+            booking_id: employeeConflict.bookingId,
+            slot_id: employeeConflict.slotId,
+            slot_date: employeeConflict.slotDate,
+            start_time: employeeConflict.startTime,
+            end_time: employeeConflict.endTime,
+          },
+        });
+      }
+    }
+
     // Calculate adult/child counts - use provided values or default to visitor_count for adults
     const finalAdultCount = adult_count !== undefined ? adult_count : visitor_count;
     const finalChildCount = child_count !== undefined ? child_count : 0;
@@ -2218,7 +2327,8 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       }
       if (errorMessage.includes('expired') ||
           errorMessage.includes('not available') ||
-          errorMessage.includes('Not enough tickets')) {
+          errorMessage.includes('Not enough tickets') ||
+          errorMessage.includes('already booked in overlapping time window')) {
         return sendResponse(409, { 
           error: errorMessage,
           code: createError.code
@@ -3169,7 +3279,7 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
     try {
       const { data: slotsData, error: slotsError } = await supabase
         .from('slots')
-        .select('id, available_capacity, is_available, tenant_id')
+        .select('id, tenant_id, slot_date, start_time, end_time, employee_id, available_capacity, is_available')
         .in('id', slot_ids)
         .eq('tenant_id', tenant_id);
 
@@ -3193,6 +3303,66 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
           error: `Not enough tickets available. ${unavailableSlots.length} slot(s) are unavailable or have no capacity.`,
           unavailable_slots: unavailableSlots.map(s => s.id)
         });
+      }
+
+      const requestedEmployeeWindows = slotsData
+        .map((s: any) => ({
+          slotId: s.id as string,
+          slotDate: s.slot_date as string,
+          startTime: s.start_time as string,
+          endTime: s.end_time as string,
+          employeeId: (employee_id || s.employee_id || null) as string | null,
+        }))
+        .filter((s: any) => Boolean(s.employeeId && s.slotDate && s.startTime && s.endTime));
+
+      // Prevent internal overlap in this same bulk request for the same employee.
+      for (let i = 0; i < requestedEmployeeWindows.length; i++) {
+        const a = requestedEmployeeWindows[i];
+        for (let j = i + 1; j < requestedEmployeeWindows.length; j++) {
+          const b = requestedEmployeeWindows[j];
+          if (a.employeeId !== b.employeeId) continue;
+          const overlap = findOverlappingBooking(
+            { slotDate: a.slotDate, startTime: a.startTime, endTime: a.endTime },
+            [{ slotDate: b.slotDate, startTime: b.startTime, endTime: b.endTime }]
+          );
+          if (overlap) {
+            return res.status(409).json({
+              error: 'Bulk booking contains overlapping time slots for the same employee.',
+              code: 'EMPLOYEE_TIME_CONFLICT',
+              conflict: {
+                employee_id: a.employeeId,
+                first_slot_id: a.slotId,
+                second_slot_id: b.slotId,
+              },
+            });
+          }
+        }
+      }
+
+      // Prevent overlap with already-booked slots (any service) for each requested employee/time.
+      for (const slotWindow of requestedEmployeeWindows) {
+        const existingConflict = await findEmployeeBookingConflict({
+          tenantId: tenant_id,
+          employeeId: slotWindow.employeeId!,
+          slotDate: slotWindow.slotDate,
+          startTime: slotWindow.startTime,
+          endTime: slotWindow.endTime,
+        });
+        if (existingConflict) {
+          return res.status(409).json({
+            error: 'Selected employee is already booked in another assigned service at this time.',
+            code: 'EMPLOYEE_TIME_CONFLICT',
+            conflict: {
+              employee_id: slotWindow.employeeId,
+              requested_slot_id: slotWindow.slotId,
+              booking_id: existingConflict.bookingId,
+              slot_id: existingConflict.slotId,
+              slot_date: existingConflict.slotDate,
+              start_time: existingConflict.startTime,
+              end_time: existingConflict.endTime,
+            },
+          });
+        }
       }
 
       // Calculate total available capacity
@@ -3278,7 +3448,8 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
         return res.status(403).json({ error: createError.message });
       }
       if (createError.message.includes('not available') ||
-          createError.message.includes('Not enough tickets')) {
+          createError.message.includes('Not enough tickets') ||
+          createError.message.includes('already booked in overlapping time window')) {
         return res.status(409).json({ error: createError.message });
       }
       // Return 500 with message so client sees DB/RPC errors (e.g. payment_status enum or created_by_user_id FK)
@@ -4652,6 +4823,51 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
     console.log(`   Tenant ID: ${tenantId}`);
     console.log(`🔄 ========================================\n`);
 
+    const { data: currentBookingForConflict, error: currentBookingFetchError } = await supabase
+      .from('bookings')
+      .select('id, tenant_id, employee_id')
+      .eq('id', bookingId)
+      .single();
+    if (currentBookingFetchError || !currentBookingForConflict) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+    if ((currentBookingForConflict as any).tenant_id !== tenantId) {
+      return res.status(403).json({ error: 'Booking belongs to a different tenant' });
+    }
+
+    const newSlotForConflict = await getSlotWindowById(newSlotId);
+    if (!newSlotForConflict) {
+      return res.status(404).json({ error: 'Selected new slot not found' });
+    }
+    if (newSlotForConflict.tenantId !== tenantId) {
+      return res.status(403).json({ error: 'Selected new slot belongs to a different tenant' });
+    }
+
+    const effectiveEmployeeIdForEdit = (currentBookingForConflict as any).employee_id || newSlotForConflict.employeeId;
+    if (effectiveEmployeeIdForEdit) {
+      const editConflict = await findEmployeeBookingConflict({
+        tenantId,
+        employeeId: effectiveEmployeeIdForEdit,
+        slotDate: newSlotForConflict.slotDate,
+        startTime: newSlotForConflict.startTime,
+        endTime: newSlotForConflict.endTime,
+        excludeBookingId: bookingId,
+      });
+      if (editConflict) {
+        return res.status(409).json({
+          error: 'Selected employee is already booked in another assigned service at this time.',
+          code: 'EMPLOYEE_TIME_CONFLICT',
+          conflict: {
+            booking_id: editConflict.bookingId,
+            slot_id: editConflict.slotId,
+            slot_date: editConflict.slotDate,
+            start_time: editConflict.startTime,
+            end_time: editConflict.endTime,
+          },
+        });
+      }
+    }
+
     // Use atomic RPC function for booking time edit
     const { data: editResult, error: editError } = await supabase
       .rpc('edit_booking_time', {
@@ -4675,7 +4891,8 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
         return res.status(403).json({ error: editError.message });
       }
       if (editError.message.includes('not available') ||
-          editError.message.includes('Not enough capacity')) {
+          editError.message.includes('Not enough capacity') ||
+          editError.message.includes('already booked in overlapping time window')) {
         return res.status(409).json({ error: editError.message });
       }
       if (editError.message.includes('Cannot edit booking time')) {
