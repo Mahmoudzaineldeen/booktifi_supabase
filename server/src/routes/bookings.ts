@@ -1481,6 +1481,27 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       const { error: insertErr } = await supabase.from('slots').insert(rowsWithoutOverbooked);
       if (insertErr) {
         logger.warn('ensure-employee-based-slots: bulk slot insert error', { message: insertErr.message, code: insertErr.code, batchSize: batch.length });
+        // Resilience guard: if one row conflicts or is malformed, do not lose the whole batch.
+        // Retry row-by-row so valid rows still get inserted.
+        for (const row of rowsWithoutOverbooked) {
+          const { error: rowErr } = await supabase.from('slots').insert(row);
+          if (!rowErr) {
+            slotsCreated += 1;
+            continue;
+          }
+          // Duplicate rows are non-fatal (already present from prior generation).
+          if ((rowErr as any)?.code === '23505') {
+            continue;
+          }
+          logger.warn('ensure-employee-based-slots: row insert error after batch failure', {
+            message: rowErr.message,
+            code: (rowErr as any)?.code,
+            employee_id: (row as any).employee_id,
+            slot_date: (row as any).slot_date,
+            start_time: (row as any).start_time,
+            end_time: (row as any).end_time,
+          });
+        }
       } else {
         slotsCreated += batch.length;
       }

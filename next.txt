@@ -29,7 +29,7 @@ check date make separate visitors details button
 
 organization id=910540679
 
-customer email:healingtouches_sa@hotmail.com
+customer email:1:42 AM 3/31/202643
 password:King@123
 
 done 10 or least
@@ -71,7 +71,6 @@ add employee side
 done add made by saudi
 
 pricing (number of branches and users and WhatsApp number messages)
-https://www.daftra.com/plans
 Pricing page
 
 add payment getaway and WhatsApp getaway
@@ -108,4 +107,4 @@ give the ability to book two or more services at same booking
 
 set option when create a booking we need to add option to consume from package or not
 
-integrate with daftara
+done integrate with daftara
