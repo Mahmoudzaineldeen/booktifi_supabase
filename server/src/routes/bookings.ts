@@ -918,6 +918,119 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       bStart: number,
       bEndEx: number
     ) => aStart < bEndEx && bStart < aEndEx;
+    const mergeBusyRanges = (
+      target: Map<string, { startM: number; endM: number }[]>,
+      source: Map<string, { startM: number; endM: number }[]>
+    ) => {
+      source.forEach((ranges, employeeId) => {
+        if (!target.has(employeeId)) target.set(employeeId, []);
+        target.get(employeeId)!.push(...ranges);
+      });
+    };
+    const buildBusyRangesForEmployeeIds = async (employeeIdsRaw: string[]) => {
+      const busyRanges = new Map<string, { startM: number; endM: number }[]>();
+      const employeeIds = [...new Set((employeeIdsRaw || []).filter(Boolean))];
+      if (employeeIds.length === 0) return busyRanges;
+
+      const { data: employeeDaySlots, error: employeeDaySlotsError } = await supabase
+        .from('slots')
+        .select('id, employee_id, start_time, end_time')
+        .eq('tenant_id', tenantId)
+        .eq('slot_date', dateStr)
+        .in('employee_id', employeeIds);
+      if (employeeDaySlotsError) {
+        logger.warn('ensure-employee-based-slots: employeeDaySlots fetch for busy map failed', {
+          serviceId,
+          dateStr,
+          message: employeeDaySlotsError.message,
+        });
+        return busyRanges;
+      }
+
+      const slotMeta = new Map<string, { employee_id: string | null; start_time: string; end_time: string }>(
+        (employeeDaySlots || []).map((s: any) => [
+          s.id,
+          {
+            employee_id: s.employee_id ?? null,
+            start_time: s.start_time,
+            end_time: s.end_time,
+          },
+        ])
+      );
+      const slotIds = [...new Set((employeeDaySlots || []).map((s: any) => s.id).filter(Boolean))];
+
+      const bookingsByEmployeePromise = supabase
+        .from('bookings')
+        .select('employee_id, slot_id')
+        .eq('tenant_id', tenantId)
+        .in('employee_id', employeeIds)
+        .neq('status', 'cancelled');
+
+      const bookingsBySlotPromise = slotIds.length > 0
+        ? supabase
+            .from('bookings')
+            .select('employee_id, slot_id')
+            .eq('tenant_id', tenantId)
+            .in('slot_id', slotIds)
+            .neq('status', 'cancelled')
+        : Promise.resolve({ data: [], error: null } as any);
+
+      const [{ data: bookingsByEmployee, error: bookingsByEmployeeError }, { data: bookingsBySlot, error: bookingsBySlotError }] =
+        await Promise.all([bookingsByEmployeePromise, bookingsBySlotPromise]);
+      if (bookingsByEmployeeError) {
+        logger.warn('ensure-employee-based-slots: bookingsByEmployee fetch for busy map failed', {
+          serviceId,
+          dateStr,
+          message: bookingsByEmployeeError.message,
+        });
+      }
+      if (bookingsBySlotError) {
+        logger.warn('ensure-employee-based-slots: bookingsBySlot fetch for busy map failed', {
+          serviceId,
+          dateStr,
+          message: bookingsBySlotError.message,
+        });
+      }
+
+      const dedup = new Map<string, { employee_id: string | null; slot_id: string }>();
+      [...(bookingsByEmployee || []), ...(bookingsBySlot || [])].forEach((b: any) => {
+        if (!b?.slot_id) return;
+        const key = `${b.employee_id ?? 'null'}:${b.slot_id}`;
+        if (!dedup.has(key)) dedup.set(key, { employee_id: b.employee_id ?? null, slot_id: b.slot_id });
+      });
+      const combinedBookings = Array.from(dedup.values());
+
+      const missingSlotIds = [...new Set(combinedBookings.map((b) => b.slot_id).filter((id) => !slotMeta.has(id)))];
+      if (missingSlotIds.length > 0) {
+        const { data: missingSlots } = await supabase
+          .from('slots')
+          .select('id, employee_id, start_time, end_time')
+          .in('id', missingSlotIds)
+          .eq('slot_date', dateStr);
+        (missingSlots || []).forEach((s: any) => {
+          slotMeta.set(s.id, {
+            employee_id: s.employee_id ?? null,
+            start_time: s.start_time,
+            end_time: s.end_time,
+          });
+        });
+      }
+
+      const employeeSet = new Set(employeeIds);
+      combinedBookings.forEach((b) => {
+        const slot = slotMeta.get(b.slot_id);
+        if (!slot?.start_time || !slot?.end_time) return;
+        const effectiveEmployeeId = b.employee_id || slot.employee_id;
+        if (!effectiveEmployeeId || !employeeSet.has(effectiveEmployeeId)) return;
+        const startM = toMinutes((slot.start_time || '').slice(0, 8));
+        const endRawM = toMinutes((slot.end_time || '').slice(0, 8));
+        const endM = slotEndExclusiveMinutes(startM, endRawM);
+        if (!busyRanges.has(effectiveEmployeeId)) busyRanges.set(effectiveEmployeeId, []);
+        busyRanges.get(effectiveEmployeeId)!.push({ startM, endM });
+      });
+
+      return busyRanges;
+    };
 
     const { data: service, error: serviceError } = await supabase
       .from('services')
@@ -983,35 +1096,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       const cachedSlots = cached.slots || [];
       if (cachedSlots.length > 0) {
         const employeeIdsFromCache = [...new Set(cachedSlots.map((s: any) => s.employee_id).filter(Boolean))];
-        const { data: cacheBookings } = await supabase
-          .from('bookings')
-          .select('employee_id, slot_id')
-          .eq('tenant_id', tenantId)
-          .in('employee_id', employeeIdsFromCache)
-          .neq('status', 'cancelled');
-        const slotIdsFromBookings = [...new Set((cacheBookings || []).map((b: any) => b.slot_id).filter(Boolean))];
-        let cacheBusyRanges = new Map<string, { startM: number; endM: number }[]>();
-        if (slotIdsFromBookings.length > 0) {
-          const { data: cacheSlots } = await supabase
-            .from('slots')
-            .select('id, start_time, end_time')
-            .in('id', slotIdsFromBookings)
-            .eq('slot_date', dateStr);
-          const slotTimeMap = new Map(
-            (cacheSlots || []).map((s: any) => {
-              const startM = toMinutes((s.start_time || '').slice(0, 8));
-              const endRaw = toMinutes((s.end_time || '').slice(0, 8));
-              return [s.id, { startM, endM: slotEndExclusiveMinutes(startM, endRaw) }];
-            })
-          );
-          (cacheBookings || []).forEach((b: any) => {
-            if (!b.employee_id || !b.slot_id) return;
-            const t = slotTimeMap.get(b.slot_id);
-            if (!t) return;
-            if (!cacheBusyRanges.has(b.employee_id)) cacheBusyRanges.set(b.employee_id, []);
-            cacheBusyRanges.get(b.employee_id)!.push({ startM: t.startM, endM: t.endM });
-          });
-        }
+        const cacheBusyRanges = await buildBusyRangesForEmployeeIds(employeeIdsFromCache);
         const filteredSlots = cachedSlots.filter((s: any) => {
           if (!s.employee_id) return true;
           const busyRanges = cacheBusyRanges.get(s.employee_id) || [];
@@ -1213,6 +1298,10 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
         globalBusyRangesByEmployee.get(b.employee_id)!.push({ startM, endM });
       });
     }
+    // Robust pass: derive busy map again from day slots + bookings to avoid missing
+    // legacy rows where booking.employee_id is null or when response includes stale employee slots.
+    const robustBusyRangesByEmployee = await buildBusyRangesForEmployeeIds(employeeIdsFromShifts);
+    mergeBusyRanges(globalBusyRangesByEmployee, robustBusyRangesByEmployee);
 
     // 3) Existing employee-based slots (virtual shift, this date) — remove slots with no bookings so we can regenerate from current branch shifts only
     const existingSlots: any[] = [];
@@ -1451,9 +1540,12 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       });
     }
 
+    const responseEmployeeIds = [...new Set(dedupedSlotsFromDb.map((s: any) => s.employee_id).filter(Boolean))];
+    const responseBusyRangesByEmployee = await buildBusyRangesForEmployeeIds(responseEmployeeIds as string[]);
+    mergeBusyRanges(responseBusyRangesByEmployee, globalBusyRangesByEmployee);
     const slotsForResponse = dedupedSlotsFromDb.filter((s: any) => {
       if (!s.employee_id) return true;
-      const busyRanges = globalBusyRangesByEmployee.get(s.employee_id) || [];
+      const busyRanges = responseBusyRangesByEmployee.get(s.employee_id) || [];
       const sStart = (s.start_time || '').slice(0, 8);
       const sEnd = (s.end_time || '').slice(0, 8);
       const slotStartM = toMinutes(sStart);
