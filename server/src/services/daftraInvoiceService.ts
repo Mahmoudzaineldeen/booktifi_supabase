@@ -591,18 +591,71 @@ async function markDaftraInvoicePaid(params: {
   const { settings, invoiceId, amount, paymentMethod, transactionReference, paidAtIso } = params;
   const roundedAmount = Math.round(Number(amount || 0) * 100) / 100;
   if (!Number.isFinite(roundedAmount) || roundedAmount <= 0) return;
-  // IMPORTANT:
-  // Daftra PUT /invoices/:id with Payment payload is destructive in this environment:
-  // it clears InvoiceItem and resets summary totals to 0. Skip this call to preserve
-  // invoice data integrity. Payment details are still preserved in invoice notes.
-  void settings;
-  void invoiceId;
-  void paymentMethod;
-  void transactionReference;
-  void paidAtIso;
-  console.warn(
-    `[DaftraInvoice] Skipping mark-paid API call to avoid clearing invoice items. amount=${roundedAmount}`
-  );
+  const base = apiBase(settings.subdomain);
+  const paidAt = new Date(paidAtIso || Date.now());
+  const fmtDate = `${paidAt.getFullYear()}-${String(paidAt.getMonth() + 1).padStart(2, '0')}-${String(paidAt.getDate()).padStart(2, '0')} ${String(
+    paidAt.getHours()
+  ).padStart(2, '0')}:${String(paidAt.getMinutes()).padStart(2, '0')}:${String(paidAt.getSeconds()).padStart(2, '0')}`;
+
+  // Fetch invoice first so we can avoid overpaying or duplicate payment records.
+  let payAmount = roundedAmount;
+  try {
+    const invRes = await axios.get(`${base}/invoices/${invoiceId}.json`, {
+      headers: {
+        ...daftraAuthHeaders(settings.api_token),
+      },
+      validateStatus: () => true,
+      timeout: 20000,
+    });
+    if (invRes.status >= 200 && invRes.status < 300) {
+      const inv = (invRes.data as any)?.data?.Invoice || (invRes.data as any)?.data || invRes.data || {};
+      const unpaid = Number(inv?.summary_unpaid ?? inv?.summary_total ?? 0);
+      if (Number.isFinite(unpaid)) {
+        if (unpaid <= 0) {
+          console.log(`[DaftraInvoice] Invoice ${invoiceId} is already fully paid in Daftra; skipping payment creation`);
+          return;
+        }
+        payAmount = Math.min(roundedAmount, unpaid);
+      }
+    }
+  } catch {
+    // Non-blocking; continue with requested amount.
+  }
+
+  if (!Number.isFinite(payAmount) || payAmount <= 0) return;
+
+  const body = {
+    InvoicePayment: {
+      invoice_id: invoiceId,
+      payment_method: mapBookingPaymentMethodToDaftra(paymentMethod),
+      amount: payAmount,
+      transaction_id: (transactionReference || '').toString().slice(0, 100) || undefined,
+      date: fmtDate,
+      status: 1,
+      staff_id: 0,
+    },
+  };
+
+  const res = await axios.post(`${base}/invoice_payments.json`, body, {
+    headers: {
+      ...daftraAuthHeaders(settings.api_token),
+      'Content-Type': 'application/json',
+    },
+    validateStatus: () => true,
+    timeout: 30000,
+  });
+
+  const ok =
+    (res.status >= 200 && res.status < 300) &&
+    (
+      (typeof (res.data as any)?.result === 'string' && ['successful', 'success'].includes(String((res.data as any).result).toLowerCase())) ||
+      typeof (res.data as any)?.code === 'number' ||
+      Object.keys((res.data || {}) as Record<string, unknown>).length > 0
+    );
+
+  if (!ok) {
+    throw new Error(`Daftra invoice payment failed (${res.status}): ${JSON.stringify(res.data)}`);
+  }
 }
 
 /** Flatten Daftra GET invoice JSON (shape varies: nested Invoice or flat `data`). */
