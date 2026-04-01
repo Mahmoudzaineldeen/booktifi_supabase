@@ -27,14 +27,6 @@ export type DaftraTenantSettings = {
   invoice_layout_id?: number;
   country_code?: string;
   fallback_to_zoho?: boolean;
-  /**
-   * Optional OAuth app + portal login (or refresh token) so `invoice_pdf_url` returns a real PDF.
-   * API keys alone cannot download Daftra-branded PDFs (URLs require Bearer / browser session).
-   */
-  pdf_oauth_client_id?: string;
-  pdf_oauth_client_secret?: string;
-  pdf_oauth_refresh_token?: string;
-  pdf_oauth_username?: string;
 };
 
 function normalizeSubdomain(raw: string): string {
@@ -56,10 +48,6 @@ function parseDaftraSettings(raw: unknown): DaftraTenantSettings | null {
   const invoice_layout_id =
     typeof o.invoice_layout_id === 'number' ? o.invoice_layout_id : parseInt(String(o.invoice_layout_id || ''), 10);
   if (!subdomain || !api_token || !Number.isFinite(store_id) || !Number.isFinite(default_product_id)) return null;
-  const pdf_oauth_client_id = typeof o.pdf_oauth_client_id === 'string' ? o.pdf_oauth_client_id.trim() : '';
-  const pdf_oauth_client_secret = typeof o.pdf_oauth_client_secret === 'string' ? o.pdf_oauth_client_secret.trim() : '';
-  const pdf_oauth_refresh_token = typeof o.pdf_oauth_refresh_token === 'string' ? o.pdf_oauth_refresh_token.trim() : '';
-  const pdf_oauth_username = typeof o.pdf_oauth_username === 'string' ? o.pdf_oauth_username.trim() : '';
   return {
     subdomain,
     api_token,
@@ -68,10 +56,6 @@ function parseDaftraSettings(raw: unknown): DaftraTenantSettings | null {
     ...(Number.isFinite(invoice_layout_id) ? { invoice_layout_id } : {}),
     country_code: typeof o.country_code === 'string' ? o.country_code : 'SA',
     fallback_to_zoho: o.fallback_to_zoho === true,
-    ...(pdf_oauth_client_id ? { pdf_oauth_client_id } : {}),
-    ...(pdf_oauth_client_secret ? { pdf_oauth_client_secret } : {}),
-    ...(pdf_oauth_refresh_token ? { pdf_oauth_refresh_token } : {}),
-    ...(pdf_oauth_username ? { pdf_oauth_username } : {}),
   };
 }
 
@@ -83,124 +67,6 @@ export async function loadDaftraSettingsForTenant(tenantId: string): Promise<Daf
 
 function apiBase(subdomain: string): string {
   return `https://${subdomain}.daftra.com/api2`;
-}
-
-function daftraOAuthTokenUrls(subdomain: string): string[] {
-  // Daftra tenants vary by OAuth route; try common variants.
-  return [
-    `https://${subdomain}.daftra.com/v2/oauth/token`,
-    `${apiBase(subdomain)}/oauth/token`,
-    `${apiBase(subdomain)}/v2/oauth/token`,
-  ];
-}
-
-type DaftraOAuthTokenResponse = {
-  access_token?: string;
-  refresh_token?: string;
-  expires_in?: number;
-  token_type?: string;
-};
-
-async function postDaftraOAuthToken(
-  bareSubdomain: string,
-  params: Record<string, string>,
-  onError?: (message: string) => void
-): Promise<DaftraOAuthTokenResponse | null> {
-  const body = new URLSearchParams(params);
-  const attempts: string[] = [];
-  for (const url of daftraOAuthTokenUrls(bareSubdomain)) {
-    try {
-      const res = await axios.post(url, body.toString(), {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: 'application/json',
-        },
-        validateStatus: () => true,
-        timeout: 30000,
-      });
-      if (res.status >= 200 && res.status < 300 && res.data && typeof res.data.access_token === 'string') {
-        return res.data as DaftraOAuthTokenResponse;
-      }
-      const details = typeof res.data === 'object' ? JSON.stringify(res.data).slice(0, 300) : String(res.data || '');
-      attempts.push(`${url} -> ${res.status}${details ? ` ${details}` : ''}`);
-    } catch (e: any) {
-      attempts.push(`${url} -> request failed: ${e?.message || 'unknown error'}`);
-    }
-  }
-  const msg = attempts.join(' | ');
-  console.warn('[DaftraOAuth] token request failed across endpoints:', msg);
-  if (onError) onError(msg);
-  return null;
-}
-
-/** One-shot password grant (call from settings save only; do not persist password). */
-export async function exchangeDaftraPdfOauthPassword(
-  subdomain: string,
-  clientId: string,
-  clientSecret: string,
-  username: string,
-  password: string
-): Promise<DaftraOAuthTokenResponse> {
-  const sub = normalizeSubdomain(subdomain);
-  let oauthErrorDetail = '';
-  const tok = await postDaftraOAuthToken(sub, {
-    grant_type: 'password',
-    client_id: clientId,
-    client_secret: clientSecret,
-    username,
-    password,
-  }, (m) => {
-    oauthErrorDetail = m;
-  });
-  if (!tok?.access_token) {
-    throw new Error(
-      `Daftra OAuth password grant failed. Check client id/secret, username, password, and subdomain. ${oauthErrorDetail ? `Details: ${oauthErrorDetail}` : ''}`.trim()
-    );
-  }
-  return tok;
-}
-
-const portalAccessCache = new Map<string, { access_token: string; exp: number }>();
-
-async function persistDaftraPdfOauthRefresh(tenantId: string, newRefresh: string): Promise<void> {
-  const { data, error } = await supabase.from('tenants').select('daftra_settings').eq('id', tenantId).single();
-  if (error || !data?.daftra_settings || typeof data.daftra_settings !== 'object') return;
-  const cur = { ...(data.daftra_settings as Record<string, unknown>) };
-  cur.pdf_oauth_refresh_token = newRefresh;
-  await supabase.from('tenants').update({ daftra_settings: cur, updated_at: new Date().toISOString() }).eq('id', tenantId);
-}
-
-/**
- * Bearer token for Daftra *portal* PDF URLs (invoice_pdf_url). Uses refresh_token from settings.
- */
-async function getDaftraPortalAccessToken(settings: DaftraTenantSettings, tenantId: string | null): Promise<string | null> {
-  const cid = settings.pdf_oauth_client_id?.trim();
-  const sec = settings.pdf_oauth_client_secret?.trim();
-  const rt = settings.pdf_oauth_refresh_token?.trim();
-  if (!cid || !sec || !rt || !tenantId) return null;
-
-  const cacheKey = tenantId;
-  const now = Date.now();
-  const cached = portalAccessCache.get(cacheKey);
-  if (cached && cached.exp > now + 5000) return cached.access_token;
-
-  const tok = await postDaftraOAuthToken(settings.subdomain, {
-    grant_type: 'refresh_token',
-    client_id: cid,
-    client_secret: sec,
-    refresh_token: rt,
-  });
-  if (!tok?.access_token) {
-    portalAccessCache.delete(cacheKey);
-    return null;
-  }
-  const ttlMs = Math.min(Math.max((tok.expires_in ?? 3600) * 1000 - 120_000, 60_000), 24 * 3600 * 1000);
-  portalAccessCache.set(cacheKey, { access_token: tok.access_token, exp: now + ttlMs });
-  if (typeof tok.refresh_token === 'string' && tok.refresh_token !== rt) {
-    await persistDaftraPdfOauthRefresh(tenantId, tok.refresh_token);
-    settings.pdf_oauth_refresh_token = tok.refresh_token;
-  }
-  return tok.access_token;
 }
 
 /** Daftra: Settings → API Key must be sent as `apikey` header; Bearer returns 401 for API keys. */
@@ -1006,27 +872,6 @@ async function tryDownloadDaftraInvoicePdf(
 
   const { pdfUrl } = normalizeDaftraInvoiceRecord(meta);
   if (pdfUrl) {
-    const portalToken = tenantId ? await getDaftraPortalAccessToken(settings, tenantId) : null;
-    if (portalToken) {
-      try {
-        const pdfRes = await axios.get(pdfUrl, {
-          responseType: 'arraybuffer',
-          headers: {
-            Authorization: `Bearer ${portalToken}`,
-            Accept: 'application/pdf,*/*',
-          },
-          validateStatus: (s) => s === 200,
-          timeout: 30000,
-          maxRedirects: 5,
-        });
-        const buf = pdfRes.data && Buffer.from(pdfRes.data);
-        if (buf && buf.length > 100 && buf.subarray(0, 4).toString() === '%PDF') {
-          return buf;
-        }
-      } catch {
-        /* fall through */
-      }
-    }
     try {
       const pdfRes = await axios.get(pdfUrl, {
         responseType: 'arraybuffer',

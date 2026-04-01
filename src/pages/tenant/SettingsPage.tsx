@@ -108,15 +108,8 @@ export function SettingsPage() {
     api_token: '',
     country_code: 'SA',
     fallback_to_zoho: false,
-    pdf_oauth_client_id: '',
-    pdf_oauth_client_secret: '',
-    pdf_oauth_username: '',
-    pdf_oauth_password: '',
-    pdf_oauth_refresh_token: '',
   });
   const [daftraTokenSet, setDaftraTokenSet] = useState(false);
-  const [daftraPdfOauthSecretSet, setDaftraPdfOauthSecretSet] = useState(false);
-  const [daftraPdfOauthRefreshSet, setDaftraPdfOauthRefreshSet] = useState(false);
   const [invoiceProviderLoading, setInvoiceProviderLoading] = useState(false);
   const [invoiceProviderMessage, setInvoiceProviderMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -399,15 +392,8 @@ export function SettingsPage() {
             country_code: String(data.daftra_settings.country_code || 'SA'),
             fallback_to_zoho: !!data.daftra_settings.fallback_to_zoho,
             api_token: '',
-            pdf_oauth_client_id: String(data.daftra_settings.pdf_oauth_client_id || ''),
-            pdf_oauth_client_secret: '',
-            pdf_oauth_username: String(data.daftra_settings.pdf_oauth_username || ''),
-            pdf_oauth_password: '',
-            pdf_oauth_refresh_token: '',
           }));
           setDaftraTokenSet(!!data.daftra_settings.api_token_set);
-          setDaftraPdfOauthSecretSet(!!data.daftra_settings.pdf_oauth_client_secret_set);
-          setDaftraPdfOauthRefreshSet(!!data.daftra_settings.pdf_oauth_refresh_token_set);
         }
       } catch (e) {
         console.error('Error loading invoice provider settings:', e);
@@ -878,17 +864,6 @@ export function SettingsPage() {
           country_code: (daftraForm.country_code || 'SA').trim(),
           fallback_to_zoho: daftraForm.fallback_to_zoho,
           ...(daftraForm.api_token.trim() ? { api_token: daftraForm.api_token.trim() } : {}),
-          ...(daftraForm.pdf_oauth_client_id.trim() ? { pdf_oauth_client_id: daftraForm.pdf_oauth_client_id.trim() } : {}),
-          ...(daftraForm.pdf_oauth_client_secret.trim()
-            ? { pdf_oauth_client_secret: daftraForm.pdf_oauth_client_secret.trim() }
-            : {}),
-          ...(daftraForm.pdf_oauth_username.trim() ? { pdf_oauth_username: daftraForm.pdf_oauth_username.trim() } : {}),
-          ...(daftraForm.pdf_oauth_refresh_token.trim()
-            ? { pdf_oauth_refresh_token: daftraForm.pdf_oauth_refresh_token.trim() }
-            : {}),
-          ...(daftraForm.pdf_oauth_password.trim()
-            ? { pdf_oauth_password: daftraForm.pdf_oauth_password.trim() }
-            : {}),
         };
       }
       const response = await fetch(`${API_URL}/tenants/invoice-provider-settings`, {
@@ -907,17 +882,8 @@ export function SettingsPage() {
       setDaftraForm((f) => ({
         ...f,
         api_token: '',
-        pdf_oauth_client_secret: '',
-        pdf_oauth_password: '',
-        pdf_oauth_refresh_token: '',
       }));
       if (data.daftra_settings?.api_token_set) setDaftraTokenSet(true);
-      if (data.daftra_settings?.pdf_oauth_client_secret_set != null) {
-        setDaftraPdfOauthSecretSet(!!data.daftra_settings.pdf_oauth_client_secret_set);
-      }
-      if (data.daftra_settings?.pdf_oauth_refresh_token_set != null) {
-        setDaftraPdfOauthRefreshSet(!!data.daftra_settings.pdf_oauth_refresh_token_set);
-      }
     } catch (err: any) {
       setInvoiceProviderMessage({ type: 'error', text: err.message || t('settings.invoiceProvider.saveFailed') });
     } finally {
@@ -2195,36 +2161,39 @@ export function SettingsPage() {
                 {t('settings.invoiceProvider.title')}
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-6">
-              <p className="text-sm text-gray-600 mb-4">{t('settings.invoiceProvider.subtitle')}</p>
+            <CardContent className="p-6 sm:p-8">
+              <p className="text-sm text-slate-600 leading-relaxed max-w-3xl">{t('settings.invoiceProvider.subtitle')}</p>
               {invoiceProviderMessage && (
                 <div
-                  className={`p-3 rounded-lg text-sm mb-4 ${
+                  className={`mt-4 p-3 rounded-lg text-sm ${
                     invoiceProviderMessage.type === 'success'
-                      ? 'bg-green-50 border border-green-200 text-green-700'
-                      : 'bg-red-50 border border-red-200 text-red-700'
+                      ? 'bg-green-50 border border-green-200 text-green-800'
+                      : 'bg-red-50 border border-red-200 text-red-800'
                   }`}
+                  role="status"
                 >
                   {invoiceProviderMessage.text}
                 </div>
               )}
-              <form onSubmit={handleInvoiceProviderSave} className="space-y-4">
-                <div className="flex flex-col gap-2">
-                  <span className="text-sm font-medium text-gray-700">{t('settings.invoiceProvider.activeLabel')}</span>
-                  <div className="flex flex-wrap gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
+              <form onSubmit={handleInvoiceProviderSave} className="mt-6 space-y-6">
+                <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 shadow-sm p-4 space-y-3">
+                  <span className="text-sm font-semibold text-slate-800">{t('settings.invoiceProvider.activeLabel')}</span>
+                  <div className="flex flex-wrap gap-3" role="radiogroup" aria-label={t('settings.invoiceProvider.activeLabel')}>
+                    <label className="flex items-center gap-2.5 cursor-pointer rounded-lg border border-transparent px-3 py-2 text-sm text-slate-700 hover:bg-white/80 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 has-[:focus-visible]:ring-offset-1">
                       <input
                         type="radio"
                         name="invoice_provider"
+                        className="text-blue-600 focus:ring-blue-500"
                         checked={invoiceProvider === 'zoho'}
                         onChange={() => setInvoiceProvider('zoho')}
                       />
                       {t('settings.invoiceProvider.zoho')}
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <label className="flex items-center gap-2.5 cursor-pointer rounded-lg border border-transparent px-3 py-2 text-sm text-slate-700 hover:bg-white/80 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 has-[:focus-visible]:ring-offset-1">
                       <input
                         type="radio"
                         name="invoice_provider"
+                        className="text-blue-600 focus:ring-blue-500"
                         checked={invoiceProvider === 'daftra'}
                         onChange={() => setInvoiceProvider('daftra')}
                       />
@@ -2232,116 +2201,90 @@ export function SettingsPage() {
                     </label>
                   </div>
                 </div>
-                <a
-                  href="https://docs.daftara.dev/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
-                >
-                  {t('settings.invoiceProvider.docsLink')}
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+                <p className="text-xs text-slate-500">
+                  <a
+                    href="https://docs.daftara.dev/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 font-medium text-blue-700 hover:text-blue-900 hover:underline"
+                  >
+                    {t('settings.invoiceProvider.docsLink')}
+                    <ExternalLink className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                  </a>
+                </p>
                 {invoiceProvider === 'daftra' && (
-                  <div className="space-y-3 pt-2 border-t border-gray-200">
-                    <Input
-                      label={t('settings.invoiceProvider.daftraSubdomain')}
-                      value={daftraForm.subdomain}
-                      onChange={(e) => setDaftraForm({ ...daftraForm, subdomain: e.target.value })}
-                      placeholder="mycompany"
-                    />
-                    <p className="text-xs text-gray-500">{t('settings.invoiceProvider.daftraSubdomainHint')}</p>
-                    <Input
-                      label={t('settings.invoiceProvider.storeId')}
-                      type="number"
-                      value={daftraForm.store_id}
-                      onChange={(e) => setDaftraForm({ ...daftraForm, store_id: e.target.value })}
-                    />
-                    <p className="text-xs text-gray-500">{t('settings.invoiceProvider.storeIdHint')}</p>
-                    <Input
-                      label={t('settings.invoiceProvider.productId')}
-                      type="number"
-                      value={daftraForm.default_product_id}
-                      onChange={(e) => setDaftraForm({ ...daftraForm, default_product_id: e.target.value })}
-                    />
-                    <p className="text-xs text-gray-500">{t('settings.invoiceProvider.productIdHint')}</p>
-                    <Input
-                      label={t('settings.invoiceProvider.layoutId', 'Invoice Layout ID (optional)')}
-                      type="number"
-                      value={daftraForm.invoice_layout_id}
-                      onChange={(e) => setDaftraForm({ ...daftraForm, invoice_layout_id: e.target.value })}
-                    />
-                    <p className="text-xs text-gray-500">
-                      {t(
-                        'settings.invoiceProvider.layoutIdHint',
-                        'Force a specific Daftra template layout id for all created invoices.'
-                      )}
-                    </p>
-                    <Input
-                      label={t('settings.invoiceProvider.apiToken')}
-                      type="password"
-                      value={daftraForm.api_token}
-                      onChange={(e) => setDaftraForm({ ...daftraForm, api_token: e.target.value })}
-                      placeholder={daftraTokenSet ? '••••••••' : ''}
-                    />
-                    <p className="text-xs text-gray-500">{t('settings.invoiceProvider.apiTokenHint')}</p>
-                    {daftraTokenSet && (
-                      <p className="text-xs text-green-700">{t('settings.invoiceProvider.tokenOnFile')}</p>
-                    )}
-                    <Input
-                      label={t('settings.invoiceProvider.countryCode')}
-                      value={daftraForm.country_code}
-                      onChange={(e) => setDaftraForm({ ...daftraForm, country_code: e.target.value })}
-                      maxLength={3}
-                    />
-                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={daftraForm.fallback_to_zoho}
-                        onChange={(e) => setDaftraForm({ ...daftraForm, fallback_to_zoho: e.target.checked })}
-                      />
-                      {t('settings.invoiceProvider.fallbackZoho')}
-                    </label>
-                    <div className="pt-4 border-t border-gray-200 space-y-3">
-                      <p className="text-sm font-medium text-gray-800">{t('settings.invoiceProvider.daftraPdfOauthTitle')}</p>
-                      <p className="text-xs text-gray-600">{t('settings.invoiceProvider.daftraPdfOauthHint')}</p>
+                  <div className="space-y-4 pt-2 border-t border-slate-200">
+                    <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-3">
                       <Input
-                        label={t('settings.invoiceProvider.daftraPdfOauthClientId')}
-                        value={daftraForm.pdf_oauth_client_id}
-                        onChange={(e) => setDaftraForm({ ...daftraForm, pdf_oauth_client_id: e.target.value })}
+                        label={t('settings.invoiceProvider.daftraSubdomain')}
+                        value={daftraForm.subdomain}
+                        onChange={(e) => setDaftraForm({ ...daftraForm, subdomain: e.target.value })}
+                        placeholder="mycompany"
                       />
+                      <p className="text-xs text-gray-500">{t('settings.invoiceProvider.daftraSubdomainHint')}</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="rounded-lg border border-slate-200 p-4 space-y-2">
+                        <Input
+                          label={t('settings.invoiceProvider.storeId')}
+                          type="number"
+                          value={daftraForm.store_id}
+                          onChange={(e) => setDaftraForm({ ...daftraForm, store_id: e.target.value })}
+                        />
+                        <p className="text-xs text-gray-500">{t('settings.invoiceProvider.storeIdHint')}</p>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 p-4 space-y-2">
+                        <Input
+                          label={t('settings.invoiceProvider.productId')}
+                          type="number"
+                          value={daftraForm.default_product_id}
+                          onChange={(e) => setDaftraForm({ ...daftraForm, default_product_id: e.target.value })}
+                        />
+                        <p className="text-xs text-gray-500">{t('settings.invoiceProvider.productIdHint')}</p>
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 p-4 space-y-2">
                       <Input
-                        label={t('settings.invoiceProvider.daftraPdfOauthClientSecret')}
+                        label={t('settings.invoiceProvider.layoutId', 'Invoice Layout ID (optional)')}
+                        type="number"
+                        value={daftraForm.invoice_layout_id}
+                        onChange={(e) => setDaftraForm({ ...daftraForm, invoice_layout_id: e.target.value })}
+                      />
+                      <p className="text-xs text-gray-500">
+                        {t(
+                          'settings.invoiceProvider.layoutIdHint',
+                          'Force a specific Daftra template layout id for all created invoices.'
+                        )}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                      <Input
+                        label={t('settings.invoiceProvider.apiToken')}
                         type="password"
-                        value={daftraForm.pdf_oauth_client_secret}
-                        onChange={(e) => setDaftraForm({ ...daftraForm, pdf_oauth_client_secret: e.target.value })}
-                        placeholder={daftraPdfOauthSecretSet ? '••••••••' : ''}
+                        value={daftraForm.api_token}
+                        onChange={(e) => setDaftraForm({ ...daftraForm, api_token: e.target.value })}
+                        placeholder={daftraTokenSet ? '••••••••' : ''}
                       />
-                      {daftraPdfOauthSecretSet && (
-                        <p className="text-xs text-green-700">{t('settings.invoiceProvider.daftraPdfOauthSecretOnFile')}</p>
+                      <p className="text-xs text-gray-500">{t('settings.invoiceProvider.apiTokenHint')}</p>
+                      {daftraTokenSet && (
+                        <p className="text-xs text-green-700">{t('settings.invoiceProvider.tokenOnFile')}</p>
                       )}
-                      <Input
-                        label={t('settings.invoiceProvider.daftraPdfOauthUsername')}
-                        value={daftraForm.pdf_oauth_username}
-                        onChange={(e) => setDaftraForm({ ...daftraForm, pdf_oauth_username: e.target.value })}
-                        placeholder={t('settings.invoiceProvider.daftraPdfOauthUsernameHint')}
-                      />
-                      <Input
-                        label={t('settings.invoiceProvider.daftraPdfOauthPassword')}
-                        type="password"
-                        value={daftraForm.pdf_oauth_password}
-                        onChange={(e) => setDaftraForm({ ...daftraForm, pdf_oauth_password: e.target.value })}
-                      />
-                      <p className="text-xs text-gray-500">{t('settings.invoiceProvider.daftraPdfOauthPasswordHint')}</p>
-                      <Input
-                        label={t('settings.invoiceProvider.daftraPdfOauthRefreshToken')}
-                        type="password"
-                        value={daftraForm.pdf_oauth_refresh_token}
-                        onChange={(e) => setDaftraForm({ ...daftraForm, pdf_oauth_refresh_token: e.target.value })}
-                        placeholder={daftraPdfOauthRefreshSet ? '••••••••' : ''}
-                      />
-                      {daftraPdfOauthRefreshSet && (
-                        <p className="text-xs text-green-700">{t('settings.invoiceProvider.daftraPdfOauthRefreshOnFile')}</p>
-                      )}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Input
+                          label={t('settings.invoiceProvider.countryCode')}
+                          value={daftraForm.country_code}
+                          onChange={(e) => setDaftraForm({ ...daftraForm, country_code: e.target.value })}
+                          maxLength={3}
+                        />
+                        <label className="flex items-center gap-2 text-sm cursor-pointer pt-7">
+                          <input
+                            type="checkbox"
+                            checked={daftraForm.fallback_to_zoho}
+                            onChange={(e) => setDaftraForm({ ...daftraForm, fallback_to_zoho: e.target.checked })}
+                          />
+                          {t('settings.invoiceProvider.fallbackZoho')}
+                        </label>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2360,7 +2303,7 @@ export function SettingsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6">
-              <div className="space-y-4">
+              <div className="space-y-5">
                 {zohoMessage && (
                   <div className={`p-3 rounded-lg text-sm flex items-center gap-2 whitespace-pre-line ${
                     zohoMessage.type === 'success'
@@ -2443,7 +2386,7 @@ export function SettingsPage() {
                   </ol>
                 </div>
 
-                <div className="space-y-2">
+                <div className="rounded-lg border border-slate-200 p-4 space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
                     {t('settings.zoho.clientId')}
                   </label>
@@ -2457,7 +2400,7 @@ export function SettingsPage() {
                   <p className="text-xs text-gray-500">{t('settings.zoho.clientIdHint')}</p>
                 </div>
 
-                <div className="space-y-2">
+                <div className="rounded-lg border border-slate-200 p-4 space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
                     {t('settings.zoho.clientSecret')}
                   </label>
@@ -2481,7 +2424,7 @@ export function SettingsPage() {
                   <p className="text-xs text-gray-500">{t('settings.zoho.clientSecretHint')}</p>
                 </div>
 
-                <div className="space-y-2">
+                <div className="rounded-lg border border-slate-200 p-4 space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
                     {t('settings.zoho.redirectUriRequired')}
                   </label>
@@ -2517,38 +2460,39 @@ export function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    {t('settings.zoho.regionLabel')}
-                  </label>
-                  <select
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    value={zohoSettings.region}
-                    onChange={(e) => setZohoSettings({ ...zohoSettings, region: e.target.value })}
-                  >
-                    <option value="com">{t('settings.zoho.regionCom')}</option>
-                    <option value="eu">{t('settings.zoho.regionEu')}</option>
-                    <option value="in">{t('settings.zoho.regionIn')}</option>
-                    <option value="au">{t('settings.zoho.regionAu')}</option>
-                    <option value="jp">{t('settings.zoho.regionJp')}</option>
-                  </select>
-                  <p className="text-xs text-gray-500">{t('settings.zoho.regionHint')}</p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    {t('settings.zoho.organizationIdLabel', 'Zoho Organization ID')}
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g. 123456789"
-                    value={zohoSettings.zoho_organization_id ?? ''}
-                    onChange={(e) => setZohoSettings({ ...zohoSettings, zoho_organization_id: e.target.value })}
-                  />
-                  <p className="text-xs text-gray-500">
-                    {t('settings.zoho.organizationIdHint', 'Required for recording payments (package/booking invoices). Find it in Zoho Invoice → Settings → Organization Profile.')}
-                  </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="rounded-lg border border-slate-200 p-4 space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      {t('settings.zoho.regionLabel')}
+                    </label>
+                    <select
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      value={zohoSettings.region}
+                      onChange={(e) => setZohoSettings({ ...zohoSettings, region: e.target.value })}
+                    >
+                      <option value="com">{t('settings.zoho.regionCom')}</option>
+                      <option value="eu">{t('settings.zoho.regionEu')}</option>
+                      <option value="in">{t('settings.zoho.regionIn')}</option>
+                      <option value="au">{t('settings.zoho.regionAu')}</option>
+                      <option value="jp">{t('settings.zoho.regionJp')}</option>
+                    </select>
+                    <p className="text-xs text-gray-500">{t('settings.zoho.regionHint')}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 p-4 space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      {t('settings.zoho.organizationIdLabel', 'Zoho Organization ID')}
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="e.g. 123456789"
+                      value={zohoSettings.zoho_organization_id ?? ''}
+                      onChange={(e) => setZohoSettings({ ...zohoSettings, zoho_organization_id: e.target.value })}
+                    />
+                    <p className="text-xs text-gray-500">
+                      {t('settings.zoho.organizationIdHint', 'Required for recording payments (package/booking invoices). Find it in Zoho Invoice → Settings → Organization Profile.')}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex gap-3 pt-2">
