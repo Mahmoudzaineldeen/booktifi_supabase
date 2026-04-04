@@ -573,7 +573,7 @@ export function TenantDashboardContent() {
     color: colors[index % colors.length],
   }));
 
-  const servicePieData = servicePerformance.slice(0, 8).map((service, index) => ({
+  const servicePieData = servicePerformance.map((service, index) => ({
     label: service.name,
     value: service.revenue,
     color: colors[index % colors.length],

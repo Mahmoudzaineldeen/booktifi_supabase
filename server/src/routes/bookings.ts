@@ -14,6 +14,7 @@ import { getPermissionsForUserByUserId } from '../permissions.js';
 import { computeTagAdjustedDuration, resolveBookingTagForCreate } from '../services/tagPricingResolve.js';
 import { buildEffectiveEmployeeShifts, mergeEffectiveShiftsForCalendarDay, type EffectiveShift } from '../utils/employeeShiftResolution';
 import { findOverlappingBooking } from '../utils/employeeBookingConflict';
+import { normalizePhoneNumber } from '../utils/normalizePhoneNumber';
 import {
   buildDigitFuzzyPattern,
   buildSearchDigitVariants,
@@ -43,86 +44,6 @@ async function requireTicketsEnabled(tenantId: string, res: express.Response): P
     return false;
   }
   return true;
-}
-
-/**
- * Normalize phone number to international format
- * Handles Egyptian numbers specially: +2001032560826 -> +201032560826 (removes leading 0 after +20)
- * @param phone - Phone number in any format
- * @returns Normalized phone number in E.164 format or null if invalid
- */
-function normalizePhoneNumber(phone: string): string | null {
-  if (!phone || typeof phone !== 'string') {
-    return null;
-  }
-
-  // Remove all spaces, dashes, and parentheses
-  let cleaned = phone.replace(/[\s\-\(\)]/g, '');
-
-  // If already in international format with +
-  if (cleaned.startsWith('+')) {
-    // Special handling for Egypt: +2001032560826 -> +201032560826
-    if (cleaned.startsWith('+20')) {
-      const afterCode = cleaned.substring(3); // Get number after +20
-      // If starts with 0, remove it (Egyptian numbers: +2001032560826 -> +201032560826)
-      if (afterCode.startsWith('0') && afterCode.length >= 10) {
-        const withoutZero = afterCode.substring(1);
-        // Validate it's a valid Egyptian mobile number (starts with 1, 2, or 5)
-        if (withoutZero.startsWith('1') || withoutZero.startsWith('2') || withoutZero.startsWith('5')) {
-          return `+20${withoutZero}`;
-        }
-      }
-      // If already correct format (+201032560826), return as is
-      return cleaned;
-    }
-    // For other countries, return as is
-    return cleaned;
-  }
-
-  // If starts with 00, replace with +
-  if (cleaned.startsWith('00')) {
-    cleaned = '+' + cleaned.substring(2);
-    // Apply Egypt normalization if needed
-    if (cleaned.startsWith('+20')) {
-      const afterCode = cleaned.substring(3);
-      if (afterCode.startsWith('0') && afterCode.length >= 10) {
-        const withoutZero = afterCode.substring(1);
-        if (withoutZero.startsWith('1') || withoutZero.startsWith('2') || withoutZero.startsWith('5')) {
-          return `+20${withoutZero}`;
-        }
-      }
-    }
-    return cleaned;
-  }
-
-  // Egyptian numbers: 01XXXXXXXX (11 digits) -> +201XXXXXXXX
-  if (cleaned.startsWith('0') && cleaned.length === 11) {
-    const withoutZero = cleaned.substring(1);
-    if (withoutZero.startsWith('1') || withoutZero.startsWith('2') || withoutZero.startsWith('5')) {
-      return `+20${withoutZero}`;
-    }
-  }
-
-  // If starts with 20 (country code without +), add +
-  if (cleaned.startsWith('20') && cleaned.length >= 12) {
-    // Check if it has leading 0 after 20 (2001032560826 -> 201032560826)
-    const afterCode = cleaned.substring(2);
-    if (afterCode.startsWith('0') && afterCode.length >= 10) {
-      const withoutZero = afterCode.substring(1);
-      if (withoutZero.startsWith('1') || withoutZero.startsWith('2') || withoutZero.startsWith('5')) {
-        return `+20${withoutZero}`;
-      }
-    }
-    return `+${cleaned}`;
-  }
-
-  // If it's 10 digits starting with 1, 2, or 5 (Egyptian mobile without 0), add +20
-  if (cleaned.length === 10 && (cleaned.startsWith('1') || cleaned.startsWith('2') || cleaned.startsWith('5'))) {
-    return `+20${cleaned}`;
-  }
-
-  // Return null if we can't determine the format
-  return null;
 }
 
 type SlotWindow = {

@@ -20,13 +20,11 @@ export function PieChart({ title, data }: PieChartProps) {
 
   const total = data.reduce((sum, item) => sum + item.value, 0);
 
-  console.log('PieChart:', { title, dataLength: data.length, total, data });
-
   if (total === 0 || data.length === 0) {
     return (
-      <div className="bg-gradient-to-br from-white to-blue-50 rounded-xl border border-blue-100 shadow-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-6">{title}</h3>
-        <div className="text-center py-12 text-gray-500">
+      <div className="h-full min-h-0 bg-gradient-to-br from-white to-blue-50 rounded-xl border border-blue-100 shadow-lg p-6 flex flex-col">
+        <h3 className="text-lg font-semibold text-gray-900 mb-6 shrink-0">{title}</h3>
+        <div className="text-center py-12 text-gray-500 flex-1 min-h-0">
           {t('dashboard.noDataAvailable')}
         </div>
       </div>
@@ -82,20 +80,13 @@ export function PieChart({ title, data }: PieChartProps) {
     };
   });
 
-  console.log('PieChart segments:', segments.map(s => ({
-    label: s.label,
-    value: s.value,
-    color: s.color,
-    percentage: s.percentage,
-    pathData: s.pathData
-  })));
-
   return (
-    <div className="bg-gradient-to-br from-white to-blue-50 rounded-xl border border-blue-100 shadow-lg p-6 hover:shadow-xl transition-shadow">
-      <h3 className="text-lg font-semibold text-gray-900 mb-6">{title}</h3>
+    <div className="h-full min-h-0 bg-gradient-to-br from-white to-blue-50 rounded-xl border border-blue-100 shadow-lg p-6 hover:shadow-xl transition-shadow flex flex-col">
+      <h3 className="text-lg font-semibold text-gray-900 mb-6 shrink-0">{title}</h3>
 
-      <div className="flex flex-col items-center gap-6">
-        <div className="w-64 h-64 relative flex items-center justify-center">
+      <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+        <div className="flex flex-col items-center gap-6 min-h-0">
+          <div className="w-64 h-64 relative flex items-center justify-center shrink-0">
           <svg
             viewBox="0 0 100 100"
             className="w-full h-full"
@@ -117,36 +108,37 @@ export function PieChart({ title, data }: PieChartProps) {
           </svg>
         </div>
 
-        <div className="w-full grid grid-cols-1 gap-2">
-          {segments.map((item, index) => (
-            <div
-              key={index}
-              className="flex items-center justify-between bg-white rounded-lg px-4 py-2 hover:bg-blue-50 transition-colors border border-gray-100"
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-4 h-4 rounded-sm shadow-sm"
-                  style={{ backgroundColor: item.color }}
-                />
-                <span className="text-sm font-medium text-gray-900">
-                  {item.label}
-                </span>
-              </div>
-              <div className="text-right">
-                <div className="text-sm flex items-center justify-end gap-2">
-                  <span className="font-bold text-blue-700">
-                    ({item.percentage.toFixed(1)}%)
+          <div className="w-full grid grid-cols-1 gap-2">
+            {segments.map((item, index) => (
+              <div
+                key={index}
+                className="flex items-center justify-between bg-white rounded-lg px-4 py-2 hover:bg-blue-50 transition-colors border border-gray-100"
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-4 h-4 rounded-sm shadow-sm"
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <span className="text-sm font-medium text-gray-900">
+                    {item.label}
                   </span>
-                  <span className="text-gray-600">{item.value.toFixed(2)}</span>
                 </div>
-                <div className="text-xs mt-0.5 text-gray-600">
-                  <span className="font-medium text-emerald-700">{t('payment.paid', 'Paid')}: {item.paidLabel ?? '—'}</span>
-                  <span className="mx-2 text-gray-300">|</span>
-                  <span className="font-medium text-amber-700">{t('payment.unpaid', 'Unpaid')}: {item.unpaidLabel ?? '—'}</span>
+                <div className="text-right">
+                  <div className="text-sm flex items-center justify-end gap-2">
+                    <span className="font-bold text-blue-700">
+                      ({item.percentage.toFixed(1)}%)
+                    </span>
+                    <span className="text-gray-600">{item.value.toFixed(2)}</span>
+                  </div>
+                  <div className="text-xs mt-0.5 text-gray-600">
+                    <span className="font-medium text-emerald-700">{t('payment.paid', 'Paid')}: {item.paidLabel ?? '—'}</span>
+                    <span className="mx-2 text-gray-300">|</span>
+                    <span className="font-medium text-amber-700">{t('payment.unpaid', 'Unpaid')}: {item.unpaidLabel ?? '—'}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </div>
