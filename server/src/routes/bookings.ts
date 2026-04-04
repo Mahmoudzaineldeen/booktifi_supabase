@@ -209,7 +209,7 @@ async function findEmployeeBookingConflict(params: {
   const { tenantId, employeeId, slotDate, startTime, endTime, excludeBookingId } = params;
   let bookingQuery = supabase
     .from('bookings')
-    .select('id, slot_id, slot_date, effective_start_time, effective_end_time, slots:slot_id(slot_date, start_time, end_time)')
+    .select('id, slot_id, effective_start_time, effective_end_time, slots:slot_id(slot_date, start_time, end_time)')
     .eq('tenant_id', tenantId)
     .eq('employee_id', employeeId)
     .neq('status', 'cancelled');
@@ -226,7 +226,7 @@ async function findEmployeeBookingConflict(params: {
   const bookedWindows = (existingBookings || [])
     .map((booking: any) => {
       const slot = Array.isArray(booking.slots) ? booking.slots[0] : booking.slots;
-      const slotDateValue = booking.slot_date || slot?.slot_date;
+      const slotDateValue = slot?.slot_date;
       const startValue = booking.effective_start_time || slot?.start_time;
       const endValue = booking.effective_end_time || slot?.end_time;
       if (!slotDateValue || !startValue || !endValue) return null;
@@ -1019,7 +1019,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
 
       const bookingsByEmployeePromise = supabase
         .from('bookings')
-        .select('employee_id, slot_id, slot_date, effective_start_time, effective_end_time')
+        .select('employee_id, slot_id, effective_start_time, effective_end_time')
         .eq('tenant_id', tenantId)
         .in('employee_id', employeeIds)
         .neq('status', 'cancelled');
@@ -1027,7 +1027,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       const bookingsBySlotPromise = slotIds.length > 0
         ? supabase
             .from('bookings')
-            .select('employee_id, slot_id, slot_date, effective_start_time, effective_end_time')
+            .select('employee_id, slot_id, effective_start_time, effective_end_time')
             .eq('tenant_id', tenantId)
             .in('slot_id', slotIds)
             .neq('status', 'cancelled')
@@ -1053,7 +1053,6 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       const dedup = new Map<string, {
         employee_id: string | null;
         slot_id: string;
-        slot_date?: string | null;
         effective_start_time?: string | null;
         effective_end_time?: string | null;
       }>();
@@ -1064,7 +1063,6 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
           dedup.set(key, {
             employee_id: b.employee_id ?? null,
             slot_id: b.slot_id,
-            slot_date: b.slot_date ?? null,
             effective_start_time: b.effective_start_time ?? null,
             effective_end_time: b.effective_end_time ?? null,
           });
@@ -1998,7 +1996,7 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       return sendResponse(403, { error: 'Selected slot does not belong to this tenant' });
     }
     const baseDurationMinutes = getSlotDurationMinutes(selectedSlot.startTime, selectedSlot.endTime);
-    const durationMeta = computeTagAdjustedDuration(baseDurationMinutes, tagRes.timeType, tagRes.timeValue);
+    const durationMeta = computeTagAdjustedDuration(baseDurationMinutes, tagRes.slotCount);
     bookingEffectiveDurationMinutes = durationMeta.finalDurationMinutes;
     bookingRequiredSlotCount = durationMeta.requiredSlots;
     bookingEffectiveStartTime = selectedSlot.startTime;
@@ -2688,7 +2686,6 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
         updatePayload.applied_tag_fee = bookingAppliedTagFeeForDb;
       }
       if (bookingEffectiveStartTime && bookingEffectiveEndTime) {
-        updatePayload.slot_date = selectedSlot.slotDate;
         updatePayload.effective_start_time = bookingEffectiveStartTime;
         updatePayload.effective_end_time = bookingEffectiveEndTime;
         updatePayload.effective_duration_minutes = bookingEffectiveDurationMinutes;
@@ -3594,7 +3591,7 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
 
       const firstSlotForDuration = slotsData[0] as any;
       const bulkBaseDuration = getSlotDurationMinutes(firstSlotForDuration.start_time, firstSlotForDuration.end_time);
-      const bulkDurationMeta = computeTagAdjustedDuration(bulkBaseDuration, bulkTagRes.timeType, bulkTagRes.timeValue);
+      const bulkDurationMeta = computeTagAdjustedDuration(bulkBaseDuration, bulkTagRes.slotCount);
       bulkEffectiveDurationMinutes = bulkDurationMeta.finalDurationMinutes;
       bulkRequiredSlotCount = bulkDurationMeta.requiredSlots;
 
@@ -3865,9 +3862,6 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
           effective_duration_minutes: bulkEffectiveDurationMinutes,
           required_slot_count: bulkRequiredSlotCount,
         };
-        if (slot?.slot_date) {
-          updatePayload.slot_date = slot.slot_date;
-        }
         if (startTime) {
           updatePayload.effective_start_time = startTime;
           updatePayload.effective_end_time = addMinutesToTime(startTime, bulkEffectiveDurationMinutes);

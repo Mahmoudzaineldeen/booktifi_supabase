@@ -21,8 +21,7 @@ type TagRow = {
     fee_name: string | null;
     fee_value: number;
     description: string | null;
-    time_type?: 'fixed' | 'multiplier';
-    time_value?: number;
+    slot_count?: number;
   } | null;
 };
 
@@ -42,18 +41,11 @@ export function TagsPage() {
   const [desc, setDesc] = useState('');
   const [hasExtraCharge, setHasExtraCharge] = useState(false);
   const [createFeeValue, setCreateFeeValue] = useState('');
-  const [createTimeType, setCreateTimeType] = useState<'fixed' | 'multiplier'>('fixed');
-  const [createTimeValue, setCreateTimeValue] = useState('0');
+  const [createSlotCount, setCreateSlotCount] = useState('1');
   const [createServiceIds, setCreateServiceIds] = useState<Set<string>>(new Set());
   const [createServicesSearch, setCreateServicesSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<TagRow | null>(null);
-  const [feeModal, setFeeModal] = useState<TagRow | null>(null);
-  const [feeName, setFeeName] = useState('');
-  const [feeValue, setFeeValue] = useState('');
-  const [feeDesc, setFeeDesc] = useState('');
-  const [feeTimeType, setFeeTimeType] = useState<'fixed' | 'multiplier'>('fixed');
-  const [feeTimeValue, setFeeTimeValue] = useState('0');
 
   const [services, setServices] = useState<ServiceRow[]>([]);
   const [serviceToTags, setServiceToTags] = useState<Record<string, string[]>>({});
@@ -214,13 +206,11 @@ export function TagsPage() {
   async function createTag(e: React.FormEvent) {
     e.preventDefault();
     if (!canManage || !name.trim()) return;
-    const createTimeNum = Number(createTimeValue);
-    if (!Number.isFinite(createTimeNum) || (createTimeType === 'fixed' ? createTimeNum < 0 : createTimeNum < 1)) {
+    const slotCountNum = Number(createSlotCount);
+    if (!Number.isFinite(slotCountNum) || slotCountNum < 1) {
       showNotification(
         'warning',
-        createTimeType === 'fixed'
-          ? t('tags.invalidFixedTime', 'Time value must be a non-negative number of minutes.')
-          : t('tags.invalidMultiplierTime', 'Multiplier must be at least 1.')
+        t('tags.invalidSlotCount', 'Slots count must be at least 1.')
       );
       return;
     }
@@ -240,8 +230,7 @@ export function TagsPage() {
       const body: Record<string, unknown> = {
         name: name.trim(),
         description: desc.trim() || null,
-        time_type: createTimeType,
-        time_value: createTimeNum,
+        slot_count: Math.ceil(slotCountNum),
       };
       if (hasExtraCharge && Number.isFinite(feeVal) && feeVal > 0) {
         body.fee_name = name.trim();
@@ -278,8 +267,7 @@ export function TagsPage() {
       setDesc('');
       setHasExtraCharge(false);
       setCreateFeeValue('');
-      setCreateTimeType('fixed');
-      setCreateTimeValue('0');
+      setCreateSlotCount('1');
       setCreateServiceIds(new Set());
       setCreateServicesSearch('');
       await loadTags();
@@ -310,44 +298,6 @@ export function TagsPage() {
       setEditing(null);
       setName('');
       setDesc('');
-      loadTags();
-    } catch (e: any) {
-      showNotification('error', e.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function saveFee(e: React.FormEvent) {
-    e.preventDefault();
-    if (!feeModal || !canManage) return;
-    const timeNum = Number(feeTimeValue);
-    if (!Number.isFinite(timeNum) || (feeTimeType === 'fixed' ? timeNum < 0 : timeNum < 1)) {
-      showNotification(
-        'warning',
-        feeTimeType === 'fixed'
-          ? t('tags.invalidFixedTime', 'Time value must be a non-negative number of minutes.')
-          : t('tags.invalidMultiplierTime', 'Multiplier must be at least 1.')
-      );
-      return;
-    }
-    setSaving(true);
-    try {
-      const res = await apiFetch(`/tags/${feeModal.id}/fee`, {
-        method: 'PUT',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fee_name: feeName.trim() || null,
-          fee_value: parseFloat(feeValue) || 0,
-          description: feeDesc.trim() || null,
-          time_type: feeTimeType,
-          time_value: timeNum,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
-      showNotification('success', t('tags.feeSaved', 'Fee saved'));
-      setFeeModal(null);
       loadTags();
     } catch (e: any) {
       showNotification('error', e.message);
@@ -506,38 +456,21 @@ export function TagsPage() {
                 <div>
                   <p className="text-sm font-semibold text-slate-900">{t('tags.timeImpact', 'Time impact')}</p>
                   <p className="mt-0.5 text-xs text-slate-600">
-                    {t('tags.timeImpactHint', 'Controls how much booking time this tag consumes, without changing price unless fee is set.')}
+                    {t('tags.timeImpactHintSlots', 'Set how many slots this tag consumes. Price remains unchanged unless fee is set.')}
                   </p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">{t('tags.timeType', 'Time type')}</label>
-                    <select
-                      value={createTimeType}
-                      onChange={(e) => {
-                        const nextType = (e.target.value === 'multiplier' ? 'multiplier' : 'fixed') as 'fixed' | 'multiplier';
-                        setCreateTimeType(nextType);
-                        setCreateTimeValue(nextType === 'fixed' ? '0' : '1');
-                      }}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    >
-                      <option value="fixed">{t('tags.fixedTime', 'Fixed (minutes)')}</option>
-                      <option value="multiplier">{t('tags.multiplierTime', 'Multiplier (x duration)')}</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      {createTimeType === 'fixed' ? t('tags.extraMinutes', 'Extra minutes') : t('tags.durationMultiplier', 'Duration multiplier')}
-                    </label>
-                    <Input
-                      type="number"
-                      min={createTimeType === 'fixed' ? 0 : 1}
-                      step={createTimeType === 'fixed' ? '1' : '0.1'}
-                      value={createTimeValue}
-                      onChange={(e) => setCreateTimeValue(e.target.value)}
-                      className="max-w-[220px]"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    {t('tags.slotCount', 'Slots count')}
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    step="1"
+                    value={createSlotCount}
+                    onChange={(e) => setCreateSlotCount(e.target.value)}
+                    className="max-w-[220px]"
+                  />
                 </div>
               </div>
 
@@ -612,8 +545,7 @@ export function TagsPage() {
               {tags.map((row, index) => {
                 const n = countServicesForTag(row.id);
                 const feeNum = row.fee ? Number(row.fee.fee_value) : 0;
-                const timeType = row.is_default ? 'fixed' : (row.fee?.time_type || 'fixed');
-                const timeValue = row.is_default ? 0 : Number(row.fee?.time_value ?? 0);
+                const slotCount = row.is_default ? 1 : Math.max(1, Math.ceil(Number(row.fee?.slot_count ?? 1)));
                 return (
                   <li
                     key={row.id}
@@ -646,9 +578,7 @@ export function TagsPage() {
                       )}
                       {!row.is_default && (
                         <p className="text-xs text-slate-600">
-                          {timeType === 'multiplier'
-                            ? t('tags.timeMultiplierSummary', 'Duration: {{value}}x', { value: timeValue })
-                            : t('tags.timeFixedSummary', 'Duration: +{{value}} min', { value: timeValue })}
+                          {t('tags.slotImpactSummary', 'Slots: {{value}}', { value: slotCount })}
                         </p>
                       )}
                       {row.is_default && (
@@ -690,24 +620,6 @@ export function TagsPage() {
                                 className="border-slate-200"
                               >
                                 {t('common.edit')}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="secondary"
-                                size="sm"
-                                icon={<DollarSign className="h-3.5 w-3.5" />}
-                                onClick={() => {
-                                  setFeeModal(row);
-                                  setFeeName(row.fee?.fee_name || '');
-                                  setFeeValue(String(row.fee?.fee_value ?? ''));
-                                  setFeeDesc(row.fee?.description || '');
-                                  const modalTimeType = row.fee?.time_type === 'multiplier' ? 'multiplier' : 'fixed';
-                                  setFeeTimeType(modalTimeType);
-                                  setFeeTimeValue(String(row.fee?.time_value ?? (modalTimeType === 'multiplier' ? 1 : 0)));
-                                }}
-                                className="border-slate-200"
-                              >
-                                {t('tags.fee', 'Fee')}
                               </Button>
                               <Button
                                 type="button"
@@ -758,67 +670,6 @@ export function TagsPage() {
               {t('common.save')}
             </Button>
             <Button type="button" variant="secondary" onClick={() => setEditing(null)}>
-              {t('common.cancel')}
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      <Modal
-        isOpen={!!feeModal}
-        onClose={() => setFeeModal(null)}
-        title={t('tags.editFee', 'Tag fee')}
-        size="md"
-      >
-        <form onSubmit={saveFee} className="space-y-4 px-1 pb-1">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">{t('tags.feeName', 'Fee name')}</label>
-            <Input value={feeName} onChange={(e) => setFeeName(e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              {t('tags.feeValue', 'Fee amount')} <span className="text-red-500">*</span>
-            </label>
-            <Input type="number" min={0} step="0.01" value={feeValue} onChange={(e) => setFeeValue(e.target.value)} required />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">{t('tags.feeDescription', 'Fee description')}</label>
-            <Input value={feeDesc} onChange={(e) => setFeeDesc(e.target.value)} />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">{t('tags.timeType', 'Time type')}</label>
-              <select
-                value={feeTimeType}
-                onChange={(e) => {
-                  const nextType = (e.target.value === 'multiplier' ? 'multiplier' : 'fixed') as 'fixed' | 'multiplier';
-                  setFeeTimeType(nextType);
-                  setFeeTimeValue(nextType === 'fixed' ? '0' : '1');
-                }}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-              >
-                <option value="fixed">{t('tags.fixedTime', 'Fixed (minutes)')}</option>
-                <option value="multiplier">{t('tags.multiplierTime', 'Multiplier (x duration)')}</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                {feeTimeType === 'fixed' ? t('tags.extraMinutes', 'Extra minutes') : t('tags.durationMultiplier', 'Duration multiplier')}
-              </label>
-              <Input
-                type="number"
-                min={feeTimeType === 'fixed' ? 0 : 1}
-                step={feeTimeType === 'fixed' ? '1' : '0.1'}
-                value={feeTimeValue}
-                onChange={(e) => setFeeTimeValue(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="flex gap-2 pt-2">
-            <Button type="submit" variant="primary" disabled={saving}>
-              {t('common.save')}
-            </Button>
-            <Button type="button" variant="secondary" onClick={() => setFeeModal(null)}>
               {t('common.cancel')}
             </Button>
           </div>

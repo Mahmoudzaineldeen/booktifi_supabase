@@ -1,28 +1,24 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type TagTimeType = 'fixed' | 'multiplier';
 export type TagResolveOk = {
   ok: true;
   tagId: string;
   appliedFee: number;
-  timeType: TagTimeType;
-  timeValue: number;
+  slotCount: number;
 };
 export type TagResolveErr = { ok: false; status: number; error: string };
 export type TagResolveResult = TagResolveOk | TagResolveErr;
 
-export function computeTagAdjustedDuration(baseDurationMinutes: number, timeType: TagTimeType, timeValue: number): {
+export function computeTagAdjustedDuration(baseDurationMinutes: number, slotCountRaw: number): {
   finalDurationMinutes: number;
   requiredSlots: number;
 } {
   const base = Math.max(1, Math.round(Number(baseDurationMinutes) || 1));
-  const safeValue = Number.isFinite(timeValue) ? timeValue : (timeType === 'multiplier' ? 1 : 0);
-  const adjusted = timeType === 'multiplier'
-    ? Math.max(base, Math.ceil(base * Math.max(1, safeValue)))
-    : Math.max(base, base + Math.ceil(Math.max(0, safeValue)));
+  const safeSlotCount = Math.max(1, Math.ceil(Number.isFinite(slotCountRaw) ? slotCountRaw : 1));
+  const adjusted = base * safeSlotCount;
   return {
     finalDurationMinutes: adjusted,
-    requiredSlots: Math.max(1, Math.ceil(adjusted / base)),
+    requiredSlots: safeSlotCount,
   };
 }
 
@@ -118,21 +114,27 @@ export async function resolveBookingTagForCreate(
   }
 
   if (tagMeta.is_default === true) {
-    return { ok: true, tagId: effectiveTagId, appliedFee: 0, timeType: 'fixed', timeValue: 0 };
+    return { ok: true, tagId: effectiveTagId, appliedFee: 0, slotCount: 1 };
   }
 
-  const { data: feeRow } = await supabase
+  let feeRow: any = null;
+  // Prefer slot_count; gracefully fallback for schemas that haven't migrated yet.
+  const withSlots = await supabase
     .from('tag_fees')
-    .select('fee_value, time_type, time_value')
+    .select('fee_value, slot_count')
     .eq('tag_id', effectiveTagId)
     .maybeSingle();
+  if (withSlots.error && String(withSlots.error.message || '').toLowerCase().includes('slot_count')) {
+    const fallback = await supabase.from('tag_fees').select('fee_value').eq('tag_id', effectiveTagId).maybeSingle();
+    feeRow = fallback.data || null;
+  } else {
+    feeRow = withSlots.data || null;
+  }
 
   const fee = feeRow?.fee_value != null ? Number(feeRow.fee_value) : 0;
   const appliedFee = Number.isFinite(fee) && fee > 0 ? fee : 0;
-  const rawType = String(feeRow?.time_type || 'fixed').toLowerCase();
-  const timeType: TagTimeType = rawType === 'multiplier' ? 'multiplier' : 'fixed';
-  const rawValue = feeRow?.time_value != null ? Number(feeRow.time_value) : (timeType === 'multiplier' ? 1 : 0);
-  const timeValue = Number.isFinite(rawValue) ? rawValue : (timeType === 'multiplier' ? 1 : 0);
+  const rawSlotCount = feeRow?.slot_count != null ? Number(feeRow.slot_count) : 1;
+  const slotCount = Number.isFinite(rawSlotCount) ? Math.max(1, Math.ceil(rawSlotCount)) : 1;
 
-  return { ok: true, tagId: effectiveTagId, appliedFee, timeType, timeValue };
+  return { ok: true, tagId: effectiveTagId, appliedFee, slotCount };
 }

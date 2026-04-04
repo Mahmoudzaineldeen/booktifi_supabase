@@ -41,7 +41,6 @@ import {
   getParallelSlotsForQuantity as getParallelSlotsForQuantityLib,
   getRequiredSlotsForDuration,
   filterSlotsByRequiredConsecutive,
-  type TagTimeType,
 } from '../../lib/bookingSlotAllocation';
 
 interface Booking {
@@ -250,7 +249,7 @@ export function ReceptionPage() {
   const [bookingCreationLoadingStep, setBookingCreationLoadingStep] = useState<null | 'creating_booking' | 'creating_invoice'>(null);
   const [selectedSlots, setSelectedSlots] = useState<Array<{slot_id: string, start_time: string, end_time: string, employee_id: string, slot_date: string}>>([]);
   const [receptionPricingTags, setReceptionPricingTags] = useState<
-    { id: string; name: string; is_default?: boolean; fee_value?: number; time_type?: TagTimeType; time_value?: number }[]
+    { id: string; name: string; is_default?: boolean; fee_value?: number; slot_count?: number }[]
   >([]);
   const [receptionSelectedTagId, setReceptionSelectedTagId] = useState('');
   const [loadingReceptionTags, setLoadingReceptionTags] = useState(false);
@@ -496,12 +495,11 @@ export function ReceptionPage() {
     return Math.max(0, Number(sel.fee_value ?? 0));
   }
 
-  function getReceptionTagTimeMeta() {
+  function getReceptionTagSlotCount() {
     const sel = receptionPricingTags.find((x) => x.id === receptionSelectedTagId);
-    return {
-      timeType: (sel?.time_type === 'multiplier' ? 'multiplier' : 'fixed') as TagTimeType,
-      timeValue: Number(sel?.time_value ?? 0),
-    };
+    const raw = Number(sel?.slot_count ?? 1);
+    if (!Number.isFinite(raw)) return 1;
+    return Math.max(1, Math.ceil(raw));
   }
 
   function getReceptionDurationMeta() {
@@ -516,8 +514,7 @@ export function ReceptionPage() {
         })()
       : 60;
     const baseDuration = Math.max(1, Number(svc?.service_duration_minutes ?? svc?.duration_minutes ?? slotDuration) || slotDuration);
-    const { timeType, timeValue } = getReceptionTagTimeMeta();
-    return getRequiredSlotsForDuration(baseDuration, timeType, timeValue);
+    return getRequiredSlotsForDuration(baseDuration, 'multiplier', getReceptionTagSlotCount());
   }
 
   const receptionDurationMeta = getReceptionDurationMeta();
@@ -5115,11 +5112,8 @@ export function ReceptionPage() {
               {receptionPricingTags.length > 0 && receptionSelectedTagId && (
                 <p className="mt-1 text-xs text-gray-600">
                   {(() => {
-                    const timeMeta = getReceptionTagTimeMeta();
-                    const durationLabel = timeMeta.timeType === 'multiplier'
-                      ? t('tags.durationMultiplierSummary', 'Duration x{{value}}', { value: Number(timeMeta.timeValue || 1) })
-                      : t('tags.durationFixedSummary', 'Duration +{{value}} min', { value: Number(timeMeta.timeValue || 0) });
-                    return `${durationLabel} · ${t('tags.totalDuration', 'Total duration')}: ${receptionDurationMeta.finalDurationMinutes}m · ${t('tags.requiredSlots', 'Required slots')}: ${receptionDurationMeta.requiredSlots}`;
+                    const slotCount = getReceptionTagSlotCount();
+                    return `${t('tags.slotImpactSummary', 'Slots x{{value}}', { value: slotCount })} · ${t('tags.totalDuration', 'Total duration')}: ${receptionDurationMeta.finalDurationMinutes}m · ${t('tags.requiredSlots', 'Required slots')}: ${receptionDurationMeta.requiredSlots}`;
                   })()}
                 </p>
               )}

@@ -111,4 +111,6 @@ done set option when create a booking we need to add option to consume from pack
 
 done integrate with daftra
 
-done i need when i create booking when i write the customer number it gives me options in numbers dropdown menu so i dont need to write the custoemr full number and when i choose one of the drop down menu or i wirte the full number the other fildes are autofilled and esure that the data in drop down menu is accurate and ensure that the dropdown menu dont over lap the fileds under it
+done i need when i create booking when i write the customer number it gives me options in numbers dropdown menu so i dont need to write the custoemr full number and when i choose one of the drop down menu or i wirte the full number the other fildes are autofilled and esure that the data in drop down menu is accurate and ensure that the dropdown menu dont over lap the fileds under it 
+
+fix paid filter in reports

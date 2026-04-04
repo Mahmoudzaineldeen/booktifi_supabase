@@ -20,7 +20,6 @@ import {
   getParallelSlotsForQuantity as getParallelSlotsForQuantityLib,
   getRequiredSlotsForDuration,
   filterSlotsByRequiredConsecutive,
-  type TagTimeType,
 } from '../../lib/bookingSlotAllocation';
 import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
 import { Input } from '../../components/ui/Input';
@@ -160,8 +159,7 @@ export function BookingsPage() {
       is_default?: boolean;
       fee_value?: number;
       fee_name?: string | null;
-      time_type?: TagTimeType;
-      time_value?: number;
+      slot_count?: number;
     }[]
   >([]);
   const [selectedPricingTagId, setSelectedPricingTagId] = useState('');
@@ -423,12 +421,11 @@ export function BookingsPage() {
     return { available: total > 0, remaining: total };
   }
 
-  function getSelectedCreateTagTimeConfig() {
+  function getSelectedCreateTagSlotCount() {
     const selectedTag = createPricingTags.find((x) => x.id === selectedPricingTagId);
-    return {
-      timeType: (selectedTag?.time_type === 'multiplier' ? 'multiplier' : 'fixed') as TagTimeType,
-      timeValue: Number(selectedTag?.time_value ?? 0),
-    };
+    const slotCount = Number(selectedTag?.slot_count ?? 1);
+    if (!Number.isFinite(slotCount)) return 1;
+    return Math.max(1, Math.ceil(slotCount));
   }
 
   function getCreateDurationMeta() {
@@ -443,8 +440,7 @@ export function BookingsPage() {
         })()
       : 60;
     const baseDuration = Math.max(1, Number(svc?.service_duration_minutes ?? svc?.duration_minutes ?? slotDuration) || slotDuration);
-    const { timeType, timeValue } = getSelectedCreateTagTimeConfig();
-    return getRequiredSlotsForDuration(baseDuration, timeType, timeValue);
+    return getRequiredSlotsForDuration(baseDuration, 'multiplier', getSelectedCreateTagSlotCount());
   }
 
   function getRequiredSlotsCount(): number {
@@ -3116,11 +3112,8 @@ export function BookingsPage() {
                   <p className="text-xs text-gray-600">
                     {(() => {
                       const durationMeta = getCreateDurationMeta();
-                      const timeCfg = getSelectedCreateTagTimeConfig();
-                      const durationSuffix = timeCfg.timeType === 'multiplier'
-                        ? t('tags.durationMultiplierSummary', 'Duration x{{value}}', { value: Number(timeCfg.timeValue || 1) })
-                        : t('tags.durationFixedSummary', 'Duration +{{value}} min', { value: Number(timeCfg.timeValue || 0) });
-                      return `${durationSuffix} · ${t('tags.totalDuration', 'Total duration')}: ${durationMeta.finalDurationMinutes}m · ${t('tags.requiredSlots', 'Required slots')}: ${durationMeta.requiredSlots}`;
+                      const slotCount = getSelectedCreateTagSlotCount();
+                      return `${t('tags.slotImpactSummary', 'Slots x{{value}}', { value: slotCount })} · ${t('tags.totalDuration', 'Total duration')}: ${durationMeta.finalDurationMinutes}m · ${t('tags.requiredSlots', 'Required slots')}: ${durationMeta.requiredSlots}`;
                     })()}
                   </p>
                   <p className="text-xs text-gray-600">
