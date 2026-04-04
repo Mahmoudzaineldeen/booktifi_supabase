@@ -1,7 +1,7 @@
 /**
  * Search existing customers by phone fragment (for Add Booking / Add Subscription).
- * Backend: GET /bookings/customer-search?phone=digits (LIKE '%digits%' LIMIT 11).
- * Only show suggestions when 1 <= results <= 10 (hide if 0 or >10).
+ * Backend: GET /bookings/customer-search?phone=digits&limit=n (LIKE '%digits%').
+ * Shows up to MAX_SHOW suggestions and lets user scroll the dropdown.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -16,8 +16,52 @@ export interface CustomerSuggestion {
 
 const DEBOUNCE_MS = 400;
 const MIN_DIGITS = 3;
-const MAX_SHOW = 10;
-const LIMIT = 11;
+const MAX_SHOW = 100;
+const LIMIT = 120;
+
+export function rankAndLimitCustomerSuggestions(
+  list: CustomerSuggestion[],
+  digits: string,
+  maxShow: number
+): CustomerSuggestion[] {
+  const queryDigits = digits.replace(/\D/g, '');
+  const normalized = list
+    .filter((c) => !!c?.id && !!c?.phone)
+    .map((c) => ({
+      ...c,
+      _digits: c.phone.replace(/\D/g, ''),
+    }));
+
+  // Accuracy: show closest matches first (exact > startsWith > contains),
+  // then by shorter phone length to reduce noisy suggestions.
+  normalized.sort((a, b) => {
+    const score = (x: { _digits: string }) => {
+      if (x._digits === queryDigits) return 0;
+      if (x._digits.startsWith(queryDigits)) return 1;
+      if (x._digits.includes(queryDigits)) return 2;
+      return 3;
+    };
+    const sA = score(a);
+    const sB = score(b);
+    if (sA !== sB) return sA - sB;
+    return a._digits.length - b._digits.length;
+  });
+
+  const deduped: CustomerSuggestion[] = [];
+  const seen = new Set<string>();
+  for (const item of normalized) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    deduped.push({
+      id: item.id,
+      name: item.name,
+      phone: item.phone,
+      email: item.email,
+    });
+  }
+
+  return deduped.slice(0, maxShow);
+}
 
 export function useCustomerPhoneSearch(tenantId: string | undefined, fullPhoneValue: string) {
   const [suggestions, setSuggestions] = useState<CustomerSuggestion[]>([]);
@@ -37,7 +81,7 @@ export function useCustomerPhoneSearch(tenantId: string | undefined, fullPhoneVa
     setSuggestions([]);
     try {
       const token = localStorage.getItem('auth_token');
-      const url = `${getApiUrl()}/bookings/customer-search?phone=${encodeURIComponent(digits)}`;
+      const url = `${getApiUrl()}/bookings/customer-search?phone=${encodeURIComponent(digits)}&limit=${LIMIT}`;
       const res = await fetch(url, {
         headers: { ...(token && { Authorization: `Bearer ${token}` }) },
         signal: abortRef.current.signal,
@@ -48,45 +92,7 @@ export function useCustomerPhoneSearch(tenantId: string | undefined, fullPhoneVa
       }
       const data = await res.json();
       const list: CustomerSuggestion[] = data.customers || [];
-      const queryDigits = digits.replace(/\D/g, '');
-      const normalized = list
-        .filter((c) => !!c?.id && !!c?.phone)
-        .map((c) => ({
-          ...c,
-          _digits: c.phone.replace(/\D/g, ''),
-        }));
-      // Accuracy: show closest matches first (exact > startsWith > contains),
-      // then by shorter phone length to reduce noisy suggestions.
-      normalized.sort((a, b) => {
-        const score = (x: { _digits: string }) => {
-          if (x._digits === queryDigits) return 0;
-          if (x._digits.startsWith(queryDigits)) return 1;
-          if (x._digits.includes(queryDigits)) return 2;
-          return 3;
-        };
-        const sA = score(a);
-        const sB = score(b);
-        if (sA !== sB) return sA - sB;
-        return a._digits.length - b._digits.length;
-      });
-      const deduped: CustomerSuggestion[] = [];
-      const seen = new Set<string>();
-      for (const item of normalized) {
-        if (seen.has(item.id)) continue;
-        seen.add(item.id);
-        deduped.push({
-          id: item.id,
-          name: item.name,
-          phone: item.phone,
-          email: item.email,
-        });
-      }
-      // Only show dropdown when 1 <= count <= 10 (if 11 returned, too many)
-      if (deduped.length > MAX_SHOW) {
-        setSuggestions([]);
-      } else {
-        setSuggestions(deduped);
-      }
+      setSuggestions(rankAndLimitCustomerSuggestions(list, digits, MAX_SHOW));
     } catch (e) {
       if ((e as Error)?.name !== 'AbortError') {
         setSuggestions([]);

@@ -99,7 +99,7 @@ in tags add time this means if we created a tag we can add time so if the servic
 
 done add gride view for bookings in the receptionist page 
 
-done add date filter in search in bookings and dashboard and its default value  today (the filter is already in dashboard but make it takes affect in bookings in the dashboard) down
+done add date filter in search in bookings and dashboard and its default value  today (the filter is already in dashboard but make it takes affect in bookings in the dashboard) first to serve and last to serve
 
 done make all dashboard as a widgets  drag and drop components and can choose what widget to choose to display and what not
 
@@ -113,4 +113,6 @@ done integrate with daftra
 
 done i need when i create booking when i write the customer number it gives me options in numbers dropdown menu so i dont need to write the custoemr full number and when i choose one of the drop down menu or i wirte the full number the other fildes are autofilled and esure that the data in drop down menu is accurate and ensure that the dropdown menu dont over lap the fileds under it 
 
-fix paid filter in reports
+fix paid filter in reports and blot while sharing the link
+
+social media track link

@@ -103,9 +103,15 @@ export function ReportsBookingsPage() {
       const res = await fetch(`${getApiUrl()}/reports/bookings?${buildQs()}`, { headers: getAuthHeaders() });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load');
-      setRows(data.data || []);
       const pg = data.pagination || {};
-      setTotalPages(pg.totalPages || 1);
+      const nextTotalPages = Math.max(1, Number(pg.totalPages) || 1);
+      if (page > nextTotalPages) {
+        setPage(nextTotalPages);
+        return;
+      }
+
+      setRows(data.data || []);
+      setTotalPages(nextTotalPages);
       setHasNext(!!pg.hasNextPage);
       setHasPrev(!!pg.hasPrevPage);
       setTotal(pg.total ?? 0);
@@ -157,13 +163,19 @@ export function ReportsBookingsPage() {
     setStatus('');
     setEmployeeId('');
     setPage(1);
-    setTimeout(() => load(), 0);
   };
 
   const apply = () => {
     setPage(1);
-    setTimeout(() => load(), 0);
+    if (page === 1) {
+      load();
+    }
   };
+
+  useEffect(() => {
+    // If user is on page > 1, any filter change should start from first page.
+    setPage((prev) => (prev === 1 ? prev : 1));
+  }, [startDate, endDate, branchId, serviceId, status, employeeId]);
 
   const exportFile = async (format: 'csv' | 'xlsx' | 'pdf') => {
     setExporting(format);

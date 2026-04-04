@@ -14,6 +14,12 @@ import { getPermissionsForUserByUserId } from '../permissions.js';
 import { computeTagAdjustedDuration, resolveBookingTagForCreate } from '../services/tagPricingResolve.js';
 import { buildEffectiveEmployeeShifts, mergeEffectiveShiftsForCalendarDay, type EffectiveShift } from '../utils/employeeShiftResolution';
 import { findOverlappingBooking } from '../utils/employeeBookingConflict';
+import {
+  buildDigitFuzzyPattern,
+  buildSearchDigitVariants,
+  bestPhoneMatchScore,
+  phoneMatchesAnyVariant,
+} from '../utils/customerPhoneSearch';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -971,24 +977,44 @@ router.get('/customer-search', authenticateReceptionistOrTenantAdmin, async (req
     }
     const phoneParam = (req.query.phone as string) || '';
     const digits = phoneParam.replace(/\D/g, '');
+    const requestedLimit = Number(req.query.limit);
+    const safeLimit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(Math.floor(requestedLimit), 1), 200)
+      : 120;
     if (digits.length < 3) {
       return res.status(400).json({
         error: 'Phone fragment too short',
         hint: 'Provide at least 3 digits to search customers',
       });
     }
-    const pattern = `%${digits}%`;
+    const variants = buildSearchDigitVariants(digits);
+    if (variants.length === 0) {
+      return res.json({ customers: [] });
+    }
+    const fuzzyPatterns = variants.map(buildDigitFuzzyPattern);
+    const orClause = fuzzyPatterns.map((pattern) => `phone.ilike.${pattern}`).join(',');
+    const prefetchLimit = Math.min(1000, Math.max(safeLimit * 4, 200));
     const { data, error } = await supabase
       .from('customers')
       .select('id, name, phone, email')
       .eq('tenant_id', tenantId)
-      .ilike('phone', pattern)
-      .limit(11);
+      .or(orClause)
+      .limit(prefetchLimit);
 
     if (error) {
       return res.status(500).json({ error: 'Failed to search customers', details: error.message });
     }
-    return res.json({ customers: data || [] });
+    const filtered = (data || []).filter((c: any) => phoneMatchesAnyVariant(c?.phone || '', variants));
+    filtered.sort((a: any, b: any) => {
+      const scoreA = bestPhoneMatchScore(a?.phone || '', variants);
+      const scoreB = bestPhoneMatchScore(b?.phone || '', variants);
+      if (scoreA !== scoreB) return scoreA - scoreB;
+      const phoneA = String(a?.phone || '').replace(/\D/g, '').length;
+      const phoneB = String(b?.phone || '').replace(/\D/g, '').length;
+      return phoneA - phoneB;
+    });
+
+    return res.json({ customers: filtered.slice(0, safeLimit) });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Customer search failed' });
   }

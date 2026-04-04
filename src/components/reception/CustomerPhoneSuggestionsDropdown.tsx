@@ -1,11 +1,14 @@
 /**
  * Dropdown under phone field: Name — Phone — Email.
- * Shown only when 1 <= suggestions.length <= 10. Mobile friendly.
+ * Shown whenever at least one suggestion exists. Mobile friendly.
  */
 
 import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CustomerSuggestion } from '../../hooks/useCustomerPhoneSearch';
+
+export const CUSTOMER_PHONE_SUGGESTIONS_SCROLL_CLASSES =
+  'relative z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-gray-300 bg-white shadow-lg';
 
 interface CustomerPhoneSuggestionsDropdownProps {
   suggestions: CustomerSuggestion[];
@@ -45,7 +48,7 @@ export function CustomerPhoneSuggestionsDropdown({
   return (
     <div
       ref={listRef}
-      className={`relative z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-gray-300 bg-white shadow-lg ${className}`}
+      className={`${CUSTOMER_PHONE_SUGGESTIONS_SCROLL_CLASSES} ${className}`}
       dir={isRTL ? 'rtl' : 'ltr'}
       role="listbox"
     >

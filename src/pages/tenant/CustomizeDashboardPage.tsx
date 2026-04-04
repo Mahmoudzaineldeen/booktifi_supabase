@@ -175,11 +175,26 @@ export function CustomizeDashboardPage() {
         };
       }
 
-      const maxY = prev.widgets
-        .filter((w) => w.visible)
-        .reduce((acc, w) => Math.max(acc, w.y + w.h), 0);
+      const overlaps = (a: DashboardLayoutItem, b: DashboardLayoutItem) =>
+        a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+      const visibleWidgets = prev.widgets.filter((w) => w.visible && w.id !== widgetId);
+      const rightAlignedX = Math.max(0, 12 - current.w);
+      let targetY = 0;
+      const maxScanRows =
+        visibleWidgets.reduce((acc, w) => Math.max(acc, w.y + w.h), 0) + Math.max(1, current.h) + 20;
+
+      for (let y = 0; y <= maxScanRows; y++) {
+        const candidate = normalizeWidgetBounds({ ...current, visible: true, x: rightAlignedX, y });
+        const hasCollision = visibleWidgets.some((w) => overlaps(candidate, w));
+        if (!hasCollision) {
+          targetY = y;
+          break;
+        }
+      }
+
       const remaining = prev.widgets.filter((w) => w.id !== widgetId);
-      const revived = { ...current, visible: true, x: 0, y: maxY };
+      const revived = normalizeWidgetBounds({ ...current, visible: true, x: rightAlignedX, y: targetY });
       const nextWidgets = [...remaining, revived];
       return { ...prev, widgets: nextWidgets };
     });
@@ -189,6 +204,13 @@ export function CustomizeDashboardPage() {
     setLayout((prev) => ({
       ...prev,
       widgets: prev.widgets.map((w) => (w.id === widgetId ? { ...w, visible: false } : w)),
+    }));
+  }
+
+  function hideAllWidgetsFromPreview() {
+    setLayout((prev) => ({
+      ...prev,
+      widgets: prev.widgets.map((w) => ({ ...w, visible: false })),
     }));
   }
 
@@ -576,7 +598,18 @@ export function CustomizeDashboardPage() {
 
         <Card>
           <CardContent className="p-4">
-            <h2 className="text-sm font-semibold text-gray-900 mb-3">{t('dashboard.customize.preview', 'Preview')}</h2>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-gray-900">{t('dashboard.customize.preview', 'Preview')}</h2>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={hideAllWidgetsFromPreview}
+                disabled={visibleCount === 0}
+                className="h-8 px-2 text-xs text-red-600 hover:text-red-700"
+              >
+                {t('dashboard.customize.deleteAll', 'Delete All')}
+              </Button>
+            </div>
             {previewVisibleWidgets.length === 0 ? (
               <div className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
                 {t('dashboard.customize.emptyPreview', 'All widgets are hidden. Enable at least one widget to preview.')}

@@ -108,11 +108,25 @@ function isPaidBookingStatus(paymentStatus: unknown): boolean {
 }
 
 function bookingDateKey(b: any): string {
-  return String(b?.slots?.slot_date || (b?.created_at || '').slice(0, 10) || '');
+  return String(b?.slots?.slot_date || '');
 }
 
-function bookingCreatedDateKey(b: any): string {
-  return String((b?.created_at || '').slice(0, 10) || '');
+function bookingStartTimeKey(b: any): string {
+  return String(b?.slots?.start_time || '');
+}
+
+function sortBookingsByBookingDateAndTime(list: any[]): any[] {
+  return [...list].sort((a, b) => {
+    const dateA = bookingDateKey(a);
+    const dateB = bookingDateKey(b);
+    if (dateA !== dateB) return dateB.localeCompare(dateA); // Newer booking date first.
+
+    const timeA = bookingStartTimeKey(a);
+    const timeB = bookingStartTimeKey(b);
+    if (timeA !== timeB) return timeA.localeCompare(timeB); // Earlier time first within same day.
+
+    return String(b?.created_at || '').localeCompare(String(a?.created_at || ''));
+  });
 }
 
 function buildDateKeys(startDate?: string, endDate?: string): string[] {
@@ -407,6 +421,7 @@ router.get('/bookings', authenticateVisitorsAccess, async (req, res) => {
       if (endDate && d && d > endDate) return false;
       return true;
     });
+    list = sortBookingsByBookingDateAndTime(list);
 
     const total = list.length;
     const offset = (page - 1) * limit;
@@ -617,7 +632,7 @@ router.get('/dashboard-summary', authenticateVisitorsAccess, async (req, res) =>
     ]);
 
     const filteredBookings = allBookings.filter((b) => {
-      const d = bookingCreatedDateKey(b);
+      const d = bookingDateKey(b);
       if (startDate && d && d < startDate) return false;
       if (endDate && d && d > endDate) return false;
       return true;
@@ -671,7 +686,7 @@ router.get('/dashboard-summary', authenticateVisitorsAccess, async (req, res) =>
     for (const b of filteredBookings) {
       const serviceId = String(b?.service_id || '');
       if (!serviceId) continue;
-      const date = bookingCreatedDateKey(b);
+      const date = bookingDateKey(b);
       const serviceName = String(b?.services?.name || '');
       const serviceNameAr = String(b?.services?.name_ar || '');
       // Keep chart behavior aligned with previous dashboard:
@@ -770,6 +785,7 @@ router.get('/bookings/export/:format', authenticateVisitorsAccess, async (req, r
       if (endDate && d && d > endDate) return false;
       return true;
     });
+    list = sortBookingsByBookingDateAndTime(list);
 
     const rows = list.map((b) => {
       const payment_way = bookingReportPaymentWay(b);

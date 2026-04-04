@@ -914,9 +914,9 @@ export function BookingsPage() {
           const normalized = normalizeSlotDate(raw);
           return normalized >= weekStartStr && normalized <= weekEndStr;
         });
-        setBookings(sortBookingsByCreatedAtDesc(filteredBookings));
+        setBookings(sortBookingsByBookingDateTime(filteredBookings));
       } else {
-        setBookings(sortBookingsByCreatedAtDesc(allBookings));
+        setBookings(sortBookingsByBookingDateTime(allBookings));
       }
     } catch (err) {
       console.error('Error fetching bookings:', err);
@@ -949,9 +949,19 @@ export function BookingsPage() {
     });
   }
 
-  /** Sort bookings from most recent to oldest (created_at descending). */
-  function sortBookingsByCreatedAtDesc<T extends { created_at?: string | null }>(list: T[]): T[] {
-    return [...list].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  /** Sort bookings by booking date/time (slot date + start time). */
+  function sortBookingsByBookingDateTime<T extends { created_at?: string | null; slots?: { slot_date?: string; start_time?: string } | null }>(list: T[]): T[] {
+    return [...list].sort((a, b) => {
+      const dateA = normalizeSlotDate(a.slots?.slot_date ?? '') || '0000-00-00';
+      const dateB = normalizeSlotDate(b.slots?.slot_date ?? '') || '0000-00-00';
+      if (dateA !== dateB) return dateB.localeCompare(dateA); // Newer booking date first.
+
+      const timeA = a.slots?.start_time || '';
+      const timeB = b.slots?.start_time || '';
+      if (timeA !== timeB) return timeA.localeCompare(timeB); // Earlier time first within same day.
+
+      return (b.created_at || '').localeCompare(a.created_at || '');
+    });
   }
 
   function getBookingsForDate(date: Date) {
@@ -1895,7 +1905,7 @@ export function BookingsPage() {
         slots: b.slots || { slot_date: '', start_time: '', end_time: '' }
       }));
 
-      setSearchResults(sortBookingsByCreatedAtDesc(transformedBookings));
+      setSearchResults(sortBookingsByBookingDateTime(transformedBookings));
       setShowSearchResults(true);
     } catch (error: any) {
       if (error?.name === 'AbortError') return;
