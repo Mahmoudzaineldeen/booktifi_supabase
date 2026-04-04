@@ -103,6 +103,23 @@ interface Booking {
   notes?: string | null;
 }
 
+interface CreateBookingServiceLine {
+  lineId: string;
+  serviceId: string;
+  serviceName: string;
+  offerId: string | null;
+  tagId: string;
+  visitorCount: number;
+  slotIds: string[];
+  slotDate: string;
+  startTime: string;
+  endTime: string;
+  employeeId: string | null;
+  totalPrice: number;
+  tagFee: number;
+  consumeFromPackage: boolean;
+}
+
 type SearchType = 'phone' | 'customer_name' | 'service_name' | 'booking_id' | 'customer_id' | 'employee_name' | 'date' | '';
 
 export function BookingsPage() {
@@ -222,7 +239,7 @@ export function BookingsPage() {
   const [createConsumeFromPackage, setCreateConsumeFromPackage] = useState(true);
   const [createPaymentMethod, setCreatePaymentMethod] = useState<'unpaid' | 'onsite' | 'transfer'>('onsite');
   const [createTransactionReference, setCreateTransactionReference] = useState('');
-  const [createSelectedServices, setCreateSelectedServices] = useState<Array<{ service: AdminService; slot: Slot; employeeId: string }>>([]);
+  const [createSelectedServices, setCreateSelectedServices] = useState<CreateBookingServiceLine[]>([]);
   const [createAssignmentMode, setCreateAssignmentMode] = useState<'automatic' | 'manual'>('automatic');
   const [createPricingTags, setCreatePricingTags] = useState<
     {
@@ -663,68 +680,190 @@ export function BookingsPage() {
     return Array.from({ length: 8 }, (_, i) => addDays(new Date(), i));
   }
 
-  // Same backend as Reception: POST /bookings/create or create-bulk. Backend returns immediately (invoice/WhatsApp queued in background).
-  // UX: close create modal and show full-screen "Creating booking..." then "Creating invoice..." before opening confirmation modal.
-  async function handleCreateBooking(e?: React.FormEvent) {
-    e?.preventDefault();
-    if (!userProfile?.tenant_id || !createServiceId || !createDate) return;
-    const service = createServices.find(s => s.id === createServiceId);
-    if (!service) return;
+  function clearCurrentServiceSelectionAfterAdd() {
+    setCreateServiceId('');
+    setCreateDate('');
+    setCreateSlotId('');
+    setCreateOfferId('');
+    setCreateSlots([]);
+    setCreateSelectedSlots([]);
+    setCreateSelectedTimeSlot(null);
+    setCreateSelectedEmployeeId('');
+    setCreateNextEmployeeIdForRotation(null);
+    setCreatePricingTags([]);
+    setSelectedPricingTagId('');
+    setCreateShowFullCalendar(false);
+  }
+
+  function getCreateServiceUnitPrice(serviceId: string, offerId?: string | null): number {
+    const svc = createServices.find((s) => s.id === serviceId);
+    if (!svc) return 0;
+    if (offerId && svc.offers?.length) {
+      const offer = svc.offers.find((o) => o.id === offerId);
+      if (offer) return Number(offer.price || 0);
+    }
+    return Number(svc.base_price || 0);
+  }
+
+  function getCreateTagFee(tagId: string): number {
+    const tag = createPricingTags.find((x) => x.id === tagId);
+    if (!tag || tag.is_default) return 0;
+    return Math.max(0, Number(tag.fee_value ?? 0));
+  }
+
+  function normalizeCreateLinesByPackage(lines: CreateBookingServiceLine[]): CreateBookingServiceLine[] {
+    const remainingByService = new Map<string, number>();
+    for (const line of lines) {
+      if (!remainingByService.has(line.serviceId)) {
+        remainingByService.set(line.serviceId, Math.max(0, checkServiceInPackage(line.serviceId).remaining));
+      }
+    }
+
+    return lines.map((line) => {
+      const unit = getCreateServiceUnitPrice(line.serviceId, line.offerId);
+      const baseTagFee = getCreateTagFee(line.tagId);
+      const startRemaining = remainingByService.get(line.serviceId) ?? 0;
+      const packageCoveredQty = line.consumeFromPackage ? Math.min(line.visitorCount, startRemaining) : 0;
+      const paidQty = Math.max(0, line.visitorCount - packageCoveredQty);
+      const nextRemaining = Math.max(0, startRemaining - packageCoveredQty);
+      remainingByService.set(line.serviceId, nextRemaining);
+
+      return {
+        ...line,
+        totalPrice: unit * paidQty,
+        tagFee: paidQty > 0 ? baseTagFee : 0,
+      };
+    });
+  }
+
+  function buildCurrentCreateServiceLine(showWarnings = true): CreateBookingServiceLine | null {
+    if (!createServiceId || !createDate) {
+      if (showWarnings) showNotification('warning', t('reception.chooseService') || 'Please choose a service and date.');
+      return null;
+    }
+    const service = createServices.find((s) => s.id === createServiceId);
+    if (!service) return null;
     if (!selectedPricingTagId) {
-      showNotification('warning', t('tags.selectTagRequired', 'Please select a pricing tag'));
-      return;
+      if (showWarnings) showNotification('warning', t('tags.selectTagRequired', 'Please select a pricing tag'));
+      return null;
     }
-    let price = service.base_price;
-    if (createOfferId && service.offers?.length) {
-      const offer = service.offers.find(o => o.id === createOfferId);
-      if (offer) price = offer.price;
-    }
+
+    const unitPrice = getCreateServiceUnitPrice(service.id, createOfferId || null);
     const visitorCount = Math.max(1, createForm.visitor_count);
-    const selectedTag = createPricingTags.find((x) => x.id === selectedPricingTagId);
-    const tagFee =
-      selectedTag && !selectedTag.is_default ? Math.max(0, Number(selectedTag.fee_value ?? 0)) : 0;
-    const lineSubtotal = price * visitorCount;
-    const totalPrice = lineSubtotal;
-    const grandTotal = lineSubtotal + tagFee;
-    const fullPhone = createCustomerPhoneFull.trim().startsWith('+') ? createCustomerPhoneFull.trim() : `${createCountryCode}${(createCustomerPhoneFull.trim() || createForm.customer_phone).replace(/^0+/, '')}`;
+    const baseTagFee = getCreateTagFee(selectedPricingTagId);
+
+    const queuedConsumedForService = createSelectedServices
+      .filter((line) => line.serviceId === service.id && line.consumeFromPackage)
+      .reduce((sum, line) => sum + Math.max(0, Number(line.visitorCount || 0)), 0);
+    const packageRemainingNow = Math.max(0, checkServiceInPackage(service.id).remaining - queuedConsumedForService);
+    const packageCoveredQty = createConsumeFromPackage ? Math.min(visitorCount, packageRemainingNow) : 0;
+    const paidQty = Math.max(0, visitorCount - packageCoveredQty);
+    const lineSubtotal = unitPrice * paidQty;
+    const tagFee = paidQty > 0 ? baseTagFee : 0;
 
     const slotIds: string[] = [];
     const required = visitorCount;
     if (createSelectedSlots.length >= required) {
-      slotIds.push(...createSelectedSlots.slice(0, required).map(s => s.slot_id));
+      slotIds.push(...createSelectedSlots.slice(0, required).map((s) => s.slot_id));
     } else if (createForm.visitor_count > 1 && createForm.booking_option === 'parallel' && createSelectedTimeSlot) {
       const parallelSlots = getParallelSlotsForQuantity(createSlotsForSelection, createSelectedTimeSlot, required);
       if (parallelSlots.length < required) {
-        showNotification('warning', t('common.notEnoughCapacity', { available: parallelSlots.length, requested: required }) || `Not enough slots. Need ${required}, only ${parallelSlots.length} available.`);
-        return;
+        if (showWarnings) {
+          showNotification(
+            'warning',
+            t('common.notEnoughCapacity', { available: parallelSlots.length, requested: required }) ||
+              `Not enough slots. Need ${required}, only ${parallelSlots.length} available.`
+          );
+        }
+        return null;
       }
-      slotIds.push(...parallelSlots.map(s => s.id));
+      slotIds.push(...parallelSlots.map((s) => s.id));
     } else if (createForm.visitor_count > 1 && createForm.booking_option === 'consecutive' && createSelectedSlots.length === 0 && createSlotsForSelection.length > 0) {
       const consecutiveSlots = getConsecutiveSlotsForQuantity(createSlotsForSelection, required);
       if (!consecutiveSlots || consecutiveSlots.length < required) {
-        showNotification('warning', t('reception.noConsecutiveAvailability') || 'No consecutive availability for the requested number of slots.');
-        return;
+        if (showWarnings) showNotification('warning', t('reception.noConsecutiveAvailability') || 'No consecutive availability for the requested number of slots.');
+        return null;
       }
-      slotIds.push(...consecutiveSlots.map(s => s.id));
+      slotIds.push(...consecutiveSlots.map((s) => s.id));
     } else if (createSelectedSlots.length > 0) {
-      slotIds.push(...createSelectedSlots.map(s => s.slot_id));
+      slotIds.push(...createSelectedSlots.map((s) => s.slot_id));
     } else if (createSlotId) {
       slotIds.push(createSlotId);
     }
-    if (slotIds.length === 0) return;
 
-    // Backend create-bulk requires unique slot IDs; each slot must exist and belong to tenant
+    if (slotIds.length === 0) {
+      if (showWarnings) showNotification('warning', t('reception.noTimeSlotSelected') || 'Please select a time slot.');
+      return null;
+    }
+
     const uniqueSlotIds = [...new Set(slotIds)];
     if (uniqueSlotIds.length !== required) {
-      showNotification('warning', t('reception.selectDistinctSlots') || `Please select ${required} distinct time slots. Each slot can only be used once.`);
-      return;
+      if (showWarnings) showNotification('warning', t('reception.selectDistinctSlots') || `Please select ${required} distinct time slots.`);
+      return null;
     }
-    // Only send IDs that exist in current createSlots (avoids stale/mismatched tenant)
-    const validSlotIds = uniqueSlotIds.filter(id => createSlotsForSelection.some(s => s.id === id));
+    const validSlotIds = uniqueSlotIds.filter((id) => createSlotsForSelection.some((s) => s.id === id));
     if (validSlotIds.length !== required) {
-      showNotification('warning', t('reception.slotNoLongerAvailable') || 'One or more selected slots are no longer available. Please refresh and choose again.');
+      if (showWarnings) showNotification('warning', t('reception.slotNoLongerAvailable') || 'Selected slot is no longer available. Please choose another time.');
+      return null;
+    }
+
+    const firstSlot = createSlotsForSelection.find((s) => s.id === validSlotIds[0]);
+    if (!firstSlot) return null;
+
+    return {
+      lineId: `${service.id}-${validSlotIds.join(',')}-${Date.now()}`,
+      serviceId: service.id,
+      serviceName: isAr ? service.name_ar || service.name : service.name,
+      offerId: createOfferId || null,
+      tagId: selectedPricingTagId,
+      visitorCount,
+      slotIds: validSlotIds,
+      slotDate: firstSlot.slot_date,
+      startTime: firstSlot.start_time,
+      endTime: firstSlot.end_time,
+      employeeId: firstSlot.employee_id || null,
+      totalPrice: lineSubtotal,
+      tagFee,
+      consumeFromPackage: createConsumeFromPackage,
+    };
+  }
+
+  function handleAddCurrentServiceToBookingList() {
+    const line = buildCurrentCreateServiceLine(true);
+    if (!line) return;
+    setCreateSelectedServices((prev) => [...prev, line]);
+    clearCurrentServiceSelectionAfterAdd();
+    showNotification('success', t('reception.serviceAdded') || 'Service added to booking list.');
+  }
+
+  // Same backend as Reception: POST /bookings/create or create-bulk. Backend returns immediately (invoice/WhatsApp queued in background).
+  // UX: close create modal and show full-screen "Creating booking..." then "Creating invoice..." before opening confirmation modal.
+  async function handleCreateBooking(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!userProfile?.tenant_id) return;
+
+    const fullPhone = createCustomerPhoneFull.trim().startsWith('+')
+      ? createCustomerPhoneFull.trim()
+      : `${createCountryCode}${(createCustomerPhoneFull.trim() || createForm.customer_phone).replace(/^0+/, '')}`;
+
+    const currentLine = buildCurrentCreateServiceLine(false);
+    const draftLines = createSelectedServices.length > 0
+      ? createSelectedServices
+      : (currentLine ? [currentLine] : []);
+    const linesToCreate = normalizeCreateLinesByPackage(draftLines);
+
+    if (!createForm.customer_name.trim() || !fullPhone.trim()) {
+      showNotification('warning', t('reception.completeRequiredFields') || 'Please fill customer name and phone.');
       return;
     }
+    if (linesToCreate.length === 0) {
+      showNotification('warning', t('reception.noServicesSelected') || 'Please add at least one service.');
+      return;
+    }
+
+    const totalBeforeTagFees = linesToCreate.reduce((sum, line) => sum + Math.max(0, Number(line.totalPrice || 0)), 0);
+    const totalTagFees = linesToCreate.reduce((sum, line) => sum + Math.max(0, Number(line.tagFee || 0)), 0);
+    const grandTotal = totalBeforeTagFees + totalTagFees;
 
     if (grandTotal > 0 && createPaymentMethod === 'transfer' && !createTransactionReference.trim()) {
       showNotification('warning', t('reception.transactionReferenceRequired') || 'Transaction reference number is required for transfer payment.');
@@ -746,103 +885,69 @@ export function BookingsPage() {
       const session = await db.auth.getSession();
       const token = session.data.session?.access_token || localStorage.getItem('auth_token');
       const headers = { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) };
+      const bookingGroupId = crypto.randomUUID();
+      const createdBookingIds: string[] = [];
 
-      const idsToSend = validSlotIds;
-      if (idsToSend.length === 1) {
-        const slot = createSlots.find(s => s.id === idsToSend[0]);
-        const res = await fetch(`${getApiUrl()}/bookings/create`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            tenant_id: userProfile.tenant_id,
-            service_id: createServiceId,
-            slot_id: idsToSend[0],
-            employee_id: slot?.employee_id || null,
-            offer_id: createOfferId || null,
-            ...(createSelectedCustomer?.id && { customer_id: createSelectedCustomer.id }),
-            customer_name: createForm.customer_name.trim(),
-            customer_phone: fullPhone,
-            customer_email: createForm.customer_email?.trim() || null,
-            visitor_count: visitorCount,
-            total_price: totalPrice,
-            tag_id: selectedPricingTagId,
-            notes: createForm.notes?.trim() || null,
-            language: i18n.language,
-            consume_from_package: createConsumeFromPackage,
-            ...paymentPayload,
-          }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || err.message || 'Failed to create booking');
+      for (const line of linesToCreate) {
+        const payloadBase = {
+          tenant_id: userProfile.tenant_id,
+          service_id: line.serviceId,
+          tag_id: line.tagId,
+          offer_id: line.offerId || null,
+          ...(createSelectedCustomer?.id && { customer_id: createSelectedCustomer.id }),
+          customer_name: createForm.customer_name.trim(),
+          customer_phone: fullPhone,
+          customer_email: createForm.customer_email?.trim() || null,
+          visitor_count: line.visitorCount,
+          total_price: Math.max(0, Number(line.totalPrice || 0)),
+          notes: createForm.notes?.trim() || null,
+          language: i18n.language,
+          consume_from_package: line.consumeFromPackage,
+          booking_group_id: bookingGroupId,
+          ...paymentPayload,
+        };
+
+        if (line.slotIds.length <= 1) {
+          const res = await fetch(`${getApiUrl()}/bookings/create`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              ...payloadBase,
+              slot_id: line.slotIds[0],
+              employee_id: line.employeeId || null,
+            }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || err.message || 'Failed to create booking');
+          }
+          const result = await res.json();
+          if (result?.id) createdBookingIds.push(String(result.id));
+        } else {
+          const res = await fetch(`${getApiUrl()}/bookings/create-bulk`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              ...payloadBase,
+              slot_ids: line.slotIds,
+            }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || err.message || 'Failed to create booking');
+          }
+          const result = await res.json();
+          const ids = Array.isArray(result?.bookings) ? result.bookings.map((b: any) => b?.id).filter(Boolean) : [];
+          if (ids.length > 0) createdBookingIds.push(...ids.map((id: any) => String(id)));
         }
-        const result = await res.json();
-        setCreateBookingLoadingStep('creating_invoice');
-        await new Promise(r => setTimeout(r, 700));
-        setCreateBookingLoadingStep(null);
-        await fetchBookings();
-        if (createServiceId && createDate) {
-          try {
-            const { slots: freshSlots } = await fetchAvailableSlots({
-              tenantId: userProfile.tenant_id,
-              serviceId: createServiceId,
-              date: parseISO(createDate),
-              includePastSlots: false,
-              includeZeroCapacity: false,
-              includeLockedSlots: false,
-            });
-            setCreateSlots((freshSlots || []).filter(s => s.available_capacity > 0));
-          } catch (_) { /* non-blocking */ }
-        }
-        resetCreateForm();
-        setConfirmationBookingId(result.id ?? null);
-      } else {
-        const res = await fetch(`${getApiUrl()}/bookings/create-bulk`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            tenant_id: userProfile.tenant_id,
-            service_id: createServiceId,
-            slot_ids: idsToSend,
-            tag_id: selectedPricingTagId,
-            ...(createSelectedCustomer?.id && { customer_id: createSelectedCustomer.id }),
-            customer_name: createForm.customer_name.trim(),
-            customer_phone: fullPhone,
-            customer_email: createForm.customer_email?.trim() || null,
-            visitor_count: visitorCount,
-            total_price: totalPrice,
-            notes: createForm.notes?.trim() || null,
-            language: i18n.language,
-            consume_from_package: createConsumeFromPackage,
-            ...paymentPayload,
-          }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || err.message || 'Failed to create booking');
-        }
-        const result = await res.json();
-        setCreateBookingLoadingStep('creating_invoice');
-        await new Promise(r => setTimeout(r, 700));
-        setCreateBookingLoadingStep(null);
-        await fetchBookings();
-        if (createServiceId && createDate) {
-          try {
-            const { slots: freshSlots } = await fetchAvailableSlots({
-              tenantId: userProfile.tenant_id,
-              serviceId: createServiceId,
-              date: parseISO(createDate),
-              includePastSlots: false,
-              includeZeroCapacity: false,
-              includeLockedSlots: false,
-            });
-            setCreateSlots((freshSlots || []).filter(s => s.available_capacity > 0));
-          } catch (_) { /* non-blocking */ }
-        }
-        resetCreateForm();
-        const firstId = result.bookings?.[0]?.id ?? null;
-        setConfirmationBookingId(firstId);
       }
+
+      setCreateBookingLoadingStep('creating_invoice');
+      await new Promise((r) => setTimeout(r, 700));
+      setCreateBookingLoadingStep(null);
+      await fetchBookings();
+      resetCreateForm();
+      setConfirmationBookingId(createdBookingIds[0] ?? null);
     } catch (err: any) {
       setCreateBookingLoadingStep(null);
       showNotification('error', err.message || t('reception.errorCreatingBooking', { message: err.message }));
@@ -2863,39 +2968,27 @@ export function BookingsPage() {
               <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">{t('reception.serviceDetails')}</h4>
                 {(() => {
-                  const svc = createServices.find(s => s.id === createServiceId);
-                  if (!svc) return null;
-                  const pkgCheck = checkServiceInPackage(svc.id);
+                  const previewDraftLines = createSelectedServices.length > 0
+                    ? createSelectedServices
+                    : (() => {
+                        const current = buildCurrentCreateServiceLine(false);
+                        return current ? [current] : [];
+                      })();
+                  const previewLines = normalizeCreateLinesByPackage(previewDraftLines);
+                  if (previewLines.length === 0) return <div className="text-sm text-gray-500">{t('reception.noServicesSelected')}</div>;
                   return (
                     <div className="space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="font-medium text-gray-900">{isAr ? svc.name_ar : svc.name}</div>
-                          <div className="text-sm text-gray-600">{t('reception.quantityCount', { count: createForm.visitor_count })}</div>
-                          {(() => {
-                            const selectedTag = createPricingTags.find((x) => x.id === selectedPricingTagId);
-                            if (!selectedTag) return null;
-                            const slotCount = Math.max(1, Math.ceil(Number(selectedTag.slot_count ?? 1)));
-                            const fee = selectedTag.is_default ? 0 : Math.max(0, Number(selectedTag.fee_value ?? 0));
-                            return (
-                              <div className="text-xs text-gray-500 mt-1">
-                                {`${selectedTag.name} · ${t('tags.slotImpactSummary', 'Slots x{{value}}', { value: slotCount })}`}
-                                {fee > 0 ? ` · ${t('tags.tagFee', 'Tag fee')}: ${formatPrice(fee)}` : ''}
-                              </div>
-                            );
-                          })()}
+                      {previewLines.map((line) => (
+                        <div key={line.lineId} className="flex justify-between items-start border-b last:border-b-0 pb-2 last:pb-0">
+                          <div>
+                            <div className="font-medium text-gray-900">{line.serviceName}</div>
+                            <div className="text-sm text-gray-600">{t('reception.quantityCount', { count: line.visitorCount })}</div>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-bold text-gray-900">{formatPrice(line.totalPrice)}</span>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          {createConsumeFromPackage && pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count ? (
-                            <span className="text-green-600 font-semibold text-sm flex items-center gap-1">
-                              <Package className="w-4 h-4" />
-                              {t('reception.packageService')}
-                            </span>
-                          ) : (
-                            <span className="font-bold text-gray-900">{formatPrice((svc.base_price || 0) * createForm.visitor_count)}</span>
-                          )}
-                        </div>
-                      </div>
+                      ))}
                     </div>
                   );
                 })()}
@@ -2906,7 +2999,20 @@ export function BookingsPage() {
                   {t('reception.scheduleAndEmployees')}
                 </h4>
                 <div className="space-y-2">
-                  {createSelectedSlots.length > 0 ? (
+                  {createSelectedServices.length > 0 ? (
+                    createSelectedServices.map((line) => (
+                      <div key={line.lineId} className="flex justify-between items-center py-2 border-b last:border-b-0">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">
+                            {line.serviceName}
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            {format(parseISO(line.slotDate), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })} · {getCreatePreviewTimeRange(line.startTime, line.endTime)}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : createSelectedSlots.length > 0 ? (
                     createSelectedSlots.map((s, idx) => (
                       <div key={idx} className="flex justify-between items-center py-2 border-b last:border-b-0">
                         <div>
@@ -2997,19 +3103,26 @@ export function BookingsPage() {
                   <span className="text-lg font-semibold">{t('reception.totalPrice')}</span>
                   <span className="text-2xl font-bold">
                     {(() => {
-                      const svc = createServices.find(s => s.id === createServiceId);
-                      if (!svc) return formatPrice(0);
-                      const pkgCheck = checkServiceInPackage(svc.id);
-                      if (createConsumeFromPackage && pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count) return t('reception.packageServiceTotal', { price: formatPriceString(0) });
-                      let unit = svc.base_price || 0;
-                      if (createOfferId && svc.offers?.length) {
-                        const off = svc.offers.find((o) => o.id === createOfferId);
-                        if (off) unit = off.price;
+                      const previewDraftLines = createSelectedServices.length > 0
+                        ? createSelectedServices
+                        : (() => {
+                            const current = buildCurrentCreateServiceLine(false);
+                            return current ? [current] : [];
+                          })();
+                      const previewLines = normalizeCreateLinesByPackage(previewDraftLines);
+                      const linesTotal = previewLines.reduce((sum, line) => sum + Math.max(0, Number(line.totalPrice || 0)), 0);
+                      if (previewLines.length === 0) return formatPrice(0);
+                      const totalTagFees = previewLines.reduce((sum, line) => sum + Math.max(0, Number(line.tagFee || 0)), 0);
+                      if (createSelectedServices.length === 0) {
+                        const svc = createServices.find((s) => s.id === createServiceId);
+                        if (svc) {
+                          const pkgCheck = checkServiceInPackage(svc.id);
+                          if (createConsumeFromPackage && pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count) {
+                            return t('reception.packageServiceTotal', { price: formatPriceString(0) });
+                          }
+                        }
                       }
-                      const sub = unit * createForm.visitor_count;
-                      const sel = createPricingTags.find((x) => x.id === selectedPricingTagId);
-                      const fee = sel && !sel.is_default ? Math.max(0, Number(sel.fee_value ?? 0)) : 0;
-                      return formatPrice(sub + fee);
+                      return formatPrice(linesTotal + totalTagFees);
                     })()}
                   </span>
                 </div>
@@ -3170,7 +3283,7 @@ export function BookingsPage() {
               value={createServiceId}
               onChange={(e) => { setCreateServiceId(e.target.value); setCreateSlotId(''); setCreateOfferId(''); }}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
+              required={createSelectedServices.length === 0}
               disabled={loadingCreateSlots}
             >
               <option value="">{createServices.length === 0 && !loadingCreateSlots ? t('reception.noServicesAvailable') : loadingCreateSlots ? t('common.loading') + '...' : t('reception.chooseService')}</option>
@@ -3584,11 +3697,65 @@ export function BookingsPage() {
               })()}
             </div>
           )}
+          {/* Multi-service builder: add current configured service/slot to one booking request */}
+          {(createServiceId || createSelectedServices.length > 0) && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-blue-900">
+                    {t('reception.selectedServices', 'Selected services')}
+                  </p>
+                  <p className="text-xs text-blue-700">
+                    {t(
+                      'reception.multiServiceHint',
+                      'Add multiple services with different employees/times, then confirm once.'
+                    )}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  icon={<Plus className="w-4 h-4" />}
+                  onClick={handleAddCurrentServiceToBookingList}
+                  disabled={!buildCurrentCreateServiceLine(false)}
+                >
+                  {t('reception.addService', 'Add service')}
+                </Button>
+              </div>
+
+              {createSelectedServices.length > 0 ? (
+                <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                  {createSelectedServices.map((line) => (
+                    <div key={line.lineId} className="rounded-md border border-blue-200 bg-white px-3 py-2 flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{line.serviceName}</p>
+                        <p className="text-xs text-gray-600">
+                          {format(parseISO(line.slotDate), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })} · {getCreatePreviewTimeRange(line.startTime, line.endTime)}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {t('booking.visitorCount', 'Visitor count')}: {line.visitorCount} · {t('tags.requiredSlots', 'Required slots')}: {line.slotIds.length}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => setCreateSelectedServices((prev) => prev.filter((x) => x.lineId !== line.lineId))}
+                        aria-label={t('common.remove', 'Remove')}
+                        title={t('common.remove', 'Remove')}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-blue-700">{t('reception.noServicesAddedYet', 'No services added yet.')}</p>
+              )}
+            </div>
+          )}
           {/* Payment method (payable or package booking — Unpaid option for both) */}
           {(() => {
-            if (!createServiceId || !createForm.visitor_count) return null;
-            const svc = createServices.find(s => s.id === createServiceId);
-            if (!svc) return null;
+            if (createSelectedServices.length === 0 && (!createServiceId || !createForm.visitor_count)) return null;
             return (
               <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('reception.paymentMethod') || 'Payment method'}</h4>
@@ -3646,7 +3813,9 @@ export function BookingsPage() {
               type="submit"
               fullWidth
               disabled={(() => {
-                if (!createForm.customer_phone || !createForm.customer_name || !createServiceId || !createForm.visitor_count || !createDate) return true;
+                if (!createForm.customer_phone || !createForm.customer_name) return true;
+                if (createSelectedServices.length > 0) return false;
+                if (!createServiceId || !createForm.visitor_count || !createDate) return true;
                 if (canCreateBooking && (!selectedPricingTagId || loadingPricingTags)) return true;
                 if (createForm.visitor_count <= 1) return !createSlotId && createSelectedSlots.length === 0;
                 const req = getRequiredSlotsCount();
