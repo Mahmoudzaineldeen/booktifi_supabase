@@ -2221,43 +2221,43 @@ export function SettingsPage() {
                         onChange={(e) => setDaftraForm({ ...daftraForm, subdomain: e.target.value })}
                         placeholder="mycompany"
                       />
-                      <p className="text-xs text-gray-500">{t('settings.invoiceProvider.daftraSubdomainHint')}</p>
+                      <p className="text-xs text-slate-500 leading-relaxed">{t('settings.invoiceProvider.daftraSubdomainHint')}</p>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="rounded-lg border border-slate-200 p-4 space-y-2">
+                      <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
                         <Input
                           label={t('settings.invoiceProvider.storeId')}
                           type="number"
                           value={daftraForm.store_id}
                           onChange={(e) => setDaftraForm({ ...daftraForm, store_id: e.target.value })}
                         />
-                        <p className="text-xs text-gray-500">{t('settings.invoiceProvider.storeIdHint')}</p>
+                        <p className="text-xs text-slate-500 leading-relaxed">{t('settings.invoiceProvider.storeIdHint')}</p>
                       </div>
-                      <div className="rounded-lg border border-slate-200 p-4 space-y-2">
+                      <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
                         <Input
                           label={t('settings.invoiceProvider.productId')}
                           type="number"
                           value={daftraForm.default_product_id}
                           onChange={(e) => setDaftraForm({ ...daftraForm, default_product_id: e.target.value })}
                         />
-                        <p className="text-xs text-gray-500">{t('settings.invoiceProvider.productIdHint')}</p>
+                        <p className="text-xs text-slate-500 leading-relaxed">{t('settings.invoiceProvider.productIdHint')}</p>
                       </div>
                     </div>
-                    <div className="rounded-lg border border-slate-200 p-4 space-y-2">
+                    <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
                       <Input
                         label={t('settings.invoiceProvider.layoutId', 'Invoice Layout ID (optional)')}
                         type="number"
                         value={daftraForm.invoice_layout_id}
                         onChange={(e) => setDaftraForm({ ...daftraForm, invoice_layout_id: e.target.value })}
                       />
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-slate-500 leading-relaxed">
                         {t(
                           'settings.invoiceProvider.layoutIdHint',
                           'Force a specific Daftra template layout id for all created invoices.'
                         )}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                    <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-3">
                       <Input
                         label={t('settings.invoiceProvider.apiToken')}
                         type="password"
@@ -2265,24 +2265,25 @@ export function SettingsPage() {
                         onChange={(e) => setDaftraForm({ ...daftraForm, api_token: e.target.value })}
                         placeholder={daftraTokenSet ? '••••••••' : ''}
                       />
-                      <p className="text-xs text-gray-500">{t('settings.invoiceProvider.apiTokenHint')}</p>
+                      <p className="text-xs text-slate-500 leading-relaxed">{t('settings.invoiceProvider.apiTokenHint')}</p>
                       {daftraTokenSet && (
-                        <p className="text-xs text-green-700">{t('settings.invoiceProvider.tokenOnFile')}</p>
+                        <p className="text-xs text-emerald-700 font-medium">{t('settings.invoiceProvider.tokenOnFile')}</p>
                       )}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:items-end">
                         <Input
                           label={t('settings.invoiceProvider.countryCode')}
                           value={daftraForm.country_code}
                           onChange={(e) => setDaftraForm({ ...daftraForm, country_code: e.target.value })}
                           maxLength={3}
                         />
-                        <label className="flex items-center gap-2 text-sm cursor-pointer pt-7">
+                        <label className="flex items-start gap-2.5 text-sm text-slate-700 cursor-pointer rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-3 md:mb-0.5">
                           <input
                             type="checkbox"
+                            className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                             checked={daftraForm.fallback_to_zoho}
                             onChange={(e) => setDaftraForm({ ...daftraForm, fallback_to_zoho: e.target.checked })}
                           />
-                          {t('settings.invoiceProvider.fallbackZoho')}
+                          <span>{t('settings.invoiceProvider.fallbackZoho')}</span>
                         </label>
                       </div>
                     </div>
@@ -2296,28 +2297,31 @@ export function SettingsPage() {
           </Card>
 
           <Card>
-            <CardHeader className="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-t-lg">
-              <CardTitle className="flex items-center gap-2 text-white">
-                <FileText className="w-5 h-5" />
+            <CardHeader className="bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-700 text-white rounded-t-lg shadow-sm">
+              <CardTitle className="flex items-center gap-2 text-white text-lg font-semibold tracking-tight">
+                <FileText className="w-5 h-5 shrink-0 opacity-95" />
                 {t('settings.zoho.title')}
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-6">
-              <div className="space-y-5">
+            <CardContent className="p-6 sm:p-8">
+              <div className="space-y-6">
                 {zohoMessage && (
-                  <div className={`p-3 rounded-lg text-sm flex items-center gap-2 whitespace-pre-line ${
-                    zohoMessage.type === 'success'
-                      ? 'bg-green-50 border border-green-200 text-green-700'
-                      : zohoMessage.type === 'info'
-                      ? 'bg-blue-50 border border-blue-200 text-blue-700'
-                      : 'bg-red-50 border border-red-200 text-red-700'
-                  }`}>
+                  <div
+                    className={`p-3.5 rounded-xl text-sm flex items-start gap-2.5 whitespace-pre-line shadow-sm ${
+                      zohoMessage.type === 'success'
+                        ? 'bg-emerald-50 border border-emerald-200/80 text-emerald-900'
+                        : zohoMessage.type === 'info'
+                        ? 'bg-sky-50 border border-sky-200/80 text-sky-900'
+                        : 'bg-red-50 border border-red-200/80 text-red-900'
+                    }`}
+                    role="status"
+                  >
                     {zohoMessage.type === 'success' ? (
-                      <CheckCircle className="w-4 h-4" />
+                      <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
                     ) : zohoMessage.type === 'info' ? (
-                      <MessageCircle className="w-4 h-4" />
+                      <MessageCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
                     ) : (
-                      <XCircle className="w-4 h-4" />
+                      <XCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
                     )}
                     {zohoMessage.text}
                   </div>
@@ -2325,32 +2329,32 @@ export function SettingsPage() {
 
                 {/* Connection Status */}
                 {zohoStatus && (
-                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <h3 className="text-sm font-semibold text-gray-700 mb-2">{t('settings.zoho.connectionStatus')}</h3>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-600">{t('settings.zoho.configuration')}:</span>
+                  <div className="p-4 sm:p-5 bg-slate-50/90 rounded-xl border border-slate-200/90 shadow-sm">
+                    <h3 className="text-sm font-semibold text-slate-800 mb-3">{t('settings.zoho.connectionStatus')}</h3>
+                    <div className="space-y-2 text-sm text-slate-700">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="text-slate-600">{t('settings.zoho.configuration')}:</span>
                         {zohoStatus.has_config ? (
-                          <span className="text-green-600 font-medium">{t('settings.zoho.savedStatus')}</span>
+                          <span className="text-emerald-700 font-medium">{t('settings.zoho.savedStatus')}</span>
                         ) : (
-                          <span className="text-gray-400">{t('settings.zoho.notConfigured')}</span>
+                          <span className="text-slate-400">{t('settings.zoho.notConfigured')}</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-600">{t('settings.zoho.zohoAccount')}:</span>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="text-slate-600">{t('settings.zoho.zohoAccount')}:</span>
                         {zohoStatus.connection_status === 'connected' ? (
-                          <span className="text-green-600 font-medium">{t('settings.zoho.connectedStatus')}</span>
+                          <span className="text-emerald-700 font-medium">{t('settings.zoho.connectedStatus')}</span>
                         ) : zohoStatus.connection_status === 'expired' ? (
-                          <span className="text-yellow-600 font-medium">{t('settings.zoho.expiredStatus')}</span>
+                          <span className="text-amber-700 font-medium">{t('settings.zoho.expiredStatus')}</span>
                         ) : (
-                          <span className="text-gray-400">{t('settings.zoho.notConnectedStatus')}</span>
+                          <span className="text-slate-400">{t('settings.zoho.notConnectedStatus')}</span>
                         )}
                       </div>
                       {zohoStatus.token_expires_at && (
-                        <div className={`text-xs mt-2 ${
+                        <div className={`text-xs mt-1 ${
                           zohoStatus.connection_status === 'expired' 
-                            ? 'text-yellow-600 font-medium' 
-                            : 'text-gray-500'
+                            ? 'text-amber-800 font-medium' 
+                            : 'text-slate-500'
                         }`}>
                           {zohoStatus.connection_status === 'expired' ? (
                             <>{t('settings.zoho.tokenExpired')} {new Date(zohoStatus.token_expires_at).toLocaleString()}</>
@@ -2360,12 +2364,13 @@ export function SettingsPage() {
                         </div>
                       )}
                       {zohoStatus.connection_status === 'expired' && (
-                        <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                          <strong>{t('settings.zoho.tokenExpired')}:</strong> {t('settings.zoho.tokenExpiredMessage')}
+                        <div className="mt-2 p-3 bg-amber-50 border border-amber-200/90 rounded-lg text-xs text-amber-950 leading-relaxed">
+                          <strong className="font-semibold">{t('settings.zoho.tokenExpired')}:</strong>{' '}
+                          {t('settings.zoho.tokenExpiredMessage')}
                         </div>
                       )}
                       {zohoStatus.has_config && zohoStatus.connection_status !== 'connected' && (
-                        <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+                        <div className="mt-2 p-3 bg-sky-50 border border-sky-200/90 rounded-lg text-xs text-sky-950 leading-relaxed">
                           {t('settings.zoho.connectHintWhenSaved')}
                         </div>
                       )}
@@ -2373,12 +2378,27 @@ export function SettingsPage() {
                   </div>
                 )}
 
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-blue-900 mb-2">{t('settings.zoho.setupInstructions')}</h4>
-                  <ol className="text-xs text-blue-800 space-y-1 list-decimal list-inside">
-                    <li>{t('settings.zoho.setupStep1')} <a href="https://api-console.zoho.com/" target="_blank" rel="noopener noreferrer" className="underline">Zoho Developer Console</a></li>
+                <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 via-white to-violet-50/50 p-4 sm:p-5 shadow-sm">
+                  <h4 className="text-sm font-semibold text-indigo-950 mb-2">{t('settings.zoho.setupInstructions')}</h4>
+                  <ol className="text-xs text-indigo-900/90 space-y-1.5 list-decimal list-inside leading-relaxed">
+                    <li>
+                      {t('settings.zoho.setupStep1')}{' '}
+                      <a
+                        href="https://api-console.zoho.com/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-indigo-700 underline decoration-indigo-300 underline-offset-2 hover:text-indigo-900"
+                      >
+                        Zoho Developer Console
+                      </a>
+                    </li>
                     <li>{t('settings.zoho.setupStep2')}</li>
-                    <li><strong>{t('common.info')}:</strong> {t('settings.zoho.setupStep3')} <code className="bg-blue-100 px-1 rounded font-mono">{zohoSettings.redirect_uri || `${window.location.origin}/api/zoho/callback`}</code></li>
+                    <li>
+                      <strong>{t('common.info')}:</strong> {t('settings.zoho.setupStep3')}{' '}
+                      <code className="bg-indigo-100/80 px-1.5 py-0.5 rounded text-[0.8rem] font-mono text-indigo-950">
+                        {zohoSettings.redirect_uri || `${window.location.origin}/api/zoho/callback`}
+                      </code>
+                    </li>
                     <li>{t('settings.zoho.setupStep4')}</li>
                     <li><strong>{t('common.info')}:</strong> {t('settings.zoho.setupStep5')}</li>
                     <li>{t('settings.zoho.setupStep6')}</li>
@@ -2386,8 +2406,8 @@ export function SettingsPage() {
                   </ol>
                 </div>
 
-                <div className="rounded-lg border border-slate-200 p-4 space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
+                  <label className="block text-sm font-semibold text-slate-800">
                     {t('settings.zoho.clientId')}
                   </label>
                   <Input
@@ -2397,11 +2417,11 @@ export function SettingsPage() {
                     placeholder={t('settings.zoho.clientIdPlaceholder')}
                     required
                   />
-                  <p className="text-xs text-gray-500">{t('settings.zoho.clientIdHint')}</p>
+                  <p className="text-xs text-slate-500 leading-relaxed">{t('settings.zoho.clientIdHint')}</p>
                 </div>
 
-                <div className="rounded-lg border border-slate-200 p-4 space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
+                  <label className="block text-sm font-semibold text-slate-800">
                     {t('settings.zoho.clientSecret')}
                   </label>
                   <div className="relative">
@@ -2421,11 +2441,11 @@ export function SettingsPage() {
                       {showZohoSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  <p className="text-xs text-gray-500">{t('settings.zoho.clientSecretHint')}</p>
+                  <p className="text-xs text-slate-500 leading-relaxed">{t('settings.zoho.clientSecretHint')}</p>
                 </div>
 
-                <div className="rounded-lg border border-slate-200 p-4 space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
+                  <label className="block text-sm font-semibold text-slate-800">
                     {t('settings.zoho.redirectUriRequired')}
                   </label>
                   <Input
@@ -2435,9 +2455,12 @@ export function SettingsPage() {
                     placeholder={t('settings.zoho.redirectUriPlaceholder', { origin: window.location.origin })}
                     required
                   />
-                  <p className="text-xs text-gray-500">
-                    <strong>{t('settings.zoho.redirectUriMustMatch')}</strong>
-                    {t('settings.zoho.redirectUriDefault')} <code className="bg-gray-100 px-1 rounded font-mono">{window.location.origin}/api/zoho/callback</code>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    <strong className="text-slate-700">{t('settings.zoho.redirectUriMustMatch')}</strong>{' '}
+                    {t('settings.zoho.redirectUriDefault')}{' '}
+                    <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[0.8rem] font-mono text-slate-800">
+                      {window.location.origin}/api/zoho/callback
+                    </code>
                   </p>
                   <button
                     type="button"
@@ -2445,24 +2468,24 @@ export function SettingsPage() {
                       const defaultUri = `${window.location.origin}/api/zoho/callback`;
                       setZohoSettings({ ...zohoSettings, redirect_uri: defaultUri });
                     }}
-                    className="text-xs text-blue-600 hover:text-blue-800 underline"
+                    className="text-xs font-medium text-indigo-700 hover:text-indigo-900 underline decoration-indigo-300 underline-offset-2"
                   >
                     {t('settings.zoho.useDefault')} {window.location.origin}/api/zoho/callback
                   </button>
-                  <div className="mt-2 p-2 bg-gray-100 rounded border border-gray-300">
-                    <p className="text-xs font-semibold text-gray-700 mb-1">{t('settings.zoho.redirectUriThatWillBeUsed')}</p>
-                    <code className="text-xs font-mono text-gray-800 break-all">
+                  <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200/90">
+                    <p className="text-xs font-semibold text-slate-800 mb-1.5">{t('settings.zoho.redirectUriThatWillBeUsed')}</p>
+                    <code className="text-xs font-mono text-slate-900 break-all block">
                       {zohoSettings.redirect_uri || `${window.location.origin}/api/zoho/callback`}
                     </code>
-                    <p className="text-xs text-gray-600 mt-1">
+                    <p className="text-xs text-slate-600 mt-2 leading-relaxed">
                       {t('settings.zoho.copyExactUri')}
                     </p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="rounded-lg border border-slate-200 p-4 space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                  <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
+                    <label className="block text-sm font-semibold text-slate-800">
                       {t('settings.zoho.regionLabel')}
                     </label>
                     <select
@@ -2476,10 +2499,10 @@ export function SettingsPage() {
                       <option value="au">{t('settings.zoho.regionAu')}</option>
                       <option value="jp">{t('settings.zoho.regionJp')}</option>
                     </select>
-                    <p className="text-xs text-gray-500">{t('settings.zoho.regionHint')}</p>
+                    <p className="text-xs text-slate-500 leading-relaxed">{t('settings.zoho.regionHint')}</p>
                   </div>
-                  <div className="rounded-lg border border-slate-200 p-4 space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                  <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
+                    <label className="block text-sm font-semibold text-slate-800">
                       {t('settings.zoho.organizationIdLabel', 'Zoho Organization ID')}
                     </label>
                     <input
@@ -2489,13 +2512,13 @@ export function SettingsPage() {
                       value={zohoSettings.zoho_organization_id ?? ''}
                       onChange={(e) => setZohoSettings({ ...zohoSettings, zoho_organization_id: e.target.value })}
                     />
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-slate-500 leading-relaxed">
                       {t('settings.zoho.organizationIdHint', 'Required for recording payments (package/booking invoices). Find it in Zoho Invoice → Settings → Organization Profile.')}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex gap-3 pt-2">
+                <div className="flex flex-wrap gap-3 pt-4 mt-1 border-t border-slate-200/80">
                   {zohoStatus?.connection_status === 'connected' && (
                     <Button
                       type="button"

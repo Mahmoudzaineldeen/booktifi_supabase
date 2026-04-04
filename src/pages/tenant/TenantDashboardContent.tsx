@@ -36,7 +36,7 @@ export function TenantDashboardContent() {
   const { userProfile, tenant } = useAuth();
   const { formatPrice, formatPriceString } = useCurrency();
   const { features } = useTenantFeatures(tenant?.id);
-  const [timeRange, setTimeRange] = useState<TimeRange>('all_time');
+  const [timeRange, setTimeRange] = useState<TimeRange>('today');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [stats, setStats] = useState({
@@ -72,7 +72,7 @@ export function TenantDashboardContent() {
     if (!userProfile) return;
     if (viewMode === 'calendar') fetchCalendarBookings();
     else fetchDashboardBookings();
-  }, [userProfile, viewMode, calendarDate]);
+  }, [userProfile, viewMode, calendarDate, timeRange, customStartDate, customEndDate]);
 
   // Lightweight auto-refresh for real-time feel without heavy load.
   useEffect(() => {
@@ -224,7 +224,16 @@ export function TenantDashboardContent() {
 
       if (error) throw error;
 
-      setDashboardBookings(bookings || []);
+      const { start, end } = getDateRange();
+      const filteredBookings = (bookings || []).filter((booking: any) => {
+        const slotDateRaw = booking.slots?.slot_date as string | undefined;
+        if (!slotDateRaw || !start || !end) return true;
+
+        const bookingDate = parse(slotDateRaw.substring(0, 10), 'yyyy-MM-dd', new Date());
+        return bookingDate >= startOfDay(start) && bookingDate <= endOfDay(end);
+      });
+
+      setDashboardBookings(filteredBookings);
     } catch (err) {
       console.error('Error fetching dashboard bookings:', err);
     }

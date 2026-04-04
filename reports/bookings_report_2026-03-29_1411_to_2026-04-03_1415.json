@@ -1,0 +1,46 @@
+{
+  "tenant_email": "healingtouches_sa@hotmail.com",
+  "tenant_id": "dc09d588-c179-417a-b1bb-7f4c7d25145b",
+  "window_timezone": "+03:00",
+  "from": "2026-03-29T14:11:00+03:00",
+  "to": "2026-04-03T14:15:00+03:00",
+  "total_bookings_created_in_window": 141,
+  "duplicate_groups_count": 1,
+  "duplicate_groups": [
+    {
+      "key": "d26ad26f-2756-4403-884c-3f525a0f31af|2026-04-02|23:00:00|00:00:00",
+      "count": 2,
+      "active_non_cancelled": 2,
+      "rows": [
+        {
+          "booking_id": "e3ec800f-25f7-46f8-9f76-84fe3435de34",
+          "created_at_utc": "2026-03-29T22:13:57.960617+00:00",
+          "employee_id": "d26ad26f-2756-4403-884c-3f525a0f31af",
+          "employee_name": "Roselyn",
+          "slot_date": "2026-04-02",
+          "start_time": "23:00:00",
+          "end_time": "00:00:00",
+          "status": "pending",
+          "payment_status": "unpaid",
+          "total_price": 428,
+          "customer_name": "منى الجعيد",
+          "customer_phone": "+9660564398385"
+        },
+        {
+          "booking_id": "f958526c-0eb4-4613-9c5d-255400f62bd7",
+          "created_at_utc": "2026-03-30T13:34:16.58298+00:00",
+          "employee_id": "d26ad26f-2756-4403-884c-3f525a0f31af",
+          "employee_name": "Roselyn",
+          "slot_date": "2026-04-02",
+          "start_time": "23:00:00",
+          "end_time": "00:00:00",
+          "status": "pending",
+          "payment_status": "unpaid",
+          "total_price": 345,
+          "customer_name": "عليل",
+          "customer_phone": "+9660555799027"
+        }
+      ]
+    }
+  ]
+}

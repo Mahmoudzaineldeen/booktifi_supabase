@@ -99,11 +99,13 @@ in tags add time this means if we created a tag we can add time so if the servic
 
 done add gride view for bookings in the receptionist page 
 
-add date filter in search in bookings
+done add date filter in search in bookings and dashboard and its default value  today (the filter is already in dashboard but make it takes affect in bookings in the dashboard) down
+
+make all dashboard as a widgets  drag and drop components and can choose what widget to choose to display and what not
 
 done make the services 1 hours
 
-give the ability to book two or more services at same booking
+done give the ability to book two or more services at same booking
 
 set option when create a booking we need to add option to consume from package or not
 

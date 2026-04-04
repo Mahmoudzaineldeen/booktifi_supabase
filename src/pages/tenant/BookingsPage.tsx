@@ -9,7 +9,7 @@ import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X, Plus, Package, CalendarDays, Mail, Phone } from 'lucide-react';
-import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
+import { format, startOfWeek, addDays, isSameDay, parseISO, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfWeek as getStartOfWeek, endOfWeek } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
 import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
@@ -29,6 +29,7 @@ import { useCustomerPhoneSearch, type CustomerSuggestion } from '../../hooks/use
 import { CustomerPhoneSuggestionsDropdown } from '../../components/reception/CustomerPhoneSuggestionsDropdown';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
+import { TimeFilter, type TimeRange } from '../../components/dashboard/TimeFilter';
 
 interface AdminService {
   id: string;
@@ -90,7 +91,7 @@ interface Booking {
   notes?: string | null;
 }
 
-type SearchType = 'phone' | 'customer_name' | 'service_name' | 'booking_id' | 'customer_id' | 'employee_name' | '';
+type SearchType = 'phone' | 'customer_name' | 'service_name' | 'booking_id' | 'customer_id' | 'employee_name' | 'date' | '';
 
 export function BookingsPage() {
   const { t, i18n } = useTranslation();
@@ -169,6 +170,9 @@ export function BookingsPage() {
   const [detailsBooking, setDetailsBooking] = useState<Booking | null>(null);
 
   // Search state
+  const [timeRange, setTimeRange] = useState<TimeRange>('today');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const [searchType, setSearchType] = useState<SearchType>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDate, setSearchDate] = useState<string>('');
@@ -177,6 +181,8 @@ export function BookingsPage() {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchValidationError, setSearchValidationError] = useState<string>('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 20;
 
   useEffect(() => {
     fetchBookings();
@@ -744,7 +750,7 @@ export function BookingsPage() {
         });
         setBookings(sortBookingsByCreatedAtDesc(filteredBookings));
       } else {
-        setBookings(sortBookingsByCreatedAtDesc(allBookings.slice(0, 50)));
+        setBookings(sortBookingsByCreatedAtDesc(allBookings));
       }
     } catch (err) {
       console.error('Error fetching bookings:', err);
@@ -784,10 +790,62 @@ export function BookingsPage() {
 
   function getBookingsForDate(date: Date) {
     const dateStr = format(date, 'yyyy-MM-dd');
-    return displayBookings.filter(booking => {
+    return bookings.filter(booking => {
       const raw = booking.slots?.slot_date;
       if (raw == null) return false;
       return normalizeSlotDate(raw) === dateStr;
+    });
+  }
+
+  function filterBookingsByDate(list: Booking[], date: string): Booking[] {
+    if (!date) return list;
+    return list.filter((booking) => {
+      const raw = booking.slots?.slot_date;
+      if (!raw) return false;
+      return normalizeSlotDate(raw) === date;
+    });
+  }
+
+  function getDateRange(): { start?: Date; end?: Date } {
+    const now = new Date();
+    switch (timeRange) {
+      case 'all_time':
+        return {};
+      case 'today':
+        return { start: startOfDay(now), end: endOfDay(now) };
+      case 'yesterday': {
+        const yesterday = subDays(now, 1);
+        return { start: startOfDay(yesterday), end: endOfDay(yesterday) };
+      }
+      case 'last_week': {
+        const lastWeek = subDays(now, 7);
+        return { start: getStartOfWeek(lastWeek), end: endOfWeek(lastWeek) };
+      }
+      case 'last_month': {
+        const lastMonth = subDays(now, 30);
+        return { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) };
+      }
+      case 'custom':
+        if (customStartDate && customEndDate) {
+          return {
+            start: startOfDay(new Date(customStartDate)),
+            end: endOfDay(new Date(customEndDate)),
+          };
+        }
+        return {};
+      default:
+        return {};
+    }
+  }
+
+  function filterBookingsByTimeRange(list: Booking[]): Booking[] {
+    const { start, end } = getDateRange();
+    if (!start || !end) return list;
+    return list.filter((booking) => {
+      const raw = booking.slots?.slot_date;
+      if (!raw) return false;
+      const bookingDate = parseISO(`${normalizeSlotDate(raw)}T00:00:00`);
+      return bookingDate >= startOfDay(start) && bookingDate <= endOfDay(end);
     });
   }
 
@@ -1564,6 +1622,11 @@ export function BookingsPage() {
           return { valid: false, error: isAr ? 'يجب أن يكون اسم الموظف حرفين على الأقل' : (t('reception.employeeNameMinLength') || 'Employee name must be at least 2 characters') };
         }
         break;
+      case 'date':
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+          return { valid: false, error: isAr ? 'الرجاء اختيار تاريخ صحيح' : (t('dashboard.selectDate') || 'Please select a valid date') };
+        }
+        break;
     }
 
     return { valid: true };
@@ -1669,7 +1732,7 @@ export function BookingsPage() {
   const handleSearchTypeChange = (type: SearchType) => {
     setSearchType(type);
     setSearchQuery('');
-    setSearchDate('');
+    setSearchDate(type === 'date' ? format(new Date(), 'yyyy-MM-dd') : '');
     setSearchResults([]);
     setShowSearchResults(false);
     setSearchValidationError('');
@@ -1677,7 +1740,9 @@ export function BookingsPage() {
 
   // Handle search input change
   const handleSearchInputChange = (value: string) => {
-    if (searchType === 'phone') {
+    if (searchType === 'date') {
+      setSearchDate(value);
+    } else if (searchType === 'phone') {
       const digitsOnly = value.replace(/\D/g, '');
       setSearchQuery(digitsOnly);
     } else if (searchType === 'booking_id' || searchType === 'customer_id' || searchType === 'employee_name') {
@@ -1692,6 +1757,17 @@ export function BookingsPage() {
   useEffect(() => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (searchType === 'date') {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      setSearchValidationError('');
+      return () => {
+        if (searchTimeoutRef.current) {
+          clearTimeout(searchTimeoutRef.current);
+        }
+      };
     }
 
     if (searchType && searchType !== '' && searchQuery.trim().length > 0) {
@@ -1712,10 +1788,30 @@ export function BookingsPage() {
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [searchQuery, searchType]);
+  }, [searchQuery, searchType, searchDate]);
 
   // Determine which bookings to display
   const displayBookings = showSearchResults ? searchResults : bookings;
+  const dateRangeFilteredBookings = filterBookingsByTimeRange(displayBookings);
+  const listDisplayBookings = searchType === 'date'
+    ? filterBookingsByDate(dateRangeFilteredBookings, searchDate)
+    : dateRangeFilteredBookings;
+  const hasActiveDateSearch = searchType === 'date' && Boolean(searchDate);
+  const hasActiveListFilters = showSearchResults || hasActiveDateSearch || timeRange !== 'all_time';
+  const totalPages = Math.max(1, Math.ceil(listDisplayBookings.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStartIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedListBookings = listDisplayBookings.slice(pageStartIndex, pageStartIndex + pageSize);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchType, searchQuery, searchDate, showSearchResults, timeRange, customStartDate, customEndDate]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   if (loading) {
     return (
@@ -1805,6 +1901,17 @@ export function BookingsPage() {
       {/* Search Bar with Type Selector - Only show in list view */}
       {viewMode === 'list' && (
       <div className="mb-6 space-y-3">
+        <TimeFilter
+          selectedRange={timeRange}
+          onRangeChange={setTimeRange}
+          customStartDate={customStartDate}
+          customEndDate={customEndDate}
+          onCustomDateChange={(start, end) => {
+            setCustomStartDate(start);
+            setCustomEndDate(end);
+          }}
+        />
+
         <div className="flex flex-col sm:flex-row gap-4">
           {/* Search Type Selector */}
           <div className="w-full sm:w-64">
@@ -1823,6 +1930,7 @@ export function BookingsPage() {
               <option value="booking_id">{isAr ? 'رقم الحجز' : (t('reception.searchByBookingId') || 'Booking ID')}</option>
               <option value="customer_id">{isAr ? 'رقم العميل' : (t('reception.searchByCustomerId') || 'Customer ID')}</option>
               <option value="employee_name">{isAr ? 'اسم الموظف' : (t('reception.searchByEmployeeName') || 'Employee Name')}</option>
+              <option value="date">{isAr ? 'تاريخ الحجز' : (t('dashboard.date', 'Date'))}</option>
             </select>
           </div>
 
@@ -1834,11 +1942,13 @@ export function BookingsPage() {
             <div className={`${searchBarWrapperClass} ${!searchType ? 'opacity-60' : ''}`}>
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
                 <input
-                  type="text"
-                  value={searchQuery}
+                  type={searchType === 'date' ? 'date' : 'text'}
+                  value={searchType === 'date' ? searchDate : searchQuery}
                   onChange={(e) => handleSearchInputChange(e.target.value)}
                   placeholder={
-                    searchType === 'phone'
+                    searchType === 'date'
+                      ? undefined
+                      : searchType === 'phone'
                       ? (isAr ? 'أدخل رقم الهاتف...' : (t('reception.phonePlaceholder') || 'Enter phone number...'))
                       : searchType === 'booking_id'
                       ? (isAr ? 'أدخل رقم الحجز (UUID أو مثل 48AC5182)...' : (t('reception.bookingIdPlaceholder') || 'Enter booking ID (full UUID or e.g. 48AC5182)...'))
@@ -1855,7 +1965,7 @@ export function BookingsPage() {
                   className="w-full bg-transparent border-0 pl-11 pr-10 py-2.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0 disabled:cursor-not-allowed"
                   disabled={!searchType}
                 />
-                {searchQuery && (
+                {(searchType === 'date' ? searchDate : searchQuery) && (
                   <button
                     type="button"
                     onClick={() => {
@@ -1875,6 +1985,7 @@ export function BookingsPage() {
                 )}
               </div>
           </div>
+
         </div>
 
         {/* Validation Error */}
@@ -1888,7 +1999,7 @@ export function BookingsPage() {
         {isSearching && (
           <p className="text-sm text-gray-500">{t('common.loading')}...</p>
         )}
-        {showSearchResults && !isSearching && searchType && (
+        {(showSearchResults || searchType === 'date') && !isSearching && searchType && (
           <div className="flex items-center justify-between text-sm">
             <p className="text-gray-600">
               <span className="font-medium">{isAr ? 'البحث حسب' : (t('reception.searchingBy') || 'Searching by')}: </span>
@@ -1899,11 +2010,12 @@ export function BookingsPage() {
                 {searchType === 'booking_id' && (isAr ? 'رقم الحجز' : (t('reception.searchByBookingId') || 'Booking ID'))}
                 {searchType === 'customer_id' && (isAr ? 'رقم العميل' : (t('reception.searchByCustomerId') || 'Customer ID'))}
                 {searchType === 'employee_name' && (isAr ? 'اسم الموظف' : (t('reception.searchByEmployeeName') || 'Employee Name'))}
+                {searchType === 'date' && (isAr ? 'التاريخ' : (t('dashboard.date', 'Date')))}
               </span>
             </p>
             <p className="text-gray-600">
-              {searchResults.length > 0
-                ? (isAr ? `${searchResults.length} نتيجة` : `${searchResults.length} ${t('reception.searchResults') || 'results found'}`)
+              {listDisplayBookings.length > 0
+                ? (isAr ? `${listDisplayBookings.length} نتيجة` : `${listDisplayBookings.length} ${t('reception.searchResults') || 'results found'}`)
                 : (isAr ? 'لم يتم العثور على نتائج' : (t('reception.noSearchResults') || 'No results found'))}
             </p>
           </div>
@@ -1912,14 +2024,14 @@ export function BookingsPage() {
       )}
 
       {viewMode === 'list' ? (
-        displayBookings.length === 0 ? (
+        listDisplayBookings.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
               <div className="flex items-center justify-center gap-2 mb-2">
                 <Calendar className="w-5 h-5 text-gray-400" />
                 <h3 className="text-lg font-medium text-gray-900">
-                {showSearchResults 
+                {hasActiveListFilters 
                   ? t('reception.noSearchResults') || 'No results found'
                   : t('bookings.noBookingsYet')}
               </h3>
@@ -1929,7 +2041,7 @@ export function BookingsPage() {
           </Card>
         ) : (
           <div className="space-y-5">
-            {displayBookings.map((booking) => {
+            {paginatedListBookings.map((booking) => {
               const statusBorder =
                 booking.status === 'confirmed' ? 'border-l-green-500' :
                 booking.status === 'pending' ? 'border-l-amber-500' :
@@ -2154,6 +2266,39 @@ export function BookingsPage() {
                 </div>
               );
             })}
+
+            {listDisplayBookings.length > pageSize && (
+              <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-3">
+                <p className="text-sm text-gray-600">
+                  {isAr
+                    ? `عرض ${pageStartIndex + 1}-${Math.min(pageStartIndex + pageSize, listDisplayBookings.length)} من ${listDisplayBookings.length}`
+                    : `Showing ${pageStartIndex + 1}-${Math.min(pageStartIndex + pageSize, listDisplayBookings.length)} of ${listDisplayBookings.length}`}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={safeCurrentPage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  >
+                    {isAr ? 'السابق' : (t('common.previous', 'Previous'))}
+                  </Button>
+                  <span className="text-sm text-gray-700 px-2">
+                    {isAr ? `صفحة ${safeCurrentPage} من ${totalPages}` : `Page ${safeCurrentPage} of ${totalPages}`}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={safeCurrentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    {isAr ? 'التالي' : (t('common.next', 'Next'))}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )
       ) : (
