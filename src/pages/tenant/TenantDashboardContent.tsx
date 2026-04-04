@@ -1046,7 +1046,7 @@ export function TenantDashboardContent() {
                   }}
                 >
                   <div
-                    className="min-h-0"
+                    className="h-full min-h-0"
                     data-widget-id={widget.id}
                     ref={(el) => {
                       widgetContentRefs.current[widget.id] = el;

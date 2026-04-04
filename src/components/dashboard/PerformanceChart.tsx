@@ -23,15 +23,15 @@ export function PerformanceChart({ title, data, metric }: PerformanceChartProps)
   const maxValue = Math.max(...data.map((item) => (metric === 'bookings' ? item.value : item.revenue)), 1);
 
   return (
-    <div className="bg-gradient-to-br from-white to-blue-50 rounded-xl border border-blue-100 shadow-lg p-6 hover:shadow-xl transition-shadow">
-      <h3 className="text-lg font-semibold text-gray-900 mb-6">{title}</h3>
+    <div className="h-full min-h-0 bg-gradient-to-br from-white to-blue-50 rounded-xl border border-blue-100 shadow-lg p-6 hover:shadow-xl transition-shadow flex flex-col">
+      <h3 className="text-lg font-semibold text-gray-900 mb-6 shrink-0">{title}</h3>
 
       {data.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">
+        <div className="text-center py-12 text-gray-500 flex-1 min-h-0">
           {t('dashboard.noDataAvailable')}
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
           {data.map((item, index) => {
             const percentage = ((metric === 'bookings' ? item.value : item.revenue) / maxValue) * 100;
 
