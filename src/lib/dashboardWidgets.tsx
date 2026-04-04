@@ -200,6 +200,11 @@ export const DASHBOARD_WIDGET_DEFINITIONS: DashboardWidgetDefinition[] = [
 ];
 
 export const DASHBOARD_WIDGET_IDS = DASHBOARD_WIDGET_DEFINITIONS.map((w) => w.id);
+const DASHBOARD_WIDGET_MIN_HEIGHT_ROWS: Partial<Record<DashboardWidgetId, number>> = {};
+
+export function getDashboardWidgetMinHeightRows(widgetId: DashboardWidgetId): number {
+  return DASHBOARD_WIDGET_MIN_HEIGHT_ROWS[widgetId] ?? 1;
+}
 
 export function getDefaultDashboardLayoutConfig(): DashboardLayoutConfig {
   return {
@@ -225,12 +230,17 @@ export function sanitizeDashboardLayoutConfig(
     if (!item || typeof item !== 'object') continue;
     const cast = item as Partial<DashboardLayoutItem>;
     if (!cast.id || !DASHBOARD_WIDGET_IDS.includes(cast.id)) continue;
+    const width = Number.isFinite(cast.w) ? Math.max(1, Math.min(12, Number(cast.w))) : 4;
+    const minHeight = getDashboardWidgetMinHeightRows(cast.id);
+    const height = Number.isFinite(cast.h) ? Math.max(minHeight, Math.min(12, Number(cast.h))) : Math.max(minHeight, 2);
+    const x = Number.isFinite(cast.x) ? Math.max(0, Math.min(12 - width, Number(cast.x))) : 0;
+    const y = Number.isFinite(cast.y) ? Math.max(0, Number(cast.y)) : 0;
     byId.set(cast.id, {
       id: cast.id,
-      x: Number.isFinite(cast.x) ? Number(cast.x) : 0,
-      y: Number.isFinite(cast.y) ? Number(cast.y) : 0,
-      w: Number.isFinite(cast.w) ? Number(cast.w) : 4,
-      h: Number.isFinite(cast.h) ? Number(cast.h) : 2,
+      x,
+      y,
+      w: width,
+      h: height,
       visible: cast.visible !== false,
     });
   }

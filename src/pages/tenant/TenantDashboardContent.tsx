@@ -21,10 +21,11 @@ import { ar } from 'date-fns/locale';
 import {
   DashboardLayoutConfig,
   DashboardWidgetId,
+  getDashboardWidgetMinHeightRows,
   getDefaultDashboardLayoutConfig,
   sanitizeDashboardLayoutConfig,
 } from '../../lib/dashboardWidgets';
-import { getDashboardLayout } from '../../lib/dashboardLayoutApi';
+import { DashboardProfile, getDashboardLayout, getDashboardProfiles } from '../../lib/dashboardLayoutApi';
 
 interface ServicePerformance {
   id: string;
@@ -68,7 +69,14 @@ export function TenantDashboardContent() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [layoutConfig, setLayoutConfig] = useState<DashboardLayoutConfig>(getDefaultDashboardLayoutConfig());
+  const [activeProfileKey, setActiveProfileKey] = useState('default');
+  const [dashboardProfiles, setDashboardProfiles] = useState<DashboardProfile[]>([{ key: 'default', name: 'Default', predefined: true }]);
   const isInitialLoadRef = useRef(true);
+  const widgetContentRefs = useRef<Partial<Record<DashboardWidgetId, HTMLDivElement | null>>>({});
+  const [contentRowsByWidget, setContentRowsByWidget] = useState<Partial<Record<DashboardWidgetId, number>>>({});
+  const canCustomizeDashboard = hasPermission('customize_dashboard');
+  const profileStorageKey = `dashboard_active_profile:${tenant?.slug || userProfile?.tenant_id || 'tenant'}`;
+  const GRID_ROW_PX = 44;
 
   useEffect(() => {
     if (!userProfile) return;
@@ -83,7 +91,31 @@ export function TenantDashboardContent() {
   }, [userProfile, viewMode, calendarDate, timeRange, customStartDate, customEndDate]);
 
   useEffect(() => {
-    if (!userProfile || !hasPermission('customize_dashboard')) return;
+    if (!canCustomizeDashboard) return;
+    let isActive = true;
+    (async () => {
+      try {
+        const fetchedProfiles = await getDashboardProfiles();
+        if (!isActive) return;
+        if (fetchedProfiles.length > 0) setDashboardProfiles(fetchedProfiles);
+        const storedKey = localStorage.getItem(profileStorageKey) || 'default';
+        const exists = fetchedProfiles.some((profile) => profile.key === storedKey);
+        const effective = exists ? storedKey : 'default';
+        setActiveProfileKey(effective);
+        localStorage.setItem(profileStorageKey, effective);
+      } catch {
+        if (!isActive) return;
+        setDashboardProfiles([{ key: 'default', name: 'Default', predefined: true }]);
+        setActiveProfileKey('default');
+      }
+    })();
+    return () => {
+      isActive = false;
+    };
+  }, [canCustomizeDashboard, profileStorageKey]);
+
+  useEffect(() => {
+    if (!userProfile || !canCustomizeDashboard) return;
     let isActive = true;
     const search = new URLSearchParams(location.search);
     const isPreviewMode = search.get('layoutPreview') === '1';
@@ -104,7 +136,7 @@ export function TenantDashboardContent() {
 
     (async () => {
       try {
-        const { layout } = await getDashboardLayout();
+        const { layout } = await getDashboardLayout(activeProfileKey);
         if (!isActive) return;
         setLayoutConfig(sanitizeDashboardLayoutConfig(layout));
       } catch {
@@ -116,7 +148,7 @@ export function TenantDashboardContent() {
     return () => {
       isActive = false;
     };
-  }, [userProfile, hasPermission, location.search]);
+  }, [userProfile?.id, canCustomizeDashboard, location.search, activeProfileKey]);
 
   // Lightweight auto-refresh for real-time feel without heavy load.
   useEffect(() => {
@@ -431,6 +463,89 @@ export function TenantDashboardContent() {
     return layout;
   }
 
+  const visibleWidgets = useMemo(
+    () =>
+      sanitizeDashboardLayoutConfig(layoutConfig).widgets
+        .filter((w) => w.visible)
+        .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y)),
+    [layoutConfig]
+  );
+
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined' || viewMode !== 'dashboard') return;
+
+    const observer = new ResizeObserver((entries) => {
+      setContentRowsByWidget((prev) => {
+        let changed = false;
+        const next: Partial<Record<DashboardWidgetId, number>> = { ...prev };
+
+        for (const entry of entries) {
+          const element = entry.target as HTMLDivElement;
+          const widgetId = element.dataset.widgetId as DashboardWidgetId | undefined;
+          if (!widgetId) continue;
+          const rows = Math.max(1, Math.ceil((entry.contentRect.height + 8) / GRID_ROW_PX));
+          if (next[widgetId] !== rows) {
+            next[widgetId] = rows;
+            changed = true;
+          }
+        }
+
+        return changed ? next : prev;
+      });
+    });
+
+    for (const widget of visibleWidgets) {
+      const el = widgetContentRefs.current[widget.id];
+      if (el) observer.observe(el);
+    }
+
+    return () => observer.disconnect();
+  }, [visibleWidgets, viewMode]);
+
+  const arrangedWidgets = useMemo(() => {
+    const placed: Array<{ id: DashboardWidgetId; x: number; y: number; w: number; h: number }> = [];
+    const sorted = [...visibleWidgets].sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y));
+    const autoExpandWidgetIds = new Set<DashboardWidgetId>([
+      'revenueByService',
+      'serviceBookingComparison',
+      'servicePerformanceRevenue',
+      'bookingsByService',
+      'upcomingBookings',
+      'pastBookings',
+    ]);
+    const maxRowsByWidget: Partial<Record<DashboardWidgetId, number>> = {
+      revenueByService: 8,
+      serviceBookingComparison: 10,
+      servicePerformanceRevenue: 6,
+      bookingsByService: 6,
+      upcomingBookings: 10,
+      pastBookings: 10,
+    };
+
+    const overlaps = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => {
+      const xOverlap = a.x < b.x + b.w && b.x < a.x + a.w;
+      const yOverlap = a.y < b.y + b.h && b.y < a.y + a.h;
+      return xOverlap && yOverlap;
+    };
+
+    for (const widget of sorted) {
+      const minRows = getDashboardWidgetMinHeightRows(widget.id);
+      const contentRows = contentRowsByWidget[widget.id] ?? 1;
+      const maxRows = maxRowsByWidget[widget.id] ?? 12;
+      const expandedRows = autoExpandWidgetIds.has(widget.id)
+        ? Math.max(minRows, contentRows)
+        : Math.max(widget.h, minRows);
+      const effectiveHeight = Math.max(minRows, Math.min(maxRows, expandedRows));
+      const candidate = { id: widget.id, x: widget.x, y: 0, w: widget.w, h: effectiveHeight };
+      while (placed.some((existing) => overlaps(candidate, existing))) {
+        candidate.y += 1;
+      }
+      placed.push(candidate);
+    }
+
+    return placed;
+  }, [visibleWidgets, contentRowsByWidget]);
+
   if (loading) {
     return (
       <div className="p-12 flex flex-col items-center justify-center gap-4">
@@ -565,13 +680,12 @@ export function TenantDashboardContent() {
     return dateB.getTime() - dateA.getTime(); // Most recent first
   });
 
-  const visibleWidgets = useMemo(
-    () =>
-      sanitizeDashboardLayoutConfig(layoutConfig).widgets
-        .filter((w) => w.visible)
-        .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y)),
-    [layoutConfig]
-  );
+  function formatSlotDateLabel(slotDateRaw?: string) {
+    if (!slotDateRaw) return 'N/A';
+    const parsedDate = parse(slotDateRaw.substring(0, 10), 'yyyy-MM-dd', new Date());
+    if (Number.isNaN(parsedDate.getTime())) return 'N/A';
+    return format(parsedDate, 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined });
+  }
 
   function renderDashboardWidget(widgetId: DashboardWidgetId) {
     switch (widgetId) {
@@ -701,19 +815,19 @@ export function TenantDashboardContent() {
       case 'upcomingBookings':
         if (upcomingBookings.length === 0) return null;
         return (
-          <div>
-            <div className="flex items-center gap-2 mb-4">
+          <div className="h-full min-h-0 flex flex-col">
+            <div className="flex items-center gap-2 mb-4 shrink-0">
               <Clock className="w-5 h-5 text-blue-600" />
               <h2 className="text-xl font-semibold text-gray-900">
                 {t('dashboard.upcomingBookings', 'Upcoming Bookings')}
               </h2>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-auto min-h-0 pr-1">
               {upcomingBookings.map((booking) => {
                 const slot = booking.slots;
                 const service = booking.services as any;
                 const serviceName = i18n.language === 'ar' && service?.name_ar ? service.name_ar : (service?.name || t('service.unknown'));
-                const bookingDate = slot?.slot_date ? format(new Date(slot.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined }) : 'N/A';
+                const bookingDate = formatSlotDateLabel(slot?.slot_date);
                 return (
                   <Card key={booking.id} className="hover:shadow-md transition-shadow">
                     <CardContent className="p-4">
@@ -762,19 +876,19 @@ export function TenantDashboardContent() {
       case 'pastBookings':
         if (expiredBookings.length === 0) return null;
         return (
-          <div>
-            <div className="flex items-center gap-2 mb-4">
+          <div className="h-full min-h-0 flex flex-col">
+            <div className="flex items-center gap-2 mb-4 shrink-0">
               <XCircle className="w-5 h-5 text-gray-600" />
               <h2 className="text-xl font-semibold text-gray-900">
                 {t('dashboard.expiredBookings', 'Past Bookings')}
               </h2>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-auto min-h-0 pr-1">
               {expiredBookings.map((booking) => {
                 const slot = booking.slots;
                 const service = booking.services as any;
                 const serviceName = i18n.language === 'ar' && service?.name_ar ? service.name_ar : (service?.name || t('service.unknown'));
-                const bookingDate = slot?.slot_date ? format(new Date(slot.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined }) : 'N/A';
+                const bookingDate = formatSlotDateLabel(slot?.slot_date);
                 return (
                   <Card key={booking.id} className="hover:shadow-md transition-shadow opacity-75">
                     <CardContent className="p-4">
@@ -870,14 +984,33 @@ export function TenantDashboardContent() {
         <div>
           {t('dashboard.lastUpdated', 'Last updated')}: {lastUpdatedAt ? format(lastUpdatedAt, 'MMM d, yyyy h:mm a') : '—'} | {t('dashboard.metricBasis', 'KPIs use booking created date; transaction timing is in Reports > Transactions.')}
         </div>
-        <button
-          type="button"
-          onClick={refreshNow}
-          disabled={isRefreshing}
-          className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        >
-          {isRefreshing ? t('dashboard.refreshing', 'Refreshing...') : t('dashboard.refreshNow', 'Refresh now')}
-        </button>
+        <div className="flex items-center gap-2">
+          {canCustomizeDashboard && (
+            <select
+              value={activeProfileKey}
+              onChange={(e) => {
+                const nextProfile = e.target.value;
+                setActiveProfileKey(nextProfile);
+                localStorage.setItem(profileStorageKey, nextProfile);
+              }}
+              className="rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-700 bg-white"
+            >
+              {dashboardProfiles.map((profile) => (
+                <option key={profile.key} value={profile.key}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={refreshNow}
+            disabled={isRefreshing}
+            className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {isRefreshing ? t('dashboard.refreshing', 'Refreshing...') : t('dashboard.refreshNow', 'Refresh now')}
+          </button>
+        </div>
       </div>
 
       {new URLSearchParams(location.search).get('layoutPreview') === '1' && (
@@ -898,17 +1031,32 @@ export function TenantDashboardContent() {
               setCustomEndDate(end);
             }}
           />
-          <div className="mt-6 grid grid-cols-12 gap-6">
-            {visibleWidgets.map((widget) => {
+          <div className="mt-6 grid grid-cols-12 gap-6 auto-rows-[44px]">
+            {arrangedWidgets.map((widget) => {
               const content = renderDashboardWidget(widget.id);
               if (!content) return null;
               const span = Math.max(1, Math.min(12, widget.w));
+              const colStart = Math.max(1, Math.min(13 - span, widget.x + 1));
+              const rowStart = Math.max(1, widget.y + 1);
+              const rowSpan = Math.max(1, widget.h);
               return (
                 <div
                   key={widget.id}
-                  style={{ gridColumn: `span ${span} / span ${span}` }}
+                  className="min-h-0 overflow-hidden"
+                  style={{
+                    gridColumn: `${colStart} / span ${span}`,
+                    gridRow: `${rowStart} / span ${rowSpan}`,
+                  }}
                 >
-                  {content}
+                  <div
+                    className="min-h-0"
+                    data-widget-id={widget.id}
+                    ref={(el) => {
+                      widgetContentRefs.current[widget.id] = el;
+                    }}
+                  >
+                    {content}
+                  </div>
                 </div>
               );
             })}

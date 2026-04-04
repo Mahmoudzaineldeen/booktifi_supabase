@@ -83,7 +83,7 @@ function AppContent() {
 
       {/* Single admin layout so sidebar and features state persist when navigating between pages */}
       <Route path="/:tenantSlug/admin" element={<AdminLayout />}>
-        <Route index element={<TenantDashboard />} />
+        <Route index element={<ErrorBoundary><TenantDashboard /></ErrorBoundary>} />
         <Route path="services" element={<ServicesPage />} />
         <Route path="tags" element={<TagsPage />} />
         <Route path="branches" element={<ErrorBoundary><BranchesPage /></ErrorBoundary>} />

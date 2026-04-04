@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { DragDropContext, Draggable, Droppable, DropResult } from '@hello-pangea/dnd';
-import { Eye, EyeOff, GripVertical, RotateCcw, Save } from 'lucide-react';
+import { Eye, EyeOff, GripVertical, RotateCcw, Save, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { showNotification } from '../../contexts/NotificationContext';
 import { Button } from '../../components/ui/Button';
@@ -11,10 +11,17 @@ import {
   DASHBOARD_WIDGET_DEFINITIONS,
   DashboardLayoutConfig,
   DashboardLayoutItem,
+  getDashboardWidgetMinHeightRows,
   getDefaultDashboardLayoutConfig,
   sanitizeDashboardLayoutConfig,
 } from '../../lib/dashboardWidgets';
-import { getDashboardLayout, resetDashboardLayout, saveDashboardLayout } from '../../lib/dashboardLayoutApi';
+import {
+  DashboardProfile,
+  getDashboardLayout,
+  getDashboardProfiles,
+  resetDashboardLayout,
+  saveDashboardLayout,
+} from '../../lib/dashboardLayoutApi';
 
 const SIZE_PRESETS = [
   { id: 'small', w: 4, h: 2, labelKey: 'dashboard.customize.widthSmall', fallback: 'Small' },
@@ -29,25 +36,6 @@ function moveItem<T>(list: T[], from: number, to: number): T[] {
   return next;
 }
 
-function packLayout(items: DashboardLayoutItem[]): DashboardLayoutItem[] {
-  let currentX = 0;
-  let currentY = 0;
-  let rowHeight = 1;
-  return items.map((item) => {
-    const width = Math.max(1, Math.min(12, item.w));
-    const height = Math.max(1, Math.min(8, item.h));
-    if (currentX + width > 12) {
-      currentX = 0;
-      currentY += rowHeight;
-      rowHeight = 1;
-    }
-    const packed = { ...item, x: currentX, y: currentY, w: width, h: height };
-    currentX += width;
-    rowHeight = Math.max(rowHeight, height);
-    return packed;
-  });
-}
-
 export function CustomizeDashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -57,8 +45,21 @@ export function CustomizeDashboardPage() {
   const [initialLayout, setInitialLayout] = useState<DashboardLayoutConfig>(getDefaultDashboardLayoutConfig());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [profiles, setProfiles] = useState<DashboardProfile[]>([
+    { key: 'default', name: 'Default', predefined: true },
+    { key: 'analytics', name: 'Analytics Focus', predefined: true },
+    { key: 'operations', name: 'Operations Focus', predefined: true },
+  ]);
+  const [activeProfileKey, setActiveProfileKey] = useState('default');
+  const [customProfileName, setCustomProfileName] = useState('');
+  const [draggingPreviewWidgetId, setDraggingPreviewWidgetId] = useState<string | null>(null);
+  const [lastMovedPreviewWidgetId, setLastMovedPreviewWidgetId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const previewCanvasRef = useRef<HTMLDivElement | null>(null);
+  const dragPointerOffsetRef = useRef({ x: 0, y: 0 });
 
   const canCustomize = hasPermission('customize_dashboard');
+  const profileStorageKey = `dashboard_active_profile:${tenantSlug || 'tenant'}`;
 
   useEffect(() => {
     if (!canCustomize) {
@@ -66,9 +67,23 @@ export function CustomizeDashboardPage() {
       return;
     }
     let isActive = true;
+    const storedProfile = localStorage.getItem(profileStorageKey) || 'default';
+    setActiveProfileKey(storedProfile);
+
     (async () => {
       try {
-        const { layout: fetched } = await getDashboardLayout();
+        const fetchedProfiles = await getDashboardProfiles();
+        if (!isActive) return;
+        setProfiles(fetchedProfiles);
+
+        const profileExists = fetchedProfiles.some((p) => p.key === storedProfile);
+        const effectiveProfile = profileExists ? storedProfile : 'default';
+        if (!profileExists) {
+          localStorage.setItem(profileStorageKey, effectiveProfile);
+          setActiveProfileKey(effectiveProfile);
+        }
+
+        const { layout: fetched } = await getDashboardLayout(effectiveProfile);
         if (!isActive) return;
         const sanitized = sanitizeDashboardLayoutConfig(fetched);
         setLayout(sanitized);
@@ -83,22 +98,58 @@ export function CustomizeDashboardPage() {
     return () => {
       isActive = false;
     };
-  }, [canCustomize, t]);
+  }, [canCustomize, t, profileStorageKey]);
 
-  const draftSignature = JSON.stringify(layout.widgets.map((w) => ({ id: w.id, w: w.w, h: w.h, visible: w.visible })));
-  const initialSignature = JSON.stringify(initialLayout.widgets.map((w) => ({ id: w.id, w: w.w, h: w.h, visible: w.visible })));
+  useEffect(() => {
+    if (!canCustomize) return;
+    let isActive = true;
+    (async () => {
+      try {
+        const { layout: fetched } = await getDashboardLayout(activeProfileKey);
+        if (!isActive) return;
+        const sanitized = sanitizeDashboardLayoutConfig(fetched);
+        setLayout(sanitized);
+        setInitialLayout(sanitized);
+      } catch (error: any) {
+        if (!isActive) return;
+        showNotification('error', error?.message || t('dashboard.customize.loadFailed', 'Failed to load layout.'));
+      }
+    })();
+
+    return () => {
+      isActive = false;
+    };
+  }, [activeProfileKey, canCustomize, t]);
+
+  const draftSignature = JSON.stringify(layout.widgets.map((w) => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h, visible: w.visible })));
+  const initialSignature = JSON.stringify(initialLayout.widgets.map((w) => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h, visible: w.visible })));
   const hasChanges = draftSignature !== initialSignature;
 
   const widgetOrder = layout.widgets.map((w) => w.id);
   const widgetById = useMemo(() => new Map(layout.widgets.map((w) => [w.id, w])), [layout.widgets]);
-  const previewLayout = useMemo(() => packLayout(layout.widgets.filter((w) => w.visible)), [layout.widgets]);
+  const previewVisibleWidgets = useMemo(
+    () => layout.widgets.filter((w) => w.visible).sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y)),
+    [layout.widgets]
+  );
   const visibleCount = layout.widgets.filter((w) => w.visible).length;
   const hiddenCount = layout.widgets.length - visibleCount;
+
+  function normalizeWidgetBounds(widget: DashboardLayoutItem): DashboardLayoutItem {
+    const safeW = Math.max(1, Math.min(12, widget.w));
+    const minRows = getDashboardWidgetMinHeightRows(widget.id);
+    const safeH = Math.max(minRows, Math.min(12, widget.h));
+    const safeX = Math.max(0, Math.min(12 - safeW, widget.x));
+    const safeY = Math.max(0, widget.y);
+    return { ...widget, x: safeX, y: safeY, w: safeW, h: safeH };
+  }
 
   function updateWidget(widgetId: string, partial: Partial<DashboardLayoutItem>) {
     setLayout((prev) => ({
       ...prev,
-      widgets: prev.widgets.map((w) => (w.id === widgetId ? { ...w, ...partial } : w)),
+      widgets: prev.widgets.map((w) => {
+        if (w.id !== widgetId) return w;
+        return normalizeWidgetBounds({ ...w, ...partial });
+      }),
     }));
   }
 
@@ -112,6 +163,35 @@ export function CustomizeDashboardPage() {
     updateWidget(widgetId, { w: preset.w, h: preset.h });
   }
 
+  function toggleWidgetVisibility(widgetId: string) {
+    setLayout((prev) => {
+      const current = prev.widgets.find((w) => w.id === widgetId);
+      if (!current) return prev;
+
+      if (current.visible) {
+        return {
+          ...prev,
+          widgets: prev.widgets.map((w) => (w.id === widgetId ? { ...w, visible: false } : w)),
+        };
+      }
+
+      const maxY = prev.widgets
+        .filter((w) => w.visible)
+        .reduce((acc, w) => Math.max(acc, w.y + w.h), 0);
+      const remaining = prev.widgets.filter((w) => w.id !== widgetId);
+      const revived = { ...current, visible: true, x: 0, y: maxY };
+      const nextWidgets = [...remaining, revived];
+      return { ...prev, widgets: nextWidgets };
+    });
+  }
+
+  function hideWidgetFromPreview(widgetId: string) {
+    setLayout((prev) => ({
+      ...prev,
+      widgets: prev.widgets.map((w) => (w.id === widgetId ? { ...w, visible: false } : w)),
+    }));
+  }
+
   function onDragEnd(result: DropResult) {
     if (!result.destination) return;
     setLayout((prev) => ({
@@ -120,14 +200,70 @@ export function CustomizeDashboardPage() {
     }));
   }
 
+  function handlePreviewDragStart(widgetId: string, event: React.DragEvent<HTMLDivElement>) {
+    setDraggingPreviewWidgetId(widgetId);
+    const widgetElement = event.currentTarget.getBoundingClientRect();
+    dragPointerOffsetRef.current = {
+      x: Math.max(0, event.clientX - widgetElement.left),
+      y: Math.max(0, event.clientY - widgetElement.top),
+    };
+  }
+
+  function resolveDropPosition(event: React.DragEvent<HTMLDivElement>, widget: DashboardLayoutItem) {
+    if (!previewCanvasRef.current) return { x: widget.x, y: widget.y };
+    const rect = previewCanvasRef.current.getBoundingClientRect();
+    const colWidth = rect.width / 12;
+    const rowHeight = 44;
+    const scrollLeft = previewCanvasRef.current.scrollLeft;
+    const scrollTop = previewCanvasRef.current.scrollTop;
+
+    const adjustedX =
+      event.clientX - rect.left + scrollLeft - Math.min(dragPointerOffsetRef.current.x, widget.w * colWidth);
+    const adjustedY =
+      event.clientY - rect.top + scrollTop - Math.min(dragPointerOffsetRef.current.y, widget.h * rowHeight);
+
+    const rawX = Math.floor(adjustedX / colWidth);
+    const rawY = Math.floor(adjustedY / rowHeight);
+    return {
+      x: Math.max(0, Math.min(12 - widget.w, rawX)),
+      y: Math.max(0, rawY),
+    };
+  }
+
+  function handlePreviewDragOver(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    if (!draggingPreviewWidgetId) return;
+    const currentWidget = layout.widgets.find((w) => w.id === draggingPreviewWidgetId);
+    if (!currentWidget) return;
+    const next = resolveDropPosition(event, currentWidget);
+    setDropTarget({ ...next, w: currentWidget.w, h: currentWidget.h });
+  }
+
+  function handlePreviewDrop(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    if (!draggingPreviewWidgetId || !previewCanvasRef.current) return;
+    const currentWidget = layout.widgets.find((w) => w.id === draggingPreviewWidgetId);
+    if (!currentWidget) return;
+    const next = resolveDropPosition(event, currentWidget);
+
+    updateWidget(draggingPreviewWidgetId, { x: next.x, y: next.y });
+    setLastMovedPreviewWidgetId(draggingPreviewWidgetId);
+    window.setTimeout(() => {
+      setLastMovedPreviewWidgetId((current) => (current === draggingPreviewWidgetId ? null : current));
+    }, 420);
+    setDraggingPreviewWidgetId(null);
+    setDropTarget(null);
+  }
+
   async function handleSave() {
     setSaving(true);
     try {
+      const activeProfile = profiles.find((profile) => profile.key === activeProfileKey);
       const nextConfig: DashboardLayoutConfig = {
         ...layout,
-        widgets: packLayout(layout.widgets),
+        widgets: layout.widgets,
       };
-      const saved = await saveDashboardLayout(nextConfig);
+      const saved = await saveDashboardLayout(nextConfig, activeProfileKey, activeProfile?.name);
       const sanitized = sanitizeDashboardLayoutConfig(saved);
       setLayout(sanitized);
       setInitialLayout(sanitized);
@@ -142,7 +278,7 @@ export function CustomizeDashboardPage() {
   async function handleReset() {
     setSaving(true);
     try {
-      const resetConfig = await resetDashboardLayout();
+      const resetConfig = await resetDashboardLayout(activeProfileKey);
       const sanitized = sanitizeDashboardLayoutConfig(resetConfig);
       setLayout(sanitized);
       setInitialLayout(sanitized);
@@ -157,11 +293,36 @@ export function CustomizeDashboardPage() {
   function handleLivePreview() {
     const packedDraft = sanitizeDashboardLayoutConfig({
       ...layout,
-      widgets: packLayout(layout.widgets),
+      widgets: layout.widgets,
     });
     sessionStorage.setItem('dashboard_layout_preview_draft', JSON.stringify(packedDraft));
     const previewUrl = tenantSlug ? `/${tenantSlug}/admin?layoutPreview=1` : '/';
     window.open(previewUrl, '_blank', 'noopener,noreferrer');
+  }
+
+  async function handleCreateCustomProfile() {
+    const name = customProfileName.trim();
+    if (!name) {
+      showNotification('warning', t('dashboard.customize.customProfileNameRequired', 'Please enter a profile name.'));
+      return;
+    }
+    const key = `custom-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'profile'}`;
+    if (profiles.some((profile) => profile.key === key)) {
+      showNotification('warning', t('dashboard.customize.customProfileExists', 'A profile with this name already exists.'));
+      return;
+    }
+    try {
+      const defaultLayout = getDefaultDashboardLayoutConfig();
+      await saveDashboardLayout(defaultLayout, key, name);
+      const nextProfiles = [...profiles, { key, name, predefined: false }];
+      setProfiles(nextProfiles);
+      setCustomProfileName('');
+      setActiveProfileKey(key);
+      localStorage.setItem(profileStorageKey, key);
+      showNotification('success', t('dashboard.customize.customProfileCreated', 'Custom profile created.'));
+    } catch (error: any) {
+      showNotification('error', error?.message || t('dashboard.customize.saveFailed', 'Failed to save layout.'));
+    }
   }
 
   if (!canCustomize) {
@@ -202,7 +363,12 @@ export function CustomizeDashboardPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="ghost"
-            onClick={() => setLayout((prev) => ({ ...prev, widgets: prev.widgets.map((w) => ({ ...w, visible: true })) }))}
+            onClick={() =>
+              setLayout((prev) => ({
+                ...prev,
+                widgets: prev.widgets.map((w) => ({ ...w, visible: true })),
+              }))
+            }
             disabled={saving || hiddenCount === 0}
           >
             {t('common.show', 'Show')} {t('dashboard.customize.widgets', 'Widgets')}
@@ -241,6 +407,76 @@ export function CustomizeDashboardPage() {
         </div>
       </div>
 
+      <div className="rounded-xl border border-gray-200 bg-white p-3 md:p-4 space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">
+              {t('dashboard.customize.activeProfile', 'Active profile')}
+            </p>
+            <p className="text-xs text-gray-500">
+              {t('dashboard.customize.profileHint', 'Switch between presets or use your own custom profile.')}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {profiles
+              .filter((profile) => profile.predefined)
+              .map((profile) => {
+                const isActive = activeProfileKey === profile.key;
+                return (
+                  <button
+                    key={profile.key}
+                    type="button"
+                    onClick={() => {
+                      setActiveProfileKey(profile.key);
+                      localStorage.setItem(profileStorageKey, profile.key);
+                    }}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      isActive
+                        ? 'border-blue-300 bg-blue-50 text-blue-700'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    {profile.name}
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[17rem_minmax(0,1fr)_auto] gap-2 items-end">
+          <label className="text-xs text-gray-600">
+            {t('dashboard.customize.allProfiles', 'All profiles')}
+            <select
+              className="mt-1 w-full rounded-md border border-gray-300 px-2 py-2 text-sm bg-white"
+              value={activeProfileKey}
+              onChange={(e) => {
+                const nextKey = e.target.value;
+                setActiveProfileKey(nextKey);
+                localStorage.setItem(profileStorageKey, nextKey);
+              }}
+            >
+              {profiles.map((profile) => (
+                <option key={profile.key} value={profile.key}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-gray-600">
+            {t('dashboard.customize.newCustomProfile', 'New custom profile')}
+            <input
+              className="mt-1 w-full rounded-md border border-gray-300 px-2 py-2 text-sm"
+              value={customProfileName}
+              onChange={(e) => setCustomProfileName(e.target.value)}
+              placeholder={t('dashboard.customize.newCustomProfilePlaceholder', 'e.g. Morning Ops')}
+            />
+          </label>
+          <Button variant="outline" onClick={handleCreateCustomProfile} className="h-10">
+            {t('dashboard.customize.createProfile', 'Create')}
+          </Button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 xl:grid-cols-[24rem_minmax(0,1fr)] gap-6">
         <Card>
           <CardContent className="p-4">
@@ -262,12 +498,14 @@ export function CustomizeDashboardPage() {
                       const widget = widgetById.get(widgetId)!;
                       return (
                         <Draggable key={widgetId} draggableId={widgetId} index={index}>
-                          {(dragProvided) => (
+                          {(dragProvided, snapshot) => (
                             <div
                               ref={dragProvided.innerRef}
                               {...dragProvided.draggableProps}
                               className={`rounded-lg border p-3 transition-colors ${
                                 widget.visible ? 'border-gray-200 bg-white' : 'border-amber-200 bg-amber-50'
+                              } transition-all duration-200 ease-out ${
+                                snapshot.isDragging ? 'scale-[1.02] shadow-xl ring-2 ring-blue-200 z-20' : 'shadow-sm hover:shadow-md'
                               }`}
                             >
                               <div className="flex items-start gap-2">
@@ -290,7 +528,7 @@ export function CustomizeDashboardPage() {
                                     </div>
                                     <button
                                       type="button"
-                                      onClick={() => updateWidget(widgetId, { visible: !widget.visible })}
+                                      onClick={() => toggleWidgetVisibility(widgetId)}
                                       className="text-gray-500 hover:text-gray-700"
                                       title={widget.visible ? t('common.hide', 'Hide') : t('common.show', 'Show')}
                                     >
@@ -339,25 +577,70 @@ export function CustomizeDashboardPage() {
         <Card>
           <CardContent className="p-4">
             <h2 className="text-sm font-semibold text-gray-900 mb-3">{t('dashboard.customize.preview', 'Preview')}</h2>
-            {previewLayout.length === 0 ? (
+            {previewVisibleWidgets.length === 0 ? (
               <div className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
                 {t('dashboard.customize.emptyPreview', 'All widgets are hidden. Enable at least one widget to preview.')}
               </div>
             ) : (
-              <div className="grid grid-cols-12 gap-3">
-                {previewLayout.map((widget) => {
+              <div
+                ref={previewCanvasRef}
+                className="grid grid-cols-12 auto-rows-[44px] gap-2 rounded-lg border border-gray-200 bg-white p-2 min-h-[460px] max-h-[70vh] overflow-auto"
+                onDragOver={handlePreviewDragOver}
+                onDrop={handlePreviewDrop}
+              >
+                {dropTarget && (
+                  <div
+                    className="pointer-events-none rounded-lg border-2 border-blue-300 border-dashed bg-blue-100/40"
+                    style={{
+                      gridColumn: `${dropTarget.x + 1} / span ${dropTarget.w}`,
+                      gridRow: `${dropTarget.y + 1} / span ${dropTarget.h}`,
+                    }}
+                  />
+                )}
+                {previewVisibleWidgets.map((widget) => {
                   const definition = DASHBOARD_WIDGET_DEFINITIONS.find((d) => d.id === widget.id);
                   if (!definition) return null;
+                  const colSpan = Math.max(1, Math.min(12, widget.w));
+                  const colStart = Math.max(1, Math.min(13 - colSpan, widget.x + 1));
+                  const rowStart = Math.max(1, widget.y + 1);
+                  const rowSpan = Math.max(1, widget.h);
+                  const isDragging = draggingPreviewWidgetId === widget.id;
+                  const isFreshlyMoved = lastMovedPreviewWidgetId === widget.id;
                   return (
                     <div
-                      key={widget.id}
-                      className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3"
-                      style={{ gridColumn: `span ${widget.w} / span ${widget.w}` }}
+                      key={`preview-${widget.id}`}
+                      className={`rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3 hover:border-blue-300 transition-all duration-300 ease-out ${
+                        isDragging ? 'scale-[1.015] opacity-85 shadow-2xl ring-2 ring-blue-300 z-20' : 'shadow-sm hover:shadow-md'
+                      } ${isFreshlyMoved ? 'ring-2 ring-blue-300 bg-blue-50/70' : ''}`}
+                      style={{ gridColumn: `${colStart} / span ${colSpan}`, gridRow: `${rowStart} / span ${rowSpan}` }}
+                      draggable
+                      onDragStart={(event) => handlePreviewDragStart(widget.id, event)}
+                      onDragEnd={() => {
+                        setDraggingPreviewWidgetId(null);
+                        setDropTarget(null);
+                      }}
+                      title={t('dashboard.customize.dragPreview', 'Drag to reorder in preview')}
                     >
-                      <p className="text-sm font-medium text-gray-900">{t(definition.nameKey, definition.fallbackName)}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {t('dashboard.customize.previewSize', '{{w}}/12 width', { w: widget.w })}
-                      </p>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{t(definition.nameKey, definition.fallbackName)}</p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {t('dashboard.customize.previewSize', '{{w}}/12 width', { w: widget.w })}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {t('dashboard.customize.previewHeight', 'Height {{h}}', { h: widget.h })}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center rounded-md p-1 text-gray-500 hover:bg-red-100 hover:text-red-700"
+                          onClick={() => hideWidgetFromPreview(widget.id)}
+                          title={t('dashboard.customize.removeFromPreview', 'Click to remove from preview')}
+                          aria-label={t('dashboard.customize.removeFromPreview', 'Click to remove from preview')}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}

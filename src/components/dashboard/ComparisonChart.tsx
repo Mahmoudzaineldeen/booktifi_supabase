@@ -45,10 +45,11 @@ export function ComparisonChart({ title, series, valueLabel }: ComparisonChartPr
 
   // Pixel-based dimensions: 1 SVG unit = 1 pixel so labels stay readable
   const PX = {
-    chartHeight: 560,
+    chartHeight: 320,
     leftMargin: 56,
     rightMargin: 24,
-    bottomLabelHeight: 52,
+    topPadding: 20,
+    bottomLabelHeight: 56,
     minWidthPerDate: 72,
     fontAxis: 14,
     fontBarValue: 13,
@@ -57,6 +58,8 @@ export function ComparisonChart({ title, series, valueLabel }: ComparisonChartPr
   const chartWidthPx = Math.max(800, allDates.length * PX.minWidthPerDate);
   const plotWidthPx = chartWidthPx - PX.leftMargin - PX.rightMargin;
   const plotBottomPx = PX.chartHeight - PX.bottomLabelHeight;
+  const plotTopPx = PX.topPadding;
+  const plotHeightPx = Math.max(80, plotBottomPx - plotTopPx);
   const barWidthPx = Math.min(
     (plotWidthPx / allDates.length - 8) / Math.max(series.length, 1),
     36
@@ -105,24 +108,24 @@ export function ComparisonChart({ title, series, valueLabel }: ComparisonChartPr
 
               <rect
                 x={PX.leftMargin}
-                y={12}
+                y={plotTopPx}
                 width={plotWidthPx + 4}
-                height={plotBottomPx - 54}
+                height={plotHeightPx}
                 fill="url(#gridGradient)"
                 opacity="0.3"
               />
 
               <line
                 x1={PX.leftMargin}
-                y1={plotBottomPx - 12}
+                y1={plotBottomPx}
                 x2={chartWidthPx - PX.rightMargin}
-                y2={plotBottomPx - 12}
+                y2={plotBottomPx}
                 stroke="#3B82F6"
                 strokeWidth="1.5"
               />
 
               {[0, 25, 50, 75, 100].map((percent) => {
-                const y = plotBottomPx - 12 - ((plotBottomPx - 72) * percent) / 100;
+                const y = plotBottomPx - (plotHeightPx * percent) / 100;
                 return (
                   <g key={percent}>
                     <line
@@ -158,9 +161,9 @@ export function ComparisonChart({ title, series, valueLabel }: ComparisonChartPr
                     {series.map((s, seriesIndex) => {
                       const dataPoint = s.data.find(d => d.date === date);
                       const value = dataPoint?.value || 0;
-                      const barHeight = ((plotBottomPx - 72) * value) / maxValue;
+                      const barHeight = (plotHeightPx * value) / maxValue;
                       const barX = x + seriesIndex * barWidthPx;
-                      const barY = plotBottomPx - 12 - barHeight;
+                      const barY = plotBottomPx - barHeight;
 
                       return (
                         <g key={`${date}-${seriesIndex}`}>
@@ -192,7 +195,7 @@ export function ComparisonChart({ title, series, valueLabel }: ComparisonChartPr
 
                     <text
                       x={groupCenterX}
-                      y={PX.chartHeight - 28}
+                      y={PX.chartHeight - 34}
                       textAnchor="middle"
                       fill="#1e3a8a"
                       fontSize={PX.fontDate}
