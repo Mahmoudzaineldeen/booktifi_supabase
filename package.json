@@ -48,6 +48,9 @@
     "test:booking-mix-single-parallel": "node tests/test-booking-mix-single-and-parallel.js",
     "test:booking-three-same-period-fail": "node tests/test-booking-three-slots-same-period-should-fail.js",
     "test:customer-phone-search-api": "node tests/test-customer-phone-search-api.js",
+    "test:customer-search-real-tenant": "node tests/test-customer-search-real-tenant.js",
+    "test:customer-search-filtering-real-tenant": "node tests/test-customer-search-filtering-real-tenant.js",
+    "test:customer-search-specific-queries": "node tests/test-customer-search-specific-queries.js",
     "test:employee-role-assign": "node scripts/test-employee-role-assign-admin-then-employee.js",
     "test:role-permissions-update": "node scripts/test-role-permissions-update-flow.js",
     "test:permissions-me-smoke": "node scripts/test-permissions-me-smoke.js"

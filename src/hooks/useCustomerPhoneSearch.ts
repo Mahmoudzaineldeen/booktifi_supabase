@@ -123,12 +123,18 @@ export function useCustomerPhoneSearch(tenantId: string | undefined, fullPhoneVa
       const token = localStorage.getItem('auth_token');
       const variants = buildCustomerPhoneQueryVariants(digits);
       const urls = variants.map(
-        (variant) => `${getApiUrl()}/bookings/customer-search?phone=${encodeURIComponent(variant)}&limit=${LIMIT}`
+        (variant) =>
+          `${getApiUrl()}/bookings/customer-search?phone=${encodeURIComponent(variant)}&limit=${LIMIT}&_=${Date.now()}`
       );
       const responses = await Promise.all(
         urls.map((url) =>
           fetch(url, {
-            headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+            cache: 'no-store',
+            headers: {
+              ...(token && { Authorization: `Bearer ${token}` }),
+              'Cache-Control': 'no-cache',
+              Pragma: 'no-cache',
+            },
             signal: abortRef.current?.signal,
           })
         )

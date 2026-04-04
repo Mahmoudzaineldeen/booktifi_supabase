@@ -971,6 +971,11 @@ router.get('/receptionist/employees-for-service', authenticateReceptionistCoordi
 // ============================================================================
 router.get('/customer-search', authenticateReceptionistOrTenantAdmin, async (req, res) => {
   try {
+    // Prevent browser/proxy revalidation responses (304) from breaking live suggestions.
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
     const tenantId = req.user!.tenant_id;
     if (!tenantId) {
       return res.status(403).json({ error: 'No tenant associated' });

@@ -5019,6 +5019,11 @@ export function ReceptionPage() {
                 containerRef={bookingPhoneWrapperRef}
               />
             )}
+            {import.meta.env.DEV && !bookingSelectedCustomer && customerPhoneFull.replace(/\D/g, '').length >= 3 && (
+              <div className="mt-1 text-xs text-gray-500">
+                Phone search suggestions: {bookingPhoneSuggestions.length}
+              </div>
+            )}
             {bookingSelectedCustomer && (
               <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
                 <CheckCircle className="h-4 w-4 shrink-0" />

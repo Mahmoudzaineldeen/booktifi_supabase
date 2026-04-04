@@ -3080,6 +3080,11 @@ export function BookingsPage() {
                 containerRef={createPhoneWrapperRef}
               />
             )}
+            {import.meta.env.DEV && !createSelectedCustomer && createCustomerPhoneFull.replace(/\D/g, '').length >= 3 && (
+              <div className="mt-1 text-xs text-gray-500">
+                Phone search suggestions: {createPhoneSuggestions.length}
+              </div>
+            )}
             {createSelectedCustomer && (
               <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
                 <CheckCircle className="h-4 w-4 shrink-0" />
