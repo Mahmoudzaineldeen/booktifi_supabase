@@ -65,7 +65,7 @@ export function rankAndLimitCustomerSuggestions(
 ): CustomerSuggestion[] {
   const queryDigits = digits.replace(/\D/g, '');
   const normalized = list
-    .filter((c) => !!c?.id && !!c?.phone)
+    .filter((c) => !!c?.phone)
     .map((c) => ({
       ...c,
       _digits: c.phone.replace(/\D/g, ''),

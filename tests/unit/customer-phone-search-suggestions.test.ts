@@ -39,6 +39,15 @@ describe('customer phone suggestions', () => {
     expect(result).toHaveLength(100);
   });
 
+  it('keeps booking-history suggestions even when id is missing', () => {
+    const list: CustomerSuggestion[] = [
+      { name: 'History Visitor', phone: '+966531234567', email: null },
+      { id: 'cust-1', name: 'Master Customer', phone: '+966501111111', email: null },
+    ];
+    const result = rankAndLimitCustomerSuggestions(list, '0531', 100);
+    expect(result.some((r) => r.phone === '+966531234567')).toBe(true);
+  });
+
   it('dropdown classes include scroll behavior', () => {
     expect(CUSTOMER_PHONE_SUGGESTIONS_SCROLL_CLASSES).toContain('max-h-56');
     expect(CUSTOMER_PHONE_SUGGESTIONS_SCROLL_CLASSES).toContain('overflow-y-auto');
