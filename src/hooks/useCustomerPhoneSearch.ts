@@ -19,6 +19,45 @@ const MIN_DIGITS = 3;
 const MAX_SHOW = 100;
 const LIMIT = 120;
 
+export function buildCustomerPhoneQueryVariants(input: string): string[] {
+  const digits = String(input || '').replace(/\D/g, '');
+  if (!digits) return [];
+
+  const set = new Set<string>();
+  const add = (v: string) => {
+    const n = String(v || '').replace(/\D/g, '');
+    if (n.length >= MIN_DIGITS) set.add(n);
+  };
+
+  const trimmedLeadingZeros = digits.replace(/^0+/, '');
+  add(digits);
+  add(trimmedLeadingZeros);
+
+  if (digits.startsWith('0') && trimmedLeadingZeros) {
+    add(`966${trimmedLeadingZeros}`);
+    add(`00966${trimmedLeadingZeros}`);
+  }
+  if (digits.startsWith('966') && digits.length > 3) {
+    const local = digits.slice(3);
+    const localTrimmed = local.replace(/^0+/, '');
+    add(local);
+    add(localTrimmed);
+    if (localTrimmed) add(`0${localTrimmed}`);
+  }
+  if (digits.startsWith('00966') && digits.length > 5) {
+    const local = digits.slice(5);
+    const localTrimmed = local.replace(/^0+/, '');
+    add(local);
+    add(localTrimmed);
+    if (localTrimmed) {
+      add(`0${localTrimmed}`);
+      add(`966${localTrimmed}`);
+    }
+  }
+
+  return Array.from(set).slice(0, 6);
+}
+
 export function rankAndLimitCustomerSuggestions(
   list: CustomerSuggestion[],
   digits: string,
@@ -81,18 +120,27 @@ export function useCustomerPhoneSearch(tenantId: string | undefined, fullPhoneVa
     setSuggestions([]);
     try {
       const token = localStorage.getItem('auth_token');
-      const url = `${getApiUrl()}/bookings/customer-search?phone=${encodeURIComponent(digits)}&limit=${LIMIT}`;
-      const res = await fetch(url, {
-        headers: { ...(token && { Authorization: `Bearer ${token}` }) },
-        signal: abortRef.current.signal,
-      });
-      if (!res.ok) {
-        setSuggestions([]);
-        return;
-      }
-      const data = await res.json();
-      const list: CustomerSuggestion[] = data.customers || [];
-      setSuggestions(rankAndLimitCustomerSuggestions(list, digits, MAX_SHOW));
+      const variants = buildCustomerPhoneQueryVariants(digits);
+      const urls = variants.map(
+        (variant) => `${getApiUrl()}/bookings/customer-search?phone=${encodeURIComponent(variant)}&limit=${LIMIT}`
+      );
+      const responses = await Promise.all(
+        urls.map((url) =>
+          fetch(url, {
+            headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+            signal: abortRef.current?.signal,
+          })
+        )
+      );
+      const lists = await Promise.all(
+        responses.map(async (res) => {
+          if (!res.ok) return [] as CustomerSuggestion[];
+          const data = await res.json();
+          return (data.customers || []) as CustomerSuggestion[];
+        })
+      );
+      const merged = lists.flat();
+      setSuggestions(rankAndLimitCustomerSuggestions(merged, digits, MAX_SHOW));
     } catch (e) {
       if ((e as Error)?.name !== 'AbortError') {
         setSuggestions([]);
