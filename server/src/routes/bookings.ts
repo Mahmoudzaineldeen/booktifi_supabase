@@ -163,7 +163,7 @@ async function hasRequiredConsecutiveEmployeeSlots(params: {
 
   const { data: slots, error } = await supabase
     .from('slots')
-    .select('id, start_time, end_time, available_capacity, is_available')
+    .select('id, start_time, end_time, available_capacity, booked_count, is_available')
     .eq('tenant_id', tenantId)
     .eq('employee_id', employeeId)
     .eq('slot_date', slotDate)
@@ -209,17 +209,18 @@ async function reserveAdditionalConsecutiveEmployeeSlots(params: {
     return { ok: false, reservedExtraSlotIds: [], reason: 'Failed to load consecutive slots.' };
   }
 
-  const byStart = new Map<string, { id: string; end_time: string; available_capacity: number; is_available: boolean }>();
+  const byStart = new Map<string, { id: string; end_time: string; available_capacity: number; booked_count: number; is_available: boolean }>();
   for (const slot of slots as any[]) {
     byStart.set((slot.start_time || '').slice(0, 8), {
       id: slot.id,
       end_time: (slot.end_time || '').slice(0, 8),
       available_capacity: Number(slot.available_capacity ?? 0),
+      booked_count: Number(slot.booked_count ?? 0),
       is_available: Boolean(slot.is_available),
     });
   }
 
-  const chain: Array<{ id: string; start: string; available_capacity: number; is_available: boolean }> = [];
+  const chain: Array<{ id: string; start: string; available_capacity: number; booked_count: number; is_available: boolean }> = [];
   let cursorStart = (startTime || '').slice(0, 8);
   for (let i = 0; i < requiredSlots; i++) {
     const slot = byStart.get(cursorStart);
@@ -230,6 +231,7 @@ async function reserveAdditionalConsecutiveEmployeeSlots(params: {
       id: slot.id,
       start: cursorStart,
       available_capacity: slot.available_capacity,
+      booked_count: slot.booked_count,
       is_available: slot.is_available,
     });
     cursorStart = slot.end_time;
@@ -250,7 +252,10 @@ async function reserveAdditionalConsecutiveEmployeeSlots(params: {
     const nextAvailable = Math.max(0, Number(extra.available_capacity) - visitorCount);
     const upd = await supabase
       .from('slots')
-      .update({ available_capacity: nextAvailable })
+      .update({
+        available_capacity: nextAvailable,
+        booked_count: Math.max(0, Number(extra.booked_count) + visitorCount),
+      })
       .eq('id', extra.id)
       .eq('tenant_id', tenantId)
       .gte('available_capacity', visitorCount)
@@ -264,6 +269,45 @@ async function reserveAdditionalConsecutiveEmployeeSlots(params: {
   }
 
   return { ok: true, reservedExtraSlotIds };
+}
+
+async function loadTagSlotCountMap(tagIds: Array<string | null | undefined>): Promise<Map<string, number>> {
+  const uniqueTagIds = [...new Set((tagIds || []).filter(Boolean))] as string[];
+  const result = new Map<string, number>();
+  if (uniqueTagIds.length === 0) return result;
+
+  const { data: feeRows, error } = await supabase
+    .from('tag_fees')
+    .select('tag_id, slot_count')
+    .in('tag_id', uniqueTagIds);
+  if (error) return result;
+
+  for (const row of feeRows || []) {
+    const tagId = String((row as any).tag_id || '');
+    if (!tagId) continue;
+    const parsed = Number((row as any).slot_count);
+    result.set(tagId, Number.isFinite(parsed) && parsed >= 1 ? Math.ceil(parsed) : 1);
+  }
+  return result;
+}
+
+function inferBookingEndFromTagSlotCount(params: {
+  effectiveEnd?: string | null;
+  slotStart?: string | null;
+  slotEnd?: string | null;
+  tagId?: string | null;
+  tagSlotCountMap?: Map<string, number>;
+}): string | null {
+  const { effectiveEnd, slotStart, slotEnd, tagId, tagSlotCountMap } = params;
+  if (effectiveEnd) return String(effectiveEnd);
+  if (!slotStart || !slotEnd) return null;
+
+  const tagSlots = tagId ? Number(tagSlotCountMap?.get(tagId) ?? 1) : 1;
+  const safeTagSlots = Number.isFinite(tagSlots) && tagSlots >= 1 ? Math.ceil(tagSlots) : 1;
+  if (safeTagSlots <= 1) return String(slotEnd);
+
+  const slotDuration = getSlotDurationMinutes(String(slotStart), String(slotEnd));
+  return addMinutesToTime(String(slotStart), slotDuration * safeTagSlots);
 }
 
 async function getSlotWindowById(slotId: string): Promise<SlotWindow | null> {
@@ -293,7 +337,7 @@ async function findEmployeeBookingConflict(params: {
   const { tenantId, employeeId, slotDate, startTime, endTime, excludeBookingId } = params;
   let bookingQuery = supabase
     .from('bookings')
-    .select('id, slot_id, effective_start_time, effective_end_time, slots:slot_id(slot_date, start_time, end_time)')
+    .select('id, slot_id, tag_id, effective_start_time, effective_end_time, slots:slot_id(slot_date, start_time, end_time)')
     .eq('tenant_id', tenantId)
     .eq('employee_id', employeeId)
     .neq('status', 'cancelled');
@@ -306,7 +350,7 @@ async function findEmployeeBookingConflict(params: {
   if (existingBookingsError && isMissingColumnError(existingBookingsError, 'effective_start_time')) {
     let fallbackQuery = supabase
       .from('bookings')
-      .select('id, slot_id, slots:slot_id(slot_date, start_time, end_time)')
+      .select('id, slot_id, tag_id, slots:slot_id(slot_date, start_time, end_time)')
       .eq('tenant_id', tenantId)
       .eq('employee_id', employeeId)
       .neq('status', 'cancelled');
@@ -320,13 +364,20 @@ async function findEmployeeBookingConflict(params: {
   if (existingBookingsError) {
     throw existingBookingsError;
   }
+  const tagSlotCountMap = await loadTagSlotCountMap((existingBookings || []).map((b: any) => b?.tag_id));
 
   const bookedWindows = (existingBookings || [])
     .map((booking: any) => {
       const slot = Array.isArray(booking.slots) ? booking.slots[0] : booking.slots;
       const slotDateValue = slot?.slot_date;
       const startValue = booking.effective_start_time || slot?.start_time;
-      const endValue = booking.effective_end_time || slot?.end_time;
+      const endValue = inferBookingEndFromTagSlotCount({
+        effectiveEnd: booking.effective_end_time,
+        slotStart: slot?.start_time,
+        slotEnd: slot?.end_time,
+        tagId: booking?.tag_id ?? null,
+        tagSlotCountMap,
+      });
       if (!slotDateValue || !startValue || !endValue) return null;
       return {
         bookingId: booking.id,
@@ -1117,7 +1168,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
 
       const bookingsByEmployeePromise = supabase
         .from('bookings')
-        .select('employee_id, slot_id, effective_start_time, effective_end_time')
+        .select('employee_id, slot_id, tag_id, effective_start_time, effective_end_time')
         .eq('tenant_id', tenantId)
         .in('employee_id', employeeIds)
         .neq('status', 'cancelled');
@@ -1125,7 +1176,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       const bookingsBySlotPromise = slotIds.length > 0
         ? supabase
             .from('bookings')
-            .select('employee_id, slot_id, effective_start_time, effective_end_time')
+            .select('employee_id, slot_id, tag_id, effective_start_time, effective_end_time')
             .eq('tenant_id', tenantId)
             .in('slot_id', slotIds)
             .neq('status', 'cancelled')
@@ -1139,14 +1190,14 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       ) {
         const fallbackEmployeePromise = supabase
           .from('bookings')
-          .select('employee_id, slot_id')
+          .select('employee_id, slot_id, tag_id')
           .eq('tenant_id', tenantId)
           .in('employee_id', employeeIds)
           .neq('status', 'cancelled');
         const fallbackSlotPromise = slotIds.length > 0
           ? supabase
               .from('bookings')
-              .select('employee_id, slot_id')
+              .select('employee_id, slot_id, tag_id')
               .eq('tenant_id', tenantId)
               .in('slot_id', slotIds)
               .neq('status', 'cancelled')
@@ -1175,6 +1226,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       const dedup = new Map<string, {
         employee_id: string | null;
         slot_id: string;
+        tag_id?: string | null;
         effective_start_time?: string | null;
         effective_end_time?: string | null;
       }>();
@@ -1185,12 +1237,14 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
           dedup.set(key, {
             employee_id: b.employee_id ?? null,
             slot_id: b.slot_id,
+            tag_id: b.tag_id ?? null,
             effective_start_time: b.effective_start_time ?? null,
             effective_end_time: b.effective_end_time ?? null,
           });
         }
       });
       const combinedBookings = Array.from(dedup.values());
+      const tagSlotCountMap = await loadTagSlotCountMap(combinedBookings.map((b) => b.tag_id));
 
       const missingSlotIds = [...new Set(combinedBookings.map((b) => b.slot_id).filter((id) => !slotMeta.has(id)))];
       if (missingSlotIds.length > 0) {
@@ -1212,7 +1266,14 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       combinedBookings.forEach((b) => {
         const slot = slotMeta.get(b.slot_id);
         const startRaw = (b.effective_start_time || slot?.start_time || '').slice(0, 8);
-        const endRaw = (b.effective_end_time || slot?.end_time || '').slice(0, 8);
+        const inferredEnd = inferBookingEndFromTagSlotCount({
+          effectiveEnd: b.effective_end_time ?? null,
+          slotStart: slot?.start_time ?? null,
+          slotEnd: slot?.end_time ?? null,
+          tagId: b.tag_id ?? null,
+          tagSlotCountMap,
+        });
+        const endRaw = String(inferredEnd || '').slice(0, 8);
         if (!startRaw || !endRaw) return;
         const effectiveEmployeeId = b.employee_id || slot.employee_id;
         if (!effectiveEmployeeId || !employeeSet.has(effectiveEmployeeId)) return;
@@ -1445,23 +1506,30 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     if (slotIdsForBookings.length > 0) {
       let { data: bookingsList, error: bookingsListError } = await supabase
         .from('bookings')
-        .select('slot_id, employee_id, effective_start_time, effective_end_time')
+        .select('slot_id, employee_id, tag_id, effective_start_time, effective_end_time')
         .in('slot_id', slotIdsForBookings)
         .neq('status', 'cancelled');
       if (bookingsListError && isMissingColumnError(bookingsListError, 'effective_start_time')) {
         const fallback = await supabase
           .from('bookings')
-          .select('slot_id, employee_id')
+          .select('slot_id, employee_id, tag_id')
           .in('slot_id', slotIdsForBookings)
           .neq('status', 'cancelled');
         bookingsList = fallback.data;
       }
+      const bookingsListTagSlots = await loadTagSlotCountMap((bookingsList || []).map((b: any) => b?.tag_id));
       (bookingsList || []).forEach((b: any) => {
         if (b.slot_id) bookingCountBySlotId[b.slot_id] = (bookingCountBySlotId[b.slot_id] || 0) + 1;
         if (b.employee_id && b.slot_id) {
           const slot = allSlotsForDate.find((s: any) => s.id === b.slot_id);
           const startValue = (b as any).effective_start_time || slot?.start_time;
-          const endValue = (b as any).effective_end_time || slot?.end_time;
+          const endValue = inferBookingEndFromTagSlotCount({
+            effectiveEnd: (b as any).effective_end_time,
+            slotStart: slot?.start_time,
+            slotEnd: slot?.end_time,
+            tagId: (b as any).tag_id ?? null,
+            tagSlotCountMap: bookingsListTagSlots,
+          });
           if (startValue != null && endValue != null) {
             const startParts = String(startValue).slice(0, 8).split(':').map(Number);
             const endParts = String(endValue).slice(0, 8).split(':').map(Number);
@@ -1477,19 +1545,20 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     // Also fetch bookings for these employees on this date that reference slots NOT in allSlotsForDate (e.g. other services we haven't loaded yet)
     let { data: otherBookings, error: otherBookingsError } = await supabase
       .from('bookings')
-      .select('employee_id, slot_id, effective_start_time, effective_end_time')
+      .select('employee_id, slot_id, tag_id, effective_start_time, effective_end_time')
       .eq('tenant_id', tenantId)
       .in('employee_id', employeeIdsFromShifts)
       .neq('status', 'cancelled');
     if (otherBookingsError && isMissingColumnError(otherBookingsError, 'effective_start_time')) {
       const fallback = await supabase
         .from('bookings')
-        .select('employee_id, slot_id')
+        .select('employee_id, slot_id, tag_id')
         .eq('tenant_id', tenantId)
         .in('employee_id', employeeIdsFromShifts)
         .neq('status', 'cancelled');
       otherBookings = fallback.data;
     }
+    const otherBookingsTagSlots = await loadTagSlotCountMap((otherBookings || []).map((b: any) => b?.tag_id));
     const otherSlotIds = [...new Set((otherBookings || []).map((b: any) => b.slot_id).filter(Boolean))].filter((id: string) => !slotIdsForBookings.includes(id));
     if (otherSlotIds.length > 0) {
       const { data: otherSlots } = await supabase
@@ -1502,7 +1571,13 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
         if (!b.employee_id || !b.slot_id) return;
         const slot = otherSlotsMap.get(b.slot_id);
         const startValue = (b as any).effective_start_time || slot?.start_time;
-        const endValue = (b as any).effective_end_time || slot?.end_time;
+        const endValue = inferBookingEndFromTagSlotCount({
+          effectiveEnd: (b as any).effective_end_time,
+          slotStart: slot?.start_time,
+          slotEnd: slot?.end_time,
+          tagId: (b as any).tag_id ?? null,
+          tagSlotCountMap: otherBookingsTagSlots,
+        });
         if (!startValue || !endValue) return;
         const startParts = String(startValue).slice(0, 8).split(':').map(Number);
         const endParts = String(endValue).slice(0, 8).split(':').map(Number);
