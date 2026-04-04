@@ -722,9 +722,9 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
       {/* Table */}
       <Card className="overflow-hidden">
         <CardContent className="p-0">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-gradient-to-r from-slate-50 to-gray-50">
-            <h2 className="font-semibold text-gray-900">{t('visitors.visitorList', 'Visitor List')}</h2>
-            <span className="text-sm font-medium text-gray-500 bg-white/80 px-3 py-1 rounded-full border border-gray-200">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-gradient-to-r from-slate-50 to-gray-50 dark:from-gray-800 dark:to-gray-900 dark:border-gray-700">
+            <h2 className="font-semibold text-gray-900 dark:text-gray-100">{t('visitors.visitorList', 'Visitor List')}</h2>
+            <span className="text-sm font-medium text-gray-500 dark:text-gray-300 bg-white/80 dark:bg-gray-800 px-3 py-1 rounded-full border border-gray-200 dark:border-gray-600">
               {pagination.total} {t('visitors.records', 'records')}
             </span>
           </div>
@@ -742,7 +742,7 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[760px]">
                   <thead>
-                    <tr className="bg-slate-100/80 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider border-b border-slate-200">
+                    <tr className="bg-slate-100/80 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider border-b border-slate-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
                       <th className="px-4 py-3.5 w-12" title={t('visitors.selectForExport', 'Select for export')}>
                         <span className="sr-only">{t('visitors.selectForExport', 'Select for export')}</span>
                       </th>
@@ -758,7 +758,7 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                       <th className="px-4 py-3.5">{t('visitors.status', 'Status')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {visitors.map((row, index) => {
                       const initial = (row.customer_name || row.phone || '?').trim().charAt(0).toUpperCase();
                       const isGuest = row.type === 'guest';
@@ -767,8 +767,10 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                           key={row.id}
                           onClick={() => openDetail(row)}
                           className={`group cursor-pointer transition-colors duration-150 ${
-                            selectedVisitorId === row.id ? 'bg-blue-50 hover:bg-blue-100/80' : 'hover:bg-slate-50/80'
-                          } ${index % 2 === 1 ? 'bg-gray-50/40' : ''}`}
+                            selectedVisitorId === row.id
+                              ? 'bg-blue-50 hover:bg-blue-100/80 dark:bg-blue-900/25 dark:hover:bg-blue-900/40'
+                              : 'hover:bg-slate-50/80 dark:hover:bg-gray-800/70'
+                          } ${index % 2 === 1 ? 'bg-gray-50/40 dark:bg-gray-800/40' : ''}`}
                         >
                           <td className="px-4 py-3 w-12 align-middle" onClick={(e) => e.stopPropagation()}>
                             <label className="flex items-center cursor-pointer">
@@ -796,7 +798,7 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                                 {initial}
                               </div>
                               <div className="min-w-0">
-                                <p className="font-medium text-gray-900 truncate">{row.customer_name || '—'}</p>
+                                <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{row.customer_name || '—'}</p>
                                 {isGuest && (
                                   <span className="inline-flex mt-0.5 text-[10px] font-medium text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
                                     {t('visitors.guest', 'Guest')}
@@ -806,19 +808,19 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                             </div>
                           </td>
                           <td className="px-4 py-3 align-middle">
-                            <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                            <span className="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300">
                               <Phone className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                               <span className="truncate max-w-[120px]">{row.phone}</span>
                             </span>
                           </td>
                           <td className="px-4 py-3 align-middle">
-                            <span className="inline-flex items-center gap-1.5 text-sm text-gray-600 truncate max-w-[160px]" title={row.email || undefined}>
+                            <span className="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400 truncate max-w-[160px]" title={row.email || undefined}>
                               <Mail className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                               {row.email || '—'}
                             </span>
                           </td>
-                          <td className="px-4 py-3 align-middle text-right font-medium text-gray-900 tabular-nums">{row.total_bookings}</td>
-                          <td className="px-4 py-3 align-middle text-right font-medium text-gray-900 tabular-nums">{formatPrice(row.total_spent)}</td>
+                          <td className="px-4 py-3 align-middle text-right font-medium text-gray-900 dark:text-gray-100 tabular-nums">{row.total_bookings}</td>
+                          <td className="px-4 py-3 align-middle text-right font-medium text-gray-900 dark:text-gray-100 tabular-nums">{formatPrice(row.total_spent)}</td>
                           <td className="px-4 py-3 align-middle text-center">
                             <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-sm font-medium tabular-nums">
                               {row.package_bookings_count}
@@ -830,7 +832,7 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                             </span>
                           </td>
                           <td className="px-4 py-3 align-middle">
-                            <span className="inline-flex items-center gap-1.5 text-sm text-gray-600">
+                            <span className="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
                               <Calendar className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                               {row.last_booking_date ? format(parseISO(row.last_booking_date), 'MMM d, yyyy') : '—'}
                             </span>
@@ -851,8 +853,8 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                 </table>
               </div>
               {pagination.totalPages > 1 && (
-                <div className="flex items-center justify-between px-5 py-4 border-t border-gray-200 bg-gray-50/50">
-                  <span className="text-sm text-gray-600">
+                <div className="flex items-center justify-between px-5 py-4 border-t border-gray-200 bg-gray-50/50 dark:bg-gray-800/60 dark:border-gray-700">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">
                     {t('common.page', 'Page')} {pagination.page} {t('common.of', 'of')} {pagination.totalPages}
                   </span>
                   <div className="flex gap-2">
@@ -894,8 +896,8 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
         ) : detailVisitor ? (
           <div className="animate-[modalAppear_0.3s_ease-out] space-y-6">
             {/* Visitor Info card */}
-            <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-slate-50 to-gray-50/50 p-5 shadow-sm">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-4">
+            <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-slate-50 to-gray-50/50 p-5 shadow-sm dark:border-gray-700 dark:from-gray-800 dark:to-gray-900">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100 mb-4">
                 <UserCircle className="h-4 w-4 text-slate-500" />
                 {t('visitors.visitorInfo', 'Visitor Info')}
               </h3>
@@ -907,7 +909,7 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                   </>
                 )}
                 <dt className="text-gray-500 font-medium">{t('visitors.name', 'Name')}</dt>
-                <dd className="font-semibold text-gray-900">{detailVisitor.visitor.customer_name || '—'}</dd>
+                    <dd className="font-semibold text-gray-900 dark:text-gray-100">{detailVisitor.visitor.customer_name || '—'}</dd>
                 <dt className="text-gray-500 font-medium flex items-center gap-1.5">{t('visitors.phone', 'Phone')}</dt>
                 <dd className="flex items-center gap-1.5 text-gray-700"><Phone className="h-3.5 w-3.5 text-slate-400" />{detailVisitor.visitor.phone}</dd>
                 <dt className="text-gray-500 font-medium flex items-center gap-1.5">{t('visitors.email', 'Email')}</dt>
@@ -922,7 +924,7 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                 <dd className="tabular-nums">{detailVisitor.visitor.paid_bookings_count}</dd>
               </dl>
               {detailVisitor.visitor.active_packages?.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                   <p className="flex items-center gap-2 text-xs font-semibold text-amber-800 mb-2">
                     <PackageIcon className="h-3.5 w-3.5" />
                     {t('visitors.activePackages', 'Active packages')}
@@ -938,7 +940,7 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                 </div>
               )}
               {canBlockUnblock && detailVisitor.visitor.type === 'customer' && (
-                <div className="mt-4 pt-4 border-t border-gray-200 flex gap-2">
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex gap-2">
                   {detailVisitor.visitor.status === 'blocked' ? (
                     <Button
                       variant="primary"
@@ -966,14 +968,14 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
               )}
             </div>
             {/* Booking History */}
-            <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 px-5 py-4 bg-slate-50 border-b border-gray-200">
+            <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden dark:border-gray-700 dark:bg-gray-900">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100 px-5 py-4 bg-slate-50 border-b border-gray-200 dark:bg-gray-800 dark:border-gray-700">
                 <Calendar className="h-4 w-4 text-slate-500" />
                 {t('visitors.bookingHistory', 'Booking History')}
               </h3>
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-100/80 sticky top-0 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <thead className="bg-slate-100/80 sticky top-0 text-xs font-semibold text-slate-600 uppercase tracking-wider dark:bg-gray-800 dark:text-gray-300">
                     <tr>
                       <th className="px-3 py-2.5 text-left">{t('visitors.bookingId', 'Booking ID')}</th>
                       <th className="px-3 py-2.5 text-left">{t('visitors.serviceName', 'Service')}</th>
@@ -988,14 +990,14 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                       <th className="px-3 py-2.5 text-left">{t('visitors.transactionReference', 'Transaction Reference')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {detailVisitor.bookings.map((b) => (
-                      <tr key={b.id} className="hover:bg-slate-50/50 transition-colors">
+                      <tr key={b.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-800/70 transition-colors">
                         <td className="px-3 py-2 font-mono text-xs text-slate-600">{b.id.slice(0, 8)}…</td>
-                        <td className="px-3 py-2 font-medium text-gray-900">{b.service_name}</td>
-                        <td className="px-3 py-2 text-gray-700">{b.date || '—'}</td>
-                        <td className="px-3 py-2 text-gray-700 tabular-nums">{b.time ? formatTimeTo12Hour(b.time) : '—'}</td>
-                        <td className="px-3 py-2 text-gray-700 tabular-nums">{b.visitors_count}</td>
+                        <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">{b.service_name}</td>
+                        <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{b.date || '—'}</td>
+                        <td className="px-3 py-2 text-gray-700 dark:text-gray-300 tabular-nums">{b.time ? formatTimeTo12Hour(b.time) : '—'}</td>
+                        <td className="px-3 py-2 text-gray-700 dark:text-gray-300 tabular-nums">{b.visitors_count}</td>
                         <td className="px-3 py-2">
                           <span
                             className={`inline-flex px-2 py-0.5 rounded-md text-xs font-medium ${
@@ -1011,7 +1013,7 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                               : b.booking_type}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-right font-medium text-gray-900 tabular-nums">{formatPrice(b.amount_paid)}</td>
+                        <td className="px-3 py-2 text-right font-medium text-gray-900 dark:text-gray-100 tabular-nums">{formatPrice(b.amount_paid)}</td>
                         <td className="px-3 py-2">{safeTranslateStatus(t, b.status)}</td>
                         <td className="px-3 py-2 text-gray-600">{b.created_by === 'staff' ? t('visitors.staff', 'Admin/Receptionist') : t('visitors.customer', 'Customer')}</td>
                         <td className="px-3 py-2 text-gray-600">{b.payment_method || '—'}</td>

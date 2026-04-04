@@ -980,10 +980,7 @@ export function TenantDashboardContent() {
         </div>
       </div>
 
-      <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-xs text-gray-500">
-        <div>
-          {t('dashboard.lastUpdated', 'Last updated')}: {lastUpdatedAt ? format(lastUpdatedAt, 'MMM d, yyyy h:mm a') : '—'} | {t('dashboard.metricBasis', 'KPIs use booking created date; transaction timing is in Reports > Transactions.')}
-        </div>
+      <div className="mb-4 flex justify-end">
         <div className="flex items-center gap-2">
           {canCustomizeDashboard && (
             <select

@@ -101,7 +101,7 @@ done add gride view for bookings in the receptionist page
 
 done add date filter in search in bookings and dashboard and its default value  today (the filter is already in dashboard but make it takes affect in bookings in the dashboard) down
 
-make all dashboard as a widgets  drag and drop components and can choose what widget to choose to display and what not
+done make all dashboard as a widgets  drag and drop components and can choose what widget to choose to display and what not
 
 done make the services 1 hours
 
@@ -109,6 +109,6 @@ done give the ability to book two or more services at same booking
 
 done set option when create a booking we need to add option to consume from package or not
 
-done integrate with daftara
+done integrate with daftra
 
-create booking wirte number the suggistions dont work as excpected
+done i need when i create booking when i write the customer number it gives me options in numbers dropdown menu so i dont need to write the custoemr full number and when i choose one of the drop down menu or i wirte the full number the other fildes are autofilled and esure that the data in drop down menu is accurate and ensure that the dropdown menu dont over lap the fileds under it

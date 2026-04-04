@@ -70,15 +70,15 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
         />
 
         <div 
-          className={`relative bg-white rounded-xl shadow-2xl w-full ${sizeClasses[size]} max-h-[90vh] overflow-y-auto flex flex-col`}
+          className={`relative bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100 rounded-xl shadow-2xl w-full ${sizeClasses[size]} max-h-[90vh] overflow-y-auto flex flex-col`}
           style={{ zIndex: 10000 }}
         >
           {title && (
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50/80 sticky top-0 z-10">
-              <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50/80 sticky top-0 z-10 dark:border-gray-700 dark:bg-gray-800/80">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
               <button
                 onClick={onClose}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                className="text-gray-400 hover:text-gray-600 transition-colors dark:hover:text-gray-200"
               >
                 <X className="w-6 h-6" />
               </button>

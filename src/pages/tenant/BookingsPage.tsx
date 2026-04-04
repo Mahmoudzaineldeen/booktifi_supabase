@@ -8,7 +8,7 @@ import { db } from '../../lib/db';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
-import { Calendar, Clock, User, List, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X, Plus, Package, CalendarDays, Mail, Phone } from 'lucide-react';
+import { Calendar, Clock, User, List, Grid, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X, Plus, Package, CalendarDays, Mail, Phone } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, parseISO, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfWeek as getStartOfWeek, endOfWeek } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl } from '../../lib/apiUrl';
@@ -152,7 +152,7 @@ export function BookingsPage() {
   const [createSelectedEmployeeId, setCreateSelectedEmployeeId] = useState<string>('');
   const [createNextEmployeeIdForRotation, setCreateNextEmployeeIdForRotation] = useState<string | null>(null);
   const [confirmationBookingId, setConfirmationBookingId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'grid' | 'calendar'>('list');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
@@ -1880,6 +1880,230 @@ export function BookingsPage() {
     );
   }
 
+  const renderBookingCard = (booking: Booking, compact = false) => {
+    const statusBorder =
+      booking.status === 'confirmed' ? 'border-l-green-500' :
+      booking.status === 'pending' ? 'border-l-amber-500' :
+      booking.status === 'cancelled' ? 'border-l-red-400' :
+      booking.status === 'completed' ? 'border-l-blue-500' :
+      'border-l-gray-300';
+    const statusBg =
+      booking.status === 'confirmed' ? 'bg-green-50' :
+      booking.status === 'pending' ? 'bg-amber-50' :
+      booking.status === 'cancelled' ? 'bg-red-50' :
+      booking.status === 'completed' ? 'bg-slate-50' :
+      'bg-gray-50';
+    const initial = (booking.customer_name || '?').trim().charAt(0).toUpperCase();
+
+    return (
+      <div
+        key={booking.id}
+        className={`rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden transition-shadow hover:shadow-md border-l-4 ${statusBorder}`}
+      >
+        <div className={compact ? 'p-4' : 'p-5'}>
+          <div className="flex flex-wrap items-start gap-4">
+            <div className="flex items-center gap-4 min-w-0 flex-1">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700 font-semibold text-lg">
+                {initial}
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-900 truncate">{booking.customer_name}</p>
+                <p className="text-sm text-gray-500 flex items-center gap-1.5 mt-0.5">
+                  <Phone className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{booking.customer_phone}</span>
+                </p>
+                {booking.customer_email && (
+                  <p className="text-xs text-gray-400 flex items-center gap-1.5 mt-0.5 truncate">
+                    <Mail className="h-3 w-3 shrink-0" />
+                    {booking.customer_email}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium">
+                <Clock className="h-3.5 w-3.5" />
+                {formatTimeTo12Hour(booking.slots?.start_time ?? '')} – {formatTimeTo12Hour(booking.slots?.end_time ?? '')}
+              </span>
+              <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${statusBg} ${
+                booking.status === 'confirmed' ? 'text-green-800' :
+                booking.status === 'pending' ? 'text-amber-800' :
+                booking.status === 'cancelled' ? 'text-red-800' :
+                booking.status === 'completed' ? 'text-slate-700' :
+                'text-gray-700'
+              }`}>
+                {safeTranslateStatus(t, booking.status, 'booking')}
+              </span>
+              <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                getPaymentDisplayValue(booking) === 'unpaid' ? 'bg-amber-100 text-amber-800' :
+                getPaymentDisplayValue(booking) === 'bank_transfer' ? 'bg-blue-100 text-blue-800' :
+                'bg-emerald-100 text-emerald-800'
+              }`}>
+                {getPaymentDisplayLabel(booking, t)}
+              </span>
+            </div>
+          </div>
+
+          <div className={`mt-4 grid grid-cols-2 ${compact ? 'gap-2' : 'sm:grid-cols-4 gap-3'}`}>
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{t('reception.serviceLabel')}</p>
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {isAr ? booking.services?.name_ar : booking.services?.name}
+              </p>
+            </div>
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{t('reception.dateAndTimeLabel')}</p>
+              <p className="text-sm font-medium text-gray-900">
+                {booking.slots?.slot_date
+                  ? format(parseISO(booking.slots.slot_date), 'MMM d', { locale: isAr ? ar : undefined })
+                  : '—'}
+              </p>
+            </div>
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{t('reception.employeeLabel')}</p>
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {booking.users
+                  ? (isAr ? (booking.users.full_name_ar || booking.users.full_name) : booking.users.full_name)
+                  : '—'}
+              </p>
+            </div>
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{t('booking.visitorCount')}</p>
+              <p className="text-sm font-medium text-gray-900">
+                {booking.visitor_count} × {formatPrice(booking.total_price)}
+              </p>
+              {booking.package_covered_quantity !== undefined && booking.package_covered_quantity > 0 && (
+                <span className="inline-flex items-center gap-0.5 mt-1 text-xs font-medium text-emerald-700">
+                  <Package className="h-3 w-3" />
+                  {booking.package_covered_quantity === booking.visitor_count
+                    ? t('bookings.coveredByPackage', 'Covered by Package')
+                    : t('reception.packagePaidFormat', { package: booking.package_covered_quantity, paid: booking.paid_quantity || 0 })}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {booking.notes && (
+            <div className="mt-3 rounded-lg bg-amber-50/80 border border-amber-100 px-3 py-2">
+              <p className="text-xs text-amber-800 font-medium">{t('reception.notesLabelWithColon', 'Notes:')}</p>
+              <p className="text-sm text-amber-900 line-clamp-2">{booking.notes}</p>
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-gray-100">
+            {booking.zoho_invoice_id || booking.daftra_invoice_id ? (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                {booking.zoho_invoice_id && (
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-blue-600" />
+                    <span className="text-gray-600 font-mono text-xs" title="Zoho">
+                      {booking.zoho_invoice_id}
+                    </span>
+                    <Button
+                      onClick={() => downloadInvoice(booking.id, booking.zoho_invoice_id!, 'zoho')}
+                      disabled={downloadingInvoice === booking.id}
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs"
+                    >
+                      <Download className="h-3.5 w-3.5 mr-1" />
+                      {downloadingInvoice === booking.id ? t('billing.downloading') : t('reception.downloadPdf')}
+                    </Button>
+                  </div>
+                )}
+                {booking.daftra_invoice_id && (
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-violet-600" />
+                    <span className="text-gray-600 font-mono text-xs" title="Daftra">
+                      {booking.daftra_invoice_id}
+                    </span>
+                    <Button
+                      onClick={() => downloadInvoice(booking.id, booking.daftra_invoice_id!, 'daftra')}
+                      disabled={downloadingInvoice === booking.id}
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs"
+                    >
+                      <Download className="h-3.5 w-3.5 mr-1" />
+                      {downloadingInvoice === booking.id ? t('billing.downloading') : t('reception.downloadDaftraPdf', 'Download PDF (Daftra)')}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                <FileText className="h-3.5 w-3.5" />
+                {t('reception.noInvoiceForBooking', 'No invoice for this booking')}
+              </p>
+            )}
+
+            {zohoSyncStatus[booking.id] && (
+              <div className="flex items-center gap-1 text-xs">
+                {zohoSyncStatus[booking.id].pending ? (
+                  <span className="text-amber-600 flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" />
+                    {t('bookings.zohoRegenerating', 'Invoice regenerating…')}
+                  </span>
+                ) : zohoSyncStatus[booking.id].success ? (
+                  <span className="text-green-600 flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" />
+                    {t('bookings.zohoSynced')}
+                  </span>
+                ) : (
+                  <span className="text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    {t('bookings.zohoFailed')}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              {booking.status !== 'cancelled' && booking.status !== 'completed' && (
+                <>
+                  {booking.status === 'pending' && canEditBooking && (
+                    <Button size="sm" onClick={() => updateBookingStatus(booking.id, 'confirmed')} className="rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
+                      <CheckCircle className="w-3.5 h-3.5 mr-1" />
+                      {t('common.confirm')}
+                    </Button>
+                  )}
+                  {canCancelBooking && (
+                    <Button size="sm" onClick={() => updateBookingStatus(booking.id, 'cancelled')} className="rounded-lg bg-red-600 hover:bg-red-700 text-white">
+                      <XCircle className="w-3.5 h-3.5 mr-1" />
+                      {t('common.cancel')}
+                    </Button>
+                  )}
+                </>
+              )}
+              {(canEditBooking || canCancelBooking || canUpdatePaymentStatus) && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setDetailsBooking(booking)}
+                  className="rounded-lg"
+                >
+                  {t('bookings.bookingDetails', 'Details')}
+                </Button>
+              )}
+              {canEditBooking && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => deleteBooking(booking.id)}
+                  disabled={deletingBooking === booking.id}
+                  className="rounded-lg text-red-600 hover:text-red-700 hover:bg-red-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                  {deletingBooking === booking.id ? t('common.deleting') : t('common.delete')}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="p-4 md:p-8">
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -1931,8 +2155,20 @@ export function BookingsPage() {
           </button>
           <button
             onClick={() => {
+              setViewMode('grid');
+            }}
+            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+              viewMode === 'grid'
+                ? 'bg-white text-blue-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <Grid className="w-4 h-4 inline-block mr-2" />
+            {isAr ? 'عرض الشبكة' : (t('bookings.gridView') || 'Grid')}
+          </button>
+          <button
+            onClick={() => {
               if (showSearchResults) {
-                // Clear search when switching to calendar
                 setSearchQuery('');
                 setSearchDate('');
                 setSearchType('');
@@ -1957,8 +2193,8 @@ export function BookingsPage() {
         </div>
       </div>
 
-      {/* Search Bar with Type Selector - Only show in list view */}
-      {viewMode === 'list' && (
+      {/* Search Bar with Type Selector - show in list/grid views */}
+      {viewMode !== 'calendar' && (
       <div className="mb-6 space-y-3 max-w-5xl">
         <TimeFilter
           selectedRange={timeRange}
@@ -2120,7 +2356,7 @@ export function BookingsPage() {
       </div>
       )}
 
-      {viewMode === 'list' ? (
+      {viewMode !== 'calendar' ? (
         listDisplayBookings.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
@@ -2137,232 +2373,8 @@ export function BookingsPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-5">
-            {paginatedListBookings.map((booking) => {
-              const statusBorder =
-                booking.status === 'confirmed' ? 'border-l-green-500' :
-                booking.status === 'pending' ? 'border-l-amber-500' :
-                booking.status === 'cancelled' ? 'border-l-red-400' :
-                booking.status === 'completed' ? 'border-l-blue-500' :
-                'border-l-gray-300';
-              const statusBg =
-                booking.status === 'confirmed' ? 'bg-green-50' :
-                booking.status === 'pending' ? 'bg-amber-50' :
-                booking.status === 'cancelled' ? 'bg-red-50' :
-                booking.status === 'completed' ? 'bg-slate-50' :
-                'bg-gray-50';
-              const initial = (booking.customer_name || '?').trim().charAt(0).toUpperCase();
-              return (
-                <div
-                  key={booking.id}
-                  className={`rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden transition-shadow hover:shadow-md border-l-4 ${statusBorder}`}
-                >
-                  <div className="p-5">
-                    {/* Top row: avatar, customer, time, badges */}
-                    <div className="flex flex-wrap items-start gap-4">
-                      <div className="flex items-center gap-4 min-w-0 flex-1">
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700 font-semibold text-lg">
-                          {initial}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-gray-900 truncate">{booking.customer_name}</p>
-                          <p className="text-sm text-gray-500 flex items-center gap-1.5 mt-0.5">
-                            <Phone className="h-3.5 w-3.5 shrink-0" />
-                            <span className="truncate">{booking.customer_phone}</span>
-                          </p>
-                          {booking.customer_email && (
-                            <p className="text-xs text-gray-400 flex items-center gap-1.5 mt-0.5 truncate">
-                              <Mail className="h-3 w-3 shrink-0" />
-                              {booking.customer_email}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium">
-                          <Clock className="h-3.5 w-3.5" />
-                          {formatTimeTo12Hour(booking.slots?.start_time ?? '')} – {formatTimeTo12Hour(booking.slots?.end_time ?? '')}
-                        </span>
-                        <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${statusBg} ${
-                          booking.status === 'confirmed' ? 'text-green-800' :
-                          booking.status === 'pending' ? 'text-amber-800' :
-                          booking.status === 'cancelled' ? 'text-red-800' :
-                          booking.status === 'completed' ? 'text-slate-700' :
-                          'text-gray-700'
-                        }`}>
-                          {safeTranslateStatus(t, booking.status, 'booking')}
-                        </span>
-                        <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
-                          getPaymentDisplayValue(booking) === 'unpaid' ? 'bg-amber-100 text-amber-800' :
-                          getPaymentDisplayValue(booking) === 'bank_transfer' ? 'bg-blue-100 text-blue-800' :
-                          'bg-emerald-100 text-emerald-800'
-                        }`}>
-                          {getPaymentDisplayLabel(booking, t)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Service, date, employee, price */}
-                    <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="rounded-lg bg-gray-50 px-3 py-2">
-                        <p className="text-xs text-gray-500 uppercase tracking-wide">{t('reception.serviceLabel')}</p>
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {isAr ? booking.services?.name_ar : booking.services?.name}
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-gray-50 px-3 py-2">
-                        <p className="text-xs text-gray-500 uppercase tracking-wide">{t('reception.dateAndTimeLabel')}</p>
-                        <p className="text-sm font-medium text-gray-900">
-                          {booking.slots?.slot_date
-                            ? format(parseISO(booking.slots.slot_date), 'MMM d', { locale: isAr ? ar : undefined })
-                            : '—'}
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-gray-50 px-3 py-2">
-                        <p className="text-xs text-gray-500 uppercase tracking-wide">{t('reception.employeeLabel')}</p>
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {booking.users
-                            ? (isAr ? (booking.users.full_name_ar || booking.users.full_name) : booking.users.full_name)
-                            : '—'}
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-gray-50 px-3 py-2">
-                        <p className="text-xs text-gray-500 uppercase tracking-wide">{t('booking.visitorCount')}</p>
-                        <p className="text-sm font-medium text-gray-900">
-                          {booking.visitor_count} × {formatPrice(booking.total_price)}
-                        </p>
-                        {booking.package_covered_quantity !== undefined && booking.package_covered_quantity > 0 && (
-                          <span className="inline-flex items-center gap-0.5 mt-1 text-xs font-medium text-emerald-700">
-                            <Package className="h-3 w-3" />
-                            {booking.package_covered_quantity === booking.visitor_count
-                              ? t('bookings.coveredByPackage', 'Covered by Package')
-                              : t('reception.packagePaidFormat', { package: booking.package_covered_quantity, paid: booking.paid_quantity || 0 })}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {booking.notes && (
-                      <div className="mt-3 rounded-lg bg-amber-50/80 border border-amber-100 px-3 py-2">
-                        <p className="text-xs text-amber-800 font-medium">{t('reception.notesLabelWithColon', 'Notes:')}</p>
-                        <p className="text-sm text-amber-900 line-clamp-2">{booking.notes}</p>
-                      </div>
-                    )}
-
-                    {/* Invoice row + actions */}
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-gray-100">
-                      {booking.zoho_invoice_id || booking.daftra_invoice_id ? (
-                        <div className="flex flex-wrap items-center gap-2 text-sm">
-                          {booking.zoho_invoice_id && (
-                            <div className="flex items-center gap-2">
-                              <FileText className="h-4 w-4 text-blue-600" />
-                              <span className="text-gray-600 font-mono text-xs" title="Zoho">
-                                {booking.zoho_invoice_id}
-                              </span>
-                              <Button
-                                onClick={() => downloadInvoice(booking.id, booking.zoho_invoice_id!, 'zoho')}
-                                disabled={downloadingInvoice === booking.id}
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 text-xs"
-                              >
-                                <Download className="h-3.5 w-3.5 mr-1" />
-                                {downloadingInvoice === booking.id ? t('billing.downloading') : t('reception.downloadPdf')}
-                              </Button>
-                            </div>
-                          )}
-                          {booking.daftra_invoice_id && (
-                            <div className="flex items-center gap-2">
-                              <FileText className="h-4 w-4 text-violet-600" />
-                              <span className="text-gray-600 font-mono text-xs" title="Daftra">
-                                {booking.daftra_invoice_id}
-                              </span>
-                              <Button
-                                onClick={() => downloadInvoice(booking.id, booking.daftra_invoice_id!, 'daftra')}
-                                disabled={downloadingInvoice === booking.id}
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 text-xs"
-                              >
-                                <Download className="h-3.5 w-3.5 mr-1" />
-                                {downloadingInvoice === booking.id ? t('billing.downloading') : t('reception.downloadDaftraPdf', 'Download PDF (Daftra)')}
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-gray-400 flex items-center gap-1.5">
-                          <FileText className="h-3.5 w-3.5" />
-                          {t('reception.noInvoiceForBooking', 'No invoice for this booking')}
-                        </p>
-                      )}
-
-                      {zohoSyncStatus[booking.id] && (
-                        <div className="flex items-center gap-1 text-xs">
-                          {zohoSyncStatus[booking.id].pending ? (
-                            <span className="text-amber-600 flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" />
-                              {t('bookings.zohoRegenerating', 'Invoice regenerating…')}
-                            </span>
-                          ) : zohoSyncStatus[booking.id].success ? (
-                            <span className="text-green-600 flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" />
-                              {t('bookings.zohoSynced')}
-                            </span>
-                          ) : (
-                            <span className="text-red-600 flex items-center gap-1">
-                              <AlertCircle className="w-3 h-3" />
-                              {t('bookings.zohoFailed')}
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        {booking.status !== 'cancelled' && booking.status !== 'completed' && (
-                          <>
-                            {booking.status === 'pending' && canEditBooking && (
-                              <Button size="sm" onClick={() => updateBookingStatus(booking.id, 'confirmed')} className="rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
-                                <CheckCircle className="w-3.5 h-3.5 mr-1" />
-                                {t('common.confirm')}
-                              </Button>
-                            )}
-                            {canCancelBooking && (
-                              <Button size="sm" onClick={() => updateBookingStatus(booking.id, 'cancelled')} className="rounded-lg bg-red-600 hover:bg-red-700 text-white">
-                                <XCircle className="w-3.5 h-3.5 mr-1" />
-                                {t('common.cancel')}
-                              </Button>
-                            )}
-                          </>
-                        )}
-                        {(canEditBooking || canCancelBooking || canUpdatePaymentStatus) && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => setDetailsBooking(booking)}
-                            className="rounded-lg"
-                          >
-                            {t('bookings.bookingDetails', 'Details')}
-                          </Button>
-                        )}
-                        {canEditBooking && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => deleteBooking(booking.id)}
-                            disabled={deletingBooking === booking.id}
-                            className="rounded-lg text-red-600 hover:text-red-700 hover:bg-red-50"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 mr-1" />
-                            {deletingBooking === booking.id ? t('common.deleting') : t('common.delete')}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          <div className={viewMode === 'grid' ? 'grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6 items-start' : 'space-y-5'}>
+            {paginatedListBookings.map((booking) => renderBookingCard(booking, viewMode === 'grid'))}
 
             {listDisplayBookings.length > pageSize && (
               <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-3">
