@@ -1296,6 +1296,7 @@ export function ReceptionPage() {
           status,
           payment_status,
           payment_method,
+          tag_id,
           notes,
           created_at,
           booking_group_id,

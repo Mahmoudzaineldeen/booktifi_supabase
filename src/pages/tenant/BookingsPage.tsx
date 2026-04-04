@@ -868,6 +868,7 @@ export function BookingsPage() {
           status,
           payment_status,
           payment_method,
+          tag_id,
           created_at,
           zoho_invoice_id,
           zoho_invoice_created_at,

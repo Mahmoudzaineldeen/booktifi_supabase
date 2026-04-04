@@ -106,7 +106,7 @@ describe('resolveBookingTagForCreate', () => {
       serviceId: SVC,
       requireExplicitTag: false,
     });
-    expect(r).toEqual({ ok: true, tagId: DEFAULT_TAG, appliedFee: 0 });
+    expect(r).toEqual({ ok: true, tagId: DEFAULT_TAG, appliedFee: 0, slotCount: 1 });
   });
 
   it('no assignments: rejects non-default tag_id', async () => {
@@ -154,16 +154,16 @@ describe('resolveBookingTagForCreate', () => {
       tagIdFromClient: DEFAULT_TAG,
       requireExplicitTag: true,
     });
-    expect(r).toEqual({ ok: true, tagId: DEFAULT_TAG, appliedFee: 0 });
+    expect(r).toEqual({ ok: true, tagId: DEFAULT_TAG, appliedFee: 0, slotCount: 1 });
   });
 
-  it('with assignments: non-default with fee row → appliedFee from DB', async () => {
+  it('with assignments: non-default with fee row → appliedFee and slotCount from DB', async () => {
     const supabase = createSequentialMock([
       { data: { id: SVC, tenant_id: TENANT }, error: null },
       { data: { id: DEFAULT_TAG }, error: null },
       { data: [{ tag_id: DEFAULT_TAG }, { tag_id: PEAK_TAG }], error: null },
       { data: { id: PEAK_TAG, tenant_id: TENANT, is_default: false }, error: null },
-      { data: { fee_value: 42.5 }, error: null },
+      { data: { fee_value: 42.5, slot_count: 2 }, error: null },
     ]);
     const r = await resolveBookingTagForCreate(supabase, {
       tenantId: TENANT,
@@ -171,7 +171,7 @@ describe('resolveBookingTagForCreate', () => {
       tagIdFromClient: PEAK_TAG,
       requireExplicitTag: true,
     });
-    expect(r).toEqual({ ok: true, tagId: PEAK_TAG, appliedFee: 42.5 });
+    expect(r).toEqual({ ok: true, tagId: PEAK_TAG, appliedFee: 42.5, slotCount: 2 });
   });
 
   it('non-default tag with no fee row → appliedFee 0', async () => {
@@ -188,7 +188,7 @@ describe('resolveBookingTagForCreate', () => {
       tagIdFromClient: PEAK_TAG,
       requireExplicitTag: true,
     });
-    expect(r).toEqual({ ok: true, tagId: PEAK_TAG, appliedFee: 0 });
+    expect(r).toEqual({ ok: true, tagId: PEAK_TAG, appliedFee: 0, slotCount: 1 });
   });
 
   it('rejects tag that does not belong to tenant (meta lookup)', async () => {

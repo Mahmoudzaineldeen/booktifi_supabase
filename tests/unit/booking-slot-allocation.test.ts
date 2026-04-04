@@ -247,3 +247,68 @@ describe('consecutive start validation', () => {
     expect(filtered.map((s) => s.id)).toEqual(['a']);
   });
 });
+
+describe('end-of-shift multi-slot safeguards', () => {
+  function daySlot(id: string, start: string, end: string, employeeId: string, date = '2026-04-11', capacity = 1): AllocationSlot {
+    return {
+      id,
+      slot_date: date,
+      start_time: start,
+      end_time: end,
+      employee_id: employeeId,
+      available_capacity: capacity,
+    };
+  }
+
+  it('rejects 10:00 PM start for 2-slot tag when shift ends 11:00 PM', () => {
+    // Service window: 1:00 PM -> 11:00 PM (hourly slots).
+    const slots: AllocationSlot[] = [
+      daySlot('13', '13:00', '14:00', 'em2'),
+      daySlot('14', '14:00', '15:00', 'em2'),
+      daySlot('15', '15:00', '16:00', 'em2'),
+      daySlot('16', '16:00', '17:00', 'em2'),
+      daySlot('17', '17:00', '18:00', 'em2'),
+      daySlot('18', '18:00', '19:00', 'em2'),
+      daySlot('19', '19:00', '20:00', 'em2'),
+      daySlot('20', '20:00', '21:00', 'em2'),
+      daySlot('21', '21:00', '22:00', 'em2'),
+      daySlot('22', '22:00', '23:00', 'em2'),
+    ];
+    const tenPm = slots.find((s) => s.start_time === '22:00')!;
+    expect(hasRequiredConsecutiveSlotsFromStart(slots, tenPm, 2)).toBe(false);
+  });
+
+  it('keeps 9:00 PM as valid start for 2-slot tag in same shift', () => {
+    const slots: AllocationSlot[] = [
+      daySlot('21', '21:00', '22:00', 'em2'),
+      daySlot('22', '22:00', '23:00', 'em2'),
+    ];
+    const ninePm = slots.find((s) => s.start_time === '21:00')!;
+    expect(hasRequiredConsecutiveSlotsFromStart(slots, ninePm, 2)).toBe(true);
+  });
+
+  it('filters start-time list so 10:00 PM is hidden for 2-slot tag', () => {
+    const slots: AllocationSlot[] = [
+      daySlot('20', '20:00', '21:00', 'em2'),
+      daySlot('21', '21:00', '22:00', 'em2'),
+      daySlot('22', '22:00', '23:00', 'em2'),
+    ];
+    const filtered = filterSlotsByRequiredConsecutive(slots, 2);
+    expect(filtered.map((s) => s.start_time)).toEqual(['20:00', '21:00']);
+    expect(filtered.some((s) => s.start_time === '22:00')).toBe(false);
+  });
+
+  it('parallel allocator never returns invalid 10:00 PM start with requiredConsecutive=2', () => {
+    const slots: AllocationSlot[] = [
+      daySlot('20', '20:00', '21:00', 'em2'),
+      daySlot('21', '21:00', '22:00', 'em2'),
+      daySlot('22', '22:00', '23:00', 'em2'),
+    ];
+    const selected: SelectedTime = { start_time: '22:00', end_time: '23:00', slot_date: '2026-04-11' };
+    const result = getParallelSlotsForQuantity(slots, selected, 1, 2);
+    // When selected start is invalid, allocator falls back to the first valid start.
+    expect(result).toHaveLength(1);
+    expect(result[0].start_time).toBe('20:00');
+    expect(result.some((s) => s.start_time === '22:00')).toBe(false);
+  });
+});
