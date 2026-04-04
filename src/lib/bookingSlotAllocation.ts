@@ -13,6 +13,61 @@ export interface AllocationSlot {
 }
 
 export type SelectedTime = { start_time: string; end_time: string; slot_date?: string };
+export type TagTimeType = 'fixed' | 'multiplier';
+
+export function getRequiredSlotsForDuration(
+  baseDurationMinutes: number,
+  timeType: TagTimeType,
+  timeValue: number
+): { finalDurationMinutes: number; requiredSlots: number } {
+  const base = Math.max(1, Math.round(Number(baseDurationMinutes) || 1));
+  const safeType: TagTimeType = timeType === 'multiplier' ? 'multiplier' : 'fixed';
+  const safeValue = Number.isFinite(timeValue) ? timeValue : (safeType === 'multiplier' ? 1 : 0);
+  const finalDurationMinutes = safeType === 'multiplier'
+    ? Math.max(base, Math.ceil(base * Math.max(1, safeValue)))
+    : Math.max(base, base + Math.ceil(Math.max(0, safeValue)));
+  return {
+    finalDurationMinutes,
+    requiredSlots: Math.max(1, Math.ceil(finalDurationMinutes / base)),
+  };
+}
+
+function slotKey(slot: AllocationSlot): string {
+  return `${slot.slot_date || ''}|${slot.employee_id || ''}|${slot.start_time}|${slot.end_time}`;
+}
+
+export function hasRequiredConsecutiveSlotsFromStart(
+  allSlots: AllocationSlot[],
+  startSlot: AllocationSlot,
+  requiredSlots: number
+): boolean {
+  if (requiredSlots <= 1) return true;
+  const employeeKey = startSlot.employee_id || '';
+  const dateKey = startSlot.slot_date || '';
+  const byStart = new Map<string, AllocationSlot>();
+  for (const slot of allSlots) {
+    if ((slot.available_capacity ?? 0) <= 0) continue;
+    if ((slot.employee_id || '') !== employeeKey) continue;
+    if ((slot.slot_date || '') !== dateKey) continue;
+    byStart.set(slot.start_time, slot);
+  }
+  let cursor = startSlot.start_time;
+  for (let i = 0; i < requiredSlots; i++) {
+    const slot = byStart.get(cursor);
+    if (!slot) return false;
+    cursor = slot.end_time;
+  }
+  return true;
+}
+
+export function filterSlotsByRequiredConsecutive(
+  allSlots: AllocationSlot[],
+  requiredSlots: number
+): AllocationSlot[] {
+  if (requiredSlots <= 1) return allSlots.filter((s) => (s.available_capacity ?? 0) > 0);
+  const available = allSlots.filter((s) => (s.available_capacity ?? 0) > 0);
+  return available.filter((slot) => hasRequiredConsecutiveSlotsFromStart(available, slot, requiredSlots));
+}
 
 /**
  * Flatten all slots by (start_time, end_time, employee_id); take first N from selected time onward.
@@ -21,9 +76,10 @@ export type SelectedTime = { start_time: string; end_time: string; slot_date?: s
 export function getParallelSlotsForQuantity(
   allSlots: AllocationSlot[],
   selectedTime: SelectedTime | null,
-  quantity: number
+  quantity: number,
+  requiredConsecutiveSlots = 1
 ): AllocationSlot[] {
-  const available = allSlots
+  const available = filterSlotsByRequiredConsecutive(allSlots, requiredConsecutiveSlots)
     .filter(s => (s.available_capacity ?? 0) > 0)
     .sort((a, b) => {
       const byTime = a.start_time.localeCompare(b.start_time) || a.end_time.localeCompare(b.end_time);
@@ -37,7 +93,15 @@ export function getParallelSlotsForQuantity(
     );
     if (idx >= 0) startIndex = idx;
   }
-  return available.slice(startIndex, startIndex + quantity);
+  const picked: AllocationSlot[] = [];
+  const seen = new Set<string>();
+  for (let i = startIndex; i < available.length && picked.length < quantity; i++) {
+    const key = slotKey(available[i]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    picked.push(available[i]);
+  }
+  return picked;
 }
 
 /**
@@ -45,10 +109,12 @@ export function getParallelSlotsForQuantity(
  */
 export function getConsecutiveSlotsForQuantity(
   allSlots: AllocationSlot[],
-  quantity: number
+  quantity: number,
+  requiredConsecutiveSlots = 1
 ): AllocationSlot[] | null {
+  const candidates = filterSlotsByRequiredConsecutive(allSlots, requiredConsecutiveSlots);
   const byEmployee = new Map<string, AllocationSlot[]>();
-  for (const s of allSlots) {
+  for (const s of candidates) {
     if ((s.available_capacity ?? 0) <= 0) continue;
     const eid = s.employee_id ?? '';
     if (!byEmployee.has(eid)) byEmployee.set(eid, []);

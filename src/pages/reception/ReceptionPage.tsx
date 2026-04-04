@@ -36,7 +36,13 @@ import { useCustomerPhoneSearch, type CustomerSuggestion } from '../../hooks/use
 import { CustomerPhoneSuggestionsDropdown } from '../../components/reception/CustomerPhoneSuggestionsDropdown';
 import { AssignFixingTicketForm } from '../../components/support/AssignFixingTicketForm';
 import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
-import { getParallelSlotsForQuantity as getParallelSlotsForQuantityLib, getConsecutiveSlotsForQuantity as getConsecutiveSlotsForQuantityLib } from '../../lib/bookingSlotAllocation';
+import {
+  getConsecutiveSlotsForQuantity as getConsecutiveSlotsForQuantityLib,
+  getParallelSlotsForQuantity as getParallelSlotsForQuantityLib,
+  getRequiredSlotsForDuration,
+  filterSlotsByRequiredConsecutive,
+  type TagTimeType,
+} from '../../lib/bookingSlotAllocation';
 
 interface Booking {
   id: string;
@@ -104,6 +110,8 @@ interface Service {
   discount_percentage?: number | null;
   capacity_per_slot: number;
   capacity_mode?: 'employee_based' | 'service_based';
+  duration_minutes?: number | null;
+  service_duration_minutes?: number | null;
   offers?: ServiceOffer[]; // Service offers
 }
 
@@ -242,7 +250,7 @@ export function ReceptionPage() {
   const [bookingCreationLoadingStep, setBookingCreationLoadingStep] = useState<null | 'creating_booking' | 'creating_invoice'>(null);
   const [selectedSlots, setSelectedSlots] = useState<Array<{slot_id: string, start_time: string, end_time: string, employee_id: string, slot_date: string}>>([]);
   const [receptionPricingTags, setReceptionPricingTags] = useState<
-    { id: string; name: string; is_default?: boolean; fee_value?: number }[]
+    { id: string; name: string; is_default?: boolean; fee_value?: number; time_type?: TagTimeType; time_value?: number }[]
   >([]);
   const [receptionSelectedTagId, setReceptionSelectedTagId] = useState('');
   const [loadingReceptionTags, setLoadingReceptionTags] = useState(false);
@@ -488,6 +496,35 @@ export function ReceptionPage() {
     return Math.max(0, Number(sel.fee_value ?? 0));
   }
 
+  function getReceptionTagTimeMeta() {
+    const sel = receptionPricingTags.find((x) => x.id === receptionSelectedTagId);
+    return {
+      timeType: (sel?.time_type === 'multiplier' ? 'multiplier' : 'fixed') as TagTimeType,
+      timeValue: Number(sel?.time_value ?? 0),
+    };
+  }
+
+  function getReceptionDurationMeta() {
+    const svc = services.find((s) => s.id === selectedService);
+    const firstSlot = slots[0];
+    const slotDuration = firstSlot
+      ? (() => {
+          const start = (Number(firstSlot.start_time?.slice(0, 2)) || 0) * 60 + (Number(firstSlot.start_time?.slice(3, 5)) || 0);
+          let end = (Number(firstSlot.end_time?.slice(0, 2)) || 0) * 60 + (Number(firstSlot.end_time?.slice(3, 5)) || 0);
+          if (end <= start) end += 24 * 60;
+          return Math.max(1, end - start);
+        })()
+      : 60;
+    const baseDuration = Math.max(1, Number(svc?.service_duration_minutes ?? svc?.duration_minutes ?? slotDuration) || slotDuration);
+    const { timeType, timeValue } = getReceptionTagTimeMeta();
+    return getRequiredSlotsForDuration(baseDuration, timeType, timeValue);
+  }
+
+  const receptionDurationMeta = getReceptionDurationMeta();
+  const slotsForSelection = bookingForm.visitor_count <= 1
+    ? (filterSlotsByRequiredConsecutive(slots, receptionDurationMeta.requiredSlots) as Slot[])
+    : slots;
+
   // Calculate required slots based on booking mode
   // Parallel: need N individual (employee, time) slots. Consecutive: need N slots for same employee.
   function getRequiredSlotsCount(): number {
@@ -502,18 +539,20 @@ export function ReceptionPage() {
     selectedTime: { start_time: string; end_time: string; slot_date: string } | null,
     quantity: number
   ): Slot[] {
-    return getParallelSlotsForQuantityLib(allSlots, selectedTime, quantity) as Slot[];
+    const requiredConsecutive = bookingForm.visitor_count <= 1 ? receptionDurationMeta.requiredSlots : 1;
+    return getParallelSlotsForQuantityLib(allSlots, selectedTime, quantity, requiredConsecutive) as Slot[];
   }
 
   function getConsecutiveSlotsForQuantity(allSlots: Slot[], quantity: number): Slot[] | null {
-    return getConsecutiveSlotsForQuantityLib(allSlots, quantity) as Slot[] | null;
+    const requiredConsecutive = bookingForm.visitor_count <= 1 ? receptionDurationMeta.requiredSlots : 1;
+    return getConsecutiveSlotsForQuantityLib(allSlots, quantity, requiredConsecutive) as Slot[] | null;
   }
 
   // Validate slot selection
   function validateSlotSelection(): { valid: boolean; message: string } {
     // If booking multiple tickets, first check if a single slot can handle all tickets
     if (bookingForm.visitor_count > 1 && selectedTimeSlot) {
-      const slotsAtTime = slots.filter(
+      const slotsAtTime = slotsForSelection.filter(
         s => s.start_time === selectedTimeSlot.start_time &&
              s.end_time === selectedTimeSlot.end_time &&
              s.available_capacity > 0
@@ -670,7 +709,7 @@ export function ReceptionPage() {
       }
       const servicesResult = await db
         .from('services')
-        .select('id, name, name_ar, base_price, original_price, discount_percentage, capacity_per_slot, capacity_mode')
+        .select('id, name, name_ar, base_price, original_price, discount_percentage, capacity_per_slot, capacity_mode, duration_minutes, service_duration_minutes')
         .eq('tenant_id', userProfile.tenant_id)
         .eq('is_active', true)
         .order('name');
@@ -1833,7 +1872,7 @@ export function ReceptionPage() {
           return;
         }
       } else {
-        slotsToUse = getParallelSlotsForQuantity(slots, selectedTimeSlot, quantity);
+        slotsToUse = getParallelSlotsForQuantity(slotsForSelection, selectedTimeSlot, quantity);
         if (slotsToUse.length < quantity) {
           showNotification('warning', t('common.notEnoughCapacity', { available: slotsToUse.length, requested: quantity }) || `Not enough slots. Need ${quantity}, only ${slotsToUse.length} available.`);
           return;
@@ -1853,7 +1892,7 @@ export function ReceptionPage() {
 
     // Consecutive: automatic path (no manual slot selection) — find one employee with N consecutive slots
     if (selectedSlots.length === 0) {
-      const consecutiveSlots = getConsecutiveSlotsForQuantity(slots, quantity);
+      const consecutiveSlots = getConsecutiveSlotsForQuantity(slotsForSelection, quantity);
       if (!consecutiveSlots || consecutiveSlots.length < quantity) {
         showNotification('warning', t('reception.noConsecutiveAvailability') || 'No consecutive availability for the requested number of slots.');
         return;
@@ -2262,14 +2301,14 @@ export function ReceptionPage() {
                 const quantity = bookingForm.visitor_count;
                 const slotsToUse = selectedSlots.length === quantity
                   ? selectedSlots.map(s => slots.find(slot => slot.id === s.slot_id)).filter(Boolean) as Slot[]
-                  : getParallelSlotsForQuantity(slots, selectedSlots[0] ? { start_time: selectedSlots[0].start_time, end_time: selectedSlots[0].end_time, slot_date: selectedSlots[0].slot_date } : null, quantity);
+                  : getParallelSlotsForQuantity(slotsForSelection, selectedSlots[0] ? { start_time: selectedSlots[0].start_time, end_time: selectedSlots[0].end_time, slot_date: selectedSlots[0].slot_date } : null, quantity);
                 for (const slot of slotsToUse.slice(0, quantity)) {
                   servicesToBook.push({ service, slot, employeeId: slot.employee_id || '' });
                 }
               } else {
                 // Consecutive mode: Add all manually selected slots
                 for (const selectedSlotData of selectedSlots) {
-                  const slot = slots.find(s => s.id === selectedSlotData.slot_id);
+                  const slot = slotsForSelection.find(s => s.id === selectedSlotData.slot_id);
                   if (slot) {
                     servicesToBook.push({
                       service,
@@ -2285,14 +2324,14 @@ export function ReceptionPage() {
               const quantity = bookingForm.visitor_count;
               const slotsToUse = selectedSlots.length === quantity
                 ? selectedSlots.map(s => slots.find(slot => slot.id === s.slot_id)).filter(Boolean) as Slot[]
-                : getParallelSlotsForQuantity(slots, selectedSlots[0] ? { start_time: selectedSlots[0].start_time, end_time: selectedSlots[0].end_time, slot_date: selectedSlots[0].slot_date } : null, quantity);
+                : getParallelSlotsForQuantity(slotsForSelection, selectedSlots[0] ? { start_time: selectedSlots[0].start_time, end_time: selectedSlots[0].end_time, slot_date: selectedSlots[0].slot_date } : null, quantity);
               for (const slot of slotsToUse.slice(0, quantity)) {
                 servicesToBook.push({ service, slot, employeeId: slot.employee_id || '' });
               }
             } else {
               // Consecutive mode: Add all manually selected slots
               for (const selectedSlotData of selectedSlots) {
-                const slot = slots.find(s => s.id === selectedSlotData.slot_id);
+                const slot = slotsForSelection.find(s => s.id === selectedSlotData.slot_id);
                 if (slot) {
                   servicesToBook.push({
                     service,
@@ -2319,7 +2358,7 @@ export function ReceptionPage() {
               employeeId = slotToAdd.employee_id || '';
             }
           } else {
-            slotToAdd = slots.find(s => s.id === selectedSlot);
+            slotToAdd = slotsForSelection.find(s => s.id === selectedSlot);
             employeeId = selectedEmployee || (slotToAdd?.employee_id || '');
           }
 
@@ -2431,7 +2470,7 @@ export function ReceptionPage() {
         }
       } else {
         // Manual mode
-        const manualSlot = slots.find(s => s.id === selectedSlot);
+        const manualSlot = slotsForSelection.find(s => s.id === selectedSlot);
         if (!manualSlot) {
           showNotification('warning', t('reception.selectedSlotNotFound'));
           return;
@@ -5073,6 +5112,17 @@ export function ReceptionPage() {
                   ))
                 )}
               </select>
+              {receptionPricingTags.length > 0 && receptionSelectedTagId && (
+                <p className="mt-1 text-xs text-gray-600">
+                  {(() => {
+                    const timeMeta = getReceptionTagTimeMeta();
+                    const durationLabel = timeMeta.timeType === 'multiplier'
+                      ? t('tags.durationMultiplierSummary', 'Duration x{{value}}', { value: Number(timeMeta.timeValue || 1) })
+                      : t('tags.durationFixedSummary', 'Duration +{{value}} min', { value: Number(timeMeta.timeValue || 0) });
+                    return `${durationLabel} · ${t('tags.totalDuration', 'Total duration')}: ${receptionDurationMeta.finalDurationMinutes}m · ${t('tags.requiredSlots', 'Required slots')}: ${receptionDurationMeta.requiredSlots}`;
+                  })()}
+                </p>
+              )}
             </div>
           )}
 
@@ -5297,7 +5347,7 @@ export function ReceptionPage() {
                       employeeId = slotToAdd.employee_id || '';
                     }
                   } else {
-                    slotToAdd = slots.find(s => s.id === selectedSlot);
+                    slotToAdd = slotsForSelection.find(s => s.id === selectedSlot);
                     employeeId = selectedEmployee || (slotToAdd?.employee_id || '');
                   }
 
@@ -5743,7 +5793,7 @@ export function ReceptionPage() {
                       // For automatic mode, group slots by time and show unique time slots
                       (() => {
                         const timeSlotMap = new Map<string, Slot[]>();
-                        slots.forEach(slot => {
+                        slotsForSelection.forEach(slot => {
                           const timeKey = `${slot.slot_date}-${slot.start_time}-${slot.end_time}`;
                           if (!timeSlotMap.has(timeKey)) {
                             timeSlotMap.set(timeKey, []);
@@ -5961,9 +6011,9 @@ export function ReceptionPage() {
                   if (slotWithEnoughCapacity) return false; // Button enabled
 
                   // Parallel automatic: need at least quantity slots from flattened list
-                  if (bookingForm.booking_option === 'parallel' && getParallelSlotsForQuantity(slots, selectedTimeSlot, required).length >= required) return false;
+                  if (bookingForm.booking_option === 'parallel' && getParallelSlotsForQuantity(slotsForSelection, selectedTimeSlot, required).length >= required) return false;
                   // Consecutive automatic: need one employee with N consecutive slots
-                  if (bookingForm.booking_option === 'consecutive' && selectedSlots.length === 0 && getConsecutiveSlotsForQuantity(slots, required)) return false;
+                  if (bookingForm.booking_option === 'consecutive' && selectedSlots.length === 0 && getConsecutiveSlotsForQuantity(slotsForSelection, required)) return false;
                 }
                 return selectedSlots.length < required || !validation.valid;
               })()}

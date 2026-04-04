@@ -6,6 +6,25 @@ import { resolveUserFromDb } from '../middleware/resolveUserFromDb.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+type TagTimeType = 'fixed' | 'multiplier';
+
+function normalizeTagTimeInput(rawType: unknown, rawValue: unknown): { timeType: TagTimeType; timeValue: number } {
+  const type = String(rawType || 'fixed').trim().toLowerCase() === 'multiplier' ? 'multiplier' : 'fixed';
+  const parsedValue = rawValue !== undefined && rawValue !== null && String(rawValue).trim() !== ''
+    ? Number(rawValue)
+    : (type === 'multiplier' ? 1 : 0);
+  const safeValue = Number.isFinite(parsedValue) ? parsedValue : (type === 'multiplier' ? 1 : 0);
+  return { timeType: type, timeValue: safeValue };
+}
+
+function validateTagTimeInput(timeType: TagTimeType, timeValue: number): string | null {
+  if (timeType === 'fixed') {
+    if (timeValue < 0) return 'time_value must be a non-negative number for fixed type';
+    return null;
+  }
+  if (timeValue < 1) return 'time_value must be at least 1 for multiplier type';
+  return null;
+}
 
 function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
@@ -94,6 +113,8 @@ router.get('/public/by-service/:serviceId', async (req, res) => {
         ...t,
         fee_value: t.is_default ? 0 : Number(feeMap[t.id]?.fee_value ?? 0),
         fee_name: feeMap[t.id]?.fee_name ?? null,
+        time_type: t.is_default ? 'fixed' : (feeMap[t.id]?.time_type ?? 'fixed'),
+        time_value: t.is_default ? 0 : Number(feeMap[t.id]?.time_value ?? 0),
       })),
     });
   } catch (e: any) {
@@ -199,6 +220,8 @@ router.get('/by-service/:serviceId', authFresh, async (req, res) => {
         ...t,
         fee_value: t.is_default ? 0 : Number(feeMap[t.id]?.fee_value ?? 0),
         fee_name: feeMap[t.id]?.fee_name ?? null,
+        time_type: t.is_default ? 'fixed' : (feeMap[t.id]?.time_type ?? 'fixed'),
+        time_value: t.is_default ? 0 : Number(feeMap[t.id]?.time_value ?? 0),
       })),
     });
   } catch (e: any) {
@@ -267,15 +290,30 @@ router.post('/', authFresh, async (req, res) => {
     const feeRaw = req.body.fee_value;
     const feeParsed =
       feeRaw !== undefined && feeRaw !== null && String(feeRaw).trim() !== '' ? Number(feeRaw) : null;
-    if (feeParsed !== null && Number.isFinite(feeParsed) && feeParsed > 0) {
+    const { timeType, timeValue } = normalizeTagTimeInput(req.body.time_type, req.body.time_value);
+    const timeValidationError = validateTagTimeInput(timeType, timeValue);
+    if (timeValidationError) {
+      await supabase.from('service_pricing_tags').delete().eq('id', created.id).eq('tenant_id', tenantId);
+      return res.status(400).json({ error: timeValidationError });
+    }
+    const shouldPersistFeeRow =
+      (feeParsed !== null && Number.isFinite(feeParsed) && feeParsed >= 0) ||
+      timeType !== 'fixed' ||
+      timeValue !== 0 ||
+      req.body.fee_name != null ||
+      req.body.fee_description != null;
+    if (shouldPersistFeeRow) {
       const fee_name = req.body.fee_name != null ? String(req.body.fee_name).trim() : null;
       const fee_description =
         req.body.fee_description != null ? String(req.body.fee_description).trim() : null;
+      const safeFeeValue = feeParsed !== null && Number.isFinite(feeParsed) && feeParsed >= 0 ? feeParsed : 0;
       const { error: feeErr } = await supabase.from('tag_fees').insert({
         tag_id: created.id,
         fee_name,
-        fee_value: feeParsed,
+        fee_value: safeFeeValue,
         description: fee_description || null,
+        time_type: timeType,
+        time_value: timeValue,
       });
       if (feeErr) {
         await supabase.from('service_pricing_tags').delete().eq('id', created.id).eq('tenant_id', tenantId);
@@ -375,6 +413,11 @@ router.put('/:id/fee', authFresh, async (req, res) => {
     if (!Number.isFinite(fee_value) || fee_value < 0) {
       return res.status(400).json({ error: 'fee_value must be a non-negative number' });
     }
+    const { timeType, timeValue } = normalizeTagTimeInput(req.body.time_type, req.body.time_value);
+    const timeValidationError = validateTagTimeInput(timeType, timeValue);
+    if (timeValidationError) {
+      return res.status(400).json({ error: timeValidationError });
+    }
 
     const { error } = await supabase.from('tag_fees').upsert(
       {
@@ -382,6 +425,8 @@ router.put('/:id/fee', authFresh, async (req, res) => {
         fee_name,
         fee_value,
         description,
+        time_type: timeType,
+        time_value: timeValue,
       },
       { onConflict: 'tag_id' }
     );

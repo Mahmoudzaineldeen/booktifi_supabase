@@ -5,8 +5,11 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  filterSlotsByRequiredConsecutive,
+  getRequiredSlotsForDuration,
   getParallelSlotsForQuantity,
   getConsecutiveSlotsForQuantity,
+  hasRequiredConsecutiveSlotsFromStart,
   type AllocationSlot,
   type SelectedTime,
 } from '../../src/lib/bookingSlotAllocation';
@@ -89,6 +92,16 @@ describe('getParallelSlotsForQuantity', () => {
   it('empty slots → empty array', () => {
     const result = getParallelSlotsForQuantity([], { start_time: '09:00', end_time: '10:00' }, 3);
     expect(result).toHaveLength(0);
+  });
+
+  it('respects requiredConsecutiveSlots when selecting start times', () => {
+    const slots: AllocationSlot[] = [
+      slot('s1', '09:00', '10:00', 'EM1'),
+      slot('s2', '10:00', '11:00', 'EM1'),
+      slot('s3', '12:00', '13:00', 'EM1'), // gap: cannot start 12:00 for 2 consecutive
+    ];
+    const result = getParallelSlotsForQuantity(slots, { start_time: '09:00', end_time: '10:00' }, 2, 2);
+    expect(result.map((s) => s.id)).toEqual(['s1']);
   });
 });
 
@@ -197,5 +210,40 @@ describe('period max selections (one per slot)', () => {
     ];
     const selected: string[] = ['id1', 'id2'];
     expect(getNextSlotFromGroup(periodSlots, selected)).toBeNull();
+  });
+});
+
+describe('duration helpers', () => {
+  it('computes fixed extra minutes correctly', () => {
+    const meta = getRequiredSlotsForDuration(60, 'fixed', 30);
+    expect(meta.finalDurationMinutes).toBe(90);
+    expect(meta.requiredSlots).toBe(2);
+  });
+
+  it('computes multiplier duration correctly', () => {
+    const meta = getRequiredSlotsForDuration(45, 'multiplier', 2);
+    expect(meta.finalDurationMinutes).toBe(90);
+    expect(meta.requiredSlots).toBe(2);
+  });
+});
+
+describe('consecutive start validation', () => {
+  const slots: AllocationSlot[] = [
+    { id: 'a', slot_date: '2026-04-05', start_time: '09:00', end_time: '10:00', employee_id: 'e1', available_capacity: 1 },
+    { id: 'b', slot_date: '2026-04-05', start_time: '10:00', end_time: '11:00', employee_id: 'e1', available_capacity: 1 },
+    { id: 'c', slot_date: '2026-04-05', start_time: '11:30', end_time: '12:30', employee_id: 'e1', available_capacity: 1 },
+  ];
+
+  it('returns true when enough consecutive slots exist from selected start', () => {
+    expect(hasRequiredConsecutiveSlotsFromStart(slots, slots[0], 2)).toBe(true);
+  });
+
+  it('returns false when gap breaks required consecutive chain', () => {
+    expect(hasRequiredConsecutiveSlotsFromStart(slots, slots[1], 2)).toBe(false);
+  });
+
+  it('filters valid starts based on required consecutive slots', () => {
+    const filtered = filterSlotsByRequiredConsecutive(slots, 2);
+    expect(filtered.map((s) => s.id)).toEqual(['a']);
   });
 });

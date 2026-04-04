@@ -17,7 +17,13 @@ type TagRow = {
   description: string | null;
   is_default: boolean;
   created_at: string;
-  fee: { fee_name: string | null; fee_value: number; description: string | null } | null;
+  fee: {
+    fee_name: string | null;
+    fee_value: number;
+    description: string | null;
+    time_type?: 'fixed' | 'multiplier';
+    time_value?: number;
+  } | null;
 };
 
 type ServiceRow = { id: string; name: string; name_ar?: string | null };
@@ -36,6 +42,8 @@ export function TagsPage() {
   const [desc, setDesc] = useState('');
   const [hasExtraCharge, setHasExtraCharge] = useState(false);
   const [createFeeValue, setCreateFeeValue] = useState('');
+  const [createTimeType, setCreateTimeType] = useState<'fixed' | 'multiplier'>('fixed');
+  const [createTimeValue, setCreateTimeValue] = useState('0');
   const [createServiceIds, setCreateServiceIds] = useState<Set<string>>(new Set());
   const [createServicesSearch, setCreateServicesSearch] = useState('');
   const [saving, setSaving] = useState(false);
@@ -44,6 +52,8 @@ export function TagsPage() {
   const [feeName, setFeeName] = useState('');
   const [feeValue, setFeeValue] = useState('');
   const [feeDesc, setFeeDesc] = useState('');
+  const [feeTimeType, setFeeTimeType] = useState<'fixed' | 'multiplier'>('fixed');
+  const [feeTimeValue, setFeeTimeValue] = useState('0');
 
   const [services, setServices] = useState<ServiceRow[]>([]);
   const [serviceToTags, setServiceToTags] = useState<Record<string, string[]>>({});
@@ -204,6 +214,16 @@ export function TagsPage() {
   async function createTag(e: React.FormEvent) {
     e.preventDefault();
     if (!canManage || !name.trim()) return;
+    const createTimeNum = Number(createTimeValue);
+    if (!Number.isFinite(createTimeNum) || (createTimeType === 'fixed' ? createTimeNum < 0 : createTimeNum < 1)) {
+      showNotification(
+        'warning',
+        createTimeType === 'fixed'
+          ? t('tags.invalidFixedTime', 'Time value must be a non-negative number of minutes.')
+          : t('tags.invalidMultiplierTime', 'Multiplier must be at least 1.')
+      );
+      return;
+    }
     if (hasExtraCharge) {
       const v = parseFloat(createFeeValue);
       if (!Number.isFinite(v) || v <= 0) {
@@ -220,6 +240,8 @@ export function TagsPage() {
       const body: Record<string, unknown> = {
         name: name.trim(),
         description: desc.trim() || null,
+        time_type: createTimeType,
+        time_value: createTimeNum,
       };
       if (hasExtraCharge && Number.isFinite(feeVal) && feeVal > 0) {
         body.fee_name = name.trim();
@@ -256,6 +278,8 @@ export function TagsPage() {
       setDesc('');
       setHasExtraCharge(false);
       setCreateFeeValue('');
+      setCreateTimeType('fixed');
+      setCreateTimeValue('0');
       setCreateServiceIds(new Set());
       setCreateServicesSearch('');
       await loadTags();
@@ -297,6 +321,16 @@ export function TagsPage() {
   async function saveFee(e: React.FormEvent) {
     e.preventDefault();
     if (!feeModal || !canManage) return;
+    const timeNum = Number(feeTimeValue);
+    if (!Number.isFinite(timeNum) || (feeTimeType === 'fixed' ? timeNum < 0 : timeNum < 1)) {
+      showNotification(
+        'warning',
+        feeTimeType === 'fixed'
+          ? t('tags.invalidFixedTime', 'Time value must be a non-negative number of minutes.')
+          : t('tags.invalidMultiplierTime', 'Multiplier must be at least 1.')
+      );
+      return;
+    }
     setSaving(true);
     try {
       const res = await apiFetch(`/tags/${feeModal.id}/fee`, {
@@ -306,6 +340,8 @@ export function TagsPage() {
           fee_name: feeName.trim() || null,
           fee_value: parseFloat(feeValue) || 0,
           description: feeDesc.trim() || null,
+          time_type: feeTimeType,
+          time_value: timeNum,
         }),
       });
       const data = await res.json();
@@ -466,6 +502,45 @@ export function TagsPage() {
                 )}
               </div>
 
+              <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 p-4 shadow-inner space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{t('tags.timeImpact', 'Time impact')}</p>
+                  <p className="mt-0.5 text-xs text-slate-600">
+                    {t('tags.timeImpactHint', 'Controls how much booking time this tag consumes, without changing price unless fee is set.')}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">{t('tags.timeType', 'Time type')}</label>
+                    <select
+                      value={createTimeType}
+                      onChange={(e) => {
+                        const nextType = (e.target.value === 'multiplier' ? 'multiplier' : 'fixed') as 'fixed' | 'multiplier';
+                        setCreateTimeType(nextType);
+                        setCreateTimeValue(nextType === 'fixed' ? '0' : '1');
+                      }}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    >
+                      <option value="fixed">{t('tags.fixedTime', 'Fixed (minutes)')}</option>
+                      <option value="multiplier">{t('tags.multiplierTime', 'Multiplier (x duration)')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      {createTimeType === 'fixed' ? t('tags.extraMinutes', 'Extra minutes') : t('tags.durationMultiplier', 'Duration multiplier')}
+                    </label>
+                    <Input
+                      type="number"
+                      min={createTimeType === 'fixed' ? 0 : 1}
+                      step={createTimeType === 'fixed' ? '1' : '0.1'}
+                      value={createTimeValue}
+                      onChange={(e) => setCreateTimeValue(e.target.value)}
+                      className="max-w-[220px]"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {canAssignServices && services.length > 0 && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
@@ -537,6 +612,8 @@ export function TagsPage() {
               {tags.map((row, index) => {
                 const n = countServicesForTag(row.id);
                 const feeNum = row.fee ? Number(row.fee.fee_value) : 0;
+                const timeType = row.is_default ? 'fixed' : (row.fee?.time_type || 'fixed');
+                const timeValue = row.is_default ? 0 : Number(row.fee?.time_value ?? 0);
                 return (
                   <li
                     key={row.id}
@@ -565,6 +642,13 @@ export function TagsPage() {
                           {row.fee.description ? (
                             <span className="text-slate-500"> — {row.fee.description}</span>
                           ) : null}
+                        </p>
+                      )}
+                      {!row.is_default && (
+                        <p className="text-xs text-slate-600">
+                          {timeType === 'multiplier'
+                            ? t('tags.timeMultiplierSummary', 'Duration: {{value}}x', { value: timeValue })
+                            : t('tags.timeFixedSummary', 'Duration: +{{value}} min', { value: timeValue })}
                         </p>
                       )}
                       {row.is_default && (
@@ -617,6 +701,9 @@ export function TagsPage() {
                                   setFeeName(row.fee?.fee_name || '');
                                   setFeeValue(String(row.fee?.fee_value ?? ''));
                                   setFeeDesc(row.fee?.description || '');
+                                  const modalTimeType = row.fee?.time_type === 'multiplier' ? 'multiplier' : 'fixed';
+                                  setFeeTimeType(modalTimeType);
+                                  setFeeTimeValue(String(row.fee?.time_value ?? (modalTimeType === 'multiplier' ? 1 : 0)));
                                 }}
                                 className="border-slate-200"
                               >
@@ -697,6 +784,35 @@ export function TagsPage() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">{t('tags.feeDescription', 'Fee description')}</label>
             <Input value={feeDesc} onChange={(e) => setFeeDesc(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">{t('tags.timeType', 'Time type')}</label>
+              <select
+                value={feeTimeType}
+                onChange={(e) => {
+                  const nextType = (e.target.value === 'multiplier' ? 'multiplier' : 'fixed') as 'fixed' | 'multiplier';
+                  setFeeTimeType(nextType);
+                  setFeeTimeValue(nextType === 'fixed' ? '0' : '1');
+                }}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              >
+                <option value="fixed">{t('tags.fixedTime', 'Fixed (minutes)')}</option>
+                <option value="multiplier">{t('tags.multiplierTime', 'Multiplier (x duration)')}</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                {feeTimeType === 'fixed' ? t('tags.extraMinutes', 'Extra minutes') : t('tags.durationMultiplier', 'Duration multiplier')}
+              </label>
+              <Input
+                type="number"
+                min={feeTimeType === 'fixed' ? 0 : 1}
+                step={feeTimeType === 'fixed' ? '1' : '0.1'}
+                value={feeTimeValue}
+                onChange={(e) => setFeeTimeValue(e.target.value)}
+              />
+            </div>
           </div>
           <div className="flex gap-2 pt-2">
             <Button type="submit" variant="primary" disabled={saving}>

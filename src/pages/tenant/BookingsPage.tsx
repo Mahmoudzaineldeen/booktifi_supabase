@@ -15,7 +15,13 @@ import { getApiUrl } from '../../lib/apiUrl';
 import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { fetchAvailableSlots, Slot } from '../../lib/bookingAvailability';
-import { getParallelSlotsForQuantity as getParallelSlotsForQuantityLib, getConsecutiveSlotsForQuantity as getConsecutiveSlotsForQuantityLib } from '../../lib/bookingSlotAllocation';
+import {
+  getConsecutiveSlotsForQuantity as getConsecutiveSlotsForQuantityLib,
+  getParallelSlotsForQuantity as getParallelSlotsForQuantityLib,
+  getRequiredSlotsForDuration,
+  filterSlotsByRequiredConsecutive,
+  type TagTimeType,
+} from '../../lib/bookingSlotAllocation';
 import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
 import { Input } from '../../components/ui/Input';
 import { searchBarWrapperClass, searchSelectClass } from '../../components/ui/SearchInput';
@@ -38,6 +44,8 @@ interface AdminService {
   name_ar?: string;
   base_price: number;
   original_price?: number | null;
+  duration_minutes?: number | null;
+  service_duration_minutes?: number | null;
   offers?: { id: string; name: string; name_ar?: string; price: number; discount_percentage?: number }[];
 }
 
@@ -145,7 +153,16 @@ export function BookingsPage() {
   const [createSelectedServices, setCreateSelectedServices] = useState<Array<{ service: AdminService; slot: Slot; employeeId: string }>>([]);
   const [createAssignmentMode, setCreateAssignmentMode] = useState<'automatic' | 'manual'>('automatic');
   const [createPricingTags, setCreatePricingTags] = useState<
-    { id: string; name: string; description?: string | null; is_default?: boolean; fee_value?: number; fee_name?: string | null }[]
+    {
+      id: string;
+      name: string;
+      description?: string | null;
+      is_default?: boolean;
+      fee_value?: number;
+      fee_name?: string | null;
+      time_type?: TagTimeType;
+      time_value?: number;
+    }[]
   >([]);
   const [selectedPricingTagId, setSelectedPricingTagId] = useState('');
   const [loadingPricingTags, setLoadingPricingTags] = useState(false);
@@ -210,7 +227,7 @@ export function BookingsPage() {
     try {
       const { data: servicesData, error: servicesError } = await db
         .from('services')
-        .select('id, name, name_ar, base_price, original_price, discount_percentage, capacity_per_slot')
+        .select('id, name, name_ar, base_price, original_price, discount_percentage, capacity_per_slot, duration_minutes, service_duration_minutes')
         .eq('tenant_id', userProfile.tenant_id)
         .eq('is_active', true)
         .order('name');
@@ -406,6 +423,30 @@ export function BookingsPage() {
     return { available: total > 0, remaining: total };
   }
 
+  function getSelectedCreateTagTimeConfig() {
+    const selectedTag = createPricingTags.find((x) => x.id === selectedPricingTagId);
+    return {
+      timeType: (selectedTag?.time_type === 'multiplier' ? 'multiplier' : 'fixed') as TagTimeType,
+      timeValue: Number(selectedTag?.time_value ?? 0),
+    };
+  }
+
+  function getCreateDurationMeta() {
+    const svc = createServices.find((s) => s.id === createServiceId);
+    const fallbackSlot = createSlots[0];
+    const slotDuration = fallbackSlot
+      ? (() => {
+          const start = (Number(fallbackSlot.start_time?.slice(0, 2)) || 0) * 60 + (Number(fallbackSlot.start_time?.slice(3, 5)) || 0);
+          let end = (Number(fallbackSlot.end_time?.slice(0, 2)) || 0) * 60 + (Number(fallbackSlot.end_time?.slice(3, 5)) || 0);
+          if (end <= start) end += 24 * 60;
+          return Math.max(1, end - start);
+        })()
+      : 60;
+    const baseDuration = Math.max(1, Number(svc?.service_duration_minutes ?? svc?.duration_minutes ?? slotDuration) || slotDuration);
+    const { timeType, timeValue } = getSelectedCreateTagTimeConfig();
+    return getRequiredSlotsForDuration(baseDuration, timeType, timeValue);
+  }
+
   function getRequiredSlotsCount(): number {
     if (createForm.visitor_count <= 1) return 1;
     return createForm.visitor_count;
@@ -416,11 +457,13 @@ export function BookingsPage() {
     selectedTime: { start_time: string; end_time: string; slot_date: string } | null,
     quantity: number
   ): Slot[] {
-    return getParallelSlotsForQuantityLib(allSlots, selectedTime, quantity) as Slot[];
+    const requiredConsecutive = createForm.visitor_count <= 1 ? getCreateDurationMeta().requiredSlots : 1;
+    return getParallelSlotsForQuantityLib(allSlots, selectedTime, quantity, requiredConsecutive) as Slot[];
   }
 
   function getConsecutiveSlotsForQuantity(allSlots: Slot[], quantity: number): Slot[] | null {
-    return getConsecutiveSlotsForQuantityLib(allSlots, quantity) as Slot[] | null;
+    const requiredConsecutive = createForm.visitor_count <= 1 ? getCreateDurationMeta().requiredSlots : 1;
+    return getConsecutiveSlotsForQuantityLib(allSlots, quantity, requiredConsecutive) as Slot[] | null;
   }
 
   function validateSlotSelection(): { valid: boolean; message: string } {
@@ -562,14 +605,14 @@ export function BookingsPage() {
     if (createSelectedSlots.length >= required) {
       slotIds.push(...createSelectedSlots.slice(0, required).map(s => s.slot_id));
     } else if (createForm.visitor_count > 1 && createForm.booking_option === 'parallel' && createSelectedTimeSlot) {
-      const parallelSlots = getParallelSlotsForQuantity(createSlots, createSelectedTimeSlot, required);
+      const parallelSlots = getParallelSlotsForQuantity(createSlotsForSelection, createSelectedTimeSlot, required);
       if (parallelSlots.length < required) {
         showNotification('warning', t('common.notEnoughCapacity', { available: parallelSlots.length, requested: required }) || `Not enough slots. Need ${required}, only ${parallelSlots.length} available.`);
         return;
       }
       slotIds.push(...parallelSlots.map(s => s.id));
-    } else if (createForm.visitor_count > 1 && createForm.booking_option === 'consecutive' && createSelectedSlots.length === 0 && createSlots.length > 0) {
-      const consecutiveSlots = getConsecutiveSlotsForQuantity(createSlots, required);
+    } else if (createForm.visitor_count > 1 && createForm.booking_option === 'consecutive' && createSelectedSlots.length === 0 && createSlotsForSelection.length > 0) {
+      const consecutiveSlots = getConsecutiveSlotsForQuantity(createSlotsForSelection, required);
       if (!consecutiveSlots || consecutiveSlots.length < required) {
         showNotification('warning', t('reception.noConsecutiveAvailability') || 'No consecutive availability for the requested number of slots.');
         return;
@@ -589,7 +632,7 @@ export function BookingsPage() {
       return;
     }
     // Only send IDs that exist in current createSlots (avoids stale/mismatched tenant)
-    const validSlotIds = uniqueSlotIds.filter(id => createSlots.some(s => s.id === id));
+    const validSlotIds = uniqueSlotIds.filter(id => createSlotsForSelection.some(s => s.id === id));
     if (validSlotIds.length !== required) {
       showNotification('warning', t('reception.slotNoLongerAvailable') || 'One or more selected slots are no longer available. Please refresh and choose again.');
       return;
@@ -1872,6 +1915,11 @@ export function BookingsPage() {
     }
   }, [currentPage, totalPages]);
 
+  const requiredDurationSlotsForCreate = createForm.visitor_count <= 1 ? getCreateDurationMeta().requiredSlots : 1;
+  const createSlotsForSelection = createForm.visitor_count <= 1
+    ? (filterSlotsByRequiredConsecutive(createSlots, requiredDurationSlotsForCreate) as Slot[])
+    : createSlots;
+
   if (loading) {
     return (
       <div className="p-4 md:p-8">
@@ -3064,8 +3112,19 @@ export function BookingsPage() {
                 )}
               </select>
               {createPricingTags.length > 0 && selectedPricingTagId && (
-                <p className="text-xs text-gray-600 mt-1">
-                  {(() => {
+                <div className="mt-1 space-y-1">
+                  <p className="text-xs text-gray-600">
+                    {(() => {
+                      const durationMeta = getCreateDurationMeta();
+                      const timeCfg = getSelectedCreateTagTimeConfig();
+                      const durationSuffix = timeCfg.timeType === 'multiplier'
+                        ? t('tags.durationMultiplierSummary', 'Duration x{{value}}', { value: Number(timeCfg.timeValue || 1) })
+                        : t('tags.durationFixedSummary', 'Duration +{{value}} min', { value: Number(timeCfg.timeValue || 0) });
+                      return `${durationSuffix} · ${t('tags.totalDuration', 'Total duration')}: ${durationMeta.finalDurationMinutes}m · ${t('tags.requiredSlots', 'Required slots')}: ${durationMeta.requiredSlots}`;
+                    })()}
+                  </p>
+                  <p className="text-xs text-gray-600">
+                    {(() => {
                     const svc = createServices.find((s) => s.id === createServiceId);
                     let unit = svc?.base_price ?? 0;
                     if (createOfferId && svc?.offers?.length) {
@@ -3087,7 +3146,8 @@ export function BookingsPage() {
                       </>
                     );
                   })()}
-                </p>
+                  </p>
+                </div>
               )}
             </div>
           )}
@@ -3268,7 +3328,7 @@ export function BookingsPage() {
                     <option value="">{t('reception.chooseEmployee') || 'Choose employee'}</option>
                     {(() => {
                       const empMap = new Map<string, { id: string; name: string; name_ar: string }>();
-                      createSlots.forEach(slot => {
+                      createSlotsForSelection.forEach(slot => {
                         if (slot.employee_id && !empMap.has(slot.employee_id)) {
                           const u = (slot as any).users;
                           empMap.set(slot.employee_id, {
@@ -3335,8 +3395,8 @@ export function BookingsPage() {
                 </div>
               ) : (() => {
                 const displaySlots = isEmployeeBasedMode && effectiveCreateAssignmentMode === 'manual' && createSelectedEmployeeId
-                  ? createSlots.filter(s => s.employee_id === createSelectedEmployeeId)
-                  : createSlots;
+                  ? createSlotsForSelection.filter(s => s.employee_id === createSelectedEmployeeId)
+                  : createSlotsForSelection;
                 return displaySlots.length === 0 ? (
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
                     <Clock className="w-12 h-12 text-gray-400 mx-auto mb-2" />
@@ -3477,10 +3537,10 @@ export function BookingsPage() {
                 const req = getRequiredSlotsCount();
                 const val = validateSlotSelection();
                 if (createSelectedSlots.length >= req && val.valid) return false;
-                const single = createSlotId ? createSlots.find(s => s.id === createSlotId) : null;
+                const single = createSlotId ? createSlotsForSelection.find(s => s.id === createSlotId) : null;
                 if (single && single.available_capacity >= createForm.visitor_count) return false;
-                if (createForm.booking_option === 'parallel' && createSelectedTimeSlot && getParallelSlotsForQuantity(createSlots, createSelectedTimeSlot, req).length >= req) return false;
-                if (createForm.booking_option === 'consecutive' && createSelectedSlots.length === 0 && getConsecutiveSlotsForQuantity(createSlots, req)) return false;
+                if (createForm.booking_option === 'parallel' && createSelectedTimeSlot && getParallelSlotsForQuantity(createSlotsForSelection, createSelectedTimeSlot, req).length >= req) return false;
+                if (createForm.booking_option === 'consecutive' && createSelectedSlots.length === 0 && getConsecutiveSlotsForQuantity(createSlotsForSelection, req)) return false;
                 return true;
               })()}
             >

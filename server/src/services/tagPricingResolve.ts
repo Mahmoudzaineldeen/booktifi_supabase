@@ -1,8 +1,30 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type TagResolveOk = { ok: true; tagId: string; appliedFee: number };
+export type TagTimeType = 'fixed' | 'multiplier';
+export type TagResolveOk = {
+  ok: true;
+  tagId: string;
+  appliedFee: number;
+  timeType: TagTimeType;
+  timeValue: number;
+};
 export type TagResolveErr = { ok: false; status: number; error: string };
 export type TagResolveResult = TagResolveOk | TagResolveErr;
+
+export function computeTagAdjustedDuration(baseDurationMinutes: number, timeType: TagTimeType, timeValue: number): {
+  finalDurationMinutes: number;
+  requiredSlots: number;
+} {
+  const base = Math.max(1, Math.round(Number(baseDurationMinutes) || 1));
+  const safeValue = Number.isFinite(timeValue) ? timeValue : (timeType === 'multiplier' ? 1 : 0);
+  const adjusted = timeType === 'multiplier'
+    ? Math.max(base, Math.ceil(base * Math.max(1, safeValue)))
+    : Math.max(base, base + Math.ceil(Math.max(0, safeValue)));
+  return {
+    finalDurationMinutes: adjusted,
+    requiredSlots: Math.max(1, Math.ceil(adjusted / base)),
+  };
+}
 
 /**
  * Resolve pricing tag for booking create: validates tenant/service, assignment, computes fee snapshot.
@@ -96,13 +118,21 @@ export async function resolveBookingTagForCreate(
   }
 
   if (tagMeta.is_default === true) {
-    return { ok: true, tagId: effectiveTagId, appliedFee: 0 };
+    return { ok: true, tagId: effectiveTagId, appliedFee: 0, timeType: 'fixed', timeValue: 0 };
   }
 
-  const { data: feeRow } = await supabase.from('tag_fees').select('fee_value').eq('tag_id', effectiveTagId).maybeSingle();
+  const { data: feeRow } = await supabase
+    .from('tag_fees')
+    .select('fee_value, time_type, time_value')
+    .eq('tag_id', effectiveTagId)
+    .maybeSingle();
 
   const fee = feeRow?.fee_value != null ? Number(feeRow.fee_value) : 0;
   const appliedFee = Number.isFinite(fee) && fee > 0 ? fee : 0;
+  const rawType = String(feeRow?.time_type || 'fixed').toLowerCase();
+  const timeType: TagTimeType = rawType === 'multiplier' ? 'multiplier' : 'fixed';
+  const rawValue = feeRow?.time_value != null ? Number(feeRow.time_value) : (timeType === 'multiplier' ? 1 : 0);
+  const timeValue = Number.isFinite(rawValue) ? rawValue : (timeType === 'multiplier' ? 1 : 0);
 
-  return { ok: true, tagId: effectiveTagId, appliedFee };
+  return { ok: true, tagId: effectiveTagId, appliedFee, timeType, timeValue };
 }
