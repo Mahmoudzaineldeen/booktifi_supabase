@@ -6,7 +6,6 @@ import { AuthProvider } from './contexts/AuthContext';
 import { CurrencyProvider } from './contexts/CurrencyContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { ConfirmProvider } from './contexts/ConfirmContext';
-import { ThemeProvider } from './contexts/ThemeContext';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/auth/LoginPage';
 import { SignupPage } from './pages/auth/SignupPage';
@@ -54,7 +53,6 @@ import { CustomerDashboard } from './pages/customer/CustomerDashboard';
 import { CustomerBillingPage } from './pages/customer/CustomerBillingPage';
 import { CustomerLandingPage } from './pages/customer/CustomerLandingPage';
 import { NavigationTest } from './components/debug/NavigationTest';
-import { ThemeToggle } from './components/ui/ThemeToggle';
 import './lib/i18n';
 
 /** Old reception visitors URL → visitors report under reception reports */
@@ -144,7 +142,6 @@ function AppContent() {
             <Route path="/:tenantSlug" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-    <ThemeToggle />
     </>
   );
 }
@@ -155,11 +152,9 @@ function App() {
       <AuthProvider>
         <CurrencyProvider>
           <NotificationProvider>
-            <ThemeProvider>
-              <ConfirmProvider>
-                <AppContent />
-              </ConfirmProvider>
-            </ThemeProvider>
+            <ConfirmProvider>
+              <AppContent />
+            </ConfirmProvider>
           </NotificationProvider>
         </CurrencyProvider>
       </AuthProvider>

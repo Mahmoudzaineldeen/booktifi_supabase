@@ -1315,22 +1315,22 @@ export function SettingsPage() {
     <div className="p-4 md:p-8">
       <div className="mb-6 md:mb-8">
         <div className="flex items-center gap-3 mb-1">
-          <div className="bg-slate-100 p-2.5 rounded-xl dark:bg-gray-800">
-            <Settings className="w-6 h-6 text-slate-600 dark:text-gray-200" />
+          <div className="bg-slate-100 p-2.5 rounded-xl">
+            <Settings className="w-6 h-6 text-slate-600" />
           </div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-gray-100">{t('navigation.settings')}</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('navigation.settings')}</h1>
         </div>
-        <p className="text-sm md:text-base text-slate-600 dark:text-gray-300 mt-1">{t('settings.manageSettings')}</p>
+        <p className="text-sm md:text-base text-slate-600 mt-1">{t('settings.manageSettings')}</p>
       </div>
 
       <div className="max-w-3xl">
         <div className="space-y-6">
           {/* Business Information Form */}
           <form onSubmit={handleSubmit}>
-          <Card className="shadow-sm border border-gray-200/80 dark:border-gray-700 dark:bg-gray-900">
-            <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-t-xl dark:from-gray-800 dark:to-gray-700">
+          <Card className="shadow-sm border border-gray-200/80">
+            <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-t-xl">
               <CardTitle className="flex items-center gap-2 text-xl">
-                <Building2 className="w-6 h-6 text-blue-600 dark:text-blue-300" />
+                <Building2 className="w-6 h-6 text-blue-600" />
                 {t('tenant.businessInformation')}
               </CardTitle>
             </CardHeader>
@@ -1361,11 +1361,11 @@ export function SettingsPage() {
               />
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   {t('tenant.timezone')}
                 </label>
                 <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   value={formData.tenant_time_zone}
                   onChange={(e) => setFormData({ ...formData, tenant_time_zone: e.target.value })}
                   required
@@ -1380,7 +1380,7 @@ export function SettingsPage() {
             </CardContent>
           </Card>
 
-          <Card className="dark:bg-gray-900 dark:border-gray-700">
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Settings className="w-5 h-5" />
@@ -1396,8 +1396,8 @@ export function SettingsPage() {
                   className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                 />
                 <div>
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('tenant.maintenanceMode')}</span>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('tenant.disablePublicBookings')}</p>
+                  <span className="text-sm font-medium text-gray-700">{t('tenant.maintenanceMode')}</span>
+                  <p className="text-xs text-gray-500">{t('tenant.disablePublicBookings')}</p>
                 </div>
               </label>
               
@@ -1410,8 +1410,8 @@ export function SettingsPage() {
                   disabled={formData.tickets_enabled === undefined} // Disable until loaded
                 />
                 <div>
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('settings.ticketsLabel')}</span>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-sm font-medium text-gray-700">{t('settings.ticketsLabel')}</span>
+                  <p className="text-xs text-gray-500">
                     {formData.tickets_enabled === undefined 
                       ? t('common.loading') 
                       : t('settings.ticketsDisabledHelp')}
@@ -1422,7 +1422,7 @@ export function SettingsPage() {
           </Card>
 
           {/* Scheduling Configuration (global mode) */}
-          <Card className="dark:bg-gray-900 dark:border-gray-700">
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Clock className="w-5 h-5" />
@@ -1430,11 +1430,11 @@ export function SettingsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm text-gray-600 dark:text-gray-300">
+              <p className="text-sm text-gray-600">
                 {t('settings.schedulingModeDescription', 'This setting controls how the entire booking system behaves. Changing the mode updates availability source and UI across Admin and Receptionist panels.')}
               </p>
               <div className="space-y-3">
-                <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg border border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">
+                <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg border border-gray-200 hover:bg-gray-50">
                   <input
                     type="radio"
                     name="scheduling_mode"
@@ -1459,11 +1459,11 @@ export function SettingsPage() {
                     className="mt-1 w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                   />
                   <div>
-                    <span className="font-medium text-gray-900 dark:text-gray-100">{t('settings.serviceSlotBased', 'Service slot based')}</span>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t('settings.serviceSlotBasedHelp', 'Availability from service-defined slots. Add/Edit/Delete slots per service. No employee assignment required.')}</p>
+                    <span className="font-medium text-gray-900">{t('settings.serviceSlotBased', 'Service slot based')}</span>
+                    <p className="text-xs text-gray-500 mt-0.5">{t('settings.serviceSlotBasedHelp', 'Availability from service-defined slots. Add/Edit/Delete slots per service. No employee assignment required.')}</p>
                   </div>
                 </label>
-                <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg border border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">
+                <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg border border-gray-200 hover:bg-gray-50">
                   <input
                     type="radio"
                     name="scheduling_mode"
@@ -1488,16 +1488,16 @@ export function SettingsPage() {
                     className="mt-1 w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                   />
                   <div>
-                    <span className="font-medium text-gray-900 dark:text-gray-100">{t('settings.employeeBased', 'Employee based')}</span>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t('settings.employeeBasedHelp', 'Availability from employee working shifts. Service slot management is hidden. Bookings are linked to employees (auto or manual assign).')}</p>
+                    <span className="font-medium text-gray-900">{t('settings.employeeBased', 'Employee based')}</span>
+                    <p className="text-xs text-gray-500 mt-0.5">{t('settings.employeeBasedHelp', 'Availability from employee working shifts. Service slot management is hidden. Bookings are linked to employees (auto or manual assign).')}</p>
                   </div>
                 </label>
 
                 {/* Assignment mode: only when Employee based is selected */}
                 {(tenantFeatures?.scheduling_mode ?? 'service_slot_based') === 'employee_based' && (
-                  <div className="ml-6 mt-3 pl-4 border-l-2 border-blue-200 dark:border-blue-700 space-y-2">
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('settings.assignmentMode', 'Assignment mode')}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{t('settings.assignmentModeHelp', 'Who assigns the employee to the booking.')}</p>
+                  <div className="ml-6 mt-3 pl-4 border-l-2 border-blue-200 space-y-2">
+                    <p className="text-sm font-medium text-gray-700">{t('settings.assignmentMode', 'Assignment mode')}</p>
+                    <p className="text-xs text-gray-500">{t('settings.assignmentModeHelp', 'Who assigns the employee to the booking.')}</p>
                     <div className="flex flex-wrap gap-4">
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
@@ -1694,15 +1694,15 @@ export function SettingsPage() {
 
           {/* Currency Settings - Only for Tenant Provider */}
           {userProfile?.role === 'tenant_admin' && (
-            <Card className="dark:bg-gray-900 dark:border-gray-700">
-              <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-gray-800 dark:to-gray-700">
+            <Card>
+              <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50">
                 <CardTitle className="flex items-center gap-2 text-xl">
-                  <DollarSign className="w-6 h-6 text-green-600 dark:text-green-300" />
+                  <DollarSign className="w-6 h-6 text-green-600" />
                   {t('settings.currency.title')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 pt-6">
-                <p className="text-sm text-gray-600 dark:text-gray-300">
+                <p className="text-sm text-gray-600">
                   {t('settings.currency.description')}
                 </p>
 
@@ -1729,13 +1729,13 @@ export function SettingsPage() {
                 )}
 
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <label className="block text-sm font-medium text-gray-700">
                     {t('settings.currency.selectCurrency') || 'Select Currency'}
                   </label>
                   <select
                     value={selectedCurrencyCode}
                     onChange={(e) => setSelectedCurrencyCode(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     disabled={currencyLoading}
                   >
                     {getAvailableCurrencies().map((currency) => (
@@ -1744,7 +1744,7 @@ export function SettingsPage() {
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="text-xs text-gray-500">
                     {t('settings.currency.hint')}
                   </p>
                 </div>
@@ -2162,7 +2162,7 @@ export function SettingsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6 sm:p-8">
-              <p className="text-sm text-slate-600 dark:text-gray-300 leading-relaxed max-w-3xl">{t('settings.invoiceProvider.subtitle')}</p>
+              <p className="text-sm text-slate-600 leading-relaxed max-w-3xl">{t('settings.invoiceProvider.subtitle')}</p>
               {invoiceProviderMessage && (
                 <div
                   className={`mt-4 p-3 rounded-lg text-sm ${
@@ -2176,10 +2176,10 @@ export function SettingsPage() {
                 </div>
               )}
               <form onSubmit={handleInvoiceProviderSave} className="mt-6 space-y-6">
-                <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 shadow-sm p-4 space-y-3 dark:border-gray-700 dark:bg-gray-800/70">
-                  <span className="text-sm font-semibold text-slate-800 dark:text-gray-100">{t('settings.invoiceProvider.activeLabel')}</span>
+                <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 shadow-sm p-4 space-y-3">
+                  <span className="text-sm font-semibold text-slate-800">{t('settings.invoiceProvider.activeLabel')}</span>
                   <div className="flex flex-wrap gap-3" role="radiogroup" aria-label={t('settings.invoiceProvider.activeLabel')}>
-                    <label className="flex items-center gap-2.5 cursor-pointer rounded-lg border border-transparent px-3 py-2 text-sm text-slate-700 dark:text-gray-300 hover:bg-white/80 dark:hover:bg-gray-700 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 has-[:focus-visible]:ring-offset-1">
+                    <label className="flex items-center gap-2.5 cursor-pointer rounded-lg border border-transparent px-3 py-2 text-sm text-slate-700 hover:bg-white/80 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 has-[:focus-visible]:ring-offset-1">
                       <input
                         type="radio"
                         name="invoice_provider"
@@ -2189,7 +2189,7 @@ export function SettingsPage() {
                       />
                       {t('settings.invoiceProvider.zoho')}
                     </label>
-                    <label className="flex items-center gap-2.5 cursor-pointer rounded-lg border border-transparent px-3 py-2 text-sm text-slate-700 dark:text-gray-300 hover:bg-white/80 dark:hover:bg-gray-700 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 has-[:focus-visible]:ring-offset-1">
+                    <label className="flex items-center gap-2.5 cursor-pointer rounded-lg border border-transparent px-3 py-2 text-sm text-slate-700 hover:bg-white/80 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-500 has-[:focus-visible]:ring-offset-1">
                       <input
                         type="radio"
                         name="invoice_provider"
@@ -2201,7 +2201,7 @@ export function SettingsPage() {
                     </label>
                   </div>
                 </div>
-                <p className="text-xs text-slate-500 dark:text-gray-400">
+                <p className="text-xs text-slate-500">
                   <a
                     href="https://docs.daftara.dev/"
                     target="_blank"
@@ -2213,37 +2213,37 @@ export function SettingsPage() {
                   </a>
                 </p>
                 {invoiceProvider === 'daftra' && (
-                  <div className="space-y-4 pt-2 border-t border-slate-200 dark:border-gray-700">
-                    <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-3 dark:border-gray-700 dark:bg-gray-900">
+                  <div className="space-y-4 pt-2 border-t border-slate-200">
+                    <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-3">
                       <Input
                         label={t('settings.invoiceProvider.daftraSubdomain')}
                         value={daftraForm.subdomain}
                         onChange={(e) => setDaftraForm({ ...daftraForm, subdomain: e.target.value })}
                         placeholder="mycompany"
                       />
-                      <p className="text-xs text-slate-500 dark:text-gray-400 leading-relaxed">{t('settings.invoiceProvider.daftraSubdomainHint')}</p>
+                      <p className="text-xs text-slate-500 leading-relaxed">{t('settings.invoiceProvider.daftraSubdomainHint')}</p>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2 dark:border-gray-700 dark:bg-gray-900">
+                      <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
                         <Input
                           label={t('settings.invoiceProvider.storeId')}
                           type="number"
                           value={daftraForm.store_id}
                           onChange={(e) => setDaftraForm({ ...daftraForm, store_id: e.target.value })}
                         />
-                        <p className="text-xs text-slate-500 dark:text-gray-400 leading-relaxed">{t('settings.invoiceProvider.storeIdHint')}</p>
+                        <p className="text-xs text-slate-500 leading-relaxed">{t('settings.invoiceProvider.storeIdHint')}</p>
                       </div>
-                      <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2 dark:border-gray-700 dark:bg-gray-900">
+                      <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
                         <Input
                           label={t('settings.invoiceProvider.productId')}
                           type="number"
                           value={daftraForm.default_product_id}
                           onChange={(e) => setDaftraForm({ ...daftraForm, default_product_id: e.target.value })}
                         />
-                        <p className="text-xs text-slate-500 dark:text-gray-400 leading-relaxed">{t('settings.invoiceProvider.productIdHint')}</p>
+                        <p className="text-xs text-slate-500 leading-relaxed">{t('settings.invoiceProvider.productIdHint')}</p>
                       </div>
                     </div>
-                    <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2 dark:border-gray-700 dark:bg-gray-900">
+                    <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
                       <Input
                         label={t('settings.invoiceProvider.layoutId', 'Invoice Layout ID (optional)')}
                         type="number"
@@ -2257,7 +2257,7 @@ export function SettingsPage() {
                         )}
                       </p>
                     </div>
-                    <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-3 dark:border-gray-700 dark:bg-gray-900">
+                    <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-3">
                       <Input
                         label={t('settings.invoiceProvider.apiToken')}
                         type="password"
@@ -2265,7 +2265,7 @@ export function SettingsPage() {
                         onChange={(e) => setDaftraForm({ ...daftraForm, api_token: e.target.value })}
                         placeholder={daftraTokenSet ? '••••••••' : ''}
                       />
-                      <p className="text-xs text-slate-500 dark:text-gray-400 leading-relaxed">{t('settings.invoiceProvider.apiTokenHint')}</p>
+                      <p className="text-xs text-slate-500 leading-relaxed">{t('settings.invoiceProvider.apiTokenHint')}</p>
                       {daftraTokenSet && (
                         <p className="text-xs text-emerald-700 font-medium">{t('settings.invoiceProvider.tokenOnFile')}</p>
                       )}
@@ -2276,7 +2276,7 @@ export function SettingsPage() {
                           onChange={(e) => setDaftraForm({ ...daftraForm, country_code: e.target.value })}
                           maxLength={3}
                         />
-                        <label className="flex items-start gap-2.5 text-sm text-slate-700 dark:text-gray-300 cursor-pointer rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-3 md:mb-0.5 dark:border-gray-700 dark:bg-gray-800">
+                        <label className="flex items-start gap-2.5 text-sm text-slate-700 cursor-pointer rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-3 md:mb-0.5">
                           <input
                             type="checkbox"
                             className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
@@ -2329,9 +2329,9 @@ export function SettingsPage() {
 
                 {/* Connection Status */}
                 {zohoStatus && (
-                  <div className="p-4 sm:p-5 bg-slate-50/90 rounded-xl border border-slate-200/90 shadow-sm dark:bg-gray-800/80 dark:border-gray-700">
-                    <h3 className="text-sm font-semibold text-slate-800 dark:text-gray-100 mb-3">{t('settings.zoho.connectionStatus')}</h3>
-                    <div className="space-y-2 text-sm text-slate-700 dark:text-gray-300">
+                  <div className="p-4 sm:p-5 bg-slate-50/90 rounded-xl border border-slate-200/90 shadow-sm">
+                    <h3 className="text-sm font-semibold text-slate-800 mb-3">{t('settings.zoho.connectionStatus')}</h3>
+                    <div className="space-y-2 text-sm text-slate-700">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="text-slate-600">{t('settings.zoho.configuration')}:</span>
                         {zohoStatus.has_config ? (
@@ -2378,16 +2378,16 @@ export function SettingsPage() {
                   </div>
                 )}
 
-                <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 via-white to-violet-50/50 p-4 sm:p-5 shadow-sm dark:border-indigo-700/40 dark:from-gray-800 dark:via-gray-800 dark:to-gray-900">
-                  <h4 className="text-sm font-semibold text-indigo-950 dark:text-indigo-200 mb-2">{t('settings.zoho.setupInstructions')}</h4>
-                  <ol className="text-xs text-indigo-900/90 dark:text-indigo-100/80 space-y-1.5 list-decimal list-inside leading-relaxed">
+                <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 via-white to-violet-50/50 p-4 sm:p-5 shadow-sm">
+                  <h4 className="text-sm font-semibold text-indigo-950 mb-2">{t('settings.zoho.setupInstructions')}</h4>
+                  <ol className="text-xs text-indigo-900/90 space-y-1.5 list-decimal list-inside leading-relaxed">
                     <li>
                       {t('settings.zoho.setupStep1')}{' '}
                       <a
                         href="https://api-console.zoho.com/"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="font-medium text-indigo-700 dark:text-indigo-300 underline decoration-indigo-300 underline-offset-2 hover:text-indigo-900 dark:hover:text-indigo-100"
+                        className="font-medium text-indigo-700 underline decoration-indigo-300 underline-offset-2 hover:text-indigo-900"
                       >
                         Zoho Developer Console
                       </a>
@@ -2395,7 +2395,7 @@ export function SettingsPage() {
                     <li>{t('settings.zoho.setupStep2')}</li>
                     <li>
                       <strong>{t('common.info')}:</strong> {t('settings.zoho.setupStep3')}{' '}
-                      <code className="bg-indigo-100/80 dark:bg-indigo-900/40 px-1.5 py-0.5 rounded text-[0.8rem] font-mono text-indigo-950 dark:text-indigo-100">
+                      <code className="bg-indigo-100/80 px-1.5 py-0.5 rounded text-[0.8rem] font-mono text-indigo-950">
                         {zohoSettings.redirect_uri || `${window.location.origin}/api/zoho/callback`}
                       </code>
                     </li>
@@ -2406,8 +2406,8 @@ export function SettingsPage() {
                   </ol>
                 </div>
 
-                <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2 dark:border-gray-700 dark:bg-gray-900">
-                  <label className="block text-sm font-semibold text-slate-800 dark:text-gray-100">
+                <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
+                  <label className="block text-sm font-semibold text-slate-800">
                     {t('settings.zoho.clientId')}
                   </label>
                   <Input
@@ -2417,11 +2417,11 @@ export function SettingsPage() {
                     placeholder={t('settings.zoho.clientIdPlaceholder')}
                     required
                   />
-                  <p className="text-xs text-slate-500 dark:text-gray-400 leading-relaxed">{t('settings.zoho.clientIdHint')}</p>
+                  <p className="text-xs text-slate-500 leading-relaxed">{t('settings.zoho.clientIdHint')}</p>
                 </div>
 
-                <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2 dark:border-gray-700 dark:bg-gray-900">
-                  <label className="block text-sm font-semibold text-slate-800 dark:text-gray-100">
+                <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
+                  <label className="block text-sm font-semibold text-slate-800">
                     {t('settings.zoho.clientSecret')}
                   </label>
                   <div className="relative">
@@ -2441,11 +2441,11 @@ export function SettingsPage() {
                       {showZohoSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-gray-400 leading-relaxed">{t('settings.zoho.clientSecretHint')}</p>
+                  <p className="text-xs text-slate-500 leading-relaxed">{t('settings.zoho.clientSecretHint')}</p>
                 </div>
 
-                <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2 dark:border-gray-700 dark:bg-gray-900">
-                  <label className="block text-sm font-semibold text-slate-800 dark:text-gray-100">
+                <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
+                  <label className="block text-sm font-semibold text-slate-800">
                     {t('settings.zoho.redirectUriRequired')}
                   </label>
                   <Input
@@ -2456,9 +2456,9 @@ export function SettingsPage() {
                     required
                   />
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    <strong className="text-slate-700 dark:text-gray-300">{t('settings.zoho.redirectUriMustMatch')}</strong>{' '}
+                    <strong className="text-slate-700">{t('settings.zoho.redirectUriMustMatch')}</strong>{' '}
                     {t('settings.zoho.redirectUriDefault')}{' '}
-                    <code className="bg-slate-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-[0.8rem] font-mono text-slate-800 dark:text-gray-200">
+                    <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[0.8rem] font-mono text-slate-800">
                       {window.location.origin}/api/zoho/callback
                     </code>
                   </p>
@@ -2472,24 +2472,24 @@ export function SettingsPage() {
                   >
                     {t('settings.zoho.useDefault')} {window.location.origin}/api/zoho/callback
                   </button>
-                  <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200/90 dark:bg-gray-800 dark:border-gray-700">
-                    <p className="text-xs font-semibold text-slate-800 dark:text-gray-100 mb-1.5">{t('settings.zoho.redirectUriThatWillBeUsed')}</p>
-                    <code className="text-xs font-mono text-slate-900 dark:text-gray-200 break-all block">
+                  <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200/90">
+                    <p className="text-xs font-semibold text-slate-800 mb-1.5">{t('settings.zoho.redirectUriThatWillBeUsed')}</p>
+                    <code className="text-xs font-mono text-slate-900 break-all block">
                       {zohoSettings.redirect_uri || `${window.location.origin}/api/zoho/callback`}
                     </code>
-                    <p className="text-xs text-slate-600 dark:text-gray-300 mt-2 leading-relaxed">
+                    <p className="text-xs text-slate-600 mt-2 leading-relaxed">
                       {t('settings.zoho.copyExactUri')}
                     </p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2 dark:border-gray-700 dark:bg-gray-900">
-                    <label className="block text-sm font-semibold text-slate-800 dark:text-gray-100">
+                  <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
+                    <label className="block text-sm font-semibold text-slate-800">
                       {t('settings.zoho.regionLabel')}
                     </label>
                     <select
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       value={zohoSettings.region}
                       onChange={(e) => setZohoSettings({ ...zohoSettings, region: e.target.value })}
                     >
@@ -2499,26 +2499,26 @@ export function SettingsPage() {
                       <option value="au">{t('settings.zoho.regionAu')}</option>
                       <option value="jp">{t('settings.zoho.regionJp')}</option>
                     </select>
-                    <p className="text-xs text-slate-500 dark:text-gray-400 leading-relaxed">{t('settings.zoho.regionHint')}</p>
+                    <p className="text-xs text-slate-500 leading-relaxed">{t('settings.zoho.regionHint')}</p>
                   </div>
-                  <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2 dark:border-gray-700 dark:bg-gray-900">
-                    <label className="block text-sm font-semibold text-slate-800 dark:text-gray-100">
+                  <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
+                    <label className="block text-sm font-semibold text-slate-800">
                       {t('settings.zoho.organizationIdLabel', 'Zoho Organization ID')}
                     </label>
                     <input
                       type="text"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="e.g. 123456789"
                       value={zohoSettings.zoho_organization_id ?? ''}
                       onChange={(e) => setZohoSettings({ ...zohoSettings, zoho_organization_id: e.target.value })}
                     />
-                    <p className="text-xs text-slate-500 dark:text-gray-400 leading-relaxed">
+                    <p className="text-xs text-slate-500 leading-relaxed">
                       {t('settings.zoho.organizationIdHint', 'Required for recording payments (package/booking invoices). Find it in Zoho Invoice → Settings → Organization Profile.')}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-3 pt-4 mt-1 border-t border-slate-200/80 dark:border-gray-700">
+                <div className="flex flex-wrap gap-3 pt-4 mt-1 border-t border-slate-200/80">
                   {zohoStatus?.connection_status === 'connected' && (
                     <Button
                       type="button"
