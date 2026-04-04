@@ -517,6 +517,24 @@ export function ReceptionPage() {
     return getRequiredSlotsForDuration(baseDuration, 'multiplier', getReceptionTagSlotCount());
   }
 
+  function addMinutesToTimeValue(startTime: string, minutesToAdd: number): string {
+    const [h, m] = (startTime || '00:00:00').slice(0, 8).split(':').map(Number);
+    const base = (Number(h) || 0) * 60 + (Number(m) || 0);
+    const total = (base + Math.max(0, Math.round(minutesToAdd))) % (24 * 60);
+    const hh = Math.floor(total / 60);
+    const mm = total % 60;
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`;
+  }
+
+  function getReceptionPreviewTimeRange(startTime?: string, endTime?: string): string {
+    if (!startTime || !endTime) return '—';
+    const adjustedEnd =
+      bookingForm.visitor_count <= 1 && receptionDurationMeta.requiredSlots > 1
+        ? addMinutesToTimeValue(startTime, receptionDurationMeta.finalDurationMinutes)
+        : endTime;
+    return `${formatTimeTo12Hour(startTime)} - ${formatTimeTo12Hour(adjustedEnd)}`;
+  }
+
   const receptionDurationMeta = getReceptionDurationMeta();
   const slotsForSelection = bookingForm.visitor_count <= 1
     ? (filterSlotsByRequiredConsecutive(slots, receptionDurationMeta.requiredSlots) as Slot[])
@@ -4689,6 +4707,18 @@ export function ReceptionPage() {
                           <div className="text-sm text-gray-600">
                             {t('reception.quantityCount', { count: bookingForm.visitor_count })}
                           </div>
+                          {(() => {
+                            const selectedTag = receptionPricingTags.find((x) => x.id === receptionSelectedTagId);
+                            if (!selectedTag) return null;
+                            const slotCount = Math.max(1, Math.ceil(Number(selectedTag.slot_count ?? 1)));
+                            const fee = selectedTag.is_default ? 0 : Math.max(0, Number(selectedTag.fee_value ?? 0));
+                            return (
+                              <div className="text-xs text-gray-500 mt-1">
+                                {`${selectedTag.name} · ${t('tags.slotImpactSummary', 'Slots x{{value}}', { value: slotCount })}`}
+                                {fee > 0 ? ` · ${t('tags.tagFee', 'Tag fee')}: ${formatPrice(fee)}` : ''}
+                              </div>
+                            );
+                          })()}
                         </div>
                         <div className="text-right">
                           {consumeFromPackage && packageCheck.available && packageCheck.remaining >= (bookingForm.visitor_count as number) ? (
@@ -4703,7 +4733,9 @@ export function ReceptionPage() {
                               {(() => {
                                 const price = service.base_price || 0;
                                 const visitorCount = typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1;
-                                return formatPrice(price * visitorCount);
+                                const selectedTag = receptionPricingTags.find((x) => x.id === receptionSelectedTagId);
+                                const fee = selectedTag && !selectedTag.is_default ? Math.max(0, Number(selectedTag.fee_value ?? 0)) : 0;
+                                return formatPrice(price * visitorCount + fee);
                               })()}
                             </span>
                           )}
@@ -4741,7 +4773,7 @@ export function ReceptionPage() {
                               {format(parseISO(slot.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}
                             </div>
                             <div className="text-xs text-gray-600">
-                              {formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}
+                              {getReceptionPreviewTimeRange(slot.start_time, slot.end_time)}
                             </div>
                           </div>
                           {employee && (
@@ -4759,7 +4791,7 @@ export function ReceptionPage() {
                           {format(parseISO(selectedTimeSlot.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined })}
                         </div>
                         <div className="text-xs text-gray-600">
-                          {formatTimeTo12Hour(selectedTimeSlot.start_time)} - {formatTimeTo12Hour(selectedTimeSlot.end_time)}
+                          {getReceptionPreviewTimeRange(selectedTimeSlot.start_time, selectedTimeSlot.end_time)}
                         </div>
                       </div>
                       <div className="text-sm text-gray-600">

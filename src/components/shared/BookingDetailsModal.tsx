@@ -49,6 +49,10 @@ export interface BookingDetailsModalBooking {
   daftra_invoice_created_at?: string | null;
   service_id?: string;
   slot_id?: string;
+  tag_id?: string | null;
+  required_slot_count?: number | null;
+  effective_start_time?: string | null;
+  effective_end_time?: string | null;
   services?: { name: string; name_ar?: string | null };
   slots?: { slot_date: string; start_time: string; end_time: string };
   users?: { full_name: string; full_name_ar?: string | null } | null;
@@ -189,9 +193,31 @@ export function BookingDetailsModal({
     : '—';
   const providerName = serviceProviderName ?? (displayBooking ? getEmployeeDisplayName(displayBooking, isAr) : '—');
   const slotDate = displayBooking?.slots?.slot_date;
+  const addMinutesToTimeValue = (startTime: string, minutesToAdd: number): string => {
+    const [h, m] = (startTime || '00:00:00').slice(0, 8).split(':').map(Number);
+    const base = (Number(h) || 0) * 60 + (Number(m) || 0);
+    const total = (base + Math.max(0, Math.round(minutesToAdd))) % (24 * 60);
+    const hh = Math.floor(total / 60);
+    const mm = total % 60;
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`;
+  };
+  const displayStartTime = displayBooking?.effective_start_time || displayBooking?.slots?.start_time || '';
+  const displayEndTime =
+    displayBooking?.effective_end_time ||
+    (() => {
+      const start = displayBooking?.slots?.start_time;
+      const end = displayBooking?.slots?.end_time;
+      const requiredSlots = Math.max(1, Math.ceil(Number(displayBooking?.required_slot_count ?? 1)));
+      if (!start || !end || requiredSlots <= 1) return end || '';
+      const startM = (Number(start.slice(0, 2)) || 0) * 60 + (Number(start.slice(3, 5)) || 0);
+      let endM = (Number(end.slice(0, 2)) || 0) * 60 + (Number(end.slice(3, 5)) || 0);
+      if (endM <= startM) endM += 24 * 60;
+      const slotDuration = Math.max(1, endM - startM);
+      return addMinutesToTimeValue(start, slotDuration * requiredSlots);
+    })();
   const slotTime =
-    displayBooking?.slots?.start_time && displayBooking?.slots?.end_time
-      ? `${formatTimeTo12Hour(displayBooking.slots!.start_time)} - ${formatTimeTo12Hour(displayBooking.slots!.end_time)}`
+    displayStartTime && displayEndTime
+      ? `${formatTimeTo12Hour(displayStartTime)} - ${formatTimeTo12Hour(displayEndTime)}`
       : '—';
   const slotDateFormatted =
     slotDate && slotTime !== '—'

@@ -443,6 +443,25 @@ export function BookingsPage() {
     return getRequiredSlotsForDuration(baseDuration, 'multiplier', getSelectedCreateTagSlotCount());
   }
 
+  function addMinutesToTimeValue(startTime: string, minutesToAdd: number): string {
+    const [h, m] = (startTime || '00:00:00').slice(0, 8).split(':').map(Number);
+    const base = (Number(h) || 0) * 60 + (Number(m) || 0);
+    const total = (base + Math.max(0, Math.round(minutesToAdd))) % (24 * 60);
+    const hh = Math.floor(total / 60);
+    const mm = total % 60;
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`;
+  }
+
+  function getCreatePreviewTimeRange(startTime?: string, endTime?: string): string {
+    if (!startTime || !endTime) return '—';
+    const meta = getCreateDurationMeta();
+    const adjustedEnd =
+      createForm.visitor_count <= 1 && meta.requiredSlots > 1
+        ? addMinutesToTimeValue(startTime, meta.finalDurationMinutes)
+        : endTime;
+    return `${formatTimeTo12Hour(startTime)} - ${formatTimeTo12Hour(adjustedEnd)}`;
+  }
+
   function getRequiredSlotsCount(): number {
     if (createForm.visitor_count <= 1) return 1;
     return createForm.visitor_count;
@@ -2767,6 +2786,18 @@ export function BookingsPage() {
                         <div>
                           <div className="font-medium text-gray-900">{isAr ? svc.name_ar : svc.name}</div>
                           <div className="text-sm text-gray-600">{t('reception.quantityCount', { count: createForm.visitor_count })}</div>
+                          {(() => {
+                            const selectedTag = createPricingTags.find((x) => x.id === selectedPricingTagId);
+                            if (!selectedTag) return null;
+                            const slotCount = Math.max(1, Math.ceil(Number(selectedTag.slot_count ?? 1)));
+                            const fee = selectedTag.is_default ? 0 : Math.max(0, Number(selectedTag.fee_value ?? 0));
+                            return (
+                              <div className="text-xs text-gray-500 mt-1">
+                                {`${selectedTag.name} · ${t('tags.slotImpactSummary', 'Slots x{{value}}', { value: slotCount })}`}
+                                {fee > 0 ? ` · ${t('tags.tagFee', 'Tag fee')}: ${formatPrice(fee)}` : ''}
+                              </div>
+                            );
+                          })()}
                         </div>
                         <div className="text-right">
                           {createConsumeFromPackage && pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count ? (
@@ -2794,7 +2825,7 @@ export function BookingsPage() {
                       <div key={idx} className="flex justify-between items-center py-2 border-b last:border-b-0">
                         <div>
                           <div className="text-sm font-medium text-gray-900">{format(parseISO(s.slot_date), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })}</div>
-                          <div className="text-xs text-gray-600">{formatTimeTo12Hour(s.start_time)} - {formatTimeTo12Hour(s.end_time)}</div>
+                          <div className="text-xs text-gray-600">{getCreatePreviewTimeRange(s.start_time, s.end_time)}</div>
                         </div>
                       </div>
                     ))
@@ -2804,7 +2835,7 @@ export function BookingsPage() {
                       <div className="flex justify-between items-center py-2">
                         <div>
                           <div className="text-sm font-medium text-gray-900">{format(parseISO(createDate), 'MMM dd, yyyy', { locale: isAr ? ar : undefined })}</div>
-                          <div className="text-xs text-gray-600">{formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}</div>
+                          <div className="text-xs text-gray-600">{getCreatePreviewTimeRange(slot.start_time, slot.end_time)}</div>
                         </div>
                       </div>
                     ) : null;
