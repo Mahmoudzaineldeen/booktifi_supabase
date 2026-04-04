@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
@@ -18,6 +18,13 @@ import { Calendar, Users, Briefcase, DollarSign, TrendingUp, CheckCircle, Grid, 
 import { startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, parseISO, eachDayOfInterval, addDays, isSameDay, addMinutes, isAfter, isBefore, parse } from 'date-fns';
 import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import { ar } from 'date-fns/locale';
+import {
+  DashboardLayoutConfig,
+  DashboardWidgetId,
+  getDefaultDashboardLayoutConfig,
+  sanitizeDashboardLayoutConfig,
+} from '../../lib/dashboardWidgets';
+import { getDashboardLayout } from '../../lib/dashboardLayoutApi';
 
 interface ServicePerformance {
   id: string;
@@ -32,8 +39,8 @@ interface ServicePerformance {
 
 export function TenantDashboardContent() {
   const { t, i18n } = useTranslation();
-  const navigate = useNavigate();
-  const { userProfile, tenant } = useAuth();
+  const location = useLocation();
+  const { userProfile, tenant, hasPermission } = useAuth();
   const { formatPrice, formatPriceString } = useCurrency();
   const { features } = useTenantFeatures(tenant?.id);
   const [timeRange, setTimeRange] = useState<TimeRange>('today');
@@ -60,6 +67,7 @@ export function TenantDashboardContent() {
   const [selectedBookingForDetails, setSelectedBookingForDetails] = useState<any | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [layoutConfig, setLayoutConfig] = useState<DashboardLayoutConfig>(getDefaultDashboardLayoutConfig());
   const isInitialLoadRef = useRef(true);
 
   useEffect(() => {
@@ -73,6 +81,42 @@ export function TenantDashboardContent() {
     if (viewMode === 'calendar') fetchCalendarBookings();
     else fetchDashboardBookings();
   }, [userProfile, viewMode, calendarDate, timeRange, customStartDate, customEndDate]);
+
+  useEffect(() => {
+    if (!userProfile || !hasPermission('customize_dashboard')) return;
+    let isActive = true;
+    const search = new URLSearchParams(location.search);
+    const isPreviewMode = search.get('layoutPreview') === '1';
+
+    if (isPreviewMode) {
+      const previewDraft = sessionStorage.getItem('dashboard_layout_preview_draft');
+      if (previewDraft) {
+        try {
+          setLayoutConfig(sanitizeDashboardLayoutConfig(JSON.parse(previewDraft)));
+          return () => {
+            isActive = false;
+          };
+        } catch {
+          // Ignore parse errors and fall back to persisted layout.
+        }
+      }
+    }
+
+    (async () => {
+      try {
+        const { layout } = await getDashboardLayout();
+        if (!isActive) return;
+        setLayoutConfig(sanitizeDashboardLayoutConfig(layout));
+      } catch {
+        if (!isActive) return;
+        setLayoutConfig(getDefaultDashboardLayoutConfig());
+      }
+    })();
+
+    return () => {
+      isActive = false;
+    };
+  }, [userProfile, hasPermission, location.search]);
 
   // Lightweight auto-refresh for real-time feel without heavy load.
   useEffect(() => {
@@ -521,6 +565,266 @@ export function TenantDashboardContent() {
     return dateB.getTime() - dateA.getTime(); // Most recent first
   });
 
+  const visibleWidgets = useMemo(
+    () =>
+      sanitizeDashboardLayoutConfig(layoutConfig).widgets
+        .filter((w) => w.visible)
+        .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y)),
+    [layoutConfig]
+  );
+
+  function renderDashboardWidget(widgetId: DashboardWidgetId) {
+    switch (widgetId) {
+      case 'totalBookings':
+        return (
+          <StatCard
+            title={t('dashboard.totalBookings', 'Total Bookings')}
+            value={stats.totalBookings}
+            icon={Calendar}
+            iconColor="text-blue-600"
+            iconBgColor="bg-blue-100"
+          />
+        );
+      case 'bookingRevenue':
+        return (
+          <StatCard
+            title={t('dashboard.bookingRevenue', 'Booking Revenue')}
+            value={formatPrice(stats.totalRevenue)}
+            subtitle={`${t('dashboard.paidLabel', 'Paid')}: ${formatPriceString(stats.paidBookingRevenue)} | ${t('dashboard.unpaidLabel', 'Unpaid')}: ${formatPriceString(stats.unpaidBookingRevenue)}`}
+            icon={DollarSign}
+            iconColor="text-green-600"
+            iconBgColor="bg-green-100"
+          />
+        );
+      case 'paidBookings':
+        return (
+          <StatCard
+            title={t('dashboard.paidBookings', 'Paid Bookings')}
+            value={stats.paidBookings}
+            icon={CheckCircle}
+            iconColor="text-emerald-600"
+            iconBgColor="bg-emerald-100"
+          />
+        );
+      case 'unpaidBookings':
+        return (
+          <StatCard
+            title={t('dashboard.unpaidBookings', 'Unpaid Bookings')}
+            value={stats.unpaidBookings}
+            icon={XCircle}
+            iconColor="text-amber-600"
+            iconBgColor="bg-amber-100"
+          />
+        );
+      case 'packageSubscriptions':
+        return (
+          <StatCard
+            title={t('dashboard.packageSubscriptions', 'Package Subscriptions')}
+            value={stats.packageSubscriptions}
+            icon={Package}
+            iconColor="text-violet-600"
+            iconBgColor="bg-violet-100"
+          />
+        );
+      case 'packageRevenue':
+        return (
+          <StatCard
+            title={t('dashboard.packageRevenue', 'Package Revenue')}
+            value={formatPrice(stats.packageRevenue)}
+            icon={Package}
+            iconColor="text-purple-600"
+            iconBgColor="bg-purple-100"
+          />
+        );
+      case 'completedBookings':
+        return (
+          <StatCard
+            title={t('dashboard.completedBookings', 'Completed Bookings')}
+            value={stats.completedBookings}
+            icon={CheckCircle}
+            iconColor="text-teal-600"
+            iconBgColor="bg-teal-100"
+          />
+        );
+      case 'averageBookingValue':
+        return (
+          <StatCard
+            title={t('dashboard.averageBookingValue', 'Average Booking Value')}
+            value={formatPrice(stats.averageBookingValue)}
+            icon={TrendingUp}
+            iconColor="text-orange-600"
+            iconBgColor="bg-orange-100"
+          />
+        );
+      case 'totalRevenueCombined':
+        return (
+          <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <p className="text-sm text-gray-600">
+              {t('dashboard.totalRevenueCombined', 'Total Revenue (Bookings + Packages)')}:{' '}
+              <span className="font-semibold text-gray-900">
+                {formatPrice(stats.totalRevenue + stats.packageRevenue)}
+              </span>
+            </p>
+          </div>
+        );
+      case 'revenueByService':
+        return (
+          <PieChart
+            title={t('dashboard.revenueByService', 'Revenue by Service')}
+            data={servicePieData}
+          />
+        );
+      case 'serviceBookingComparison':
+        return (
+          <ComparisonChart
+            title={t('dashboard.serviceBookingComparison', 'Service Booking Comparison')}
+            series={serviceComparisonSeries}
+            valueLabel={t('dashboard.bookings', 'Bookings')}
+          />
+        );
+      case 'servicePerformanceRevenue':
+        return (
+          <PerformanceChart
+            title={t('dashboard.servicePerformance', 'Service Performance')}
+            data={serviceChartData}
+            metric="revenue"
+          />
+        );
+      case 'bookingsByService':
+        return (
+          <PerformanceChart
+            title={t('dashboard.bookingsByService', 'Bookings by Service')}
+            data={serviceChartData}
+            metric="bookings"
+          />
+        );
+      case 'upcomingBookings':
+        if (upcomingBookings.length === 0) return null;
+        return (
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="w-5 h-5 text-blue-600" />
+              <h2 className="text-xl font-semibold text-gray-900">
+                {t('dashboard.upcomingBookings', 'Upcoming Bookings')}
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {upcomingBookings.map((booking) => {
+                const slot = booking.slots;
+                const service = booking.services as any;
+                const serviceName = i18n.language === 'ar' && service?.name_ar ? service.name_ar : (service?.name || t('service.unknown'));
+                const bookingDate = slot?.slot_date ? format(new Date(slot.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined }) : 'N/A';
+                return (
+                  <Card key={booking.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <User className="w-4 h-4 text-gray-500" />
+                            <h3 className="font-semibold text-gray-900">{booking.customer_name}</h3>
+                          </div>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            booking.status === 'confirmed' ? 'bg-green-100 text-green-800' :
+                            booking.status === 'checked_in' ? 'bg-blue-100 text-blue-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {safeTranslateStatus(t, booking.status, 'booking')}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600">{serviceName}</p>
+                        <div className="flex items-center gap-2 text-sm text-gray-700">
+                          <Calendar className="w-4 h-4" />
+                          <span>{bookingDate}</span>
+                        </div>
+                        {slot?.start_time && slot?.end_time && (
+                          <div className="flex items-center gap-2 text-sm text-gray-700">
+                            <span>{formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}</span>
+                          </div>
+                        )}
+                        <div className="pt-2 border-t text-sm">
+                          <span className="font-medium text-gray-900">
+                            {formatPrice(parseFloat(booking.total_price?.toString() || '0'))}
+                          </span>
+                          {booking.visitor_count > 1 && (
+                            <span className="text-gray-600 ml-2">
+                              ({booking.visitor_count} {t('booking.visitors', 'visitors')})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        );
+      case 'pastBookings':
+        if (expiredBookings.length === 0) return null;
+        return (
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <XCircle className="w-5 h-5 text-gray-600" />
+              <h2 className="text-xl font-semibold text-gray-900">
+                {t('dashboard.expiredBookings', 'Past Bookings')}
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {expiredBookings.map((booking) => {
+                const slot = booking.slots;
+                const service = booking.services as any;
+                const serviceName = i18n.language === 'ar' && service?.name_ar ? service.name_ar : (service?.name || t('service.unknown'));
+                const bookingDate = slot?.slot_date ? format(new Date(slot.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined }) : 'N/A';
+                return (
+                  <Card key={booking.id} className="hover:shadow-md transition-shadow opacity-75">
+                    <CardContent className="p-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <User className="w-4 h-4 text-gray-500" />
+                            <h3 className="font-semibold text-gray-700">{booking.customer_name}</h3>
+                          </div>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            booking.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                            booking.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {safeTranslateStatus(t, booking.status, 'booking')}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600">{serviceName}</p>
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                          <Calendar className="w-4 h-4" />
+                          <span>{bookingDate}</span>
+                        </div>
+                        {slot?.start_time && slot?.end_time && (
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <span>{formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}</span>
+                          </div>
+                        )}
+                        <div className="pt-2 border-t text-sm">
+                          <span className="font-medium text-gray-700">
+                            {formatPrice(parseFloat(booking.total_price?.toString() || '0'))}
+                          </span>
+                          {booking.visitor_count > 1 && (
+                            <span className="text-gray-500 ml-2">
+                              ({booking.visitor_count} {t('booking.visitors', 'visitors')})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        );
+      default:
+        return null;
+    }
+  }
+
   return (
     <div className="p-4 md:p-8">
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -576,6 +880,12 @@ export function TenantDashboardContent() {
         </button>
       </div>
 
+      {new URLSearchParams(location.search).get('layoutPreview') === '1' && (
+        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          {t('dashboard.previewModeBanner', 'Preview mode: showing draft dashboard layout (not saved yet).')}
+        </div>
+      )}
+
       {viewMode === 'dashboard' && (
         <>
           <TimeFilter
@@ -588,238 +898,21 @@ export function TenantDashboardContent() {
               setCustomEndDate(end);
             }}
           />
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        <StatCard
-          title={t('dashboard.totalBookings', 'Total Bookings')}
-          value={stats.totalBookings}
-          icon={Calendar}
-          iconColor="text-blue-600"
-          iconBgColor="bg-blue-100"
-        />
-
-        <StatCard
-          title={t('dashboard.bookingRevenue', 'Booking Revenue')}
-          value={formatPrice(stats.totalRevenue)}
-          subtitle={`${t('dashboard.paidLabel', 'Paid')}: ${formatPriceString(stats.paidBookingRevenue)} | ${t('dashboard.unpaidLabel', 'Unpaid')}: ${formatPriceString(stats.unpaidBookingRevenue)}`}
-          icon={DollarSign}
-          iconColor="text-green-600"
-          iconBgColor="bg-green-100"
-        />
-
-        <StatCard
-          title={t('dashboard.paidBookings', 'Paid Bookings')}
-          value={stats.paidBookings}
-          icon={CheckCircle}
-          iconColor="text-emerald-600"
-          iconBgColor="bg-emerald-100"
-        />
-
-        <StatCard
-          title={t('dashboard.unpaidBookings', 'Unpaid Bookings')}
-          value={stats.unpaidBookings}
-          icon={XCircle}
-          iconColor="text-amber-600"
-          iconBgColor="bg-amber-100"
-        />
-
-        <StatCard
-          title={t('dashboard.packageSubscriptions', 'Package Subscriptions')}
-          value={stats.packageSubscriptions}
-          icon={Package}
-          iconColor="text-violet-600"
-          iconBgColor="bg-violet-100"
-        />
-
-        <StatCard
-          title={t('dashboard.packageRevenue', 'Package Revenue')}
-          value={formatPrice(stats.packageRevenue)}
-          icon={Package}
-          iconColor="text-purple-600"
-          iconBgColor="bg-purple-100"
-        />
-
-        <StatCard
-          title={t('dashboard.completedBookings', 'Completed Bookings')}
-          value={stats.completedBookings}
-          icon={CheckCircle}
-          iconColor="text-teal-600"
-          iconBgColor="bg-teal-100"
-        />
-
-        <StatCard
-          title={t('dashboard.averageBookingValue', 'Average Booking Value')}
-          value={formatPrice(stats.averageBookingValue)}
-          icon={TrendingUp}
-          iconColor="text-orange-600"
-          iconBgColor="bg-orange-100"
-        />
-      </div>
-
-      {/* Combined revenue summary */}
-      <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-        <p className="text-sm text-gray-600">
-          {t('dashboard.totalRevenueCombined', 'Total Revenue (Bookings + Packages)')}:{' '}
-          <span className="font-semibold text-gray-900">
-            {formatPrice(stats.totalRevenue + stats.packageRevenue)}
-          </span>
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 mb-8">
-        <PieChart
-          title={t('dashboard.revenueByService', 'Revenue by Service')}
-          data={servicePieData}
-        />
-      </div>
-
-      <div className="mb-8">
-        <ComparisonChart
-          title={t('dashboard.serviceBookingComparison', 'Service Booking Comparison')}
-          series={serviceComparisonSeries}
-          valueLabel={t('dashboard.bookings', 'Bookings')}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 mb-8">
-        <PerformanceChart
-          title={t('dashboard.servicePerformance', 'Service Performance')}
-          data={serviceChartData}
-          metric="revenue"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-6">
-        <PerformanceChart
-          title={t('dashboard.bookingsByService', 'Bookings by Service')}
-          data={serviceChartData}
-          metric="bookings"
-        />
-      </div>
-
-      {/* Upcoming Bookings */}
-      {upcomingBookings.length > 0 && (
-        <div className="mt-8">
-          <div className="flex items-center gap-2 mb-4">
-            <Clock className="w-5 h-5 text-blue-600" />
-            <h2 className="text-xl font-semibold text-gray-900">
-              {t('dashboard.upcomingBookings', 'Upcoming Bookings')}
-            </h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {upcomingBookings.map((booking) => {
-              const slot = booking.slots;
-              const service = booking.services as any;
-              const serviceName = i18n.language === 'ar' && service?.name_ar ? service.name_ar : (service?.name || t('service.unknown'));
-              const bookingDate = slot?.slot_date ? format(new Date(slot.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined }) : 'N/A';
-              
+          <div className="mt-6 grid grid-cols-12 gap-6">
+            {visibleWidgets.map((widget) => {
+              const content = renderDashboardWidget(widget.id);
+              if (!content) return null;
+              const span = Math.max(1, Math.min(12, widget.w));
               return (
-                <Card key={booking.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <User className="w-4 h-4 text-gray-500" />
-                          <h3 className="font-semibold text-gray-900">{booking.customer_name}</h3>
-                        </div>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          booking.status === 'confirmed' ? 'bg-green-100 text-green-800' :
-                          booking.status === 'checked_in' ? 'bg-blue-100 text-blue-800' :
-                          'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {safeTranslateStatus(t, booking.status, 'booking')}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-600">{serviceName}</p>
-                      <div className="flex items-center gap-2 text-sm text-gray-700">
-                        <Calendar className="w-4 h-4" />
-                        <span>{bookingDate}</span>
-                      </div>
-                      {slot?.start_time && slot?.end_time && (
-                        <div className="flex items-center gap-2 text-sm text-gray-700">
-                          <span>{formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}</span>
-                        </div>
-                      )}
-                      <div className="pt-2 border-t text-sm">
-                        <span className="font-medium text-gray-900">
-                          {formatPrice(parseFloat(booking.total_price?.toString() || '0'))}
-                        </span>
-                        {booking.visitor_count > 1 && (
-                          <span className="text-gray-600 ml-2">
-                            ({booking.visitor_count} {t('booking.visitors', 'visitors')})
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                <div
+                  key={widget.id}
+                  style={{ gridColumn: `span ${span} / span ${span}` }}
+                >
+                  {content}
+                </div>
               );
             })}
           </div>
-        </div>
-      )}
-
-      {/* Expired Bookings */}
-      {expiredBookings.length > 0 && (
-        <div className="mt-8">
-            <div className="flex items-center gap-2 mb-4">
-              <XCircle className="w-5 h-5 text-gray-600" />
-              <h2 className="text-xl font-semibold text-gray-900">
-                {t('dashboard.expiredBookings', 'Past Bookings')}
-              </h2>
-            </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {expiredBookings.map((booking) => {
-              const slot = booking.slots;
-              const service = booking.services as any;
-              const serviceName = i18n.language === 'ar' && service?.name_ar ? service.name_ar : (service?.name || t('service.unknown'));
-              const bookingDate = slot?.slot_date ? format(new Date(slot.slot_date), 'MMM dd, yyyy', { locale: i18n.language === 'ar' ? ar : undefined }) : 'N/A';
-              
-              return (
-                <Card key={booking.id} className="hover:shadow-md transition-shadow opacity-75">
-                  <CardContent className="p-4">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <User className="w-4 h-4 text-gray-500" />
-                          <h3 className="font-semibold text-gray-700">{booking.customer_name}</h3>
-                        </div>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          booking.status === 'completed' ? 'bg-blue-100 text-blue-800' :
-                          booking.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {safeTranslateStatus(t, booking.status, 'booking')}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-600">{serviceName}</p>
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <Calendar className="w-4 h-4" />
-                        <span>{bookingDate}</span>
-                      </div>
-                      {slot?.start_time && slot?.end_time && (
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <span>{formatTimeTo12Hour(slot.start_time)} - {formatTimeTo12Hour(slot.end_time)}</span>
-                        </div>
-                      )}
-                      <div className="pt-2 border-t text-sm">
-                        <span className="font-medium text-gray-700">
-                          {formatPrice(parseFloat(booking.total_price?.toString() || '0'))}
-                        </span>
-                        {booking.visitor_count > 1 && (
-                          <span className="text-gray-500 ml-2">
-                            ({booking.visitor_count} {t('booking.visitors', 'visitors')})
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
-      )}
         </>
       )}
 

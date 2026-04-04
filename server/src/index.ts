@@ -22,6 +22,7 @@ import { branchRoutes } from './routes/branches';
 import { supportTicketRoutes } from './routes/supportTickets';
 import { roleRoutes } from './routes/roles.js';
 import { debugRoutes } from './routes/debug';
+import { dashboardRoutes } from './routes/dashboard';
 import { startLockCleanup } from './jobs/cleanupLocks';
 import { startZohoReceiptWorker } from './jobs/zohoReceiptWorker';
 import { startZohoTokenRefresh } from './jobs/zohoTokenRefresh';
@@ -100,6 +101,7 @@ app.use('/api/branches', branchRoutes);
 app.use('/api/support-tickets', supportTicketRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/debug', debugRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.use('/api', queryRoutes);
 
 // Error handler with logging

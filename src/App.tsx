@@ -41,6 +41,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { OffersPage } from './pages/tenant/OffersPage';
 import { AssignFixingTicketPage } from './pages/tenant/AssignFixingTicketPage';
 import { RolesPage } from './pages/tenant/RolesPage';
+import { CustomizeDashboardPage } from './pages/tenant/CustomizeDashboardPage';
 import { ReportsLayout } from './components/reports/ReportsLayout';
 import { ReportsHubPage } from './pages/tenant/reports/ReportsHubPage';
 import { ReportsTransactionsPage } from './pages/tenant/reports/ReportsTransactionsPage';
@@ -104,6 +105,7 @@ function AppContent() {
         <Route path="landing" element={<LandingPageBuilderWrapper />} />
         <Route path="assign-fixing-ticket" element={<AssignFixingTicketPage />} />
         <Route path="roles" element={<RolesPage />} />
+        <Route path="dashboard-customize" element={<CustomizeDashboardPage />} />
         <Route path="debug/navigation" element={<NavigationTest />} />
       </Route>
 

@@ -442,10 +442,34 @@
     "sar": "SAR",
     "expiredBookings": "Past Bookings",
     "time": "Time",
+    "customize": {
+      "title": "Customize Dashboard",
+      "subtitle": "Reorder widgets, toggle visibility, and adjust widget sizes.",
+      "widgets": "Widgets",
+      "preview": "Preview",
+      "previewSize": "{{w}}/12 width",
+      "previewLive": "Live Preview",
+      "helper": "Drag to reorder. Toggle to show/hide. Choose size preset.",
+      "emptyPreview": "All widgets are hidden. Enable at least one widget to preview.",
+      "reset": "Reset",
+      "saved": "Dashboard layout saved.",
+      "resetDone": "Dashboard reset to default.",
+      "loadFailed": "Failed to load layout.",
+      "saveFailed": "Failed to save layout.",
+      "resetFailed": "Failed to reset layout.",
+      "permissionRequired": "You need dashboard customization permission to access this page.",
+      "backToDashboard": "Back to dashboard",
+      "width": "Width",
+      "height": "Height",
+      "widthSmall": "Small",
+      "widthMedium": "Medium",
+      "widthLarge": "Large"
+    },
     "viewMode": {
       "dashboard": "Dashboard",
       "calendar": "Calendar"
-    }
+    },
+    "previewModeBanner": "Preview mode: showing draft dashboard layout (not saved yet)."
   },
   "employee": {
     "employees": "Employees",
@@ -961,7 +985,8 @@
     "viewCustomerPage": "View Customer Page",
     "customerPageDisabledMaintenance": "Customer page is disabled (maintenance mode is on).",
     "branches": "Branches",
-    "assignFixingTicket": "Assign Fixing Ticket"
+    "assignFixingTicket": "Assign Fixing Ticket",
+    "customizeDashboard": "Customize Dashboard"
   },
   "roleManagement": {
     "title": "Role Management",

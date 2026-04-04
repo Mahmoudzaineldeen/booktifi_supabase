@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { showNotification } from '../../contexts/NotificationContext';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, Clock, Building2, Wrench, UserX, Shield, BarChart3, ChevronDown, Tag } from 'lucide-react';
+import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, Clock, Building2, Wrench, UserX, Shield, BarChart3, ChevronDown, Tag, PanelsTopLeft } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface TenantLayoutProps {
@@ -62,6 +62,13 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
       icon: LayoutDashboard,
       current: location.pathname === `/${tenantSlug}/admin`,
       visible: hasAssignedRole ? true : !isAdminUser,
+    },
+    {
+      name: t('navigation.customizeDashboard', 'Customize Dashboard'),
+      href: `/${tenantSlug}/admin/dashboard-customize`,
+      icon: PanelsTopLeft,
+      current: location.pathname.startsWith(`/${tenantSlug}/admin/dashboard-customize`),
+      visible: hasPermission('customize_dashboard'),
     },
     {
       name: t('navigation.services'),

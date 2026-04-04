@@ -13,6 +13,7 @@ export const PERMISSION_IDS = {
   MANAGE_BOOKINGS: 'manage_bookings',
   VIEW_REPORTS: 'view_reports',
   MANAGE_ROLES: 'manage_roles',
+  CUSTOMIZE_DASHBOARD: 'customize_dashboard',
   VIEW_INCOME: 'view_income',
   ACCESS_SUPPORT_TICKETS: 'access_support_tickets',
   EDIT_SYSTEM_SETTINGS: 'edit_system_settings',
