@@ -46,6 +46,8 @@ export function TagsPage() {
   const [createServicesSearch, setCreateServicesSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<TagRow | null>(null);
+  const [editFeeValue, setEditFeeValue] = useState('0');
+  const [editSlotCount, setEditSlotCount] = useState('1');
 
   const [services, setServices] = useState<ServiceRow[]>([]);
   const [serviceToTags, setServiceToTags] = useState<Record<string, string[]>>({});
@@ -282,6 +284,16 @@ export function TagsPage() {
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editing || !canManage) return;
+    const feeNum = Number(editFeeValue);
+    if (!Number.isFinite(feeNum) || feeNum < 0) {
+      showNotification('warning', t('tags.invalidFeeAmount', 'Fee amount must be a non-negative number.'));
+      return;
+    }
+    const slotCountNum = Number(editSlotCount);
+    if (!Number.isFinite(slotCountNum) || slotCountNum < 1) {
+      showNotification('warning', t('tags.invalidSlotCount', 'Slots count must be at least 1.'));
+      return;
+    }
     setSaving(true);
     try {
       const res = await apiFetch(`/tags/${editing.id}`, {
@@ -294,10 +306,26 @@ export function TagsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
+      if (!editing.is_default) {
+        const feeRes = await apiFetch(`/tags/${editing.id}/fee`, {
+          method: 'PUT',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fee_name: name.trim() || null,
+            fee_value: feeNum,
+            description: desc.trim() || null,
+            slot_count: Math.ceil(slotCountNum),
+          }),
+        });
+        const feeData = await feeRes.json();
+        if (!feeRes.ok) throw new Error(feeData.error || 'Failed to save fee/slots');
+      }
       showNotification('success', t('tags.updated', 'Updated'));
       setEditing(null);
       setName('');
       setDesc('');
+      setEditFeeValue('0');
+      setEditSlotCount('1');
       loadTags();
     } catch (e: any) {
       showNotification('error', e.message);
@@ -616,6 +644,8 @@ export function TagsPage() {
                                   setEditing(row);
                                   setName(row.name);
                                   setDesc(row.description || '');
+                                  setEditFeeValue(String(row.fee?.fee_value ?? 0));
+                                  setEditSlotCount(String(Math.max(1, Math.ceil(Number(row.fee?.slot_count ?? 1)))));
                                 }}
                                 className="border-slate-200"
                               >
@@ -665,6 +695,30 @@ export function TagsPage() {
             <label className="block text-sm font-medium text-slate-700 mb-1">{t('tags.description', 'Description')}</label>
             <Input value={desc} onChange={(e) => setDesc(e.target.value)} />
           </div>
+          {!editing?.is_default && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">{t('tags.feeValue', 'Fee amount')}</label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={editFeeValue}
+                  onChange={(e) => setEditFeeValue(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">{t('tags.slotCount', 'Slots count')}</label>
+                <Input
+                  type="number"
+                  min={1}
+                  step="1"
+                  value={editSlotCount}
+                  onChange={(e) => setEditSlotCount(e.target.value)}
+                />
+              </div>
+            </>
+          )}
           <div className="flex gap-2 pt-2">
             <Button type="submit" variant="primary" disabled={saving}>
               {t('common.save')}

@@ -146,6 +146,11 @@ function addMinutesToTime(startTime: string, minutesToAdd: number): string {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`;
 }
 
+function isMissingColumnError(error: any, columnName: string): boolean {
+  const msg = String(error?.message || '').toLowerCase();
+  return msg.includes(columnName.toLowerCase()) && (msg.includes('does not exist') || msg.includes('could not find'));
+}
+
 async function hasRequiredConsecutiveEmployeeSlots(params: {
   tenantId: string;
   employeeId: string;
@@ -180,6 +185,85 @@ async function hasRequiredConsecutiveEmployeeSlots(params: {
     cursorStart = slot.end_time;
   }
   return true;
+}
+
+async function reserveAdditionalConsecutiveEmployeeSlots(params: {
+  tenantId: string;
+  employeeId: string;
+  slotDate: string;
+  startTime: string;
+  requiredSlots: number;
+  visitorCount: number;
+}): Promise<{ ok: boolean; reservedExtraSlotIds: string[]; reason?: string }> {
+  const { tenantId, employeeId, slotDate, startTime, requiredSlots, visitorCount } = params;
+  if (requiredSlots <= 1) return { ok: true, reservedExtraSlotIds: [] };
+
+  const { data: slots, error } = await supabase
+    .from('slots')
+    .select('id, start_time, end_time, available_capacity, is_available')
+    .eq('tenant_id', tenantId)
+    .eq('employee_id', employeeId)
+    .eq('slot_date', slotDate)
+    .order('start_time');
+  if (error || !slots || slots.length === 0) {
+    return { ok: false, reservedExtraSlotIds: [], reason: 'Failed to load consecutive slots.' };
+  }
+
+  const byStart = new Map<string, { id: string; end_time: string; available_capacity: number; is_available: boolean }>();
+  for (const slot of slots as any[]) {
+    byStart.set((slot.start_time || '').slice(0, 8), {
+      id: slot.id,
+      end_time: (slot.end_time || '').slice(0, 8),
+      available_capacity: Number(slot.available_capacity ?? 0),
+      is_available: Boolean(slot.is_available),
+    });
+  }
+
+  const chain: Array<{ id: string; start: string; available_capacity: number; is_available: boolean }> = [];
+  let cursorStart = (startTime || '').slice(0, 8);
+  for (let i = 0; i < requiredSlots; i++) {
+    const slot = byStart.get(cursorStart);
+    if (!slot) {
+      return { ok: false, reservedExtraSlotIds: [], reason: `Missing consecutive slot at ${cursorStart}.` };
+    }
+    chain.push({
+      id: slot.id,
+      start: cursorStart,
+      available_capacity: slot.available_capacity,
+      is_available: slot.is_available,
+    });
+    cursorStart = slot.end_time;
+  }
+
+  // First slot is already consumed atomically by create_booking_with_lock.
+  const extraSlots = chain.slice(1);
+  if (extraSlots.length === 0) return { ok: true, reservedExtraSlotIds: [] };
+
+  for (const extra of extraSlots) {
+    if (!extra.is_available || extra.available_capacity < visitorCount) {
+      return { ok: false, reservedExtraSlotIds: [], reason: `Insufficient capacity for extra slot starting ${extra.start}.` };
+    }
+  }
+
+  const reservedExtraSlotIds: string[] = [];
+  for (const extra of extraSlots) {
+    const nextAvailable = Math.max(0, Number(extra.available_capacity) - visitorCount);
+    const upd = await supabase
+      .from('slots')
+      .update({ available_capacity: nextAvailable })
+      .eq('id', extra.id)
+      .eq('tenant_id', tenantId)
+      .gte('available_capacity', visitorCount)
+      .select('id')
+      .limit(1);
+
+    if (upd.error || !upd.data || upd.data.length === 0) {
+      return { ok: false, reservedExtraSlotIds, reason: `Failed to reserve extra slot ${extra.id}.` };
+    }
+    reservedExtraSlotIds.push(extra.id);
+  }
+
+  return { ok: true, reservedExtraSlotIds };
 }
 
 async function getSlotWindowById(slotId: string): Promise<SlotWindow | null> {
@@ -218,7 +302,21 @@ async function findEmployeeBookingConflict(params: {
     bookingQuery = bookingQuery.neq('id', excludeBookingId);
   }
 
-  const { data: existingBookings, error: existingBookingsError } = await bookingQuery;
+  let { data: existingBookings, error: existingBookingsError } = await bookingQuery;
+  if (existingBookingsError && isMissingColumnError(existingBookingsError, 'effective_start_time')) {
+    let fallbackQuery = supabase
+      .from('bookings')
+      .select('id, slot_id, slots:slot_id(slot_date, start_time, end_time)')
+      .eq('tenant_id', tenantId)
+      .eq('employee_id', employeeId)
+      .neq('status', 'cancelled');
+    if (excludeBookingId) {
+      fallbackQuery = fallbackQuery.neq('id', excludeBookingId);
+    }
+    const fallback = await fallbackQuery;
+    existingBookings = fallback.data;
+    existingBookingsError = fallback.error;
+  }
   if (existingBookingsError) {
     throw existingBookingsError;
   }
@@ -1033,8 +1131,32 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
             .neq('status', 'cancelled')
         : Promise.resolve({ data: [], error: null } as any);
 
-      const [{ data: bookingsByEmployee, error: bookingsByEmployeeError }, { data: bookingsBySlot, error: bookingsBySlotError }] =
+      let [{ data: bookingsByEmployee, error: bookingsByEmployeeError }, { data: bookingsBySlot, error: bookingsBySlotError }] =
         await Promise.all([bookingsByEmployeePromise, bookingsBySlotPromise]);
+      if (
+        (bookingsByEmployeeError && isMissingColumnError(bookingsByEmployeeError, 'effective_start_time')) ||
+        (bookingsBySlotError && isMissingColumnError(bookingsBySlotError, 'effective_start_time'))
+      ) {
+        const fallbackEmployeePromise = supabase
+          .from('bookings')
+          .select('employee_id, slot_id')
+          .eq('tenant_id', tenantId)
+          .in('employee_id', employeeIds)
+          .neq('status', 'cancelled');
+        const fallbackSlotPromise = slotIds.length > 0
+          ? supabase
+              .from('bookings')
+              .select('employee_id, slot_id')
+              .eq('tenant_id', tenantId)
+              .in('slot_id', slotIds)
+              .neq('status', 'cancelled')
+          : Promise.resolve({ data: [], error: null } as any);
+        const [fbEmp, fbSlot] = await Promise.all([fallbackEmployeePromise, fallbackSlotPromise]);
+        bookingsByEmployee = fbEmp.data;
+        bookingsByEmployeeError = fbEmp.error;
+        bookingsBySlot = fbSlot.data;
+        bookingsBySlotError = fbSlot.error;
+      }
       if (bookingsByEmployeeError) {
         logger.warn('ensure-employee-based-slots: bookingsByEmployee fetch for busy map failed', {
           serviceId,
@@ -1321,11 +1443,19 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     // Global employee time lock: busy ranges per employee (any service) for this date
     const globalBusyRangesByEmployee = new Map<string, { startM: number; endM: number }[]>();
     if (slotIdsForBookings.length > 0) {
-      const { data: bookingsList } = await supabase
+      let { data: bookingsList, error: bookingsListError } = await supabase
         .from('bookings')
         .select('slot_id, employee_id, effective_start_time, effective_end_time')
         .in('slot_id', slotIdsForBookings)
         .neq('status', 'cancelled');
+      if (bookingsListError && isMissingColumnError(bookingsListError, 'effective_start_time')) {
+        const fallback = await supabase
+          .from('bookings')
+          .select('slot_id, employee_id')
+          .in('slot_id', slotIdsForBookings)
+          .neq('status', 'cancelled');
+        bookingsList = fallback.data;
+      }
       (bookingsList || []).forEach((b: any) => {
         if (b.slot_id) bookingCountBySlotId[b.slot_id] = (bookingCountBySlotId[b.slot_id] || 0) + 1;
         if (b.employee_id && b.slot_id) {
@@ -1345,12 +1475,21 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       });
     }
     // Also fetch bookings for these employees on this date that reference slots NOT in allSlotsForDate (e.g. other services we haven't loaded yet)
-    const { data: otherBookings } = await supabase
+    let { data: otherBookings, error: otherBookingsError } = await supabase
       .from('bookings')
       .select('employee_id, slot_id, effective_start_time, effective_end_time')
       .eq('tenant_id', tenantId)
       .in('employee_id', employeeIdsFromShifts)
       .neq('status', 'cancelled');
+    if (otherBookingsError && isMissingColumnError(otherBookingsError, 'effective_start_time')) {
+      const fallback = await supabase
+        .from('bookings')
+        .select('employee_id, slot_id')
+        .eq('tenant_id', tenantId)
+        .in('employee_id', employeeIdsFromShifts)
+        .neq('status', 'cancelled');
+      otherBookings = fallback.data;
+    }
     const otherSlotIds = [...new Set((otherBookings || []).map((b: any) => b.slot_id).filter(Boolean))].filter((id: string) => !slotIdsForBookings.includes(id));
     if (otherSlotIds.length > 0) {
       const { data: otherSlots } = await supabase
@@ -2692,7 +2831,11 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
         updatePayload.required_slot_count = bookingRequiredSlotCount;
       }
       if (Object.keys(updatePayload).length > 1) {
-        await supabase.from('bookings').update(updatePayload).eq('id', actualBooking.id);
+        const firstUpdate = await supabase.from('bookings').update(updatePayload).eq('id', actualBooking.id);
+        if (firstUpdate.error && isMissingColumnError(firstUpdate.error, 'effective_start_time')) {
+          const { effective_start_time, effective_end_time, effective_duration_minutes, required_slot_count, ...fallbackPayload } = updatePayload as any;
+          await supabase.from('bookings').update(fallbackPayload).eq('id', actualBooking.id);
+        }
       }
       // Update service_rotation_state for employee-based + auto_assign (fair rotation)
       if (actualBooking.service_id && actualBooking.employee_id) {
@@ -2863,6 +3006,30 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
           actualBooking: actualBooking
         }
       });
+    }
+
+    if (bookingRequiredSlotCount > 1 && effectiveEmployeeIdForCreate && selectedSlot?.slotDate) {
+      const reserveRes = await reserveAdditionalConsecutiveEmployeeSlots({
+        tenantId: tenant_id,
+        employeeId: effectiveEmployeeIdForCreate,
+        slotDate: selectedSlot.slotDate,
+        startTime: selectedSlot.startTime,
+        requiredSlots: bookingRequiredSlotCount,
+        visitorCount: visitor_count,
+      });
+      if (!reserveRes.ok) {
+        console.warn('[Booking Creation] ⚠️ Failed to reserve all extra slots for tag duration', {
+          bookingId,
+          requiredSlots: bookingRequiredSlotCount,
+          reason: reserveRes.reason,
+          reservedExtraSlotIds: reserveRes.reservedExtraSlotIds,
+        });
+      } else if (reserveRes.reservedExtraSlotIds.length > 0) {
+        console.log('[Booking Creation] ✅ Reserved extra consecutive slots for tag duration', {
+          bookingId,
+          reservedExtraSlotIds: reserveRes.reservedExtraSlotIds,
+        });
+      }
     }
 
     console.log(`[Booking Creation] ✅ Booking created successfully: ${bookingId}`);
@@ -3836,7 +4003,7 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
     if (bookingIds.length > 0 && bulkTagId) {
       const { data: bRows } = await supabase
         .from('bookings')
-        .select('id, paid_quantity, slot_id, slots:slot_id(slot_date, start_time)')
+        .select('id, paid_quantity, slot_id, employee_id, slots:slot_id(slot_date, start_time)')
         .in('id', bookingIds)
         .order('created_at', { ascending: true });
       const paidIds = (bRows || []).filter((b: any) => Number(b.paid_quantity ?? 0) > 0).map((b: any) => b.id);
@@ -3866,7 +4033,28 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
           updatePayload.effective_start_time = startTime;
           updatePayload.effective_end_time = addMinutesToTime(startTime, bulkEffectiveDurationMinutes);
         }
-        await supabase.from('bookings').update(updatePayload).eq('id', (row as any).id);
+        const upd = await supabase.from('bookings').update(updatePayload).eq('id', (row as any).id);
+        if (upd.error && isMissingColumnError(upd.error, 'effective_start_time')) {
+          const { effective_start_time, effective_end_time, effective_duration_minutes, required_slot_count, ...fallbackPayload } = updatePayload as any;
+          await supabase.from('bookings').update(fallbackPayload).eq('id', (row as any).id);
+        }
+        if (bulkRequiredSlotCount > 1 && (row as any).employee_id && slot?.slot_date && startTime) {
+          const reserveRes = await reserveAdditionalConsecutiveEmployeeSlots({
+            tenantId: tenant_id,
+            employeeId: String((row as any).employee_id),
+            slotDate: String(slot.slot_date),
+            startTime,
+            requiredSlots: bulkRequiredSlotCount,
+            visitorCount: 1,
+          });
+          if (!reserveRes.ok) {
+            console.warn('[Bulk Booking Creation] ⚠️ Failed to reserve extra slots for booking row', {
+              bookingId: (row as any).id,
+              reason: reserveRes.reason,
+              reservedExtraSlotIds: reserveRes.reservedExtraSlotIds,
+            });
+          }
+        }
       }
     }
 
