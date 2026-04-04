@@ -7,8 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCurrency } from '../../contexts/CurrencyContext';
-import { db } from '../../lib/db';
-import { getApiUrl } from '../../lib/apiUrl';
+import { apiFetch } from '../../lib/apiClient';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Card, CardContent } from '../ui/Card';
@@ -66,29 +65,28 @@ export function BookingConfirmationModal({
     setError(null);
     (async () => {
       try {
-        const API_URL = getApiUrl();
-        const session = await db.auth.getSession();
-        const token = session.data.session?.access_token;
-        if (!token) {
-          setError('Not authenticated');
-          return;
-        }
         const params = new URLSearchParams();
         params.append('booking_id', bookingId);
         params.append('limit', '1');
-        const response = await fetch(`${API_URL}/bookings/search?${params.toString()}`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || 'Failed to load booking');
+        // New bookings can be temporarily unavailable in search index right after create.
+        // Retry briefly before showing an error.
+        let list: any[] = [];
+        let lastError = '';
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const response = await apiFetch(`/bookings/search?${params.toString()}`, { method: 'GET' });
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            lastError = data.error || 'Failed to load booking';
+          } else {
+            const result = await response.json();
+            list = result.bookings || [];
+            if (list.length > 0) break;
+            lastError = 'Booking not found';
+          }
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 350));
+          }
         }
-        const result = await response.json();
-        const list = result.bookings || [];
         if (cancelled) return;
         if (list.length > 0) {
           const b = list[0];
@@ -105,7 +103,7 @@ export function BookingConfirmationModal({
             zoho_invoice_id: b.zoho_invoice_id ?? null,
           });
         } else {
-          setError('Booking not found');
+          setError(lastError || 'Failed to load booking');
         }
       } catch (e: any) {
         if (!cancelled) setError(e.message || 'Failed to load booking');
