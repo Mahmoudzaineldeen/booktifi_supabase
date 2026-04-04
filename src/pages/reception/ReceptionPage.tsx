@@ -22,6 +22,7 @@ import { ar } from 'date-fns/locale';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { countryCodes } from '../../lib/countryCodes';
 import { getApiUrl } from '../../lib/apiUrl';
+import { apiFetch } from '../../lib/apiClient';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
@@ -53,6 +54,10 @@ interface Booking {
   status: string;
   payment_status: string;
   payment_method?: string | null;
+  tag_id?: string | null;
+  required_slot_count?: number | null;
+  effective_start_time?: string | null;
+  effective_end_time?: string | null;
   notes: string | null;
   created_at: string;
   booking_group_id: string | null;
@@ -180,6 +185,7 @@ export function ReceptionPage() {
   const tenantAssignmentMode = (tenantFeatures?.employee_assignment_mode ?? 'both') as 'automatic' | 'manual' | 'both';
   const RECEPTION_ALL_BOOKINGS_LIMIT = 2000;
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [bookingTagSlotCountMap, setBookingTagSlotCountMap] = useState<Record<string, number>>({});
   const [allBookingsTruncated, setAllBookingsTruncated] = useState(false);
   const [todayBookings, setTodayBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -233,6 +239,74 @@ export function ReceptionPage() {
   const [subscriptionTransactionReference, setSubscriptionTransactionReference] = useState('');
   const [isSubscribing, setIsSubscribing] = useState(false);
   const [subscriptionConfirmationData, setSubscriptionConfirmationData] = useState<SubscriptionConfirmationData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tagIds = [...new Set(bookings.map((b) => b.tag_id).filter(Boolean) as string[])];
+    if (tagIds.length === 0) {
+      setBookingTagSlotCountMap({});
+      return;
+    }
+    (async () => {
+      try {
+        const response = await apiFetch('/query', {
+          method: 'POST',
+          body: JSON.stringify({
+            table: 'tag_fees',
+            select: 'tag_id, slot_count',
+            where: { tag_id__in: tagIds },
+            limit: Math.max(10, tagIds.length + 2),
+          }),
+        });
+        if (!response.ok) return;
+        const payload = await response.json().catch(() => []);
+        const rows = Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : [];
+        const next: Record<string, number> = {};
+        rows.forEach((r: any) => {
+          if (!r?.tag_id) return;
+          const parsed = Number(r.slot_count);
+          next[String(r.tag_id)] = Number.isFinite(parsed) && parsed >= 1 ? Math.ceil(parsed) : 1;
+        });
+        if (!cancelled) setBookingTagSlotCountMap(next);
+      } catch {
+        // Non-blocking: keep UI usable with default single slot.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bookings]);
+
+  function addMinutesToTimeValue(startTime: string, minutesToAdd: number): string {
+    const [h, m] = (startTime || '00:00:00').slice(0, 8).split(':').map(Number);
+    const base = (Number(h) || 0) * 60 + (Number(m) || 0);
+    const total = (base + Math.max(0, Math.round(minutesToAdd))) % (24 * 60);
+    const hh = Math.floor(total / 60);
+    const mm = total % 60;
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`;
+  }
+
+  function getBookingDisplayEndTime(booking: Booking): string {
+    if (booking.effective_end_time) return String(booking.effective_end_time);
+    const start = booking.effective_start_time || booking.slots?.start_time;
+    const end = booking.slots?.end_time;
+    if (!start || !end) return end || '';
+    const fallbackSlots = booking.tag_id ? bookingTagSlotCountMap[String(booking.tag_id)] : 1;
+    const requiredSlots = Math.max(1, Math.ceil(Number(booking.required_slot_count ?? fallbackSlots ?? 1)));
+    if (requiredSlots <= 1) return end;
+    const startM = (Number(start.slice(0, 2)) || 0) * 60 + (Number(start.slice(3, 5)) || 0);
+    let endM = (Number(end.slice(0, 2)) || 0) * 60 + (Number(end.slice(3, 5)) || 0);
+    if (endM <= startM) endM += 24 * 60;
+    const slotDuration = Math.max(1, endM - startM);
+    return addMinutesToTimeValue(start, slotDuration * requiredSlots);
+  }
+
+  function getBookingDisplayTimeRange(booking: Booking): string {
+    const start = booking.effective_start_time || booking.slots?.start_time;
+    const end = getBookingDisplayEndTime(booking);
+    if (!start || !end) return '—';
+    return `${formatTimeTo12Hour(start)} – ${formatTimeTo12Hour(end)}`;
+  }
 
   const [bookingForm, setBookingForm] = useState({
     customer_phone: '',
@@ -3807,7 +3881,7 @@ export function ReceptionPage() {
             <div className={`flex flex-wrap items-center gap-2 shrink-0 ${compact ? 'w-full' : ''}`}>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium">
                 <Clock className="h-3.5 w-3.5" />
-                {formatTimeTo12Hour(booking.slots?.start_time ?? '')} – {formatTimeTo12Hour(booking.slots?.end_time ?? '')}
+                {getBookingDisplayTimeRange(booking)}
               </span>
               <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${statusBg} ${
                 booking.status === 'confirmed' ? 'text-green-800' :
@@ -4563,10 +4637,12 @@ export function ReceptionPage() {
                           {/* Bookings Overlay */}
                           <div className="absolute inset-0 pointer-events-none">
                             {calculateBookingLayout(dayBookings).map(({ booking, column, totalColumns }) => {
-                              const top = getBookingPosition(booking.slots?.start_time || '09:00');
+                              const displayStart = booking.effective_start_time || booking.slots?.start_time || '09:00';
+                              const displayEnd = getBookingDisplayEndTime(booking) || booking.slots?.end_time || '10:00';
+                              const top = getBookingPosition(displayStart);
                               const height = getBookingHeight(
-                                booking.slots?.start_time || '09:00',
-                                booking.slots?.end_time || '10:00'
+                                displayStart,
+                                displayEnd
                               );
                               const width = 100 / totalColumns;
                               const left = (100 / totalColumns) * column;
@@ -4590,7 +4666,7 @@ export function ReceptionPage() {
                                   onClick={() => setSelectedBookingForDetails(booking)}
                                 >
                                   <div className="text-xs font-semibold truncate">
-                                    {formatTimeTo12Hour(booking.slots?.start_time ?? '')}
+                                  {formatTimeTo12Hour(displayStart)}
                                   </div>
                                   <div className="text-xs font-medium truncate">
                                     {booking.customer_name}

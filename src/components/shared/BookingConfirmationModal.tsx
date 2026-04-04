@@ -32,6 +32,7 @@ interface FetchedBooking {
   customer_phone: string;
   visitor_count: number;
   total_price: number;
+  tag_id?: string | null;
   services?: { name: string; name_ar?: string };
   slots?: { slot_date: string; start_time: string; end_time: string };
   /** Background invoice job: pending | processing | completed | failed */
@@ -51,12 +52,14 @@ export function BookingConfirmationModal({
   const { t, i18n } = useTranslation();
   const { formatPrice } = useCurrency();
   const [booking, setBooking] = useState<FetchedBooking | null>(null);
+  const [tagSlotCount, setTagSlotCount] = useState<number>(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen || !bookingId) {
       setBooking(null);
+      setTagSlotCount(1);
       setError(null);
       return;
     }
@@ -96,6 +99,7 @@ export function BookingConfirmationModal({
             customer_phone: b.customer_phone,
             visitor_count: b.visitor_count ?? 1,
             total_price: b.total_price ?? 0,
+            tag_id: b.tag_id ?? null,
             services: b.services || { name: '', name_ar: '' },
             slots: b.slots || { slot_date: '', start_time: '', end_time: '' },
             invoice_processing_status: b.invoice_processing_status ?? null,
@@ -116,15 +120,75 @@ export function BookingConfirmationModal({
     };
   }, [isOpen, bookingId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!isOpen || !booking?.tag_id) {
+      setTagSlotCount(1);
+      return;
+    }
+    (async () => {
+      try {
+        const response = await apiFetch('/query', {
+          method: 'POST',
+          body: JSON.stringify({
+            table: 'tag_fees',
+            select: 'slot_count',
+            where: { tag_id: booking.tag_id },
+            limit: 1,
+          }),
+        });
+        if (!response.ok) {
+          if (!cancelled) setTagSlotCount(1);
+          return;
+        }
+        const payload = await response.json().catch(() => []);
+        const row = Array.isArray(payload?.value)
+          ? payload.value[0]
+          : Array.isArray(payload)
+            ? payload[0]
+            : null;
+        const parsed = Number(row?.slot_count);
+        if (!cancelled) {
+          setTagSlotCount(Number.isFinite(parsed) && parsed >= 1 ? Math.ceil(parsed) : 1);
+        }
+      } catch {
+        if (!cancelled) setTagSlotCount(1);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, booking?.tag_id]);
+
+  const addMinutesToTimeValue = (startTime: string, minutesToAdd: number): string => {
+    const [h, m] = (startTime || '00:00:00').slice(0, 8).split(':').map(Number);
+    const base = (Number(h) || 0) * 60 + (Number(m) || 0);
+    const total = (base + Math.max(0, Math.round(minutesToAdd))) % (24 * 60);
+    const hh = Math.floor(total / 60);
+    const mm = total % 60;
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`;
+  };
+
   const serviceName =
     booking?.services &&
     (i18n.language === 'ar' && booking.services.name_ar
       ? booking.services.name_ar
       : booking.services.name);
-  const timeSlot =
-    booking?.slots?.start_time && booking?.slots?.end_time
-      ? `${formatTimeTo12Hour(booking.slots.start_time)} – ${formatTimeTo12Hour(booking.slots.end_time)}`
-      : booking?.slots?.start_time ? formatTimeTo12Hour(booking.slots.start_time) : '—';
+  const timeSlot = (() => {
+    const start = booking?.slots?.start_time;
+    const end = booking?.slots?.end_time;
+    if (!start || !end) return start ? formatTimeTo12Hour(start) : '—';
+    const safeSlots = Math.max(1, tagSlotCount);
+    if (safeSlots <= 1) {
+      return `${formatTimeTo12Hour(start)} – ${formatTimeTo12Hour(end)}`;
+    }
+    const startM = (Number(start.slice(0, 2)) || 0) * 60 + (Number(start.slice(3, 5)) || 0);
+    let endM = (Number(end.slice(0, 2)) || 0) * 60 + (Number(end.slice(3, 5)) || 0);
+    if (endM <= startM) endM += 24 * 60;
+    const slotDuration = Math.max(1, endM - startM);
+    const adjustedEnd = addMinutesToTimeValue(start, slotDuration * safeSlots);
+    return `${formatTimeTo12Hour(start)} – ${formatTimeTo12Hour(adjustedEnd)}`;
+  })();
   const dateFormatted =
     booking?.slots?.slot_date &&
     (() => {

@@ -29,6 +29,7 @@ import { format, parseISO } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getPaymentDisplayLabel, getPaymentDisplayValue } from '../../lib/paymentDisplay';
 import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
+import { apiFetch } from '../../lib/apiClient';
 import { Button } from '../ui/Button';
 
 export interface BookingDetailsModalBooking {
@@ -120,6 +121,7 @@ export function BookingDetailsModal({
   const { t, i18n } = useTranslation();
   const isAr = i18n.language?.startsWith('ar') ?? false;
   const [menuOpen, setMenuOpen] = useState(false);
+  const [tagSlotCount, setTagSlotCount] = useState(1);
   const [mounted, setMounted] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
   const exitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -136,6 +138,44 @@ export function BookingDetailsModal({
       return () => cancelAnimationFrame(raf);
     }
   }, [isOpen, booking]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isOpen || !displayBooking?.tag_id) {
+      setTagSlotCount(1);
+      return;
+    }
+    (async () => {
+      try {
+        const response = await apiFetch('/query', {
+          method: 'POST',
+          body: JSON.stringify({
+            table: 'tag_fees',
+            select: 'slot_count',
+            where: { tag_id: displayBooking.tag_id },
+            limit: 1,
+          }),
+        });
+        if (!response.ok) {
+          if (!cancelled) setTagSlotCount(1);
+          return;
+        }
+        const payload = await response.json().catch(() => []);
+        const row = Array.isArray(payload?.value)
+          ? payload.value[0]
+          : Array.isArray(payload)
+            ? payload[0]
+            : null;
+        const parsed = Number(row?.slot_count);
+        if (!cancelled) setTagSlotCount(Number.isFinite(parsed) && parsed >= 1 ? Math.ceil(parsed) : 1);
+      } catch {
+        if (!cancelled) setTagSlotCount(1);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, displayBooking?.tag_id]);
 
   useEffect(() => {
     if (!isOpen && previousBookingRef.current) {
@@ -207,7 +247,7 @@ export function BookingDetailsModal({
     (() => {
       const start = displayBooking?.slots?.start_time;
       const end = displayBooking?.slots?.end_time;
-      const requiredSlots = Math.max(1, Math.ceil(Number(displayBooking?.required_slot_count ?? 1)));
+      const requiredSlots = Math.max(1, Math.ceil(Number(displayBooking?.required_slot_count ?? tagSlotCount ?? 1)));
       if (!start || !end || requiredSlots <= 1) return end || '';
       const startM = (Number(start.slice(0, 2)) || 0) * 60 + (Number(start.slice(3, 5)) || 0);
       let endM = (Number(end.slice(0, 2)) || 0) * 60 + (Number(end.slice(3, 5)) || 0);
