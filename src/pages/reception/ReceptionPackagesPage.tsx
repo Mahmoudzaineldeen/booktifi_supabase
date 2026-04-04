@@ -18,7 +18,7 @@
  * - Delete packages
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
@@ -37,6 +37,7 @@ import { ReceptionSubscribeModal } from '../../components/reception/ReceptionSub
 import { SubscriptionConfirmationModal, type SubscriptionConfirmationData } from '../../components/shared/SubscriptionConfirmationModal';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 
 interface PackageService {
   service_id: string;
@@ -102,6 +103,8 @@ export function ReceptionPackagesPage() {
   const [packagesLoading, setPackagesLoading] = useState(true);
   const [packageSearchQuery, setPackageSearchQuery] = useState('');
   const [packageSearchService, setPackageSearchService] = useState('');
+  const debouncedPackageSearchQuery = useDebouncedValue(packageSearchQuery, 300);
+  const packagesFetchIdRef = useRef(0);
   const [services, setServices] = useState<Array<{ id: string; name: string; name_ar?: string }>>([]);
   
   // Subscribers state (same data source as admin PackageSubscribersPage: direct Supabase query)
@@ -152,9 +155,9 @@ export function ReceptionPackagesPage() {
   // Fetch packages
   useEffect(() => {
     if (activeTab === 'packages') {
-      fetchPackages();
+      fetchPackages(debouncedPackageSearchQuery);
     }
-  }, [activeTab, userProfile, packageSearchQuery, packageSearchService]);
+  }, [activeTab, userProfile, debouncedPackageSearchQuery, packageSearchService]);
 
   // Fetch subscribers once when tab opens (filters run client-side, like live search)
   useEffect(() => {
@@ -214,20 +217,21 @@ export function ReceptionPackagesPage() {
     });
   }, [subscribersRaw, subscriberSearchType, subscriberSearchQuery, subscriberPackageFilterId]);
 
-  async function fetchPackages() {
+  async function fetchPackages(searchTerm = debouncedPackageSearchQuery) {
     if (!userProfile?.tenant_id) {
       setPackages([]);
       setPackagesLoading(false);
       return;
     }
 
+    const fetchId = ++packagesFetchIdRef.current;
     try {
       setPackagesLoading(true);
       const token = localStorage.getItem('auth_token');
       
       const params = new URLSearchParams();
-      if (packageSearchQuery.trim()) {
-        params.append('search', packageSearchQuery.trim());
+      if (searchTerm.trim()) {
+        params.append('search', searchTerm.trim());
       }
       if (packageSearchService) {
         params.append('service_id', packageSearchService);
@@ -245,11 +249,14 @@ export function ReceptionPackagesPage() {
       }
 
       const data = await response.json();
+      if (fetchId !== packagesFetchIdRef.current) return;
       setPackages(data.packages || []);
     } catch (error) {
       console.error('Error fetching packages:', error);
+      if (fetchId !== packagesFetchIdRef.current) return;
       setPackages([]);
     } finally {
+      if (fetchId !== packagesFetchIdRef.current) return;
       setPackagesLoading(false);
     }
   }

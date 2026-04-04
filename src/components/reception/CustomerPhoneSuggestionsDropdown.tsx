@@ -45,7 +45,7 @@ export function CustomerPhoneSuggestionsDropdown({
   return (
     <div
       ref={listRef}
-      className={`absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gray-300 bg-white shadow-lg ${className}`}
+      className={`relative z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-gray-300 bg-white shadow-lg ${className}`}
       dir={isRTL ? 'rtl' : 'ltr'}
       role="listbox"
     >

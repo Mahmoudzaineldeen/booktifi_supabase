@@ -19,6 +19,7 @@ import { getParallelSlotsForQuantity as getParallelSlotsForQuantityLib, getConse
 import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
 import { Input } from '../../components/ui/Input';
 import { searchBarWrapperClass, searchSelectClass } from '../../components/ui/SearchInput';
+import { SearchableCountryCodeSelect } from '../../components/ui/SearchableCountryCodeSelect';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
@@ -138,6 +139,7 @@ export function BookingsPage() {
   const [createSelectedTimeSlot, setCreateSelectedTimeSlot] = useState<{ start_time: string; end_time: string; slot_date: string } | null>(null);
   const [createShowPreview, setCreateShowPreview] = useState(false);
   const [createSelectedCustomer, setCreateSelectedCustomer] = useState<CustomerSuggestion | null>(null);
+  const [createConsumeFromPackage, setCreateConsumeFromPackage] = useState(true);
   const [createPaymentMethod, setCreatePaymentMethod] = useState<'unpaid' | 'onsite' | 'transfer'>('onsite');
   const [createTransactionReference, setCreateTransactionReference] = useState('');
   const [createSelectedServices, setCreateSelectedServices] = useState<Array<{ service: AdminService; slot: Slot; employeeId: string }>>([]);
@@ -176,13 +178,20 @@ export function BookingsPage() {
   const [searchType, setSearchType] = useState<SearchType>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDate, setSearchDate] = useState<string>('');
+  const [searchCountryCode, setSearchCountryCode] = useState(tenantDefaultCountry);
   const [searchResults, setSearchResults] = useState<Booking[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchValidationError, setSearchValidationError] = useState<string>('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
+  const searchRequestSeqRef = useRef(0);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
+
+  useEffect(() => {
+    setSearchCountryCode(tenantDefaultCountry);
+  }, [tenantDefaultCountry]);
 
   useEffect(() => {
     fetchBookings();
@@ -302,7 +311,8 @@ export function BookingsPage() {
 
   // Look up customer by phone and auto-fill name/email + package (same as reception)
   async function lookupCustomerByPhone(fullPhoneNumber: string) {
-    if (!fullPhoneNumber || fullPhoneNumber.length < 8 || !userProfile?.tenant_id) return;
+    const fullDigits = (fullPhoneNumber || '').replace(/\D/g, '');
+    if (!fullPhoneNumber || fullDigits.length < 6 || !userProfile?.tenant_id) return;
     setIsLookingUpCustomer(true);
     setCreateCustomerPackages([]);
     try {
@@ -314,10 +324,30 @@ export function BookingsPage() {
         .maybeSingle();
       if (customerError) throw customerError;
       if (customerData) {
+        const matchedPhone = customerData.phone || fullPhoneNumber;
+        let localPhone = matchedPhone;
+        let code = tenantDefaultCountry;
+        for (const country of countryCodes) {
+          if (matchedPhone.startsWith(country.code)) {
+            code = country.code;
+            localPhone = matchedPhone.replace(country.code, '').trim();
+            break;
+          }
+        }
+        setCreateSelectedCustomer({
+          id: customerData.id,
+          name: customerData.name || '',
+          phone: matchedPhone,
+          email: customerData.email || null,
+        });
+        setCreateCountryCode(code);
+        setCreateCustomerPhoneFull(matchedPhone);
+        clearCreatePhoneSuggestions();
         setCreateForm(prev => ({
           ...prev,
-          customer_name: prev.customer_name || customerData.name || '',
-          customer_email: prev.customer_email || (customerData.email ?? ''),
+          customer_name: customerData.name || '',
+          customer_email: customerData.email ?? '',
+          customer_phone: localPhone || prev.customer_phone,
         }));
         const { data: subscriptionsData } = await db
           .from('package_subscriptions')
@@ -348,6 +378,7 @@ export function BookingsPage() {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+      setCreateSelectedCustomer(null);
       if (!bookingError && bookingData) {
         setCreateForm(prev => ({
           ...prev,
@@ -490,6 +521,7 @@ export function BookingsPage() {
     setCreateShowPreview(false);
     setCreateSelectedServices([]);
     setCreateSelectedCustomer(null);
+    setCreateConsumeFromPackage(true);
     setCreatePaymentMethod('onsite');
     setCreateTransactionReference('');
     setCreatePricingTags([]);
@@ -605,6 +637,7 @@ export function BookingsPage() {
             tag_id: selectedPricingTagId,
             notes: createForm.notes?.trim() || null,
             language: i18n.language,
+            consume_from_package: createConsumeFromPackage,
             ...paymentPayload,
           }),
         });
@@ -649,6 +682,7 @@ export function BookingsPage() {
             total_price: totalPrice,
             notes: createForm.notes?.trim() || null,
             language: i18n.language,
+            consume_from_package: createConsumeFromPackage,
             ...paymentPayload,
           }),
         });
@@ -1587,8 +1621,8 @@ export function BookingsPage() {
     switch (type) {
       case 'phone':
         const phoneDigits = value.replace(/\D/g, '');
-        if (phoneDigits.length < 5) {
-          return { valid: false, error: isAr ? 'يجب أن يكون رقم الهاتف 5 أرقام على الأقل' : (t('reception.phoneMinLength') || 'Phone number must be at least 5 digits') };
+        if (phoneDigits.length < 3) {
+          return { valid: false, error: isAr ? 'يجب أن يكون رقم الهاتف 3 أرقام على الأقل' : (t('reception.phoneMinLength') || 'Phone number must be at least 3 digits') };
         }
         break;
       case 'booking_id': {
@@ -1635,6 +1669,7 @@ export function BookingsPage() {
   // Search bookings function
   async function searchBookings(type: SearchType, value: string) {
     if (!userProfile?.tenant_id || !type || !value) {
+      searchAbortControllerRef.current?.abort();
       setSearchResults([]);
       setShowSearchResults(false);
       return;
@@ -1642,11 +1677,17 @@ export function BookingsPage() {
 
     const validation = validateSearchInput(type, value);
     if (!validation.valid) {
+      searchAbortControllerRef.current?.abort();
       setSearchValidationError(validation.error || '');
       setSearchResults([]);
       setShowSearchResults(false);
       return;
     }
+
+    searchAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortControllerRef.current = controller;
+    const requestSeq = ++searchRequestSeqRef.current;
 
     setSearchValidationError('');
     setIsSearching(true);
@@ -1659,7 +1700,10 @@ export function BookingsPage() {
       }
 
       const params = new URLSearchParams();
-      params.append(type, value.trim());
+      const searchValue = type === 'phone'
+        ? `${searchCountryCode}${value.replace(/\D/g, '')}`
+        : value.trim();
+      params.append(type, searchValue);
       params.append('limit', '50');
 
       let response: Response;
@@ -1669,9 +1713,11 @@ export function BookingsPage() {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
-          }
+          },
+          signal: controller.signal
         });
       } catch (networkErr: any) {
+        if (networkErr?.name === 'AbortError') throw networkErr;
         throw new Error(networkErr?.message?.includes('fetch') ? (t('reception.searchNetworkError') || 'Network error. Make sure the API server is running and reachable.') : (networkErr?.message || 'Search request failed'));
       }
 
@@ -1688,6 +1734,7 @@ export function BookingsPage() {
       }
 
       const result = JSON.parse(responseText) as { bookings?: unknown[] };
+      if (requestSeq !== searchRequestSeqRef.current) return;
       
       const transformedBookings = (result.bookings || []).map((b: any) => ({
         id: b.id,
@@ -1719,11 +1766,14 @@ export function BookingsPage() {
       setSearchResults(sortBookingsByCreatedAtDesc(transformedBookings));
       setShowSearchResults(true);
     } catch (error: any) {
+      if (error?.name === 'AbortError') return;
+      if (requestSeq !== searchRequestSeqRef.current) return;
       console.error('Search error:', error);
       setSearchValidationError(error.message || t('reception.searchError') || 'Search failed');
       setSearchResults([]);
       setShowSearchResults(false);
     } finally {
+      if (requestSeq !== searchRequestSeqRef.current) return;
       setIsSearching(false);
     }
   }
@@ -1733,6 +1783,7 @@ export function BookingsPage() {
     setSearchType(type);
     setSearchQuery('');
     setSearchDate(type === 'date' ? format(new Date(), 'yyyy-MM-dd') : '');
+    setSearchCountryCode(tenantDefaultCountry);
     setSearchResults([]);
     setShowSearchResults(false);
     setSearchValidationError('');
@@ -1760,6 +1811,7 @@ export function BookingsPage() {
     }
 
     if (searchType === 'date') {
+      searchAbortControllerRef.current?.abort();
       setSearchResults([]);
       setShowSearchResults(false);
       setSearchValidationError('');
@@ -1778,6 +1830,7 @@ export function BookingsPage() {
         }, 300);
       }
     } else if (searchType === '' || searchQuery.trim().length === 0) {
+      searchAbortControllerRef.current?.abort();
       setSearchResults([]);
       setShowSearchResults(false);
       setSearchValidationError('');
@@ -1789,6 +1842,12 @@ export function BookingsPage() {
       }
     };
   }, [searchQuery, searchType, searchDate]);
+
+  useEffect(() => {
+    return () => {
+      searchAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Determine which bookings to display
   const displayBookings = showSearchResults ? searchResults : bookings;
@@ -1900,7 +1959,7 @@ export function BookingsPage() {
 
       {/* Search Bar with Type Selector - Only show in list view */}
       {viewMode === 'list' && (
-      <div className="mb-6 space-y-3">
+      <div className="mb-6 space-y-3 max-w-5xl">
         <TimeFilter
           selectedRange={timeRange}
           onRangeChange={setTimeRange}
@@ -1912,9 +1971,9 @@ export function BookingsPage() {
           }}
         />
 
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-[15rem_minmax(0,1fr)] gap-3 lg:gap-4">
           {/* Search Type Selector */}
-          <div className="w-full sm:w-64">
+          <div className="w-full">
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               {isAr ? 'البحث حسب' : (t('reception.searchType') || 'Search By')}
             </label>
@@ -1935,11 +1994,50 @@ export function BookingsPage() {
           </div>
 
           {/* Search Input (conditional based on type) */}
-          <div className="flex-1 min-w-0">
+          <div className="min-w-0">
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               {isAr ? 'قيمة البحث' : (t('reception.searchValue') || 'Search Value')}
             </label>
-            <div className={`${searchBarWrapperClass} ${!searchType ? 'opacity-60' : ''}`}>
+            {searchType === 'phone' ? (
+              <div className="flex flex-col sm:flex-row gap-2 sm:max-w-2xl">
+                <SearchableCountryCodeSelect
+                  value={searchCountryCode}
+                  onChange={setSearchCountryCode}
+                  disabled={!searchType}
+                  className="w-full sm:w-36"
+                />
+                <div className={`${searchBarWrapperClass} ${!searchType ? 'opacity-60' : ''} sm:flex-1`}>
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => handleSearchInputChange(e.target.value)}
+                    placeholder={isAr ? 'أدخل رقم الهاتف...' : (t('reception.phonePlaceholder') || 'Enter phone number...')}
+                    className="w-full bg-transparent border-0 pl-11 pr-10 py-2.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0 disabled:cursor-not-allowed"
+                    disabled={!searchType}
+                  />
+                  {(searchType === 'date' ? searchDate : searchQuery) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setSearchDate('');
+                        setSearchType('');
+                        setShowSearchResults(false);
+                        setSearchResults([]);
+                        setSearchValidationError('');
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 rounded-full p-0.5"
+                      title={t('common.clear') || 'Clear'}
+                      aria-label="Clear search"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className={`${searchBarWrapperClass} ${!searchType ? 'opacity-60' : ''} sm:max-w-2xl`}>
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
                 <input
                   type={searchType === 'date' ? 'date' : 'text'}
@@ -1948,8 +2046,6 @@ export function BookingsPage() {
                   placeholder={
                     searchType === 'date'
                       ? undefined
-                      : searchType === 'phone'
-                      ? (isAr ? 'أدخل رقم الهاتف...' : (t('reception.phonePlaceholder') || 'Enter phone number...'))
                       : searchType === 'booking_id'
                       ? (isAr ? 'أدخل رقم الحجز (UUID أو مثل 48AC5182)...' : (t('reception.bookingIdPlaceholder') || 'Enter booking ID (full UUID or e.g. 48AC5182)...'))
                       : searchType === 'customer_id'
@@ -1984,6 +2080,7 @@ export function BookingsPage() {
                   </button>
                 )}
               </div>
+            )}
           </div>
 
         </div>
@@ -2616,7 +2713,7 @@ export function BookingsPage() {
                           <div className="text-sm text-gray-600">{t('reception.quantityCount', { count: createForm.visitor_count })}</div>
                         </div>
                         <div className="text-right">
-                          {pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count ? (
+                          {createConsumeFromPackage && pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count ? (
                             <span className="text-green-600 font-semibold text-sm flex items-center gap-1">
                               <Package className="w-4 h-4" />
                               {t('reception.packageService')}
@@ -2730,7 +2827,7 @@ export function BookingsPage() {
                       const svc = createServices.find(s => s.id === createServiceId);
                       if (!svc) return formatPrice(0);
                       const pkgCheck = checkServiceInPackage(svc.id);
-                      if (pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count) return t('reception.packageServiceTotal', { price: formatPriceString(0) });
+                      if (createConsumeFromPackage && pkgCheck.available && pkgCheck.remaining >= createForm.visitor_count) return t('reception.packageServiceTotal', { price: formatPriceString(0) });
                       let unit = svc.base_price || 0;
                       if (createOfferId && svc.offers?.length) {
                         const off = svc.offers.find((o) => o.id === createOfferId);
@@ -2775,7 +2872,7 @@ export function BookingsPage() {
                 }
                 setCreateCountryCode(code);
                 setCreateForm(f => ({ ...f, customer_phone: phoneNumber }));
-                if (value.length >= 8) lookupCustomerByPhone(value);
+                if (value.replace(/\D/g, '').length >= 6) lookupCustomerByPhone(value);
               }}
               defaultCountry={tenantDefaultCountry}
               required
@@ -2997,9 +3094,35 @@ export function BookingsPage() {
               <p className="text-xs text-gray-600 mt-1">
                 {formatPriceString(createServices.find(s => s.id === createServiceId)?.base_price ?? 0)} {t('checkout.perBook')}
               </p>
+              <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={createConsumeFromPackage}
+                    onChange={(e) => setCreateConsumeFromPackage(e.target.checked)}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>{t('reception.consumeFromPackage')}</span>
+                </label>
+              </div>
               {createServiceId && createForm.visitor_count && (() => {
                 const pkgCheck = checkServiceInPackage(createServiceId);
                 const qty = createForm.visitor_count;
+                if (!createConsumeFromPackage && pkgCheck.remaining > 0) {
+                  return (
+                    <div className="mt-3 p-3 bg-slate-50 border border-slate-300 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <Package className="w-4 h-4 text-slate-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-slate-800 mb-1">{t('reception.packageConsumeDisabledTitle')}</p>
+                          <p className="text-sm text-slate-700">
+                            {t('reception.packageConsumeDisabledDescription')}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
                 if (pkgCheck.remaining > 0 && pkgCheck.remaining < qty) {
                   const paidQty = qty - pkgCheck.remaining;
                   return (

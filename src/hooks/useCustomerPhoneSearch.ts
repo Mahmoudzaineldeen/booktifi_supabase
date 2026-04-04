@@ -48,11 +48,44 @@ export function useCustomerPhoneSearch(tenantId: string | undefined, fullPhoneVa
       }
       const data = await res.json();
       const list: CustomerSuggestion[] = data.customers || [];
+      const queryDigits = digits.replace(/\D/g, '');
+      const normalized = list
+        .filter((c) => !!c?.id && !!c?.phone)
+        .map((c) => ({
+          ...c,
+          _digits: c.phone.replace(/\D/g, ''),
+        }));
+      // Accuracy: show closest matches first (exact > startsWith > contains),
+      // then by shorter phone length to reduce noisy suggestions.
+      normalized.sort((a, b) => {
+        const score = (x: { _digits: string }) => {
+          if (x._digits === queryDigits) return 0;
+          if (x._digits.startsWith(queryDigits)) return 1;
+          if (x._digits.includes(queryDigits)) return 2;
+          return 3;
+        };
+        const sA = score(a);
+        const sB = score(b);
+        if (sA !== sB) return sA - sB;
+        return a._digits.length - b._digits.length;
+      });
+      const deduped: CustomerSuggestion[] = [];
+      const seen = new Set<string>();
+      for (const item of normalized) {
+        if (seen.has(item.id)) continue;
+        seen.add(item.id);
+        deduped.push({
+          id: item.id,
+          name: item.name,
+          phone: item.phone,
+          email: item.email,
+        });
+      }
       // Only show dropdown when 1 <= count <= 10 (if 11 returned, too many)
-      if (list.length > MAX_SHOW) {
+      if (deduped.length > MAX_SHOW) {
         setSuggestions([]);
       } else {
-        setSuggestions(list);
+        setSuggestions(deduped);
       }
     } catch (e) {
       if ((e as Error)?.name !== 'AbortError') {

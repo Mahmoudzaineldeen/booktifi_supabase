@@ -10,6 +10,7 @@ import { Card, CardContent } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { searchBarWrapperClass, searchSelectClass } from '../../components/ui/SearchInput';
+import { SearchableCountryCodeSelect } from '../../components/ui/SearchableCountryCodeSelect';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut, CalendarDays, DollarSign, List, Grid, ChevronLeft, ChevronRight, X, Package, QrCode, Scan, Download, FileText, Search, Ban, Wrench, UserX, BarChart3, ChevronDown } from 'lucide-react';
@@ -260,11 +261,14 @@ export function ReceptionPage() {
   const [searchType, setSearchType] = useState<SearchType>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDate, setSearchDate] = useState<string>(''); // For date picker
+  const [searchCountryCode, setSearchCountryCode] = useState(tenantDefaultCountry);
   const [searchResults, setSearchResults] = useState<Booking[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchValidationError, setSearchValidationError] = useState<string>('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
+  const searchRequestSeqRef = useRef(0);
   const bookingPhoneWrapperRef = useRef<HTMLDivElement>(null);
   const subscriptionPhoneWrapperRef = useRef<HTMLDivElement>(null);
   const { suggestions: bookingPhoneSuggestions, loading: bookingPhoneSearchLoading, clearSuggestions: clearBookingPhoneSuggestions } = useCustomerPhoneSearch(userProfile?.tenant_id, customerPhoneFull);
@@ -275,9 +279,14 @@ export function ReceptionPage() {
   const [markPaidReference, setMarkPaidReference] = useState('');
   const [markPaidSubmitting, setMarkPaidSubmitting] = useState(false);
 
+  useEffect(() => {
+    setSearchCountryCode(tenantDefaultCountry);
+  }, [tenantDefaultCountry]);
+
   // Create booking: payment method (when booking has payable amount). 'unpaid' | 'onsite' | 'transfer'
   const [createPaymentMethod, setCreatePaymentMethod] = useState<'unpaid' | 'onsite' | 'transfer'>('onsite');
   const [createTransactionReference, setCreateTransactionReference] = useState('');
+  const [consumeFromPackage, setConsumeFromPackage] = useState(true);
   // Match admin create-booking behavior:
   // - tenant mode "both": receptionist can switch between auto/manual
   // - tenant mode fixed: enforce that mode
@@ -932,10 +941,10 @@ export function ReceptionPage() {
 
     switch (type) {
       case 'phone':
-        // Phone should be numeric and at least 5 digits
+        // Phone should be numeric and at least 3 digits
         const phoneDigits = value.replace(/\D/g, '');
-        if (phoneDigits.length < 5) {
-          return { valid: false, error: t('reception.phoneMinLength') || 'Phone number must be at least 5 digits' };
+        if (phoneDigits.length < 3) {
+          return { valid: false, error: t('reception.phoneMinLength') || 'Phone number must be at least 3 digits' };
         }
         break;
       case 'booking_id': {
@@ -974,6 +983,7 @@ export function ReceptionPage() {
   // Search bookings function with explicit search type
   async function searchBookings(type: SearchType, value: string) {
     if (!userProfile?.tenant_id || !type || !value) {
+      searchAbortControllerRef.current?.abort();
       setSearchResults([]);
       setShowSearchResults(false);
       return;
@@ -982,11 +992,17 @@ export function ReceptionPage() {
     // Validate input
     const validation = validateSearchInput(type, value);
     if (!validation.valid) {
+      searchAbortControllerRef.current?.abort();
       setSearchValidationError(validation.error || '');
       setSearchResults([]);
       setShowSearchResults(false);
       return;
     }
+
+    searchAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortControllerRef.current = controller;
+    const requestSeq = ++searchRequestSeqRef.current;
 
     setSearchValidationError('');
     setIsSearching(true);
@@ -996,7 +1012,10 @@ export function ReceptionPage() {
       
       // Build query params - only send the selected search type parameter
       const params = new URLSearchParams();
-      params.append(type, value.trim());
+      const searchValue = type === 'phone'
+        ? `${searchCountryCode}${value.replace(/\D/g, '')}`
+        : value.trim();
+      params.append(type, searchValue);
       params.append('limit', '50');
 
       const response = await fetch(`${API_URL}/bookings/search?${params.toString()}`, {
@@ -1004,7 +1023,8 @@ export function ReceptionPage() {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.data.session?.access_token}`
-        }
+        },
+        signal: controller.signal
       });
 
       if (!response.ok) {
@@ -1013,6 +1033,7 @@ export function ReceptionPage() {
       }
 
       const result = await response.json();
+      if (requestSeq !== searchRequestSeqRef.current) return;
       
       // Transform results to match Booking interface
       const transformedBookings = (result.bookings || []).map((b: any) => ({
@@ -1040,11 +1061,14 @@ export function ReceptionPage() {
       setSearchResults(transformedBookings);
       setShowSearchResults(true);
     } catch (error: any) {
+      if (error?.name === 'AbortError') return;
+      if (requestSeq !== searchRequestSeqRef.current) return;
       console.error('Search error:', error);
       setSearchValidationError(error.message || t('reception.searchError') || 'Search failed');
       setSearchResults([]);
       setShowSearchResults(false);
     } finally {
+      if (requestSeq !== searchRequestSeqRef.current) return;
       setIsSearching(false);
     }
   }
@@ -1054,6 +1078,7 @@ export function ReceptionPage() {
     setSearchType(type);
     setSearchQuery('');
     setSearchDate('');
+    setSearchCountryCode(tenantDefaultCountry);
     setSearchResults([]);
     setShowSearchResults(false);
     setSearchValidationError('');
@@ -1102,9 +1127,12 @@ export function ReceptionPage() {
         }, 300); // 300ms debounce
       }
     } else if ((searchType as string) === '' || (searchType !== 'date' && searchQuery.trim().length === 0)) {
+      searchAbortControllerRef.current?.abort();
       setSearchResults([]);
       setShowSearchResults(false);
       setSearchValidationError('');
+    } else if (searchType === 'date') {
+      searchAbortControllerRef.current?.abort();
     }
 
     return () => {
@@ -1113,6 +1141,12 @@ export function ReceptionPage() {
       }
     };
   }, [searchQuery, searchType]);
+
+  useEffect(() => {
+    return () => {
+      searchAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   async function fetchBookings() {
     if (!userProfile?.tenant_id) return;
@@ -1535,6 +1569,7 @@ export function ReceptionPage() {
     transaction_reference?: string;
     tag_id?: string;
     payment_status?: string;
+    consume_from_package?: boolean;
   }) {
     // Get API URL (already includes /api suffix)
     const API_URL = getApiUrl();
@@ -1560,6 +1595,7 @@ export function ReceptionPage() {
           ...bookingData,
           tag_id: bookingData.tag_id || receptionSelectedTagId,
           language: bookingData.language || i18n.language,
+          consume_from_package: bookingData.consume_from_package ?? consumeFromPackage,
         }),
       });
 
@@ -1625,6 +1661,7 @@ export function ReceptionPage() {
           ...bookingData,
           tag_id: bookingData.tag_id || receptionSelectedTagId,
           language: i18n.language,
+          consume_from_package: bookingData.consume_from_package ?? consumeFromPackage,
         }),
       });
 
@@ -2087,7 +2124,7 @@ export function ReceptionPage() {
           console.log('Creating booking for service:', item.service.name, 'slot:', item.slot.id, 'group:', bookingGroupId);
 
           // Determine if this specific booking can use the package
-          const canUsePackage = packageCheck.available && packageUsedCount < packageCheck.remaining;
+          const canUsePackage = consumeFromPackage && packageCheck.available && packageUsedCount < packageCheck.remaining;
           const usePackage = canUsePackage;
 
           if (usePackage) {
@@ -2497,6 +2534,7 @@ export function ReceptionPage() {
           visitor_count: typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1,
           total_price: totalPrice,
           notes: bookingForm.notes || null,
+          consume_from_package: consumeFromPackage,
           ...(totalPrice > 0 ? (createPaymentMethod === 'unpaid'
             ? { payment_status: 'unpaid' }
             : {
@@ -3314,7 +3352,8 @@ export function ReceptionPage() {
   }
 
   async function lookupCustomerByPhone(fullPhoneNumber: string) {
-    if (!fullPhoneNumber || fullPhoneNumber.length < 10 || !userProfile?.tenant_id) return;
+    const fullDigits = (fullPhoneNumber || '').replace(/\D/g, '');
+    if (!fullPhoneNumber || fullDigits.length < 6 || !userProfile?.tenant_id) return;
 
     setIsLookingUpCustomer(true);
 
@@ -3333,12 +3372,32 @@ export function ReceptionPage() {
 
       if (customerData) {
         setCustomerIsBlocked((customerData as any).is_blocked === true);
-        // Customer found in customers table - only auto-fill if fields are empty
+        // Exact full-number match: always lock to the matched customer and autofill fields.
+        const matchedPhone = customerData.phone || fullPhoneNumber;
+        let localPhone = matchedPhone;
+        let code = tenantDefaultCountry;
+        for (const country of countryCodes) {
+          if (matchedPhone.startsWith(country.code)) {
+            code = country.code;
+            localPhone = matchedPhone.replace(country.code, '').trim();
+            break;
+          }
+        }
+        setBookingSelectedCustomer({
+          id: customerData.id,
+          name: customerData.name || '',
+          phone: matchedPhone,
+          email: customerData.email || null,
+        });
         setBookingForm(prev => ({
           ...prev,
-          customer_name: prev.customer_name || customerData.name || '',
-          customer_email: prev.customer_email || customerData.email || ''
+          customer_name: customerData.name || '',
+          customer_email: customerData.email || '',
+          customer_phone: localPhone || prev.customer_phone,
         }));
+        setCountryCode(code);
+        setCustomerPhoneFull(matchedPhone);
+        clearBookingPhoneSuggestions();
 
         // Fetch ALL active package subscriptions for this customer
         const { data: subscriptionsData } = await db
@@ -3372,6 +3431,7 @@ export function ReceptionPage() {
         }
         setCustomerPackages(packages);
       } else {
+        setBookingSelectedCustomer(null);
         // Customer not found in customers table, check bookings table for guest bookings
         const { data: bookingData, error: bookingError } = await db
           .from('bookings')
@@ -3435,6 +3495,15 @@ export function ReceptionPage() {
     if (!service) return { price: 0, usePackage: false, canUsePackage: false, packageCoveredQty: 0, paidQty: quantity };
 
     const packageCheck = checkServiceInPackage(serviceId);
+    if (!consumeFromPackage) {
+      return {
+        price: service.base_price * quantity,
+        usePackage: false,
+        canUsePackage: false,
+        packageCoveredQty: 0,
+        paidQty: quantity,
+      };
+    }
 
     // Calculate remaining after accounting for already selected services in this session
     const effectiveRemaining = packageCheck.remaining - alreadySelectedCount;
@@ -3521,6 +3590,7 @@ export function ReceptionPage() {
     setIsLookingUpCustomer(false);
     setCreatePaymentMethod('onsite');
     setCreateTransactionReference('');
+    setConsumeFromPackage(true);
     setReceptionPricingTags([]);
     setReceptionSelectedTagId('');
     
@@ -4081,10 +4151,10 @@ export function ReceptionPage() {
         {!isAssignFixingTicketPath && !isReportsPath && currentView === 'bookings' && (
           <>
         {/* Search Bar with Type Selector */}
-        <div className="mb-6 space-y-3">
-          <div className="flex flex-col sm:flex-row gap-4">
+        <div className="mb-6 space-y-3 max-w-5xl">
+          <div className="grid grid-cols-1 lg:grid-cols-[15rem_minmax(0,1fr)] gap-3 lg:gap-4">
             {/* Search Type Selector */}
-            <div className="w-full sm:w-64">
+            <div className="w-full">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 {t('reception.searchType') || 'Search By'}
               </label>
@@ -4103,7 +4173,7 @@ export function ReceptionPage() {
             </div>
 
             {/* Search Input (conditional based on type) */}
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 {searchType === 'date' 
                   ? (t('reception.selectDate') || 'Select Date')
@@ -4119,17 +4189,53 @@ export function ReceptionPage() {
                     disabled={!searchType || searchType !== 'date'}
                   />
                 </div>
+              ) : searchType === 'phone' ? (
+                <div className="flex flex-col sm:flex-row gap-2 sm:max-w-2xl">
+                  <SearchableCountryCodeSelect
+                    value={searchCountryCode}
+                    onChange={setSearchCountryCode}
+                    disabled={!searchType}
+                    className="w-full sm:w-36"
+                  />
+                  <div className={`${searchBarWrapperClass} ${!searchType ? 'opacity-60' : ''} sm:flex-1`}>
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => handleSearchInputChange(e.target.value)}
+                      placeholder={t('reception.phonePlaceholder') || 'Enter phone number...'}
+                      className="w-full bg-transparent border-0 pl-11 pr-10 py-2.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0 disabled:cursor-not-allowed"
+                      disabled={!searchType}
+                    />
+                    {(searchQuery || searchDate) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery('');
+                          setSearchDate('');
+                          setSearchType('');
+                          setShowSearchResults(false);
+                          setSearchResults([]);
+                          setSearchValidationError('');
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 rounded-full p-0.5"
+                        title={t('common.clear') || 'Clear'}
+                        aria-label="Clear search"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
               ) : (
-                <div className={`${searchBarWrapperClass} ${!searchType ? 'opacity-60' : ''}`}>
+                <div className={`${searchBarWrapperClass} ${!searchType ? 'opacity-60' : ''} sm:max-w-2xl`}>
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => handleSearchInputChange(e.target.value)}
                     placeholder={
-                      searchType === 'phone' 
-                        ? (t('reception.phonePlaceholder') || 'Enter phone number...')
-                        : searchType === 'booking_id'
+                      searchType === 'booking_id'
                         ? (t('reception.bookingIdPlaceholder') || 'Enter booking ID (UUID)...')
                         : searchType === 'customer_name'
                         ? (t('reception.namePlaceholder') || 'Enter customer name...')
@@ -4549,7 +4655,7 @@ export function ReceptionPage() {
                           </div>
                         </div>
                         <div className="text-right">
-                          {packageCheck.available && packageCheck.remaining >= (bookingForm.visitor_count as number) ? (
+                          {consumeFromPackage && packageCheck.available && packageCheck.remaining >= (bookingForm.visitor_count as number) ? (
                             <span className="text-green-600 font-semibold text-sm flex items-center gap-1">
                               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                                 <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -4643,7 +4749,7 @@ export function ReceptionPage() {
                 const service = services.find(s => s.id === selectedService);
                 if (!service) return null;
                 const pkg = checkServiceInPackage(service.id);
-                const hasPayableAmount = !pkg.available || pkg.remaining < (bookingForm.visitor_count as number);
+                const hasPayableAmount = !consumeFromPackage || !pkg.available || pkg.remaining < (bookingForm.visitor_count as number);
                 if (!hasPayableAmount) return null;
                 return (
                   <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
@@ -4667,7 +4773,7 @@ export function ReceptionPage() {
                       const service = services.find(s => s.id === selectedService);
                       if (!service) return formatPrice(0);
                       const packageCheck = checkServiceInPackage(service.id);
-                      if (packageCheck.available && packageCheck.remaining >= (bookingForm.visitor_count as number)) {
+                      if (consumeFromPackage && packageCheck.available && packageCheck.remaining >= (bookingForm.visitor_count as number)) {
                         return t('reception.packageServiceTotal', { price: formatPriceString(0) });
                       }
                       const price = service.base_price || 0;
@@ -4733,7 +4839,7 @@ export function ReceptionPage() {
                 }
                 setCountryCode(code);
                 setBookingForm({ ...bookingForm, customer_phone: phoneNumber });
-                if (phoneNumber.length >= 8) lookupCustomerByPhone(value);
+                if (value.replace(/\D/g, '').length >= 6) lookupCustomerByPhone(value);
               }}
               defaultCountry={tenantDefaultCountry}
               required
@@ -5008,11 +5114,39 @@ export function ReceptionPage() {
                   return null;
                 })()}
               </p>
+              <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={consumeFromPackage}
+                    onChange={(e) => setConsumeFromPackage(e.target.checked)}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>{t('reception.consumeFromPackage')}</span>
+                </label>
+              </div>
 
               {/* Package Partial Coverage Warning */}
               {selectedService && bookingForm.visitor_count && (() => {
                 const packageCheck = checkServiceInPackage(selectedService);
                 const quantity = typeof bookingForm.visitor_count === 'number' ? bookingForm.visitor_count : 1;
+                if (!consumeFromPackage && packageCheck.remaining > 0) {
+                  return (
+                    <div className="mt-3 p-3 bg-slate-50 border border-slate-300 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <Package className="w-4 h-4 text-slate-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-slate-800 mb-1">
+                            {t('reception.packageConsumeDisabledTitle')}
+                          </p>
+                          <p className="text-sm text-slate-700">
+                            {t('reception.packageConsumeDisabledDescription')}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
                 
                 if (packageCheck.remaining > 0 && packageCheck.remaining < quantity) {
                   const paidQty = quantity - packageCheck.remaining;

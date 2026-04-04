@@ -107,6 +107,8 @@ done make the services 1 hours
 
 done give the ability to book two or more services at same booking
 
-set option when create a booking we need to add option to consume from package or not
+done set option when create a booking we need to add option to consume from package or not
 
 done integrate with daftara
+
+create booking wirte number the suggistions dont work as excpected

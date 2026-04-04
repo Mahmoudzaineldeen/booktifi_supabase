@@ -1825,7 +1825,9 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       payment_method: reqPaymentMethod, // Optional: 'onsite' (مدفوع يدوياً) or 'transfer' (حوالة)
       transaction_reference: reqTransactionRef, // Optional: required when payment_method is 'transfer'
       payment_status: reqPaymentStatusRaw, // Optional: normalized to 'unpaid' | 'paid' | 'paid_manual' (display: Unpaid, Paid On Site, Bank Transfer)
+      consume_from_package: reqConsumeFromPackageRaw, // Optional: when false, force paid booking even if package has capacity
     } = req.body;
+    const consumeFromPackage = reqConsumeFromPackageRaw !== false;
     let reqPaymentStatus = (reqPaymentStatusRaw === 'awaiting_payment' || reqPaymentStatusRaw === 'refunded') ? 'unpaid' : reqPaymentStatusRaw;
     // When frontend sends payment_method (Paid On Site / Bank Transfer) but not payment_status, treat as paid
     if ((reqPaymentMethod === 'onsite' || reqPaymentMethod === 'transfer') && (reqPaymentStatus === undefined || reqPaymentStatus === null || reqPaymentStatus === '')) {
@@ -1967,7 +1969,7 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
     // CRITICAL: Validate customer_id exists in customers table before using it
     // If customer_id doesn't exist, set it to NULL to avoid foreign key violation
     // Blocked visitors cannot create bookings from customer side
-    if (customerIdForPackage) {
+    if (customerIdForPackage && consumeFromPackage) {
       console.log('[Booking Creation] Validating customer_id exists in customers table:', customerIdForPackage);
       const { data: customerExists, error: customerCheckError } = await supabase
         .from('customers')
@@ -2230,6 +2232,34 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
     finalTotalPrice = Number(finalTotalPrice) + bookingAppliedTagFeeForDb;
 
     // Use RPC for transaction - handles all validation, lock checking, and booking creation
+    if (!consumeFromPackage) {
+      console.log('[Booking Creation] Package consumption explicitly disabled by client.');
+      packageSubscriptionId = null;
+      packageCoveredQty = 0;
+      paidQty = visitor_count;
+      shouldUsePackage = false;
+      // Force full paid pricing when package usage is disabled.
+      // Use client total first; if missing/zero, fallback to service base price.
+      let fullPaidBaseTotal = Number(total_price ?? 0);
+      if (!Number.isFinite(fullPaidBaseTotal) || fullPaidBaseTotal <= 0) {
+        const { data: fallbackService } = await supabase
+          .from('services')
+          .select('base_price')
+          .eq('id', service_id)
+          .single();
+        const fallbackUnitPrice = Number(fallbackService?.base_price || 0);
+        fullPaidBaseTotal = fallbackUnitPrice * visitor_count;
+        console.warn(`[Booking Creation] ⚠️ total_price missing/zero with consume_from_package=false; using fallback base price`, {
+          service_id,
+          fallbackUnitPrice,
+          visitor_count,
+          fullPaidBaseTotal
+        });
+      }
+      bookingAppliedTagFeeForDb = paidQty > 0 ? tagRes.appliedFee : 0;
+      finalTotalPrice = Number(fullPaidBaseTotal) + Number(bookingAppliedTagFeeForDb || 0);
+    }
+
     console.log(`[Booking Creation] Calling create_booking_with_lock RPC function...`);
     console.log(`[Booking Creation]    Package: ${shouldUsePackage ? 'YES' : 'NO'}, Price: ${finalTotalPrice}`);
     console.log(`[Booking Creation]    Coverage: ${packageCoveredQty} package, ${paidQty} paid`);
@@ -3175,8 +3205,10 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       language = 'en',
       booking_group_id, // Optional: group ID to link bookings
       payment_method: reqPaymentMethod, // Optional: 'onsite' or 'transfer'
-      transaction_reference: reqTransactionRef
+      transaction_reference: reqTransactionRef,
+      consume_from_package: reqConsumeFromPackageRaw
     } = req.body;
+    const consumeFromPackage = reqConsumeFromPackageRaw !== false;
 
     // Validate language
     const validLanguage = (language === 'ar' || language === 'en') ? language : 'en';
@@ -3243,7 +3275,7 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
     }
     
     // Validate customer_id exists in customers table
-    if (customerIdForPackage) {
+    if (customerIdForPackage && consumeFromPackage) {
       const { data: customerExists } = await supabase
         .from('customers')
         .select('id')
@@ -3363,6 +3395,33 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       } catch (packageError: any) {
         console.error(`[Bulk Booking Creation] ⚠️ Package capacity check failed:`, packageError);
       }
+    }
+
+    if (!consumeFromPackage) {
+      console.log('[Bulk Booking Creation] Package consumption explicitly disabled by client.');
+      packageSubscriptionId = null;
+      packageCoveredQty = 0;
+      paidQty = visitor_count;
+      shouldUsePackage = false;
+      // Force full paid pricing when package usage is disabled.
+      // Use client total first; if missing/zero, fallback to service base price.
+      let fullPaidBaseTotal = Number(total_price ?? 0);
+      if (!Number.isFinite(fullPaidBaseTotal) || fullPaidBaseTotal <= 0) {
+        const { data: fallbackService } = await supabase
+          .from('services')
+          .select('base_price')
+          .eq('id', service_id)
+          .single();
+        const fallbackUnitPrice = Number(fallbackService?.base_price || 0);
+        fullPaidBaseTotal = fallbackUnitPrice * visitor_count;
+        console.warn(`[Bulk Booking Creation] ⚠️ total_price missing/zero with consume_from_package=false; using fallback base price`, {
+          service_id,
+          fallbackUnitPrice,
+          visitor_count,
+          fullPaidBaseTotal
+        });
+      }
+      finalTotalPrice = Number(fullPaidBaseTotal);
     }
 
     const bulkTagRes = await resolveBookingTagForCreate(supabase, {
@@ -5918,7 +5977,10 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
       req.get('user-agent')
     );
 
-    let zohoSyncResult: { success: boolean; error?: string; paymentId?: string } | null = null;
+    const { getInvoiceProviderForTenant } = await import('../services/invoiceRoutingService.js');
+    const invoiceProvider = await getInvoiceProviderForTenant(tenantId);
+    let zohoSyncResult: { success: boolean; error?: string; paymentId?: string; pending?: boolean; message?: string } | null =
+      invoiceProvider === 'zoho' ? null : { success: true };
     let invoiceSendWarning: string | undefined;
     let invoiceId = currentBooking.zoho_invoice_id || (currentBooking as any).daftra_invoice_id;
     const totalPrice = Number((updatedBooking || currentBooking).total_price) || 0;
@@ -5937,7 +5999,7 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
       !shouldRegenerateInvoice;
 
     let invoiceCreateError: string | undefined;
-    if (shouldRegenerateInvoice) {
+    if (invoiceProvider === 'zoho' && shouldRegenerateInvoice) {
       // Run regeneration in background so the response returns immediately (better UX).
       zohoSyncResult = { success: true, pending: true, message: 'Invoice is being regenerated and will be sent when ready.' };
       setImmediate(async () => {
@@ -5987,7 +6049,7 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
       }
     }
 
-    if (shouldCreateInvoiceAndRecordPayment && invoiceId && totalPrice > 0) {
+    if (invoiceProvider === 'zoho' && shouldCreateInvoiceAndRecordPayment && invoiceId && totalPrice > 0) {
       const { zohoService } = await import('../services/zohoService.js');
       const { data: idRow } = await supabase
         .from('bookings')
@@ -6044,7 +6106,7 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
           }
         }
       }
-    } else if (invoiceId && !shouldCreateInvoiceAndRecordPayment && isPaidOrPaidManual) {
+    } else if (invoiceProvider === 'zoho' && invoiceId && !shouldCreateInvoiceAndRecordPayment && isPaidOrPaidManual) {
       try {
         const { zohoService } = await import('../services/zohoService.js');
         const { data: zRow } = await supabase.from('bookings').select('zoho_invoice_id').eq('id', bookingId).maybeSingle();
@@ -6056,20 +6118,24 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
       }
     }
 
-    const zohoSyncPayload = zohoSyncResult ?? (shouldCreateInvoiceAndRecordPayment && !invoiceId
-      ? { success: false as const, error: invoiceCreateError || 'Invoice could not be created. Check Zoho configuration in Settings → Zoho Integration (Connect Zoho and complete OAuth).' }
-      : { success: false as const, error: invoiceId ? 'Zoho sync failed. Check Settings → Zoho Integration.' : 'No invoice to sync. Create an invoice first or check Zoho setup in Settings.' });
-    const isPendingRegen = (zohoSyncPayload as { pending?: boolean }).pending === true;
+    const zohoSyncPayload = invoiceProvider === 'zoho'
+      ? (zohoSyncResult ?? (shouldCreateInvoiceAndRecordPayment && !invoiceId
+          ? { success: false as const, error: invoiceCreateError || 'Invoice could not be created. Check Zoho configuration in Settings → Zoho Integration (Connect Zoho and complete OAuth).' }
+          : { success: false as const, error: invoiceId ? 'Zoho sync failed. Check Settings → Zoho Integration.' : 'No invoice to sync. Create an invoice first or check Zoho setup in Settings.' }))
+      : null;
+    const isPendingRegen = invoiceProvider === 'zoho' && (zohoSyncPayload as { pending?: boolean } | null)?.pending === true;
     const responsePayload: Record<string, unknown> = {
       success: true,
       booking: updatedBooking,
-      zoho_sync: zohoSyncPayload,
       message: isPendingRegen
         ? 'Payment updated. Invoice is being regenerated and will be sent shortly.'
         : payment_status === 'paid' || payment_status === 'paid_manual'
           ? 'Payment status updated. Invoice sent via WhatsApp when applicable.'
           : 'Payment status updated',
     };
+    if (invoiceProvider === 'zoho' && zohoSyncPayload) {
+      responsePayload.zoho_sync = zohoSyncPayload;
+    }
     if (invoiceSendWarning) responsePayload.invoice_send_warning = invoiceSendWarning;
     res.json(responsePayload);
   } catch (error: any) {
@@ -6169,7 +6235,10 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
       }
     }
 
-    if (invoiceId && totalPrice > 0) {
+    const { getInvoiceProviderForTenant } = await import('../services/invoiceRoutingService.js');
+    const invoiceProvider = await getInvoiceProviderForTenant(tenantId);
+
+    if (invoiceProvider === 'zoho' && invoiceId && totalPrice > 0) {
       const { zohoService } = await import('../services/zohoService.js');
       const { data: zohoRow } = await supabase.from('bookings').select('zoho_invoice_id').eq('id', bookingId).maybeSingle();
       const zohoOnly = zohoRow?.zoho_invoice_id;
@@ -6463,11 +6532,11 @@ router.get('/search', authenticateReceptionistOrCoordinatorForView, async (req, 
     // Handle each search type explicitly - only ONE will execute
     if (phone && phone.trim().length > 0) {
       searchType = 'phone';
-      // Validate phone format (should be numeric, at least 5 digits)
+      // Validate phone format (should be numeric, at least 3 digits)
       const phoneDigits = phone.replace(/\D/g, '');
-      if (phoneDigits.length < 5) {
+      if (phoneDigits.length < 3) {
         return res.status(400).json({ 
-          error: 'Phone number must be at least 5 digits',
+          error: 'Phone number must be at least 3 digits',
           searchType: 'phone'
         });
       }
