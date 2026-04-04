@@ -22,6 +22,13 @@ describe('customer phone search normalization', () => {
     expect(phoneMatchesAnyVariant(storedPhone, variants)).toBe(true);
   });
 
+  it('matches when query includes country code plus extra local zero', () => {
+    const variants = buildSearchDigitVariants('9660531');
+    const storedPhone = '+966531234567';
+    expect(variants).toContain('531');
+    expect(phoneMatchesAnyVariant(storedPhone, variants)).toBe(true);
+  });
+
   it('fuzzy pattern supports formatted phone strings with separators', () => {
     expect(buildDigitFuzzyPattern('531')).toBe('%5%3%1%');
     expect(normalizePhoneDigits('+966 53 123 4567')).toBe('966531234567');

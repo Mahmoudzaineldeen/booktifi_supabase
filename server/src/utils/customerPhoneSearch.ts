@@ -26,14 +26,20 @@ export function buildSearchDigitVariants(inputDigits: string): string[] {
   // KSA international -> local variant.
   if (raw.startsWith('966') && raw.length > 3) {
     const local = raw.slice(3);
+    const trimmedLocal = local.replace(/^0+/, '');
     add(local);
-    add(`0${local}`);
+    add(trimmedLocal);
+    if (trimmedLocal) add(`0${trimmedLocal}`);
   }
   if (raw.startsWith('00966') && raw.length > 5) {
     const local = raw.slice(5);
+    const trimmedLocal = local.replace(/^0+/, '');
     add(local);
-    add(`0${local}`);
-    add(`966${local}`);
+    add(trimmedLocal);
+    if (trimmedLocal) {
+      add(`0${trimmedLocal}`);
+      add(`966${trimmedLocal}`);
+    }
   }
 
   return Array.from(set);
