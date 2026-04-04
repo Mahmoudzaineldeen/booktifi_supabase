@@ -8,7 +8,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { getApiUrl } from '../lib/apiUrl';
 
 export interface CustomerSuggestion {
-  id: string;
+  id?: string;
   name: string;
   phone: string;
   email?: string | null;
@@ -89,8 +89,9 @@ export function rankAndLimitCustomerSuggestions(
   const deduped: CustomerSuggestion[] = [];
   const seen = new Set<string>();
   for (const item of normalized) {
-    if (seen.has(item.id)) continue;
-    seen.add(item.id);
+    const dedupeKey = item.id || `${item._digits}:${item.name || ''}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
     deduped.push({
       id: item.id,
       name: item.name,

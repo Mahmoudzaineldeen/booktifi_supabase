@@ -52,9 +52,9 @@ export function CustomerPhoneSuggestionsDropdown({
       dir={isRTL ? 'rtl' : 'ltr'}
       role="listbox"
     >
-      {suggestions.map((c) => (
+      {suggestions.map((c, idx) => (
         <button
-          key={c.id}
+          key={`${c.id || c.phone}-${idx}`}
           type="button"
           role="option"
           className={`w-full px-3 py-2.5 text-left text-sm hover:bg-blue-50 focus:bg-blue-50 focus:outline-none ${isRTL ? 'text-right' : 'text-left'}`}

@@ -994,17 +994,70 @@ router.get('/customer-search', authenticateReceptionistOrTenantAdmin, async (req
     const fuzzyPatterns = variants.map(buildDigitFuzzyPattern);
     const orClause = fuzzyPatterns.map((pattern) => `phone.ilike.${pattern}`).join(',');
     const prefetchLimit = Math.min(1000, Math.max(safeLimit * 4, 200));
-    const { data, error } = await supabase
+    const { data: customerRows, error: customerError } = await supabase
       .from('customers')
       .select('id, name, phone, email')
       .eq('tenant_id', tenantId)
       .or(orClause)
       .limit(prefetchLimit);
 
-    if (error) {
-      return res.status(500).json({ error: 'Failed to search customers', details: error.message });
+    if (customerError) {
+      return res.status(500).json({ error: 'Failed to search customers', details: customerError.message });
     }
-    const filtered = (data || []).filter((c: any) => phoneMatchesAnyVariant(c?.phone || '', variants));
+
+    const bookingOrClause = fuzzyPatterns.map((pattern) => `customer_phone.ilike.${pattern}`).join(',');
+    const { data: bookingRows, error: bookingError } = await supabase
+      .from('bookings')
+      .select('customer_id, customer_name, customer_phone, customer_email, created_at')
+      .eq('tenant_id', tenantId)
+      .or(bookingOrClause)
+      .order('created_at', { ascending: false })
+      .limit(prefetchLimit);
+
+    if (bookingError) {
+      return res.status(500).json({ error: 'Failed to search bookings', details: bookingError.message });
+    }
+
+    const customerById = new Map<string, any>();
+    for (const c of customerRows || []) {
+      if (c?.id) customerById.set(c.id, c);
+    }
+
+    const merged: Array<{ id?: string; name: string; phone: string; email?: string | null }> = [];
+    for (const c of customerRows || []) {
+      merged.push({
+        id: c.id,
+        name: c.name || '',
+        phone: c.phone || '',
+        email: c.email ?? null,
+      });
+    }
+
+    const bookingSeenKeys = new Set<string>();
+    for (const b of bookingRows || []) {
+      const phone = String((b as any)?.customer_phone || '');
+      if (!phone) continue;
+      if (!phoneMatchesAnyVariant(phone, variants)) continue;
+
+      const customerId = (b as any)?.customer_id || undefined;
+      if (customerId && customerById.has(customerId)) {
+        continue;
+      }
+
+      const normalizedPhone = phone.replace(/\D/g, '');
+      const key = customerId || normalizedPhone;
+      if (!key || bookingSeenKeys.has(key)) continue;
+      bookingSeenKeys.add(key);
+
+      merged.push({
+        id: customerId,
+        name: String((b as any)?.customer_name || ''),
+        phone,
+        email: (b as any)?.customer_email ?? null,
+      });
+    }
+
+    const filtered = merged.filter((c) => phoneMatchesAnyVariant(c?.phone || '', variants));
     filtered.sort((a: any, b: any) => {
       const scoreA = bestPhoneMatchScore(a?.phone || '', variants);
       const scoreB = bestPhoneMatchScore(b?.phone || '', variants);
