@@ -151,6 +151,11 @@ function isMissingColumnError(error: any, columnName: string): boolean {
   return msg.includes(columnName.toLowerCase()) && (msg.includes('does not exist') || msg.includes('could not find'));
 }
 
+function isMissingEffectiveBookingColumnError(error: any): boolean {
+  const columns = ['effective_start_time', 'effective_end_time', 'effective_duration_minutes', 'required_slot_count'];
+  return columns.some((c) => isMissingColumnError(error, c));
+}
+
 async function hasRequiredConsecutiveEmployeeSlots(params: {
   tenantId: string;
   employeeId: string;
@@ -2907,9 +2912,15 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       }
       if (Object.keys(updatePayload).length > 1) {
         const firstUpdate = await supabase.from('bookings').update(updatePayload).eq('id', actualBooking.id);
-        if (firstUpdate.error && isMissingColumnError(firstUpdate.error, 'effective_start_time')) {
+        if (firstUpdate.error && isMissingEffectiveBookingColumnError(firstUpdate.error)) {
           const { effective_start_time, effective_end_time, effective_duration_minutes, required_slot_count, ...fallbackPayload } = updatePayload as any;
-          await supabase.from('bookings').update(fallbackPayload).eq('id', actualBooking.id);
+          const fallbackUpdate = await supabase.from('bookings').update(fallbackPayload).eq('id', actualBooking.id);
+          if (fallbackUpdate.error) {
+            console.warn('[Booking Creation] ⚠️ Failed to update booking fallback payload', {
+              bookingId: actualBooking.id,
+              message: fallbackUpdate.error.message,
+            });
+          }
         }
       }
       // Update service_rotation_state for employee-based + auto_assign (fair rotation)
@@ -4109,9 +4120,15 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
           updatePayload.effective_end_time = addMinutesToTime(startTime, bulkEffectiveDurationMinutes);
         }
         const upd = await supabase.from('bookings').update(updatePayload).eq('id', (row as any).id);
-        if (upd.error && isMissingColumnError(upd.error, 'effective_start_time')) {
+        if (upd.error && isMissingEffectiveBookingColumnError(upd.error)) {
           const { effective_start_time, effective_end_time, effective_duration_minutes, required_slot_count, ...fallbackPayload } = updatePayload as any;
-          await supabase.from('bookings').update(fallbackPayload).eq('id', (row as any).id);
+          const fallbackUpdate = await supabase.from('bookings').update(fallbackPayload).eq('id', (row as any).id);
+          if (fallbackUpdate.error) {
+            console.warn('[Bulk Booking Creation] ⚠️ Failed to update booking fallback payload', {
+              bookingId: (row as any).id,
+              message: fallbackUpdate.error.message,
+            });
+          }
         }
         if (bulkRequiredSlotCount > 1 && (row as any).employee_id && slot?.slot_date && startTime) {
           const reserveRes = await reserveAdditionalConsecutiveEmployeeSlots({
