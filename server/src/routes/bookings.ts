@@ -5063,6 +5063,12 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
       'status',
       'notes',
       'employee_id',
+      'service_id',
+      'tag_id',
+      'applied_tag_fee',
+      'package_subscription_id',
+      'package_covered_quantity',
+      'paid_quantity',
       'slot_id', // Receptionists and tenant admins can reschedule bookings
     ];
 
@@ -5099,12 +5105,80 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
       }
     }
 
+    // Validate service_id change (must belong to same tenant)
+    if (updatePayload.service_id && updatePayload.service_id !== currentBooking.service_id) {
+      const { data: targetService, error: targetServiceError } = await supabase
+        .from('services')
+        .select('id, tenant_id, is_active')
+        .eq('id', updatePayload.service_id)
+        .maybeSingle();
+      if (targetServiceError || !targetService) {
+        return res.status(404).json({ error: 'Selected service not found' });
+      }
+      if ((targetService as any).tenant_id !== tenantId) {
+        return res.status(403).json({ error: 'Selected service belongs to a different tenant' });
+      }
+      if ((targetService as any).is_active === false) {
+        return res.status(400).json({ error: 'Selected service is not active' });
+      }
+    }
+
+    // Validate tag_id change (must be assigned to effective service within same tenant)
+    const effectiveServiceId = updatePayload.service_id || currentBooking.service_id;
+    if (Object.prototype.hasOwnProperty.call(updatePayload, 'tag_id')) {
+      if (!updatePayload.tag_id) {
+        updatePayload.tag_id = null;
+        updatePayload.applied_tag_fee = 0;
+      } else {
+        const { data: assignedRows, error: assignedRowsError } = await supabase
+          .from('service_tag_assignments')
+          .select('service_id, fee_id')
+          .eq('service_id', effectiveServiceId)
+          .limit(100);
+        if (assignedRowsError || !assignedRows?.length) {
+          return res.status(404).json({ error: 'Selected pricing tag is not assigned to this service' });
+        }
+        const feeIds = assignedRows.map((row: any) => row.fee_id).filter(Boolean);
+        if (feeIds.length === 0) {
+          return res.status(404).json({ error: 'Selected pricing tag is not assigned to this service' });
+        }
+        const { data: matchedFee, error: matchedFeeError } = await supabase
+          .from('tag_fees')
+          .select('id, tag_id, fee_value')
+          .eq('tag_id', updatePayload.tag_id)
+          .in('id', feeIds)
+          .maybeSingle();
+        if (matchedFeeError || !matchedFee) {
+          return res.status(404).json({ error: 'Selected pricing tag is not assigned to this service' });
+        }
+        if (!Object.prototype.hasOwnProperty.call(updatePayload, 'applied_tag_fee')) {
+          updatePayload.applied_tag_fee = Math.max(0, Number((matchedFee as any)?.fee_value ?? 0));
+        }
+      }
+    }
+
+    // Normalize numeric pricing/package fields
+    if (Object.prototype.hasOwnProperty.call(updatePayload, 'applied_tag_fee')) {
+      updatePayload.applied_tag_fee = Math.max(0, Number(updatePayload.applied_tag_fee) || 0);
+    }
+    if (Object.prototype.hasOwnProperty.call(updatePayload, 'package_covered_quantity')) {
+      updatePayload.package_covered_quantity = Math.max(0, Math.floor(Number(updatePayload.package_covered_quantity) || 0));
+    }
+    if (Object.prototype.hasOwnProperty.call(updatePayload, 'paid_quantity')) {
+      updatePayload.paid_quantity = Math.max(0, Math.floor(Number(updatePayload.paid_quantity) || 0));
+    }
+    if (Object.prototype.hasOwnProperty.call(updatePayload, 'package_subscription_id')) {
+      updatePayload.package_subscription_id = updatePayload.package_subscription_id || null;
+    }
+
     // Satisfy bookings_package_price_check: (package_covered_quantity < visitor_count) OR (total_price = 0)
     // When setting a non-zero total_price, ensure the booking is not fully package-covered.
     const newTotalPrice = updatePayload.total_price !== undefined ? Number(updatePayload.total_price) : undefined;
     const visitorCount = updatePayload.visitor_count ?? currentBooking.visitor_count;
-    const currentPackageCovered = currentBooking.package_covered_quantity ?? 0;
-    if (newTotalPrice !== undefined && newTotalPrice > 0 && visitorCount > 0 && currentPackageCovered >= visitorCount) {
+    const nextPackageCovered = updatePayload.package_covered_quantity !== undefined
+      ? Number(updatePayload.package_covered_quantity || 0)
+      : Number(currentBooking.package_covered_quantity || 0);
+    if (newTotalPrice !== undefined && newTotalPrice > 0 && visitorCount > 0 && nextPackageCovered >= visitorCount) {
       updatePayload.package_covered_quantity = 0;
       updatePayload.paid_quantity = visitorCount;
     }

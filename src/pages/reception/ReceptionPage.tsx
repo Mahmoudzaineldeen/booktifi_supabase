@@ -203,6 +203,14 @@ export function ReceptionPage() {
   const [currentView, setCurrentView] = useState<'bookings' | 'packages'>('bookings');
   const [selectedBookingForDetails, setSelectedBookingForDetails] = useState<Booking | null>(null);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  const [editingOriginalBooking, setEditingOriginalBooking] = useState<Booking | null>(null);
+  const [editPricingTags, setEditPricingTags] = useState<
+    { id: string; name: string; is_default?: boolean; fee_value?: number; slot_count?: number }[]
+  >([]);
+  const [editSelectedTagId, setEditSelectedTagId] = useState('');
+  const [editLoadingPricingTags, setEditLoadingPricingTags] = useState(false);
+  const [editConsumeFromPackage, setEditConsumeFromPackage] = useState(false);
+  const [editCustomerPackages, setEditCustomerPackages] = useState<CustomerPackage[]>([]);
   const [editingTimeDate, setEditingTimeDate] = useState<Date>(new Date());
   const [availableTimeSlots, setAvailableTimeSlots] = useState<Slot[]>([]);
   const [loadingTimeSlots, setLoadingTimeSlots] = useState(false);
@@ -2779,15 +2787,30 @@ export function ReceptionPage() {
     try {
       const API_URL = getApiUrl();
       const token = localStorage.getItem('auth_token');
+      const pricingMeta = getEditPricingMeta(editingBooking as Booking, editSelectedTagId || (editingBooking as any).tag_id || '', editConsumeFromPackage);
+      const packageCoveredForUpdate =
+        pricingMeta.totalPrice > 0 && pricingMeta.packageCoveredQty >= pricingMeta.qty
+          ? 0
+          : pricingMeta.packageCoveredQty;
+      const paidQtyForUpdate =
+        pricingMeta.totalPrice > 0 && pricingMeta.packageCoveredQty >= pricingMeta.qty
+          ? pricingMeta.qty
+          : pricingMeta.paidQty;
 
       const status = (editBookingForm.status || editingBooking.status || 'pending').trim();
       const updateData: any = {
         customer_name: editBookingForm.customer_name,
         customer_phone: editBookingForm.customer_phone,
         customer_email: editBookingForm.customer_email || null,
-        total_price: editBookingForm.total_price,
+        total_price: pricingMeta.totalPrice,
         notes: editBookingForm.notes || null,
         status: status || 'pending',
+        service_id: (editingBooking as any).service_id,
+        tag_id: editSelectedTagId || (editingBooking as any).tag_id || null,
+        applied_tag_fee: pricingMeta.tagFee,
+        package_subscription_id: editConsumeFromPackage ? pricingMeta.packageSubscriptionId : null,
+        package_covered_quantity: packageCoveredForUpdate,
+        paid_quantity: paidQtyForUpdate,
       };
 
       const response = await fetch(`${API_URL}/bookings/${editingBooking.id}`, {
@@ -2808,6 +2831,11 @@ export function ReceptionPage() {
       await fetchBookings();
       if (!skipClose) {
         setEditingBooking(null);
+        setEditingOriginalBooking(null);
+        setEditPricingTags([]);
+        setEditSelectedTagId('');
+        setEditConsumeFromPackage(false);
+        setEditCustomerPackages([]);
       }
       const msg = (result.message && String(result.message).trim()) || t('bookings.bookingUpdatedSuccessfully') || 'Booking updated successfully!';
       showNotification('success', msg);
@@ -2824,7 +2852,21 @@ export function ReceptionPage() {
       showNotification('warning', t('bookings.cannotEditBookingTime') || 'Cannot edit booking time');
       return;
     }
+    if (!services || services.length === 0) {
+      await fetchServices();
+    }
+    await fetchEditTagsForService((booking as any).service_id);
+    const consumeByDefault = Number((booking as any).package_covered_quantity || 0) > 0 || !!(booking as any).package_subscription_id;
+    setEditConsumeFromPackage(consumeByDefault);
+    setEditSelectedTagId((booking as any).tag_id || '');
+    try {
+      const packages = await fetchCustomerPackagesByPhoneForEdit((booking as any).customer_phone || '');
+      setEditCustomerPackages(packages);
+    } catch {
+      setEditCustomerPackages([]);
+    }
     setEditingBooking(booking as Booking);
+    setEditingOriginalBooking(booking as Booking);
     let initialDate: Date;
     if (booking.slots?.slot_date) {
       const [year, month, day] = booking.slots.slot_date.split('-').map(Number);
@@ -2839,10 +2881,37 @@ export function ReceptionPage() {
     await fetchTimeSlotsForEdit((booking as any).service_id, userProfile.tenant_id, initialDate);
   }
 
+  async function handleEditServiceChangeReception(nextServiceId: string) {
+    if (!editingBooking || !userProfile?.tenant_id) return;
+    setEditingBooking({ ...(editingBooking as Booking), service_id: nextServiceId } as Booking);
+    setSelectedNewSlotId('');
+    setChangeTimeEmployeeId('');
+    await fetchEditTagsForService(nextServiceId);
+    if (!nextServiceId) {
+      setAvailableTimeSlots([]);
+      return;
+    }
+    await fetchTimeSlotsForEdit(nextServiceId, userProfile.tenant_id, editingTimeDate);
+  }
+
+  function handleEditTagChangeReception(nextTagId: string) {
+    setEditSelectedTagId(nextTagId);
+  }
+
+  function handleEditConsumeToggleReception(nextValue: boolean) {
+    setEditConsumeFromPackage(nextValue);
+  }
+
   /** Save combined edit modal: details and optionally new time */
   async function handleSaveEditBookingReception() {
     if (!editingBooking) return;
+    const serviceChanged = !!editingOriginalBooking && (editingBooking as any).service_id !== (editingOriginalBooking as any).service_id;
+    const tagChanged = !!editingOriginalBooking && ((editingBooking as any).tag_id || '') !== ((editingOriginalBooking as any).tag_id || '');
     const timeChanged = selectedNewSlotId && selectedNewSlotId !== (editingBooking as any).slot_id;
+    if ((serviceChanged || tagChanged) && !timeChanged) {
+      showNotification('warning', t('bookings.selectNewSlotAfterServiceChange') || 'Please select a new time slot for the selected service.');
+      return;
+    }
     if (timeChanged) {
       const ok = await showConfirm({
         title: t('common.confirm'),
@@ -2859,6 +2928,11 @@ export function ReceptionPage() {
         await updateBookingTime(editingBooking, true);
       } else {
         setEditingBooking(null);
+        setEditingOriginalBooking(null);
+        setEditPricingTags([]);
+        setEditSelectedTagId('');
+        setEditConsumeFromPackage(false);
+        setEditCustomerPackages([]);
         setSelectedNewSlotId('');
         setChangeTimeEmployeeId('');
         setAvailableTimeSlots([]);
@@ -3061,6 +3135,11 @@ export function ReceptionPage() {
       }
 
       setEditingBooking(null);
+      setEditingOriginalBooking(null);
+      setEditPricingTags([]);
+      setEditSelectedTagId('');
+      setEditConsumeFromPackage(false);
+      setEditCustomerPackages([]);
       setSelectedNewSlotId('');
       setChangeTimeEmployeeId('');
       setAvailableTimeSlots([]);
@@ -3301,6 +3380,25 @@ export function ReceptionPage() {
       });
     }
   }, [editingBooking]);
+
+  useEffect(() => {
+    if (!editingBooking) return;
+    const chosenTagId = editSelectedTagId || (editingBooking as any).tag_id || '';
+    const meta = getEditPricingMeta(editingBooking as Booking, chosenTagId, editConsumeFromPackage);
+    setEditingBooking((prev) => {
+      if (!prev) return prev;
+      return {
+        ...(prev as Booking),
+        tag_id: chosenTagId || null,
+      } as Booking;
+    });
+    setEditBookingForm((prev) => ({ ...prev, total_price: meta.totalPrice }));
+  }, [editingBooking?.id, (editingBooking as any)?.service_id, editingBooking?.visitor_count, editSelectedTagId, editConsumeFromPackage, editPricingTags, editCustomerPackages, services]);
+
+  useEffect(() => {
+    if (!editingBooking || editSelectedTagId || editPricingTags.length === 0) return;
+    setEditSelectedTagId(editPricingTags[0].id);
+  }, [editingBooking?.id, editSelectedTagId, editPricingTags]);
 
   // Download invoice PDF (TASK 7: Receptionist can download invoices)
   async function downloadInvoice(bookingId: string, invoiceId: string, provider: 'zoho' | 'daftra' = 'zoho') {
@@ -3608,6 +3706,106 @@ export function ReceptionPage() {
     return {
       available: total > 0,
       remaining: total
+    };
+  }
+
+  async function fetchCustomerPackagesByPhoneForEdit(fullPhoneNumber: string): Promise<CustomerPackage[]> {
+    const phone = String(fullPhoneNumber || '').trim();
+    if (!phone || !userProfile?.tenant_id) return [];
+    const { data: customerData, error: customerError } = await db
+      .from('customers')
+      .select('id')
+      .eq('tenant_id', userProfile.tenant_id)
+      .eq('phone', phone)
+      .maybeSingle();
+    if (customerError || !customerData?.id) return [];
+    const { data: subscriptionsData } = await db
+      .from('package_subscriptions')
+      .select('id, package_id, status, expires_at, service_packages(name, name_ar, total_price)')
+      .eq('customer_id', customerData.id)
+      .eq('status', 'active');
+    const nonExpired = (subscriptionsData || []).filter(
+      (sub: { expires_at?: string | null }) => !sub.expires_at || new Date(sub.expires_at) >= new Date()
+    );
+    if (nonExpired.length === 0) return [];
+    const subscriptionIds = nonExpired.map((s: { id: string }) => s.id);
+    const { data: allUsage } = await db
+      .from('package_subscription_usage')
+      .select('subscription_id, service_id, original_quantity, remaining_quantity, used_quantity, services(name, name_ar)')
+      .in('subscription_id', subscriptionIds);
+    const usageBySub = new Map<string, any[]>();
+    (allUsage || []).forEach((row: any) => {
+      const list = usageBySub.get(row.subscription_id) || [];
+      list.push(row);
+      usageBySub.set(row.subscription_id, list);
+    });
+    return nonExpired.map((sub: any) => ({ ...sub, usage: usageBySub.get(sub.id) || [] } as CustomerPackage));
+  }
+
+  async function fetchEditTagsForService(serviceId: string) {
+    if (!serviceId || !userProfile?.tenant_id) {
+      setEditPricingTags([]);
+      setEditSelectedTagId('');
+      return;
+    }
+    setEditLoadingPricingTags(true);
+    try {
+      const session = await db.auth.getSession();
+      const token = session.data.session?.access_token;
+      if (!token) {
+        setEditPricingTags([]);
+        setEditSelectedTagId('');
+        return;
+      }
+      const res = await fetch(`${getApiUrl()}/tags/by-service/${serviceId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      const tags = (data?.tags || []) as typeof editPricingTags;
+      setEditPricingTags(tags);
+      setEditSelectedTagId((prev) => {
+        if (prev && tags.some((x) => x.id === prev)) return prev;
+        return tags[0]?.id || '';
+      });
+    } catch {
+      setEditPricingTags([]);
+      setEditSelectedTagId('');
+    } finally {
+      setEditLoadingPricingTags(false);
+    }
+  }
+
+  function getEditTagFee(tagId: string): number {
+    const selected = editPricingTags.find((x) => x.id === tagId);
+    if (!selected || selected.is_default) return 0;
+    return Math.max(0, Number(selected.fee_value ?? 0));
+  }
+
+  function getEditPricingMeta(targetBooking: Booking, tagId: string, consumePkg: boolean) {
+    const service = services.find((s) => s.id === (targetBooking as any).service_id);
+    const unitPrice = Number(service?.base_price ?? 0);
+    const qty = Math.max(1, Number(targetBooking.visitor_count || 1));
+    const tagFee = getEditTagFee(tagId);
+    const remaining = editCustomerPackages.reduce((sum, pkg) => {
+      const usage = pkg.usage.find((u) => u.service_id === (targetBooking as any).service_id);
+      return sum + Math.max(0, Number(usage?.remaining_quantity ?? 0));
+    }, 0);
+    const packageCoveredQty = consumePkg ? Math.min(qty, remaining) : 0;
+    const paidQty = Math.max(0, qty - packageCoveredQty);
+    const totalPrice = paidQty * unitPrice + tagFee;
+    const packageSubscription = consumePkg
+      ? editCustomerPackages.find((pkg) =>
+          pkg.usage.some((u) => u.service_id === (targetBooking as any).service_id && Number(u.remaining_quantity || 0) > 0)
+        )
+      : null;
+    return {
+      unitPrice,
+      qty,
+      tagFee,
+      packageCoveredQty,
+      paidQty,
+      totalPrice,
+      packageSubscriptionId: packageSubscription?.id || null,
     };
   }
 
@@ -6345,6 +6543,64 @@ export function ReceptionPage() {
               {editingBooking.status !== 'cancelled' && editingBooking.status !== 'completed' && (
                 <div className="space-y-4 mb-6 pt-4 border-t">
                   <h3 className="text-sm font-semibold text-gray-700 border-b pb-1">{t('bookings.changeTime')}</h3>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">{t('reception.selectService') || 'Service'}</label>
+                    <select
+                      value={(editingBooking as any).service_id || ''}
+                      onChange={(e) => void handleEditServiceChangeReception(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      {services.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {i18n.language === 'ar' ? (s.name_ar || s.name) : s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">{t('tags.pricingTag', 'Pricing tag')}</label>
+                    <select
+                      value={editSelectedTagId}
+                      onChange={(e) => handleEditTagChangeReception(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      disabled={editLoadingPricingTags || editPricingTags.length === 0}
+                    >
+                      {editLoadingPricingTags ? (
+                        <option value="">{t('common.loading')}...</option>
+                      ) : editPricingTags.length === 0 ? (
+                        <option value="">{t('tags.noTagsForService', 'No tags')}</option>
+                      ) : (
+                        <>
+                          {editSelectedTagId && !editPricingTags.some((x) => x.id === editSelectedTagId) && (
+                            <option value={editSelectedTagId}>{t('tags.currentTag', 'Current tag')}</option>
+                          )}
+                          {editPricingTags.map((tag) => (
+                            <option key={tag.id} value={tag.id}>
+                              {tag.name}
+                              {tag.is_default ? '' : tag.fee_value ? ` (+${formatPriceString(Number(tag.fee_value))})` : ''}
+                            </option>
+                          ))}
+                        </>
+                      )}
+                    </select>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editConsumeFromPackage}
+                        onChange={(e) => handleEditConsumeToggleReception(e.target.checked)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{t('reception.consumeFromPackage')}</span>
+                    </label>
+                    <p className="mt-1 text-xs text-gray-600">
+                      {(() => {
+                        const meta = getEditPricingMeta(editingBooking as Booking, editSelectedTagId || (editingBooking as any).tag_id || '', editConsumeFromPackage);
+                        return `${t('tags.lineSubtotal', 'Subtotal')}: ${formatPriceString(meta.unitPrice * meta.qty)} · ${t('tags.tagFee', 'Tag fee')}: ${formatPriceString(meta.tagFee)} · ${t('tags.total', 'Total')}: ${formatPriceString(meta.totalPrice)}`;
+                      })()}
+                    </p>
+                  </div>
                   <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                     <p className="text-xs text-gray-600 mb-2">{t('bookings.currentTime')}</p>
                     <div className="text-sm text-gray-700 flex items-center gap-2 flex-wrap">
@@ -6481,6 +6737,11 @@ export function ReceptionPage() {
                   onClick={() => {
                     const bookingToReopen = editingBooking;
                     setEditingBooking(null);
+                    setEditingOriginalBooking(null);
+                    setEditPricingTags([]);
+                    setEditSelectedTagId('');
+                    setEditConsumeFromPackage(false);
+                    setEditCustomerPackages([]);
                     setSelectedNewSlotId('');
                     setChangeTimeEmployeeId('');
                     setAvailableTimeSlots([]);
