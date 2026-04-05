@@ -16,14 +16,14 @@ export function HomePage() {
 
   useEffect(() => {
     document.title = isRTL
-      ? 'Bookati | منصة تشغيل وحجوزات للأعمال في السعودية'
+      ? 'Bookati | منصة حجوزات وتشغيل للأعمال السعودية'
       : 'Bookati | Saudi-first bookings and operations platform';
     const meta = document.querySelector('meta[name="description"]');
     if (meta) {
       meta.setAttribute(
         'content',
         isRTL
-          ? 'منصة متكاملة لإدارة الحجوزات، التشغيل، التقارير، والمبيعات للأعمال في السعودية.'
+          ? 'منصة تجمع الحجوزات والتشغيل والتقارير والمبيعات في مكان واحد — قريبة من طريقة الشغل في السعودية.'
           : 'All-in-one platform for bookings, operations, analytics, and sales.'
       );
     }

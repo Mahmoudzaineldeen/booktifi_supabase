@@ -87,7 +87,7 @@ function EmojiCard({
       {footer ? <p className="mt-2 text-sm font-semibold text-blue-700">{footer}</p> : null}
       {to ? (
         <span className={`mt-auto pt-3 text-sm font-bold text-blue-700 ${isRTL ? 'text-right' : 'text-left'}`}>
-          {isRTL ? 'عرض التفاصيل ←' : 'View details →'}
+          {isRTL ? 'شوف التفاصيل ←' : 'View details →'}
         </span>
       ) : null}
     </>
@@ -123,13 +123,13 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
     () =>
       isRTL
         ? [
-            { id: IDS.overview, emoji: '🔎', label: 'نظرة على النظام' },
-            { id: IDS.core, emoji: '🧩', label: 'المنظومة الأساسية' },
-            { id: IDS.why, emoji: '✨', label: 'لماذا نحن' },
-            { id: IDS.sell, emoji: '💳', label: 'نماذج البيع' },
+            { id: IDS.overview, emoji: '🔎', label: 'لمحة عن النظام' },
+            { id: IDS.core, emoji: '🧩', label: 'أساسيات التشغيل' },
+            { id: IDS.why, emoji: '✨', label: 'ليش بوكاتي؟' },
+            { id: IDS.sell, emoji: '💳', label: 'طرق البيع' },
             { id: IDS.industries, emoji: '🏭', label: 'القطاعات' },
             { id: IDS.power, emoji: '⚡', label: 'القوة والشراكة' },
-            { id: IDS.faq, emoji: '❔', label: 'الأسئلة الشائعة' },
+            { id: IDS.faq, emoji: '❔', label: 'أسئلة متكررة' },
           ]
         : [
             { id: IDS.overview, emoji: '🔎', label: 'System overview' },
@@ -147,12 +147,12 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
     () =>
       isRTL
         ? [
-            { title: 'مبني للسوق السعودي من الصفر', desc: 'واجهة RTL، فوترة محلية، وسيناريوهات تشغيل تناسب السوق السعودي.', emoji: '🛡️', tone: 'bg-emerald-50', to: '/advantages?tab=advantages' as const },
-            { title: 'مدفوعات متعددة ومرنة', desc: 'الدفع المسبق أو في الموقع، وتجهيز للتكامل مع خيارات دفع محلية.', emoji: '💳', tone: 'bg-sky-50', to: '/advantages?tab=products' as const },
-            { title: 'تشغيل ذكي تلقائي', desc: 'توزيع موظفين ذكي، تنبيهات فورية، وجدولة عملية تقلل التعارضات.', emoji: '🤖', tone: 'bg-cyan-50', to: '/advantages?tab=operations' as const },
-            { title: 'التزام وحماية من الأخطاء', desc: 'فوترة تلقائية وتقليل الإدخال اليدوي لتجنب الأخطاء التشغيلية.', emoji: '🔒', tone: 'bg-slate-100', to: '/advantages?tab=operations' as const },
-            { title: 'تجارة موحدة من نظام واحد', desc: 'بيع خدمات، منتجات، باقات، اشتراكات، وتذاكر ضمن منصة واحدة.', emoji: '🛍️', tone: 'bg-violet-50', to: '/advantages?tab=products' as const },
-            { title: 'تكاملات وواجهات مفتوحة', desc: 'تكاملات جاهزة مع Zoho وDaftra وجاهزية لتوسعات ERP مستقبلًا.', emoji: '🔌', tone: 'bg-indigo-50', to: '/advantages?tab=advantages' as const },
+            { title: 'موجّه للسوق السعودي من أول يوم', desc: 'عربي من اليمين لليسار، فوترة تلائم الشغل المحلّي، وسيناريوهات تشغيل قريبة من واقع السوق.', emoji: '🛡️', tone: 'bg-emerald-50', to: '/advantages?tab=advantages' as const },
+            { title: 'مدفوعات مرنة على كيفك', desc: 'دفع مسبق أو في الفرع، مع مجال نربط لاحقًا بوابات دفع محلية.', emoji: '💳', tone: 'bg-sky-50', to: '/advantages?tab=products' as const },
+            { title: 'تشغيل ذكي يخفّص الزحمة', desc: 'توزيع للموظفين، تنبيهات لحظية، وجدولة تقلّل التعارض والتداخل.', emoji: '🤖', tone: 'bg-cyan-50', to: '/advantages?tab=operations' as const },
+            { title: 'أقل غلطات تشغيلية', desc: 'فوترة تلقائية وأقل إدخال يدوي، عشان تقلّل أخطاء الإدخال.', emoji: '🔒', tone: 'bg-slate-100', to: '/advantages?tab=operations' as const },
+            { title: 'بيع موحّد من مكان واحد', desc: 'خدمات، منتجات، باقات، اشتراكات، وتذاكر — كله تحت منصة وحدة.', emoji: '🛍️', tone: 'bg-violet-50', to: '/advantages?tab=products' as const },
+            { title: 'تكاملات وواجهات برمجية', desc: 'جاهزين مع Zoho وDaftra، وقابلين نوسّع لأنظمة أكبر لما يكبر شغلك.', emoji: '🔌', tone: 'bg-indigo-50', to: '/advantages?tab=advantages' as const },
           ]
         : [
             { title: 'Built for Saudi from day one', desc: 'RTL-ready experience, local invoicing flows, and market-fit operations.', emoji: '🛡️', tone: 'bg-emerald-50', to: '/advantages?tab=advantages' as const },
@@ -169,11 +169,11 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
     () =>
       isRTL
         ? [
-            { title: 'الخدمات', desc: 'إدارة مواعيد وحجوزات الخدمة بدقة.', emoji: '🛎️', tone: 'bg-indigo-50', to: '/advantages?tab=products' as const },
-            { title: 'المنتجات', desc: 'بيع مباشر مع خيارات استلام أو توصيل.', emoji: '🏪', tone: 'bg-blue-50', to: '/advantages?tab=products' as const },
-            { title: 'الباقات', desc: 'عروض مجمعة ترفع متوسط قيمة العميل.', emoji: '📦', tone: 'bg-amber-50', to: '/advantages?tab=products' as const },
-            { title: 'الاشتراكات', desc: 'فوترة دورية وتجديد تلقائي.', emoji: '🔁', tone: 'bg-emerald-50', to: '/advantages?tab=products' as const },
-            { title: 'التذاكر', desc: 'بيع وإدارة حضور الفعاليات من نفس النظام.', emoji: '🎫', tone: 'bg-rose-50', to: '/advantages?tab=products' as const },
+            { title: 'الخدمات', desc: 'مواعيد وحجوزات خدمة مضبوطة وواضحة.', emoji: '🛎️', tone: 'bg-indigo-50', to: '/advantages?tab=products' as const },
+            { title: 'المنتجات', desc: 'بيع مباشر مع استلام من الفرع أو توصيل حسب نموذجك.', emoji: '🏪', tone: 'bg-blue-50', to: '/advantages?tab=products' as const },
+            { title: 'الباقات', desc: 'عروض مجمّعة ترفع متوسط قيمة الطلب.', emoji: '📦', tone: 'bg-amber-50', to: '/advantages?tab=products' as const },
+            { title: 'الاشتراكات', desc: 'فوترة دورية وتجديد يمشي تلقائي.', emoji: '🔁', tone: 'bg-emerald-50', to: '/advantages?tab=products' as const },
+            { title: 'التذاكر', desc: 'بيع فعاليات ومتابعة الحضور من نفس النظام.', emoji: '🎫', tone: 'bg-rose-50', to: '/advantages?tab=products' as const },
           ]
         : [
             { title: 'Services', desc: 'Appointment-led service delivery.', emoji: '🛎️', tone: 'bg-indigo-50', to: '/advantages?tab=products' as const },
@@ -189,9 +189,9 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
     () =>
       isRTL
         ? [
-            { key: 'dash', title: content.dashboardPowerTitle, desc: content.dashboardPowerSubtitle, emoji: '🖥️', to: '/signup', cta: 'ابدأ التجربة ←' },
-            { key: 'roles', title: content.rolesTitle, desc: content.rolesSubtitle, emoji: '👥', to: '/advantages?tab=operations', cta: 'التشغيل والصلاحيات ←' },
-            { key: 'reports', title: content.reportsTitle, desc: content.reportsSubtitle, emoji: '📊', to: '/advantages?tab=products', cta: 'المنظومة والتقارير ←' },
+            { key: 'dash', title: content.dashboardPowerTitle, desc: content.dashboardPowerSubtitle, emoji: '🖥️', to: '/signup', cta: 'جرّب النظام ←' },
+            { key: 'roles', title: content.rolesTitle, desc: content.rolesSubtitle, emoji: '👥', to: '/advantages?tab=operations', cta: 'الصلاحيات والتشغيل ←' },
+            { key: 'reports', title: content.reportsTitle, desc: content.reportsSubtitle, emoji: '📊', to: '/advantages?tab=products', cta: 'التقارير والمنظومة ←' },
           ]
         : [
             { key: 'dash', title: content.dashboardPowerTitle, desc: content.dashboardPowerSubtitle, emoji: '🖥️', to: '/signup', cta: 'Start free trial →' },
@@ -204,12 +204,12 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
   const partnersMarquee = useMemo(
     () =>
       [
-        { label: 'Zoho', logoSrc: '/images/zoho-logo.svg', large: false },
-        { label: 'Daftra', logoSrc: '/images/daftra-logo.svg', large: false },
-        { label: 'API', logoSrc: '/images/api-logo.svg', large: true },
-        { label: 'Zoho', logoSrc: '/images/zoho-logo.svg', large: false },
-        { label: 'Daftra', logoSrc: '/images/daftra-logo.svg', large: false },
-        { label: 'API', logoSrc: '/images/api-logo.svg', large: true },
+        { label: 'Zoho', logoSrc: '/images/zoho-logo.svg', large: false, logoClass: 'max-h-9' },
+        { label: 'Daftra', logoSrc: '/images/daftra-logo.png', large: false, logoClass: 'max-h-12' },
+        { label: 'API', logoSrc: '/images/api-logo.png', large: true, logoClass: 'max-h-12' },
+        { label: 'Zoho', logoSrc: '/images/zoho-logo.svg', large: false, logoClass: 'max-h-9' },
+        { label: 'Daftra', logoSrc: '/images/daftra-logo.png', large: false, logoClass: 'max-h-12' },
+        { label: 'API', logoSrc: '/images/api-logo.png', large: true, logoClass: 'max-h-12' },
       ] as const,
     []
   );
@@ -217,7 +217,7 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
   const sectionShell = (variant: 'white' | 'muted') =>
     variant === 'muted' ? 'bg-gradient-to-b from-slate-50/90 to-slate-50/40' : 'bg-white';
 
-  const navLabel = isRTL ? 'انتقل سريعًا إلى قسم' : 'Jump to section';
+  const navLabel = isRTL ? 'تنقّل بين الأقسام' : 'Jump to section';
 
   return (
     <div className="bg-white" dir={isRTL ? 'rtl' : 'ltr'}>
@@ -244,7 +244,7 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
       <section id={IDS.overview} className={`scroll-mt-40 py-14 md:py-20 ${sectionShell('white')}`}>
         <div className="mx-auto max-w-7xl px-4">
           <header className="mb-10 text-center">
-            <p className="text-sm font-semibold text-blue-700">{isRTL ? 'نظرة على النظام' : 'System overview'}</p>
+            <p className="text-sm font-semibold text-blue-700">{isRTL ? 'لمحة عن النظام' : 'System overview'}</p>
             <h2 className="mt-2 text-3xl font-black text-slate-900 md:text-4xl">{content.overviewTitle}</h2>
             <p className="mx-auto mt-3 max-w-2xl text-slate-600">{content.overviewSubtitle}</p>
           </header>
@@ -271,7 +271,7 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
       <section id={IDS.core} className={`scroll-mt-40 py-14 md:py-20 ${sectionShell('muted')}`}>
         <div className="mx-auto max-w-7xl px-4">
           <header className="mb-10 text-center">
-            <p className="text-sm font-semibold text-blue-700">{isRTL ? 'المنظومة الأساسية' : 'Core suite'}</p>
+            <p className="text-sm font-semibold text-blue-700">{isRTL ? 'أساسيات التشغيل' : 'Core suite'}</p>
             <h2 className="mt-2 text-3xl font-black text-slate-900 md:text-4xl">{content.coreGridTitle}</h2>
             <p className="mx-auto mt-3 max-w-2xl text-slate-600">{content.coreGridSubtitle}</p>
           </header>
@@ -298,7 +298,7 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
         <div className="mx-auto max-w-7xl px-4">
           <header className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="text-center sm:text-start">
-              <p className="text-sm font-semibold text-blue-700">{isRTL ? 'لماذا نحن' : 'Why Bookati'}</p>
+              <p className="text-sm font-semibold text-blue-700">{isRTL ? 'ليش بوكاتي؟' : 'Why Bookati'}</p>
               <h2 className="mt-2 text-3xl font-black text-slate-900 md:text-4xl">{content.advantagesTitle}</h2>
               <p className="mt-2 max-w-xl text-slate-600">{content.advantagesSubtitle}</p>
             </div>
@@ -323,7 +323,7 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
                 </div>
                 <h3 className="text-lg font-black text-slate-900">{item.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-slate-700">{item.desc}</p>
-                <span className="mt-3 inline-block text-sm font-bold text-emerald-800">{isRTL ? 'تعرف أكثر ←' : 'Learn more →'}</span>
+                <span className="mt-3 inline-block text-sm font-bold text-emerald-800">{isRTL ? 'شوف التفاصيل ←' : 'Learn more →'}</span>
               </Link>
             ))}
           </div>
@@ -333,7 +333,7 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
       <section id={IDS.sell} className={`scroll-mt-40 py-14 md:py-20 ${sectionShell('muted')}`}>
         <div className="mx-auto max-w-7xl px-4">
           <header className="mb-10 text-center">
-            <p className="text-sm font-semibold text-blue-700">{isRTL ? 'نماذج البيع' : 'Ways to sell'}</p>
+            <p className="text-sm font-semibold text-blue-700">{isRTL ? 'طرق البيع' : 'Ways to sell'}</p>
             <h2 className="mt-2 text-3xl font-black text-slate-900 md:text-4xl">{content.sellTitle}</h2>
             <p className="mx-auto mt-3 max-w-2xl text-slate-600">{content.sellSubtitle}</p>
           </header>
@@ -393,7 +393,7 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
               className="flex min-h-[128px] flex-col items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 p-4 text-center shadow-sm transition hover:border-sky-300 hover:bg-sky-100/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
             >
               <span className="text-sm font-black text-slate-900 sm:text-base">{isRTL ? 'أضف نشاطك هنا' : 'Add your activity here'}</span>
-              <span className="mt-2 max-w-[11rem] text-xs text-slate-600">{isRTL ? 'سجّل واختر نموذج التشغيل المناسب.' : 'Sign up and tell us how you operate.'}</span>
+              <span className="mt-2 max-w-[11rem] text-xs text-slate-600">{isRTL ? 'سجّل واختر طريقة شغلك المناسبة.' : 'Sign up and tell us how you operate.'}</span>
             </Link>
           </div>
         </div>
@@ -405,7 +405,7 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
             <p className="text-sm font-semibold text-blue-700">{isRTL ? 'القوة والشراكة' : 'Power & partners'}</p>
             <h2 className="mt-2 text-3xl font-black text-slate-900 md:text-4xl">{isRTL ? 'قوة النظام والشراكة' : 'Platform power & partners'}</h2>
             <p className="mx-auto mt-3 max-w-2xl text-slate-600">
-              {isRTL ? 'لوحة تحكم، صلاحيات، تقارير، وشركاء تكامل بصيغة واضحة.' : 'Dashboards, permissions, reporting, and integrations in one place.'}
+              {isRTL ? 'لوحة تحكم وصلاحيات وتقارير، ومعها تكاملات جاهزة — كله واضح ومرتّب.' : 'Dashboards, permissions, reporting, and integrations in one place.'}
             </p>
           </header>
 
@@ -450,7 +450,7 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
                       <img
                         src={partner.logoSrc}
                         alt={partner.label}
-                        className={`w-auto object-contain ${partner.large ? 'max-h-[2.75rem]' : 'max-h-9'}`}
+                        className={`w-auto object-contain ${partner.logoClass ?? (partner.large ? 'max-h-[2.75rem]' : 'max-h-9')}`}
                         loading="lazy"
                         decoding="async"
                       />
@@ -483,9 +483,9 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
                   💳
                 </span>
               </div>
-              <h4 className="font-black text-slate-900">{isRTL ? 'طرق دفع مناسبة لعميلك' : 'Payment options that fit'}</h4>
+              <h4 className="font-black text-slate-900">{isRTL ? 'دفع يناسب عميلك وطريقة شغلك' : 'Payment options that fit'}</h4>
               <p className="mt-2 text-sm text-slate-600">
-                {isRTL ? 'خيارات دفع مرنة حسب نوع الطلب ونموذج التشغيل.' : 'Flexible flows for how you collect revenue.'}
+                {isRTL ? 'خيارات سداد مرنة على حسب نوع الطلب وطريقة التشغيل عندك.' : 'Flexible flows for how you collect revenue.'}
               </p>
             </Link>
             <Link
@@ -499,7 +499,7 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
               </div>
               <h4 className="font-black text-slate-900">{isRTL ? 'تنبيهات وتشغيل لحظي' : 'Alerts & live operations'}</h4>
               <p className="mt-2 text-sm text-slate-600">
-                {isRTL ? 'إشعارات مباشرة للفريق وتحديثات فورية للحجوزات.' : 'Team notifications and booking updates in real time.'}
+                {isRTL ? 'تنبيهات توصّل الفريق على طول، وتحديثات حجوزات لحظية.' : 'Team notifications and booking updates in real time.'}
               </p>
             </Link>
             <Link
@@ -511,9 +511,9 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
                   📥
                 </span>
               </div>
-              <h4 className="font-black text-slate-900">{isRTL ? 'تصدير وتحليل متقدم' : 'Exports & deeper analysis'}</h4>
+              <h4 className="font-black text-slate-900">{isRTL ? 'تصدير وتحليل أعمق' : 'Exports & deeper analysis'}</h4>
               <p className="mt-2 text-sm text-slate-600">
-                {isRTL ? 'CSV / Excel / PDF لمشاركة التقارير مع فريقك.' : 'CSV, Excel, and PDF for your team workflows.'}
+                {isRTL ? 'CSV وExcel وPDF عشان تشارك التقارير مع فريقك بسهولة.' : 'CSV, Excel, and PDF for your team workflows.'}
               </p>
             </Link>
           </div>
@@ -523,7 +523,7 @@ export default function LandingDeferredSections({ isRTL, content }: LandingDefer
       <section id={IDS.faq} className={`scroll-mt-40 py-14 md:pb-24 md:pt-20 ${sectionShell('white')}`}>
         <div className="mx-auto max-w-7xl px-4">
           <header className="mb-10 text-center">
-            <p className="text-sm font-semibold text-blue-700">{isRTL ? 'الأسئلة الشائعة' : 'FAQ'}</p>
+            <p className="text-sm font-semibold text-blue-700">{isRTL ? 'أسئلة متكررة' : 'FAQ'}</p>
             <h2 className="mt-2 text-3xl font-black text-slate-900 md:text-4xl">{content.faqTitle}</h2>
             <p className="mx-auto mt-3 max-w-2xl text-slate-600">{content.faqSubtitle}</p>
           </header>

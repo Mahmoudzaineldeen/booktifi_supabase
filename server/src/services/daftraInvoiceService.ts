@@ -77,6 +77,19 @@ function daftraAuthHeaders(apiToken: string): Record<string, string> {
   };
 }
 
+const DAFTRA_API_DEBUG = process.env.DAFTRA_DEBUG_API === '1';
+
+function redactDaftraHeadersForLog(h: Record<string, string>): Record<string, string> {
+  const o = { ...h };
+  if (o.apikey) o.apikey = 'YOUR_API_KEY';
+  return o;
+}
+
+function logDaftraApiDebug(kind: 'request' | 'response', payload: Record<string, unknown>): void {
+  if (!DAFTRA_API_DEBUG) return;
+  console.log(`[Daftra API DEBUG] ${kind}:`, JSON.stringify(payload, null, 2));
+}
+
 /** Parse numeric store/warehouse ids from GET /api2/stores.json (shape varies by account). */
 function parseDaftraStoreIds(payload: unknown): number[] {
   const ids: number[] = [];
@@ -131,11 +144,15 @@ async function resolveDaftraInvoiceStoreId(
   const configured = settings.store_id;
   const base = apiBase(settings.subdomain);
   try {
-    const res = await axios.get(`${base}/stores.json`, {
-      headers: daftraAuthHeaders(settings.api_token),
+    const storeUrl = `${base}/stores.json`;
+    const storeHeaders = daftraAuthHeaders(settings.api_token);
+    logDaftraApiDebug('request', { method: 'GET', url: storeUrl, headers: redactDaftraHeadersForLog(storeHeaders) });
+    const res = await axios.get(storeUrl, {
+      headers: storeHeaders,
       validateStatus: (s) => s === 200,
       timeout: 15000,
     });
+    logDaftraApiDebug('response', { url: storeUrl, status: res.status, body: res.data });
     const allowed = parseDaftraStoreIds(res.data);
     if (allowed.length === 0) return configured;
     if (allowed.includes(configured)) return configured;
@@ -239,13 +256,17 @@ function guestEmail(bookingId: string): string {
 
 async function postDaftraClient(settings: DaftraTenantSettings, body: Record<string, unknown>): Promise<number> {
   const base = apiBase(settings.subdomain);
-  const res = await axios.post(`${base}/clients.json`, body, {
-    headers: {
-      ...daftraAuthHeaders(settings.api_token),
-      'Content-Type': 'application/json',
-    },
+  const url = `${base}/clients.json`;
+  const headers = {
+    ...daftraAuthHeaders(settings.api_token),
+    'Content-Type': 'application/json',
+  };
+  logDaftraApiDebug('request', { method: 'POST', url, headers: redactDaftraHeadersForLog(headers), body });
+  const res = await axios.post(url, body, {
+    headers,
     validateStatus: () => true,
   });
+  logDaftraApiDebug('response', { url, status: res.status, body: res.data });
   const id = (res.data as any)?.id;
   if (res.status >= 200 && res.status < 300 && id != null) {
     return Number(id);
@@ -321,11 +342,15 @@ async function createDaftraInvoice(
   let validProductId: number | null = null;
   if (Number.isFinite(settings.default_product_id) && settings.default_product_id > 0) {
     try {
-      const productProbe = await axios.get(`${base}/products/${settings.default_product_id}.json`, {
-        headers: daftraAuthHeaders(settings.api_token),
+      const productUrl = `${base}/products/${settings.default_product_id}.json`;
+      const productHeaders = daftraAuthHeaders(settings.api_token);
+      logDaftraApiDebug('request', { method: 'GET', url: productUrl, headers: redactDaftraHeadersForLog(productHeaders) });
+      const productProbe = await axios.get(productUrl, {
+        headers: productHeaders,
         validateStatus: () => true,
         timeout: 10000,
       });
+      logDaftraApiDebug('response', { url: productUrl, status: productProbe.status, body: productProbe.data });
       if (productProbe.status === 200) {
         validProductId = settings.default_product_id;
       } else {
@@ -395,13 +420,17 @@ async function createDaftraInvoice(
     InvoiceItem: items,
   };
 
-  const res = await axios.post(`${base}/invoices.json`, body, {
-    headers: {
-      ...daftraAuthHeaders(settings.api_token),
-      'Content-Type': 'application/json',
-    },
+  const invoiceUrl = `${base}/invoices.json`;
+  const invoiceHeaders = {
+    ...daftraAuthHeaders(settings.api_token),
+    'Content-Type': 'application/json',
+  };
+  logDaftraApiDebug('request', { method: 'POST', url: invoiceUrl, headers: redactDaftraHeadersForLog(invoiceHeaders), body });
+  const res = await axios.post(invoiceUrl, body, {
+    headers: invoiceHeaders,
     validateStatus: () => true,
   });
+  logDaftraApiDebug('response', { url: invoiceUrl, status: res.status, body: res.data });
 
   const id = (res.data as any)?.id;
   if (res.status >= 200 && res.status < 300 && id != null) {
@@ -466,13 +495,15 @@ async function markDaftraInvoicePaid(params: {
   // Fetch invoice first so we can avoid overpaying or duplicate payment records.
   let payAmount = roundedAmount;
   try {
-    const invRes = await axios.get(`${base}/invoices/${invoiceId}.json`, {
-      headers: {
-        ...daftraAuthHeaders(settings.api_token),
-      },
+    const invMetaUrl = `${base}/invoices/${invoiceId}.json`;
+    const invMetaHeaders = { ...daftraAuthHeaders(settings.api_token) };
+    logDaftraApiDebug('request', { method: 'GET', url: invMetaUrl, headers: redactDaftraHeadersForLog(invMetaHeaders) });
+    const invRes = await axios.get(invMetaUrl, {
+      headers: invMetaHeaders,
       validateStatus: () => true,
       timeout: 20000,
     });
+    logDaftraApiDebug('response', { url: invMetaUrl, status: invRes.status, body: invRes.data });
     if (invRes.status >= 200 && invRes.status < 300) {
       const inv = (invRes.data as any)?.data?.Invoice || (invRes.data as any)?.data || invRes.data || {};
       const unpaid = Number(inv?.summary_unpaid ?? inv?.summary_total ?? 0);
@@ -502,14 +533,18 @@ async function markDaftraInvoicePaid(params: {
     },
   };
 
-  const res = await axios.post(`${base}/invoice_payments.json`, body, {
-    headers: {
-      ...daftraAuthHeaders(settings.api_token),
-      'Content-Type': 'application/json',
-    },
+  const payUrl = `${base}/invoice_payments.json`;
+  const payHeaders = {
+    ...daftraAuthHeaders(settings.api_token),
+    'Content-Type': 'application/json',
+  };
+  logDaftraApiDebug('request', { method: 'POST', url: payUrl, headers: redactDaftraHeadersForLog(payHeaders), body });
+  const res = await axios.post(payUrl, body, {
+    headers: payHeaders,
     validateStatus: () => true,
     timeout: 30000,
   });
+  logDaftraApiDebug('response', { url: payUrl, status: res.status, body: res.data });
 
   const ok =
     (res.status >= 200 && res.status < 300) &&
