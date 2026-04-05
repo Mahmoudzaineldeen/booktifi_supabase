@@ -53,6 +53,9 @@ import { CustomerDashboard } from './pages/customer/CustomerDashboard';
 import { CustomerBillingPage } from './pages/customer/CustomerBillingPage';
 import { CustomerLandingPage } from './pages/customer/CustomerLandingPage';
 import { NavigationTest } from './components/debug/NavigationTest';
+import { AdvantagesPage } from './pages/marketing/AdvantagesPage';
+import { IndustriesPage } from './pages/marketing/IndustriesPage';
+import { IndustryDetailPage } from './pages/marketing/IndustryDetailPage';
 import './lib/i18n';
 
 /** Old reception visitors URL → visitors report under reception reports */
@@ -73,6 +76,9 @@ function AppContent() {
     <>
       <Routes>
       <Route path="/" element={<HomePage />} />
+      <Route path="/advantages" element={<AdvantagesPage />} />
+      <Route path="/industries" element={<IndustriesPage />} />
+      <Route path="/industries/:slug" element={<IndustryDetailPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
