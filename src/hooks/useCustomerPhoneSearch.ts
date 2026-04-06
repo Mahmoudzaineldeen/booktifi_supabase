@@ -43,6 +43,13 @@ export function buildCustomerPhoneQueryVariants(input: string): string[] {
     add(local);
     add(localTrimmed);
     if (localTrimmed) add(`0${localTrimmed}`);
+    // Saudi trunk 0 after 966: 9660532… ↔ 966532… (must match server buildSearchDigitVariants)
+    if (local.startsWith('0') && local.length >= 2) {
+      add(`966${local.slice(1)}`);
+    }
+    if (!local.startsWith('0') && local.startsWith('5') && local.length >= 2) {
+      add(`9660${local}`);
+    }
   }
   if (digits.startsWith('00966') && digits.length > 5) {
     const local = digits.slice(5);
