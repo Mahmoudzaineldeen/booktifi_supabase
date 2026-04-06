@@ -11,7 +11,8 @@
     "ensure-lamia": "tsx scripts/ensure-lamia-user.ts",
     "set-password": "tsx scripts/set-user-password.ts",
     "admin-booking-daftra": "tsx scripts/admin-booking-daftra-invoice.ts",
-    "daftra-pdf-verify": "tsx scripts/daftra-pdf-verify.ts"
+    "daftra-pdf-verify": "tsx scripts/daftra-pdf-verify.ts",
+    "daftra-retrieve-invoices-test": "tsx scripts/daftra-retrieve-invoices-test.ts"
   },
   "keywords": [],
   "author": "",
