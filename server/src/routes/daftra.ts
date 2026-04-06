@@ -1,7 +1,11 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { supabase } from '../db';
-import { downloadDaftraInvoicePdfForTenant } from '../services/daftraInvoiceService';
+import {
+  downloadDaftraInvoicePdfForTenant,
+  loadDaftraSettingsForTenant,
+  resolveDaftraInternalInvoiceId,
+} from '../services/daftraInvoiceService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
@@ -40,12 +44,34 @@ router.get('/invoices/:invoiceId/download', async (req, res) => {
       }
     }
 
-    const { data: booking, error } = await supabase
+    let { data: booking, error } = await supabase
       .from('bookings')
       .select('tenant_id, daftra_invoice_id')
       .eq('daftra_invoice_id', invoiceId)
       .limit(1)
       .maybeSingle();
+
+    // Allow display invoice no (e.g. 000095) when JWT provides tenant — map to internal Daftra id via API.
+    if ((error || !booking?.tenant_id) && userTenantId) {
+      const settings = await loadDaftraSettingsForTenant(userTenantId);
+      if (settings) {
+        try {
+          const resolved = await resolveDaftraInternalInvoiceId(settings, invoiceId);
+          const second = await supabase
+            .from('bookings')
+            .select('tenant_id, daftra_invoice_id')
+            .eq('daftra_invoice_id', String(resolved))
+            .limit(1)
+            .maybeSingle();
+          if (!second.error && second.data?.tenant_id) {
+            booking = second.data;
+            error = null;
+          }
+        } catch {
+          /* keep 404 below */
+        }
+      }
+    }
 
     if (error || !booking?.tenant_id) {
       return res.status(404).json({ error: 'Invoice not found' });
@@ -57,14 +83,15 @@ router.get('/invoices/:invoiceId/download', async (req, res) => {
       }
     }
 
-    const pdfBuffer = await downloadDaftraInvoicePdfForTenant(booking.tenant_id, invoiceId);
+    const { pdf: pdfBuffer, source, resolvedInvoiceId } = await downloadDaftraInvoicePdfForTenant(booking.tenant_id, invoiceId);
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('X-Invoice-Source', 'bookati-local-generator');
-    res.setHeader('Content-Disposition', `attachment; filename="daftra-invoice-${invoiceId}.pdf"`);
+    res.setHeader('X-Invoice-Source', source === 'daftra-remote' ? 'daftra-api' : 'bookati-local-generator');
+    res.setHeader('X-Daftra-Invoice-Id', String(resolvedInvoiceId));
+    res.setHeader('Content-Disposition', `attachment; filename="daftra-invoice-${resolvedInvoiceId}.pdf"`);
     res.setHeader('Content-Length', pdfBuffer.length.toString());
     res.send(pdfBuffer);
   } catch (err: any) {

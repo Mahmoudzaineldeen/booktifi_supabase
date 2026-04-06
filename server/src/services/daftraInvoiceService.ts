@@ -2,6 +2,9 @@
  * Daftra invoicing (https://docs.daftara.dev/).
  * Uses POST /api2/invoices.json and POST /api2/clients.json.
  * Daftra API keys use the `apikey` header (not Authorization: Bearer) — see https://docs.daftara.dev/933385m0
+ *
+ * PDF: Prefer GET /api2/invoices/{id}.json or GET /api2/invoices/{id}; the response includes `invoicepdfurl`
+ * (direct PDF URL per Daftra). Do not rely on /invoices/{id}.pdf — often returns 404.
  */
 import axios from 'axios';
 import crypto from 'crypto';
@@ -78,6 +81,19 @@ function daftraAuthHeaders(apiToken: string): Record<string, string> {
 }
 
 const DAFTRA_API_DEBUG = process.env.DAFTRA_DEBUG_API === '1';
+
+/** When `false`, skip remote PDF fetch and use only the local PDFKit generator (for emergencies). Default: remote enabled. */
+export function daftraRemotePdfEnabled(): boolean {
+  return String(process.env.DAFTRA_USE_REMOTE_PDF || '').toLowerCase() !== 'false';
+}
+
+function logDaftraPdf(message: string, details?: Record<string, unknown>): void {
+  if (details) {
+    console.log(`[Daftra PDF] ${message}`, details);
+  } else {
+    console.log(`[Daftra PDF] ${message}`);
+  }
+}
 
 function redactDaftraHeadersForLog(h: Record<string, string>): Record<string, string> {
   const o = { ...h };
@@ -559,6 +575,183 @@ async function markDaftraInvoicePaid(params: {
   }
 }
 
+/**
+ * Daftra returns the downloadable PDF link as `invoicepdfurl` on the invoice resource response
+ * (see GET https://{subdomain}.daftra.com/api2/invoices/{id} — field may appear only on extensionless GET for some tenants).
+ */
+const PDF_URL_KEY_RE = /^invoice_?pdf_?url$/i;
+
+function extractDaftraInvoicePdfUrl(apiBody: any): string | null {
+  const pick = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
+
+  const fromObj = (o: unknown): string | null => {
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+    const r = o as Record<string, unknown>;
+    return pick(r.invoicepdfurl) || pick(r.invoicePdfUrl) || pick(r.invoice_pdf_url);
+  };
+
+  /** Some tenants nest the link under Invoice / data with alternate key casing. */
+  function deepFind(obj: unknown, depth: number): string | null {
+    if (depth <= 0 || obj == null) return null;
+    if (typeof obj === 'string') return null;
+    if (Array.isArray(obj)) {
+      for (const el of obj) {
+        const f = deepFind(el, depth - 1);
+        if (f) return f;
+      }
+      return null;
+    }
+    if (typeof obj !== 'object') return null;
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (PDF_URL_KEY_RE.test(k) || k.toLowerCase() === 'invoicepdfurl') {
+        const p = pick(v);
+        if (p) return p;
+      }
+    }
+    for (const v of Object.values(obj as Record<string, unknown>)) {
+      if (v && typeof v === 'object') {
+        const f = deepFind(v, depth - 1);
+        if (f) return f;
+      }
+    }
+    return null;
+  }
+
+  if (!apiBody || typeof apiBody !== 'object') return null;
+  const data = (apiBody as any).data ?? apiBody;
+  const invoice =
+    data?.Invoice && typeof data.Invoice === 'object' && !Array.isArray(data.Invoice)
+      ? data.Invoice
+      : data && typeof data === 'object' && !Array.isArray(data)
+        ? data
+        : {};
+  return (
+    fromObj(apiBody) ||
+    fromObj(data) ||
+    fromObj(invoice) ||
+    fromObj((apiBody as any).Invoice) ||
+    deepFind(apiBody, 6) ||
+    null
+  );
+}
+
+/**
+ * Prefer `invoicepdfurl` (direct API PDF) over `invoice_pdf_url` (portal; often returns HTML for server-side GET).
+ */
+function extractDaftraPdfLinkFields(apiBody: any): { directUrl: string | null; portalUrl: string | null } {
+  const data = apiBody?.data ?? apiBody;
+  const invoice =
+    data?.Invoice && typeof data.Invoice === 'object' && !Array.isArray(data.Invoice)
+      ? (data.Invoice as Record<string, unknown>)
+      : data && typeof data === 'object' && !Array.isArray(data)
+        ? (data as Record<string, unknown>)
+        : null;
+  const pick = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  if (!invoice) {
+    return { directUrl: null, portalUrl: null };
+  }
+  const directUrl = pick(invoice.invoicepdfurl) || pick(invoice.invoicePdfUrl);
+  const portalUrl = pick(invoice.invoice_pdf_url);
+  return { directUrl, portalUrl };
+}
+
+function daftraInvoicePayloadLooksValid(body: any): boolean {
+  if (!body || typeof body !== 'object') return false;
+  if (body.result === 'failed' || body.code === 404) return false;
+  return !!(body.data?.Invoice || body.Invoice);
+}
+
+async function daftraInvoiceExists(settings: DaftraTenantSettings, id: number): Promise<boolean> {
+  const base = apiBase(settings.subdomain);
+  const headers = daftraAuthHeaders(settings.api_token);
+  for (const path of [`${base}/invoices/${id}`, `${base}/invoices/${id}.json`]) {
+    try {
+      const res = await axios.get(path, {
+        headers,
+        validateStatus: () => true,
+        timeout: 20000,
+      });
+      if (res.status === 200 && daftraInvoicePayloadLooksValid(res.data)) {
+        return true;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  return false;
+}
+
+async function findDaftraInvoiceInternalIdByNo(settings: DaftraTenantSettings, displayNo: string): Promise<number | null> {
+  const base = apiBase(settings.subdomain);
+  const res = await axios.get(`${base}/invoices.json`, {
+    headers: daftraAuthHeaders(settings.api_token),
+    validateStatus: () => true,
+    timeout: 90000,
+  });
+  if (res.status !== 200 || res.data == null) return null;
+  const payload = res.data as any;
+  const rows: unknown[] = Array.isArray(payload.data) ? payload.data : Array.isArray(payload) ? payload : [];
+  const normalize = (no: string) => {
+    const t = no.trim();
+    const stripped = t.replace(/^0+/, '');
+    return stripped === '' ? '0' : stripped;
+  };
+  const target = displayNo.trim();
+  const targetNorm = normalize(target);
+  const targetPadded6 = /^\d+$/.test(target) ? target.padStart(6, '0') : target;
+
+  for (const row of rows) {
+    const inv = (row as any)?.Invoice ?? row;
+    if (!inv || typeof inv !== 'object') continue;
+    const no = String((inv as any).no ?? '').trim();
+    if (!no) continue;
+    if (no === target || no === targetPadded6 || normalize(no) === targetNorm) {
+      const id = parseInt(String((inv as any).id ?? ''), 10);
+      if (Number.isFinite(id)) return id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve URL param to Daftra internal numeric `Invoice.id`.
+ * - `82` → internal id (if exists).
+ * - `000095` → lookup by `Invoice.no` via invoices list.
+ * - `95` → try internal id 95; if missing, match `no` 000095 / 95.
+ */
+export async function resolveDaftraInternalInvoiceId(settings: DaftraTenantSettings, raw: string): Promise<number> {
+  const s = raw.trim();
+  if (!/^\d+$/.test(s)) {
+    throw new Error('Daftra invoice id must be numeric');
+  }
+  if (s.length > 1 && s[0] === '0') {
+    const found = await findDaftraInvoiceInternalIdByNo(settings, s);
+    if (found != null) {
+      logDaftraPdf('Resolved display invoice no → internal id', { input: s, internalId: found });
+      return found;
+    }
+    throw new Error(`Daftra invoice number ${s} not found`);
+  }
+  const n = parseInt(s, 10);
+  if (await daftraInvoiceExists(settings, n)) {
+    logDaftraPdf('Using internal invoice id', { internalId: n });
+    return n;
+  }
+  const padded = s.padStart(6, '0');
+  const byNo = await findDaftraInvoiceInternalIdByNo(settings, padded);
+  if (byNo != null) {
+    logDaftraPdf('Resolved numeric param as invoice no → internal id', { input: s, internalId: byNo });
+    return byNo;
+  }
+  const byNoBare = await findDaftraInvoiceInternalIdByNo(settings, s);
+  if (byNoBare != null) {
+    logDaftraPdf('Resolved numeric param as invoice no (unpadded) → internal id', { input: s, internalId: byNoBare });
+    return byNoBare;
+  }
+  throw new Error(`Daftra invoice id ${s} not found`);
+}
+
 /** Flatten Daftra GET invoice JSON (shape varies: nested Invoice or flat `data`). */
 function normalizeDaftraInvoiceRecord(apiBody: any): {
   invoice: Record<string, any>;
@@ -609,16 +802,13 @@ function normalizeDaftraInvoiceRecord(apiBody: any): {
     }
   }
   const client = (invoice.Client ?? data?.Client ?? null) as Record<string, any> | null;
-  const pdfUrl =
-    (typeof invoice.invoice_pdf_url === 'string' && invoice.invoice_pdf_url) ||
-    (typeof data?.invoice_pdf_url === 'string' && data.invoice_pdf_url) ||
-    null;
+  const links = extractDaftraPdfLinkFields(apiBody);
+  const pdfUrl = links.directUrl || links.portalUrl || extractDaftraInvoicePdfUrl(apiBody);
   return { invoice, items, client, pdfUrl };
 }
 
 /**
- * Daftra's `invoice_pdf_url` is a portal link that returns the login page for server-side requests
- * (session cookie required). Build a usable PDF from the same invoice JSON the API already returns.
+ * Fallback: if `invoicepdfurl` fetch fails or returns non-PDF, build a simple PDF from invoice JSON.
  */
 async function buildDaftraInvoicePdfFromApiBody(
   subdomain: string,
@@ -871,84 +1061,232 @@ async function buildDaftraInvoicePdfFromApiBody(
   return bufPromise;
 }
 
+/** GET invoice metadata; prefer a body that includes `invoicepdfurl` (extensionless route often carries it per Daftra). */
+async function fetchDaftraInvoiceRecord(
+  settings: DaftraTenantSettings,
+  invoiceId: number
+): Promise<any | null> {
+  const base = apiBase(settings.subdomain);
+  const headers = { ...daftraAuthHeaders(settings.api_token) };
+  // Try extensionless first (e.g. GET /api2/invoices/81), then .json — response shapes differ by account.
+  const urls = [`${base}/invoices/${invoiceId}`, `${base}/invoices/${invoiceId}.json`];
+  let fallback: any | null = null;
+  for (const url of urls) {
+    try {
+      const res = await axios.get(url, {
+        headers,
+        validateStatus: (s) => s === 200,
+        timeout: 20000,
+      });
+      if (res.status === 200 && res.data != null) {
+        if (extractDaftraInvoicePdfUrl(res.data)) {
+          return res.data;
+        }
+        if (!fallback) fallback = res.data;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  return fallback;
+}
+
+function absolutizeDaftraAssetUrl(raw: string, subdomain: string): string {
+  const u = raw.trim();
+  if (!u) return u;
+  if (/^https?:\/\//i.test(u)) return u;
+  if (u.startsWith('//')) return `https:${u}`;
+  const origin = `https://${subdomain}.daftra.com`;
+  if (u.startsWith('/')) return `${origin}${u}`;
+  return u;
+}
+
+function isPdfMagic(buf: Buffer): boolean {
+  return buf.length >= 5 && buf.subarray(0, 5).toString('ascii').startsWith('%PDF');
+}
+
+function isAcceptablePdfResponse(contentType: string | undefined, buf: Buffer): boolean {
+  const ct = (contentType || '').toLowerCase();
+  if (ct.includes('text/html')) {
+    return false;
+  }
+  if (isPdfMagic(buf)) {
+    return true;
+  }
+  if (ct.includes('application/pdf')) {
+    return true;
+  }
+  if (ct.includes('application/octet-stream') && buf.length > 100) {
+    return isPdfMagic(buf);
+  }
+  return false;
+}
+
+export type DaftraRemotePdfAttempt = { kind: 'invoicepdfurl' | 'invoice_pdf_url' };
+
+/**
+ * Fetch bytes from a Daftra PDF URL; validates Content-Type / body (reject HTML login pages).
+ */
+async function tryFetchDaftraRemotePdfUrl(
+  pdfUrl: string,
+  apiToken: string,
+  subdomain: string,
+  attemptKind: DaftraRemotePdfAttempt
+): Promise<Buffer | null> {
+  const resolved = absolutizeDaftraAssetUrl(pdfUrl, subdomain);
+  const portalOrigin = `https://${subdomain}.daftra.com`;
+  const attempts: Array<{ label: string; headers: Record<string, string> }> = [
+    {
+      label: 'referer+origin',
+      headers: {
+        Accept: 'application/pdf,application/octet-stream,*/*',
+        'User-Agent': 'Bookati/1.0 (invoice download)',
+        Referer: `${portalOrigin}/`,
+        Origin: portalOrigin,
+      },
+    },
+    {
+      label: 'browser-ua',
+      headers: {
+        Accept: 'application/pdf,*/*',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Referer: `${portalOrigin}/`,
+        Origin: portalOrigin,
+      },
+    },
+    { label: 'apikey-header', headers: { apikey: apiToken, Accept: 'application/pdf,*/*', Referer: `${portalOrigin}/` } },
+    { label: 'apikey-only', headers: { apikey: apiToken, Accept: 'application/pdf,*/*' } },
+  ];
+  let daftraQueryUrl: string | null = null;
+  try {
+    const u = new URL(resolved);
+    if (u.hostname.includes('daftra.com') && !u.searchParams.has('apikey') && !u.searchParams.has('api_key')) {
+      const q = new URL(u.toString());
+      q.searchParams.set('apikey', apiToken);
+      daftraQueryUrl = q.toString();
+    }
+  } catch {
+    /* ignore */
+  }
+  const urlsToTry = [resolved, ...(daftraQueryUrl && daftraQueryUrl !== resolved ? [daftraQueryUrl] : [])];
+  for (const url of urlsToTry) {
+    for (const { label, headers } of attempts) {
+      try {
+        const pdfRes = await axios.get(url, {
+          responseType: 'arraybuffer',
+          headers,
+          validateStatus: (s) => s === 200,
+          timeout: 45000,
+          maxRedirects: 10,
+        });
+        const buf = pdfRes.data && Buffer.from(pdfRes.data);
+        const contentType = pdfRes.headers['content-type'] as string | undefined;
+        if (!buf || buf.length < 100) {
+          logDaftraPdf('Remote PDF attempt too small', { attemptKind, strategy: label, contentType });
+          continue;
+        }
+        if (!isAcceptablePdfResponse(contentType, buf)) {
+          const preview = buf.subarray(0, Math.min(80, buf.length)).toString('utf8').replace(/\s+/g, ' ').slice(0, 120);
+          logDaftraPdf('Invalid PDF response (expected application/pdf or %PDF magic)', {
+            attemptKind,
+            strategy: label,
+            contentType: contentType || '(missing)',
+            bodyPreview: preview,
+          });
+          continue;
+        }
+        logDaftraPdf('Remote PDF download OK', { attemptKind, strategy: label, contentType: contentType || '(unknown)', bytes: buf.length });
+        return buf;
+      } catch (e: any) {
+        logDaftraPdf('Remote PDF attempt failed', { attemptKind, strategy: label, error: e?.message || String(e) });
+      }
+    }
+  }
+  return null;
+}
+
+export type DaftraInvoicePdfSource = 'daftra-remote' | 'daftra-local';
+
+type DaftraPdfDownloadOutcome = { buffer: Buffer; source: DaftraInvoicePdfSource };
+
 async function tryDownloadDaftraInvoicePdf(
   settings: DaftraTenantSettings,
   invoiceId: number,
   tenantId: string | null,
   options?: { allowGeneratedFallback?: boolean; generatedOnly?: boolean }
-): Promise<Buffer | null> {
-  const base = apiBase(settings.subdomain);
-  const headers = { ...daftraAuthHeaders(settings.api_token) };
+): Promise<DaftraPdfDownloadOutcome | null> {
   const allowGeneratedFallback = options?.allowGeneratedFallback !== false;
   const generatedOnly = options?.generatedOnly === true;
+  const useRemote = daftraRemotePdfEnabled() && !generatedOnly;
 
   let meta: any;
   try {
-    const res = await axios.get(`${base}/invoices/${invoiceId}.json`, {
-      headers,
-      validateStatus: (s) => s === 200,
-      timeout: 20000,
-    });
-    meta = res.data;
+    meta = await fetchDaftraInvoiceRecord(settings, invoiceId);
   } catch {
+    logDaftraPdf('fetchDaftraInvoiceRecord threw', { internalInvoiceId: invoiceId });
     return null;
   }
 
-  if (!meta) return null;
+  if (!meta) {
+    logDaftraPdf('No invoice JSON from Daftra', { internalInvoiceId: invoiceId });
+    return null;
+  }
+
+  const links = extractDaftraPdfLinkFields(meta);
+  logDaftraPdf('Invoice metadata for PDF', {
+    internalInvoiceId: invoiceId,
+    hasInvoicePdfUrl: !!links.directUrl,
+    hasInvoice_pdf_url: !!links.portalUrl,
+    remotePdfEnabled: useRemote,
+  });
 
   if (generatedOnly) {
     try {
-      return await buildDaftraInvoicePdfFromApiBody(settings.subdomain, meta, invoiceId);
+      const buffer = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, meta, invoiceId);
+      return { buffer, source: 'daftra-local' };
     } catch (e: any) {
       console.warn('[DaftraInvoice] Could not build PDF from invoice JSON:', e?.message);
       return null;
     }
   }
 
-  const { pdfUrl } = normalizeDaftraInvoiceRecord(meta);
-  if (pdfUrl) {
-    try {
-      const pdfRes = await axios.get(pdfUrl, {
-        responseType: 'arraybuffer',
-        headers: { apikey: settings.api_token, Accept: 'application/pdf,*/*' },
-        validateStatus: (s) => s === 200,
-        timeout: 15000,
-        maxRedirects: 5,
+  if (useRemote) {
+    if (links.directUrl) {
+      const buf = await tryFetchDaftraRemotePdfUrl(links.directUrl, settings.api_token, settings.subdomain, {
+        kind: 'invoicepdfurl',
       });
-      const buf = pdfRes.data && Buffer.from(pdfRes.data);
-      if (buf && buf.length > 100 && buf.subarray(0, 4).toString() === '%PDF') {
-        return buf;
+      if (buf) {
+        return { buffer: buf, source: 'daftra-remote' };
       }
-    } catch {
-      /* portal URL often returns HTML login — fall back */
+      logDaftraPdf('Direct invoicepdfurl did not yield a PDF; will try portal URL if present', { internalInvoiceId: invoiceId });
     }
-  }
-
-  // Try direct API PDF endpoints for accounts that expose raw PDF via API key.
-  for (const url of [`${base}/invoices/${invoiceId}.pdf`, `${base}/invoices/${invoiceId}?format=pdf`]) {
-    try {
-      const pdfRes = await axios.get(url, {
-        responseType: 'arraybuffer',
-        headers: { ...headers, Accept: 'application/pdf,*/*' },
-        validateStatus: (s) => s === 200,
-        timeout: 20000,
-        maxRedirects: 5,
+    if (links.portalUrl) {
+      const buf = await tryFetchDaftraRemotePdfUrl(links.portalUrl, settings.api_token, settings.subdomain, {
+        kind: 'invoice_pdf_url',
       });
-      const buf = pdfRes.data && Buffer.from(pdfRes.data);
-      if (buf && buf.length > 100 && buf.subarray(0, 4).toString() === '%PDF') {
-        return buf;
+      if (buf) {
+        return { buffer: buf, source: 'daftra-remote' };
       }
-    } catch {
-      /* continue */
+      logDaftraPdf('invoice_pdf_url did not yield a PDF (often HTML login for server-side requests)', {
+        internalInvoiceId: invoiceId,
+      });
     }
+    if (!links.directUrl && !links.portalUrl) {
+      logDaftraPdf('No invoicepdfurl or invoice_pdf_url on invoice record', { internalInvoiceId: invoiceId });
+    }
+  } else {
+    logDaftraPdf('Skipping remote PDF (DAFTRA_USE_REMOTE_PDF=false or generatedOnly)', { internalInvoiceId: invoiceId });
   }
 
   if (!allowGeneratedFallback) {
     return null;
   }
 
+  logDaftraPdf('Falling back to local PDF generator', { internalInvoiceId: invoiceId });
   try {
-    return await buildDaftraInvoicePdfFromApiBody(settings.subdomain, meta, invoiceId);
+    const buffer = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, meta, invoiceId);
+    return { buffer, source: 'daftra-local' };
   } catch (e: any) {
     console.warn('[DaftraInvoice] Could not build PDF from invoice JSON:', e?.message);
     return null;
@@ -1181,7 +1519,8 @@ export class DaftraInvoiceService {
       }
 
       const qrPng = await QRCode.toBuffer(unified.context.qr_data_json, { type: 'png', width: 320, margin: 1 });
-      const pdf = await tryDownloadDaftraInvoicePdf(settings, invoiceNum, booking.tenant_id);
+      const pdfOut = await tryDownloadDaftraInvoicePdf(settings, invoiceNum, booking.tenant_id);
+      const pdf = pdfOut?.buffer ?? null;
       const caption = `Your invoice (#${invoiceNum}) is ready.\nBooking ID: ${unified.booking_id}\n${unified.context.payment_summary}`;
 
       const maySend = booking.payment_status === 'paid' || booking.payment_status === 'paid_manual';
@@ -1341,7 +1680,8 @@ export class DaftraInvoiceService {
       const uSingle = await mapBookingToUnifiedInvoice(unified.primary_booking_id).catch(() => null);
       const qrJson = uSingle?.context.qr_data_json || JSON.stringify({ booking_id: unified.primary_booking_id, type: 'booking_ticket' });
       const qrPng = await QRCode.toBuffer(qrJson, { type: 'png', width: 320, margin: 1 });
-      const pdf = await tryDownloadDaftraInvoicePdf(settings, invoiceNum, tenantId);
+      const pdfOut = await tryDownloadDaftraInvoicePdf(settings, invoiceNum, tenantId);
+      const pdf = pdfOut?.buffer ?? null;
 
       if (first?.payment_status === 'paid' || first?.payment_status === 'paid_manual') {
         await deliverDaftraInvoice(
@@ -1365,20 +1705,27 @@ export class DaftraInvoiceService {
 
 export const daftraInvoiceService = new DaftraInvoiceService();
 
+export type DaftraInvoicePdfDownloadResult = {
+  pdf: Buffer;
+  source: DaftraInvoicePdfSource;
+  /** Daftra internal `Invoice.id` used for API calls (not display `no`). */
+  resolvedInvoiceId: number;
+};
+
 /** Download invoice PDF from Daftra (for API route / staff UI). */
-export async function downloadDaftraInvoicePdfForTenant(tenantId: string, invoiceId: string | number): Promise<Buffer> {
+export async function downloadDaftraInvoicePdfForTenant(
+  tenantId: string,
+  invoiceId: string | number
+): Promise<DaftraInvoicePdfDownloadResult> {
   const settings = await loadDaftraSettingsForTenant(tenantId);
   if (!settings) {
     throw new Error('Daftra is not configured for this tenant');
   }
-  const num = typeof invoiceId === 'string' ? parseInt(invoiceId, 10) : invoiceId;
-  if (!Number.isFinite(num)) {
-    throw new Error('Invalid Daftra invoice id');
+  const raw = String(invoiceId).trim();
+  const resolvedInvoiceId = await resolveDaftraInternalInvoiceId(settings, raw);
+  const out = await tryDownloadDaftraInvoicePdf(settings, resolvedInvoiceId, tenantId, { allowGeneratedFallback: true });
+  if (!out || out.buffer.length < 100) {
+    throw new Error('Failed to download or generate Daftra invoice PDF.');
   }
-  // User-triggered download uses the local renderer to ensure consistent output.
-  const pdf = await tryDownloadDaftraInvoicePdf(settings, num, tenantId, { allowGeneratedFallback: true, generatedOnly: true });
-  if (!pdf || pdf.length < 100) {
-    throw new Error('Failed to generate local Daftra invoice PDF.');
-  }
-  return pdf;
+  return { pdf: out.buffer, source: out.source, resolvedInvoiceId };
 }
