@@ -14,9 +14,10 @@ const router = express.Router();
 
 /**
  * GET /api/daftra/invoices/:invoiceId/download
+ * GET /api/daftra/invoices/:invoiceId/file
  * Same access pattern as Zoho: booking row links daftra_invoice_id; staff must be same tenant.
  */
-router.get('/invoices/:invoiceId/download', async (req, res) => {
+const handleInvoicePdfDownload: express.RequestHandler = async (req, res) => {
   try {
     const { invoiceId } = req.params;
     const token = (req.query.token as string) || req.headers.authorization?.replace('Bearer ', '');
@@ -113,9 +114,18 @@ router.get('/invoices/:invoiceId/download', async (req, res) => {
     }
     res.status(status).json({ error: msg });
   }
-});
+};
+
+router.get('/invoices/:invoiceId/download', handleInvoicePdfDownload);
+router.get('/invoices/:invoiceId/file', handleInvoicePdfDownload);
 
 router.options('/invoices/:invoiceId/download', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.sendStatus(200);
+});
+router.options('/invoices/:invoiceId/file', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
