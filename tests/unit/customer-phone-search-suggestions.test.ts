@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildCustomerPhoneQueryVariants,
+  canonicalPhoneDigitsOnly,
   rankAndLimitCustomerSuggestions,
   type CustomerSuggestion,
 } from '../../src/hooks/useCustomerPhoneSearch';
@@ -51,5 +52,17 @@ describe('customer phone suggestions', () => {
   it('dropdown classes include scroll behavior', () => {
     expect(CUSTOMER_PHONE_SUGGESTIONS_SCROLL_CLASSES).toContain('max-h-56');
     expect(CUSTOMER_PHONE_SUGGESTIONS_SCROLL_CLASSES).toContain('overflow-y-auto');
+  });
+
+  it('dedupes suggestions that share canonical Saudi digits', () => {
+    const list: CustomerSuggestion[] = [
+      { id: 'x', name: 'ساره', phone: '+9660531156966', email: null },
+      { name: 'ساره', phone: '+9660531156966', email: null },
+      { name: 'ساره', phone: '+966531156966', email: null },
+    ];
+    const ranked = rankAndLimitCustomerSuggestions(list, '05311', 100);
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]?.id).toBe('x');
+    expect(canonicalPhoneDigitsOnly(ranked[0]?.phone || '')).toBe('966531156966');
   });
 });

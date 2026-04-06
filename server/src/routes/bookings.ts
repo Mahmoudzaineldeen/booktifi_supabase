@@ -19,6 +19,7 @@ import {
   buildDigitFuzzyPattern,
   buildSearchDigitVariants,
   bestPhoneMatchScore,
+  dedupeCustomerSearchResults,
   phoneMatchesAnyVariant,
 } from '../utils/customerPhoneSearch';
 
@@ -993,7 +994,8 @@ router.get('/customer-search', authenticateReceptionistOrTenantAdmin, async (req
       return phoneA - phoneB;
     });
 
-    return res.json({ customers: filtered.slice(0, safeLimit) });
+    const deduped = dedupeCustomerSearchResults(filtered);
+    return res.json({ customers: deduped.slice(0, safeLimit) });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Customer search failed' });
   }

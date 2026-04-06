@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getApiUrl } from '../lib/apiUrl';
+import { normalizePhoneNumber } from '../lib/normalizePhoneNumber';
 
 export interface CustomerSuggestion {
   id?: string;
@@ -65,6 +66,52 @@ export function buildCustomerPhoneQueryVariants(input: string): string[] {
   return Array.from(set).slice(0, 6);
 }
 
+function digitsOnly(s: string): string {
+  return String(s || '').replace(/\D/g, '');
+}
+
+/** Same idea as server `canonicalPhoneDigitsOnly` — merge +966053… with +966532… */
+export function canonicalPhoneDigitsOnly(phone: string): string {
+  const d = digitsOnly(phone);
+  if (!d) return '';
+  const trimmed = phone.trim();
+  const n =
+    normalizePhoneNumber(trimmed.startsWith('+') ? trimmed : `+${d}`) || normalizePhoneNumber(d);
+  return n ? digitsOnly(n) : d;
+}
+
+function dedupeSuggestionsByCanonicalPhone(list: CustomerSuggestion[]): CustomerSuggestion[] {
+  const byCanon = new Map<string, CustomerSuggestion[]>();
+  for (const c of list) {
+    const canon = canonicalPhoneDigitsOnly(c.phone);
+    if (!canon || canon.length < 3) continue;
+    if (!byCanon.has(canon)) byCanon.set(canon, []);
+    byCanon.get(canon)!.push(c);
+  }
+
+  const out: CustomerSuggestion[] = [];
+  for (const [, group] of byCanon) {
+    group.sort((a, b) => {
+      const sa = (a.id ? 4 : 0) + (a.email ? 2 : 0);
+      const sb = (b.id ? 4 : 0) + (b.email ? 2 : 0);
+      return sb - sa;
+    });
+    const chosen = group[0];
+    const canon = canonicalPhoneDigitsOnly(chosen.phone);
+    const pretty = normalizePhoneNumber(`+${canon}`) || chosen.phone;
+    const name = group.map((r) => (r.name || '').trim()).find((n) => n.length > 0) || chosen.name || '';
+    const id = group.find((r) => r.id)?.id ?? chosen.id;
+    const email = group.find((r) => r.email)?.email ?? chosen.email ?? null;
+    out.push({
+      id,
+      name,
+      email,
+      phone: typeof pretty === 'string' && pretty.startsWith('+') ? pretty : chosen.phone,
+    });
+  }
+  return out;
+}
+
 export function rankAndLimitCustomerSuggestions(
   list: CustomerSuggestion[],
   digits: string,
@@ -93,19 +140,8 @@ export function rankAndLimitCustomerSuggestions(
     return a._digits.length - b._digits.length;
   });
 
-  const deduped: CustomerSuggestion[] = [];
-  const seen = new Set<string>();
-  for (const item of normalized) {
-    const dedupeKey = item.id || `${item._digits}:${item.name || ''}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-    deduped.push({
-      id: item.id,
-      name: item.name,
-      phone: item.phone,
-      email: item.email,
-    });
-  }
+  const merged = normalized.map(({ _digits, ...rest }) => rest);
+  const deduped = dedupeSuggestionsByCanonicalPhone(merged);
 
   return deduped.slice(0, maxShow);
 }

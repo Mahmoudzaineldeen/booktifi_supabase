@@ -107,3 +107,56 @@ export function bestPhoneMatchScore(phone: string, variants: string[]): number {
   }
   return best;
 }
+
+/** Single digit sequence for deduping (+966053… vs +966532… → same key). */
+export function canonicalPhoneDigitsOnly(phone: string): string {
+  const digits = normalizePhoneDigits(phone);
+  if (!digits) return '';
+  const trimmed = phone.trim();
+  const n =
+    normalizePhoneNumber(trimmed.startsWith('+') ? trimmed : `+${digits}`) || normalizePhoneNumber(digits);
+  return n ? normalizePhoneDigits(n) : digits;
+}
+
+function displayPhoneFromCanonicalDigits(canonDigits: string, fallback: string): string {
+  const n = normalizePhoneNumber(`+${canonDigits}`) || normalizePhoneNumber(canonDigits);
+  if (n && n.startsWith('+')) return n;
+  return fallback;
+}
+
+/**
+ * One row per canonical number: merges customers + booking-history rows that differ only by formatting.
+ * Prefers rows with `id`, then non-empty email, then longer name.
+ */
+export function dedupeCustomerSearchResults(
+  rows: Array<{ id?: string; name: string; phone: string; email?: string | null }>
+): Array<{ id?: string; name: string; phone: string; email?: string | null }> {
+  const byCanon = new Map<string, Array<{ id?: string; name: string; phone: string; email?: string | null }>>();
+  for (const row of rows) {
+    const canon = canonicalPhoneDigitsOnly(row.phone);
+    if (!canon || canon.length < 3) continue;
+    if (!byCanon.has(canon)) byCanon.set(canon, []);
+    byCanon.get(canon)!.push(row);
+  }
+
+  const out: Array<{ id?: string; name: string; phone: string; email?: string | null }> = [];
+  for (const [canon, list] of byCanon) {
+    list.sort((a, b) => {
+      const sa = (a.id ? 4 : 0) + (a.email ? 2 : 0) + Math.min((a.name || '').trim().length, 40);
+      const sb = (b.id ? 4 : 0) + (b.email ? 2 : 0) + Math.min((b.name || '').trim().length, 40);
+      return sb - sa;
+    });
+    const chosen = list[0];
+    const name =
+      list.map((r) => (r.name || '').trim()).find((n) => n.length > 0) || chosen.name || '';
+    const id = list.find((r) => r.id)?.id ?? chosen.id;
+    const email = list.find((r) => r.email)?.email ?? chosen.email ?? null;
+    out.push({
+      id,
+      name,
+      email,
+      phone: displayPhoneFromCanonicalDigits(canon, chosen.phone),
+    });
+  }
+  return out;
+}
