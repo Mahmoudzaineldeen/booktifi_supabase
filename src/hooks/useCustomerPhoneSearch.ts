@@ -181,10 +181,10 @@ export function useCustomerPhoneSearch(tenantId: string | undefined, fullPhoneVa
         urls.map((url) =>
           fetch(url, {
             cache: 'no-store',
+            // Only Authorization — extra headers (Cache-Control/Pragma) widen the CORS preflight
+            // and must be listed in the API's Access-Control-Allow-Headers or the browser blocks.
             headers: {
               ...(token && { Authorization: `Bearer ${token}` }),
-              'Cache-Control': 'no-cache',
-              Pragma: 'no-cache',
             },
             signal: abortRef.current?.signal,
           })

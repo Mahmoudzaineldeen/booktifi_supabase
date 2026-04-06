@@ -44,13 +44,27 @@ const PORT = Number(process.env.PORT) || (process.env.NODE_ENV === 'production' 
 // Preflight (OPTIONS) must return Access-Control-* headers or browser blocks the request
 const corsOptions = {
   origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
-    cb(null, true); // Allow any origin
+    cb(null, true); // Allow any origin (reflects request Origin when credentials: true)
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'ngrok-skip-browser-warning', 'Accept'],
+  // Browsers send Access-Control-Request-Headers for every header on credentialed requests.
+  // Missing Cache-Control / Pragma / DNT causes preflight to fail (common "still CORS" in prod).
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'ngrok-skip-browser-warning',
+    'Accept',
+    'Cache-Control',
+    'Pragma',
+    'DNT',
+    'If-None-Match',
+    'If-Modified-Since',
+  ],
   exposedHeaders: ['Content-Range', 'X-Total-Count'],
   optionsSuccessStatus: 204, // Some clients expect 204 for preflight
+  maxAge: 86400,
 };
 app.use(cors(corsOptions));
 // Explicit preflight for all routes so CORS headers are always sent
