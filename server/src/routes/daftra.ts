@@ -90,6 +90,10 @@ const handleInvoicePdfDownload: express.RequestHandler = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.setHeader(
+      'Access-Control-Expose-Headers',
+      'X-Invoice-Source, X-Daftra-Invoice-Id, Content-Disposition, Content-Length, Content-Type'
+    );
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('X-Invoice-Source', source === 'daftra-remote' ? 'daftra-api' : 'bookati-local-generator');
     res.setHeader('X-Daftra-Invoice-Id', String(resolvedInvoiceId));
@@ -123,12 +127,20 @@ router.options('/invoices/:invoiceId/download', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader(
+    'Access-Control-Expose-Headers',
+    'X-Invoice-Source, X-Daftra-Invoice-Id, Content-Disposition, Content-Length, Content-Type'
+  );
   res.sendStatus(200);
 });
 router.options('/invoices/:invoiceId/file', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader(
+    'Access-Control-Expose-Headers',
+    'X-Invoice-Source, X-Daftra-Invoice-Id, Content-Disposition, Content-Length, Content-Type'
+  );
   res.sendStatus(200);
 });
 
