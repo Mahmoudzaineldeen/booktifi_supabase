@@ -2,6 +2,7 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import { supabase } from '../db';
 import {
+  DaftraPdfDownloadError,
   downloadDaftraInvoicePdfForTenant,
   loadDaftraSettingsForTenant,
   resolveDaftraInternalInvoiceId,
@@ -95,10 +96,21 @@ router.get('/invoices/:invoiceId/download', async (req, res) => {
     res.setHeader('Content-Length', pdfBuffer.length.toString());
     res.send(pdfBuffer);
   } catch (err: any) {
-    console.error('[Daftra Routes] Download error:', err?.message || err);
+    console.error('[Daftra Routes] Download error:', {
+      invoiceId: req.params?.invoiceId,
+      message: err?.message || String(err),
+      statusCode: err?.statusCode,
+    });
     res.setHeader('Access-Control-Allow-Origin', '*');
     const msg = err?.message || 'Failed to download invoice';
-    const status = msg.includes('branded PDF is unavailable') ? 409 : 500;
+    let status = 500;
+    if (err instanceof DaftraPdfDownloadError) {
+      status = err.statusCode;
+    } else if (msg.toLowerCase().includes('not found')) {
+      status = 404;
+    } else if (msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('access denied')) {
+      status = 403;
+    }
     res.status(status).json({ error: msg });
   }
 });

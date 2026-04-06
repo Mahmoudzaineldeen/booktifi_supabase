@@ -1210,6 +1210,16 @@ export type DaftraInvoicePdfSource = 'daftra-remote' | 'daftra-local';
 
 type DaftraPdfDownloadOutcome = { buffer: Buffer; source: DaftraInvoicePdfSource };
 
+export class DaftraPdfDownloadError extends Error {
+  statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.name = 'DaftraPdfDownloadError';
+    this.statusCode = statusCode;
+  }
+}
+
 async function tryDownloadDaftraInvoicePdf(
   settings: DaftraTenantSettings,
   invoiceId: number,
@@ -1722,10 +1732,68 @@ export async function downloadDaftraInvoicePdfForTenant(
     throw new Error('Daftra is not configured for this tenant');
   }
   const raw = String(invoiceId).trim();
-  const resolvedInvoiceId = await resolveDaftraInternalInvoiceId(settings, raw);
-  const out = await tryDownloadDaftraInvoicePdf(settings, resolvedInvoiceId, tenantId, { allowGeneratedFallback: true });
-  if (!out || out.buffer.length < 100) {
-    throw new Error('Failed to download or generate Daftra invoice PDF.');
+  let resolvedInvoiceId: number;
+  try {
+    resolvedInvoiceId = await resolveDaftraInternalInvoiceId(settings, raw);
+  } catch (e: any) {
+    const message = String(e?.message || '');
+    if (message.toLowerCase().includes('not found')) {
+      throw new DaftraPdfDownloadError('Invoice not found', 404);
+    }
+    throw e;
   }
-  return { pdf: out.buffer, source: out.source, resolvedInvoiceId };
+
+  const invoiceUrl = `${apiBase(settings.subdomain)}/invoices/${resolvedInvoiceId}`;
+  let invoiceMeta: any;
+  try {
+    const invoiceRes = await axios.get(invoiceUrl, {
+      headers: daftraAuthHeaders(settings.api_token),
+      validateStatus: () => true,
+      timeout: 30000,
+    });
+    if (invoiceRes.status === 404) {
+      throw new DaftraPdfDownloadError('Invoice not found', 404);
+    }
+    if (invoiceRes.status === 401 || invoiceRes.status === 403) {
+      throw new DaftraPdfDownloadError('Unauthorized to access Daftra invoice', 403);
+    }
+    if (invoiceRes.status !== 200) {
+      throw new DaftraPdfDownloadError(`Failed to fetch Daftra invoice (${invoiceRes.status})`, 502);
+    }
+    invoiceMeta = invoiceRes.data;
+  } catch (e: any) {
+    if (e instanceof DaftraPdfDownloadError) throw e;
+    if (e?.response?.status === 404) throw new DaftraPdfDownloadError('Invoice not found', 404);
+    if (e?.response?.status === 401 || e?.response?.status === 403) {
+      throw new DaftraPdfDownloadError('Unauthorized to access Daftra invoice', 403);
+    }
+    throw new DaftraPdfDownloadError(`Failed to fetch invoice from Daftra: ${e?.message || 'Unknown error'}`, 502);
+  }
+
+  const links = extractDaftraPdfLinkFields(invoiceMeta);
+  const officialPdfUrl = links.directUrl || null;
+  if (!officialPdfUrl) {
+    logDaftraPdf('invoicepdfurl missing; using local PDF fallback', {
+      tenantId,
+      internalInvoiceId: resolvedInvoiceId,
+      hasInvoice_pdf_url: !!links.portalUrl,
+    });
+    const fallbackPdf = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, invoiceMeta, resolvedInvoiceId);
+    if (!fallbackPdf || fallbackPdf.length < 100) {
+      throw new DaftraPdfDownloadError('Failed to generate fallback local PDF', 500);
+    }
+    return { pdf: fallbackPdf, source: 'daftra-local', resolvedInvoiceId };
+  }
+
+  logDaftraPdf('Downloading official PDF from invoicepdfurl', {
+    tenantId,
+    internalInvoiceId: resolvedInvoiceId,
+  });
+  const remotePdf = await tryFetchDaftraRemotePdfUrl(officialPdfUrl, settings.api_token, settings.subdomain, {
+    kind: 'invoicepdfurl',
+  });
+  if (!remotePdf || remotePdf.length < 100) {
+    throw new DaftraPdfDownloadError('Failed to download official Daftra PDF from invoicepdfurl', 502);
+  }
+  return { pdf: remotePdf, source: 'daftra-remote', resolvedInvoiceId };
 }
