@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { supabase } from '../db';
 import {
   DaftraPdfDownloadError,
-  downloadDaftraInvoicePdfForTenant,
+  getDaftraInvoicePortalPdfUrlForTenant,
   loadDaftraSettingsForTenant,
   resolveDaftraInternalInvoiceId,
 } from '../services/daftraInvoiceService';
@@ -85,21 +85,18 @@ const handleInvoicePdfDownload: express.RequestHandler = async (req, res) => {
       }
     }
 
-    const { pdf: pdfBuffer, source, resolvedInvoiceId } = await downloadDaftraInvoicePdfForTenant(booking.tenant_id, invoiceId);
+    const { redirectUrl, resolvedInvoiceId } = await getDaftraInvoicePortalPdfUrlForTenant(booking.tenant_id, invoiceId);
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
     res.setHeader(
       'Access-Control-Expose-Headers',
-      'X-Invoice-Source, X-Daftra-Invoice-Id, Content-Disposition, Content-Length, Content-Type'
+      'X-Invoice-Source, X-Daftra-Invoice-Id, Location'
     );
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('X-Invoice-Source', source === 'daftra-remote' ? 'daftra-api' : 'bookati-local-generator');
+    res.setHeader('X-Invoice-Source', 'daftra-portal-redirect');
     res.setHeader('X-Daftra-Invoice-Id', String(resolvedInvoiceId));
-    res.setHeader('Content-Disposition', `attachment; filename="daftra-invoice-${resolvedInvoiceId}.pdf"`);
-    res.setHeader('Content-Length', pdfBuffer.length.toString());
-    res.send(pdfBuffer);
+    return res.redirect(302, redirectUrl);
   } catch (err: any) {
     console.error('[Daftra Routes] Download error:', {
       invoiceId: req.params?.invoiceId,
@@ -129,7 +126,7 @@ router.options('/invoices/:invoiceId/download', (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
   res.setHeader(
     'Access-Control-Expose-Headers',
-    'X-Invoice-Source, X-Daftra-Invoice-Id, Content-Disposition, Content-Length, Content-Type'
+    'X-Invoice-Source, X-Daftra-Invoice-Id, Location'
   );
   res.sendStatus(200);
 });
@@ -139,7 +136,7 @@ router.options('/invoices/:invoiceId/file', (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
   res.setHeader(
     'Access-Control-Expose-Headers',
-    'X-Invoice-Source, X-Daftra-Invoice-Id, Content-Disposition, Content-Length, Content-Type'
+    'X-Invoice-Source, X-Daftra-Invoice-Id, Location'
   );
   res.sendStatus(200);
 });
