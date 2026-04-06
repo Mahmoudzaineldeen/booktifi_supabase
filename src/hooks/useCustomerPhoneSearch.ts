@@ -16,7 +16,8 @@ export interface CustomerSuggestion {
 }
 
 const DEBOUNCE_MS = 400;
-const MIN_DIGITS = 3;
+/** Min digits before hitting API. 3 is too loose for +966 (matches almost all Saudi numbers → slow/timeouts in prod). */
+const MIN_DIGITS = 4;
 const MAX_SHOW = 100;
 const LIMIT = 120;
 
@@ -27,7 +28,7 @@ export function buildCustomerPhoneQueryVariants(input: string): string[] {
   const set = new Set<string>();
   const add = (v: string) => {
     const n = String(v || '').replace(/\D/g, '');
-    if (n.length >= MIN_DIGITS) set.add(n);
+    if (n.length >= 3) set.add(n);
   };
 
   const trimmedLeadingZeros = digits.replace(/^0+/, '');
@@ -164,7 +165,14 @@ export function useCustomerPhoneSearch(tenantId: string | undefined, fullPhoneVa
     setSuggestions([]);
     try {
       const token = localStorage.getItem('auth_token');
-      const variants = buildCustomerPhoneQueryVariants(digits);
+      const variants = buildCustomerPhoneQueryVariants(digits).filter(
+        (v) => digitsOnly(v).length >= MIN_DIGITS
+      );
+      if (variants.length === 0) {
+        setSuggestions([]);
+        setLoading(false);
+        return;
+      }
       const urls = variants.map(
         (variant) =>
           `${getApiUrl()}/bookings/customer-search?phone=${encodeURIComponent(variant)}&limit=${LIMIT}&_=${Date.now()}`

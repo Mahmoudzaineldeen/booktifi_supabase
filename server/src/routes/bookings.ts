@@ -908,10 +908,10 @@ router.get('/customer-search', authenticateReceptionistOrTenantAdmin, async (req
     const safeLimit = Number.isFinite(requestedLimit)
       ? Math.min(Math.max(Math.floor(requestedLimit), 1), 200)
       : 120;
-    if (digits.length < 3) {
+    if (digits.length < 4) {
       return res.status(400).json({
         error: 'Phone fragment too short',
-        hint: 'Provide at least 3 digits to search customers',
+        hint: 'Provide at least 4 digits to search customers (country-code-only fragments like 966 match too many rows)',
       });
     }
     const variants = buildSearchDigitVariants(digits);
