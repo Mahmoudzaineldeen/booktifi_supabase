@@ -1170,7 +1170,7 @@ function isAcceptablePdfResponse(contentType: string | undefined, buf: Buffer): 
   return false;
 }
 
-export type DaftraRemotePdfAttempt = { kind: 'invoicepdfurl' | 'invoice_pdf_url' | 'client_view_pdf' };
+export type DaftraRemotePdfAttempt = { kind: 'invoicepdfurl' | 'invoice_pdf_url' };
 
 /**
  * Fetch bytes from a Daftra PDF URL; validates Content-Type / body (reject HTML login pages).
@@ -1179,10 +1179,15 @@ async function tryFetchDaftraRemotePdfUrl(
   pdfUrl: string,
   apiToken: string,
   subdomain: string,
-  attemptKind: DaftraRemotePdfAttempt
+  attemptKind: DaftraRemotePdfAttempt,
+  invoiceId?: number
 ): Promise<Buffer | null> {
   const resolved = absolutizeDaftraAssetUrl(pdfUrl, subdomain);
   const portalOrigin = `https://${subdomain}.daftra.com`;
+  const preferredClientPdfUrl =
+    Number.isFinite(invoiceId) && Number(invoiceId) > 0
+      ? `https://${subdomain}.daftra.com/client/invoices/view/${Number(invoiceId)}.pdf`
+      : null;
   const attempts: Array<{ label: string; headers: Record<string, string> }> = [
     {
       label: 'referer+origin',
@@ -1217,7 +1222,11 @@ async function tryFetchDaftraRemotePdfUrl(
   } catch {
     /* ignore */
   }
-  const urlsToTry = [resolved, ...(daftraQueryUrl && daftraQueryUrl !== resolved ? [daftraQueryUrl] : [])];
+  const urlsToTry = [
+    ...(preferredClientPdfUrl ? [preferredClientPdfUrl] : []),
+    resolved,
+    ...(daftraQueryUrl && daftraQueryUrl !== resolved ? [daftraQueryUrl] : []),
+  ];
   for (const url of urlsToTry) {
     for (const { label, headers } of attempts) {
       try {
@@ -1313,7 +1322,7 @@ async function tryDownloadDaftraInvoicePdf(
     if (links.directUrl) {
       const buf = await tryFetchDaftraRemotePdfUrl(links.directUrl, settings.api_token, settings.subdomain, {
         kind: 'invoicepdfurl',
-      });
+      }, invoiceId);
       if (buf) {
         return { buffer: buf, source: 'daftra-remote' };
       }
@@ -1322,7 +1331,7 @@ async function tryDownloadDaftraInvoicePdf(
     if (links.portalUrl) {
       const buf = await tryFetchDaftraRemotePdfUrl(links.portalUrl, settings.api_token, settings.subdomain, {
         kind: 'invoice_pdf_url',
-      });
+      }, invoiceId);
       if (buf) {
         return { buffer: buf, source: 'daftra-remote' };
       }
@@ -1820,24 +1829,6 @@ export async function downloadDaftraInvoicePdfForTenant(
 
   const links = extractDaftraPdfLinkFields(invoiceMeta);
   const officialPdfUrl = extractDaftraOfficialPdfUrl(invoiceMeta);
-  const clientViewPdfUrl = `https://${settings.subdomain}.daftra.com/client/invoices/view/${resolvedInvoiceId}.pdf`;
-
-  logDaftraPdf('Downloading PDF from client invoice view URL', {
-    tenantId,
-    internalInvoiceId: resolvedInvoiceId,
-    url: clientViewPdfUrl,
-  });
-  const clientViewPdf = await tryFetchDaftraRemotePdfUrl(clientViewPdfUrl, settings.api_token, settings.subdomain, {
-    kind: 'client_view_pdf',
-  });
-  if (clientViewPdf && clientViewPdf.length >= 100) {
-    return { pdf: clientViewPdf, source: 'daftra-remote', resolvedInvoiceId };
-  }
-
-  logDaftraPdf('Client invoice view URL failed; trying invoicepdfurl/fallback', {
-    tenantId,
-    internalInvoiceId: resolvedInvoiceId,
-  });
   if (!officialPdfUrl) {
     logDaftraPdf('Official invoicepdfurl missing; using local PDF fallback', {
       tenantId,
@@ -1858,7 +1849,7 @@ export async function downloadDaftraInvoicePdfForTenant(
   });
   const remotePdf = await tryFetchDaftraRemotePdfUrl(officialPdfUrl, settings.api_token, settings.subdomain, {
     kind: 'invoicepdfurl',
-  });
+  }, resolvedInvoiceId);
   if (!remotePdf || remotePdf.length < 100) {
     throw new DaftraPdfDownloadError('Failed to download official Daftra PDF from invoicepdfurl', 502);
   }
