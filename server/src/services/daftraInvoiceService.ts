@@ -1940,14 +1940,19 @@ export async function downloadDaftraInvoicePdfForTenant(
   }
   const raw = String(invoiceId).trim();
   let resolvedInvoiceId: number;
-  try {
-    resolvedInvoiceId = await resolveDaftraInternalInvoiceId(settings, raw);
-  } catch (e: any) {
-    const message = String(e?.message || '');
-    if (message.toLowerCase().includes('not found')) {
-      throw new DaftraPdfDownloadError('Invoice not found', 404);
+  // Fast path: for internal numeric ids (no leading zeros), avoid expensive resolver calls.
+  if (/^\d+$/.test(raw) && !(raw.length > 1 && raw.startsWith('0'))) {
+    resolvedInvoiceId = parseInt(raw, 10);
+  } else {
+    try {
+      resolvedInvoiceId = await resolveDaftraInternalInvoiceId(settings, raw);
+    } catch (e: any) {
+      const message = String(e?.message || '');
+      if (message.toLowerCase().includes('not found')) {
+        throw new DaftraPdfDownloadError('Invoice not found', 404);
+      }
+      throw e;
     }
-    throw e;
   }
 
   const invoiceUrl = `${apiBase(settings.subdomain)}/invoices/${resolvedInvoiceId}`;
