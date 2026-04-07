@@ -1305,7 +1305,11 @@ async function tryFetchDaftraRemotePdfUrl(
  * Render Daftra `invoice_html_url` page to PDF using headless Chromium.
  * Used when direct PDF URLs are unavailable or return non-PDF payloads.
  */
-async function tryRenderDaftraInvoiceHtmlUrlToPdf(htmlUrl: string, subdomain: string): Promise<Buffer | null> {
+async function tryRenderDaftraInvoiceHtmlUrlToPdf(
+  htmlUrl: string,
+  subdomain: string,
+  qrPayloadOverride?: string | null
+): Promise<Buffer | null> {
   const resolved = absolutizeDaftraAssetUrl(htmlUrl, subdomain);
   let parsed: URL;
   try {
@@ -1322,6 +1326,68 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(htmlUrl: string, subdomain: st
   }
 
   const portalOrigin = `https://${subdomain}.daftra.com`;
+  let qrDataUrlOverride: string | null = null;
+  if (typeof qrPayloadOverride === 'string' && qrPayloadOverride.trim()) {
+    try {
+      qrDataUrlOverride = await QRCode.toDataURL(qrPayloadOverride.trim(), { width: 280, margin: 1 });
+    } catch {
+      qrDataUrlOverride = null;
+    }
+  }
+
+  const applyQrOverrideIfNeeded = async (page: any): Promise<void> => {
+    if (!qrDataUrlOverride) return;
+    try {
+      const replaced = await page.evaluate((dataUrl: string) => {
+        const d = (globalThis as any)?.document;
+        if (!d) return 0;
+        const selectors = ['img[alt="QR"]', 'img[alt="qr"]', 'img[alt="Qr"]'];
+        let updated = 0;
+        const touched = new Set<any>();
+        for (const selector of selectors) {
+          const nodes = Array.from(d.querySelectorAll(selector));
+          for (const node of nodes) {
+            const img = node as any;
+            if (!img || typeof img.setAttribute !== 'function') continue;
+            img.src = dataUrl;
+            img.setAttribute('src', dataUrl);
+            updated += 1;
+            touched.add(img);
+          }
+        }
+
+        // Fallback for Daftra templates where QR image has no alt text:
+        // replace square-ish embedded PNGs that look like QR assets.
+        const allImgs = Array.from(d.querySelectorAll('img'));
+        for (const node of allImgs) {
+          const img = node as any;
+          if (!img || touched.has(img) || typeof img.setAttribute !== 'function') continue;
+          const src = String(img.getAttribute?.('src') || img.src || '');
+          const isEmbeddedPng = src.startsWith('data:image/png;base64,');
+          const isDaftraQrRoute = /\/qr\/\?d64=/i.test(src);
+          if (!isEmbeddedPng && !isDaftraQrRoute) continue;
+
+          const w = Number(img.naturalWidth || img.width || img.clientWidth || 0);
+          const h = Number(img.naturalHeight || img.height || img.clientHeight || 0);
+          const squareEnough = w > 0 && h > 0 && Math.abs(w - h) <= 6;
+          const qrLikeSize = Math.max(w, h) >= 40;
+          if (squareEnough && qrLikeSize) {
+            img.src = dataUrl;
+            img.setAttribute('src', dataUrl);
+            updated += 1;
+          }
+        }
+        return updated;
+      }, qrDataUrlOverride);
+      logDaftraPdf('Applied QR payload override on rendered template', {
+        replacedImages: replaced,
+        usesInvoicePdfUrl: true,
+      });
+    } catch {
+      /* non-fatal */
+    }
+  };
+
   const resolveArabicFontFaceCss = (): string => {
     const cwd = process.cwd();
     const candidates = [
@@ -1427,6 +1493,7 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(htmlUrl: string, subdomain: st
       // Path 1: render directly from URL.
       const res = await page.goto(resolved, { waitUntil: 'networkidle2', timeout: 60000 }).catch(() => null);
       if (res?.ok()) {
+        await applyQrOverrideIfNeeded(page);
         const navRendered = await buildPdfFromPage(page);
         if (navRendered) {
           logDaftraPdf('Rendered invoice_html_url to PDF via page navigation', { url: resolved, bytes: navRendered.length });
@@ -1461,6 +1528,7 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(htmlUrl: string, subdomain: st
       const hasBase = /<base\s[^>]*href=/i.test(html);
       const htmlWithBase = hasBase ? html : html.replace(/<head([^>]*)>/i, `<head$1><base href="${parsed.origin}/">`);
       await page.setContent(htmlWithBase, { waitUntil: 'networkidle2', timeout: 60000 });
+      await applyQrOverrideIfNeeded(page);
       const renderedTemplate = await buildPdfFromPage(page);
       if (!renderedTemplate) {
         logDaftraPdf('Rendered HTML template is not a valid PDF', { url: resolved });
@@ -1556,7 +1624,7 @@ async function tryDownloadDaftraInvoicePdf(
       });
     }
     if (links.htmlUrl) {
-      const htmlPdf = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain);
+      const htmlPdf = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain, links.portalUrl);
       if (htmlPdf) {
         return { buffer: htmlPdf, source: 'daftra-template' };
       }
@@ -2063,7 +2131,7 @@ export async function downloadDaftraInvoicePdfForTenant(
       hasInvoice_html_url: !!links.htmlUrl,
     });
     if (links.htmlUrl) {
-      const rendered = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain);
+      const rendered = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain, links.portalUrl);
       if (rendered && rendered.length >= 100) {
         return { pdf: rendered, source: 'daftra-template', resolvedInvoiceId };
       }
@@ -2091,7 +2159,7 @@ export async function downloadDaftraInvoicePdfForTenant(
       tenantId,
       internalInvoiceId: resolvedInvoiceId,
     });
-    const rendered = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain);
+    const rendered = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain, links.portalUrl);
     if (rendered && rendered.length >= 100) {
       return { pdf: rendered, source: 'daftra-template', resolvedInvoiceId };
     }
