@@ -1316,7 +1316,11 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(htmlUrl: string, subdomain: st
 
   const portalOrigin = `https://${subdomain}.daftra.com`;
   const resolveArabicFontFaceCss = (): string => {
+    const cwd = process.cwd();
     const candidates = [
+      path.resolve(cwd, 'fonts', 'NotoSansArabic-Regular.ttf'),
+      path.resolve(cwd, 'server', 'fonts', 'NotoSansArabic-Regular.ttf'),
+      path.resolve(cwd, '..', 'server', 'fonts', 'NotoSansArabic-Regular.ttf'),
       'C:\\Windows\\Fonts\\tahoma.ttf',
       'C:\\Windows\\Fonts\\arial.ttf',
       '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
@@ -1330,11 +1334,13 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(htmlUrl: string, subdomain: st
         const ext = path.extname(p).toLowerCase();
         const mime = ext === '.otf' ? 'font/otf' : ext === '.woff2' ? 'font/woff2' : 'font/ttf';
         const b64 = raw.toString('base64');
+        logDaftraPdf('Using Arabic font for template render', { fontPath: p, bytes: raw.length });
         return `@font-face { font-family: "BookatiArabicFallback"; src: url("data:${mime};base64,${b64}") format("truetype"); font-weight: normal; font-style: normal; font-display: swap; }`;
       } catch {
         /* try next candidate */
       }
     }
+    logDaftraPdf('No Arabic font file found for template render; using CSS-only fallbacks');
     return '';
   };
 
