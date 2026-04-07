@@ -1119,10 +1119,17 @@ async function buildDaftraInvoicePdfFromApiBody(
     detailsY += 21;
   }
 
+  const qrLinks = extractDaftraPdfLinkFields(apiBody);
+  const invoicePdfQrUrl =
+    qrLinks.portalUrl ||
+    (typeof invoice?.invoice_pdf_url === 'string' && invoice.invoice_pdf_url.trim() ? invoice.invoice_pdf_url.trim() : '') ||
+    '';
   const bookingIdMatch = notesText.match(/Booking ID:\s*([^\n]+)/i);
-  const qrPayload = bookingIdMatch
-    ? JSON.stringify({ booking_id: bookingIdMatch[1].trim(), invoice_id: String(invoice?.no ?? invoiceId), type: 'booking_invoice' })
-    : JSON.stringify({ invoice_id: String(invoice?.no ?? invoiceId), client: cust || '—', amount: invoice?.summary_total ?? 0 });
+  const qrPayload = invoicePdfQrUrl
+    ? invoicePdfQrUrl
+    : bookingIdMatch
+      ? JSON.stringify({ booking_id: bookingIdMatch[1].trim(), invoice_id: String(invoice?.no ?? invoiceId), type: 'booking_invoice' })
+      : JSON.stringify({ invoice_id: String(invoice?.no ?? invoiceId), client: cust || '—', amount: invoice?.summary_total ?? 0 });
   try {
     const qr = await QRCode.toBuffer(qrPayload, { type: 'png', width: 220, margin: 1 });
     const qrSize = 128;
