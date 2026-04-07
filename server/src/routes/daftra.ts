@@ -94,11 +94,14 @@ const handleInvoicePdfDownload: express.RequestHandler = async (req, res) => {
       'Access-Control-Expose-Headers',
       'X-Invoice-Source, X-Daftra-Invoice-Id, Content-Disposition, Content-Length, Content-Type'
     );
+    const sourceHeader =
+      source === 'daftra-remote'
+        ? 'daftra-api'
+        : source === 'daftra-template'
+          ? 'daftra-html-template'
+          : 'bookati-local-generator';
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'X-Invoice-Source',
-      source === 'daftra-remote' ? 'daftra-api' : source === 'daftra-html-template' ? 'daftra-html-template' : 'bookati-local-generator'
-    );
+    res.setHeader('X-Invoice-Source', sourceHeader);
     res.setHeader('X-Daftra-Invoice-Id', String(resolvedInvoiceId));
     res.setHeader('Content-Disposition', `attachment; filename="daftra-invoice-${resolvedInvoiceId}.pdf"`);
     res.setHeader('Content-Length', pdfBuffer.length.toString());
