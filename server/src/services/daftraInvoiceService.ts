@@ -10,6 +10,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
 import { supabase } from '../db';
@@ -905,7 +906,12 @@ async function buildDaftraInvoicePdfFromApiBody(
   });
 
   const pickFont = (): string | null => {
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
     const candidates = [
+      // Project-bundled Arabic font (highest priority).
+      path.resolve(currentDir, '../../fonts/NotoSansArabic-Regular.ttf'),
+      path.resolve(process.cwd(), 'fonts/NotoSansArabic-Regular.ttf'),
+      path.resolve(process.cwd(), 'server/fonts/NotoSansArabic-Regular.ttf'),
       'C:\\Windows\\Fonts\\arial.ttf',
       'C:\\Windows\\Fonts\\tahoma.ttf',
       '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
@@ -973,11 +979,11 @@ async function buildDaftraInvoicePdfFromApiBody(
     doc.fontSize(size);
   };
   const setBoldItalic = (size: number) => {
-    doc.font('Helvetica-BoldOblique');
+    doc.font(fontPath || 'Helvetica-BoldOblique');
     doc.fontSize(size);
   };
   const setItalic = (size: number) => {
-    doc.font('Helvetica-Oblique');
+    doc.font(fontPath || 'Helvetica-Oblique');
     doc.fontSize(size);
   };
 
@@ -1314,6 +1320,38 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(htmlUrl: string, subdomain: st
     return null;
   }
 
+  const loadEmbeddedArabicFontCss = (): string | null => {
+    try {
+      const currentDir = path.dirname(fileURLToPath(import.meta.url));
+      const candidates = [
+        path.resolve(currentDir, '../../fonts/NotoSansArabic-Regular.ttf'),
+        path.resolve(process.cwd(), 'fonts/NotoSansArabic-Regular.ttf'),
+        path.resolve(process.cwd(), 'server/fonts/NotoSansArabic-Regular.ttf'),
+      ];
+      for (const fontPath of candidates) {
+        if (!fs.existsSync(fontPath)) continue;
+        const base64 = fs.readFileSync(fontPath).toString('base64');
+        return `
+@font-face {
+  font-family: 'BookatiNotoArabic';
+  src: url(data:font/ttf;base64,${base64}) format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+html, body, table, tr, td, th, div, span, p, b, strong, em, i, h1, h2, h3, h4, h5, h6 {
+  font-family: 'BookatiNotoArabic', 'Noto Sans Arabic', Tahoma, Arial, sans-serif !important;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+`;
+      }
+    } catch (e: any) {
+      logDaftraPdf('Could not prepare embedded Arabic font CSS for HTML render', { error: e?.message || String(e) });
+    }
+    return null;
+  };
+
   try {
     const puppeteerMod = await import('puppeteer');
     const puppeteer = (puppeteerMod as any).default ?? puppeteerMod;
@@ -1329,6 +1367,19 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(htmlUrl: string, subdomain: st
       if (!res || !res.ok()) {
         logDaftraPdf('invoice_html_url render navigation failed', { status: res?.status(), url: resolved });
         return null;
+      }
+      const embeddedCss = loadEmbeddedArabicFontCss();
+      if (embeddedCss) {
+        await page.addStyleTag({ content: embeddedCss });
+        await page.evaluate(async () => {
+          const doc = (globalThis as any).document;
+          const fonts = doc?.fonts;
+          if (fonts?.ready) {
+            await fonts.ready;
+          }
+        });
+      } else {
+        logDaftraPdf('Arabic font CSS not applied for HTML render (font file not found)');
       }
       const pdfBytes = await page.pdf({
         format: 'A4',
