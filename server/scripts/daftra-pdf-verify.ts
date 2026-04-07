@@ -124,7 +124,9 @@ async function main() {
 
   console.log('Downloading PDF via downloadDaftraInvoicePdfForTenant...');
   const { pdf, source, resolvedInvoiceId } = await downloadDaftraInvoicePdfForTenant(tenantId, invoiceId);
-  console.log('Resolved internal id:', resolvedInvoiceId, '| X-Invoice-Source:', source === 'daftra-remote' ? 'daftra-api' : 'bookati-local-generator');
+  const sourceLabel =
+    source === 'daftra-remote' ? 'daftra-api' : source === 'daftra-html-template' ? 'daftra-html-template' : 'bookati-local-generator';
+  console.log('Resolved internal id:', resolvedInvoiceId, '| X-Invoice-Source:', sourceLabel);
 
   assertPdfPrintable(pdf);
   const doc = await PDFDocument.load(pdf, { ignoreEncryption: true });

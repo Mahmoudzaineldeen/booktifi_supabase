@@ -10,7 +10,6 @@ import axios from 'axios';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
 import { supabase } from '../db';
@@ -906,12 +905,7 @@ async function buildDaftraInvoicePdfFromApiBody(
   });
 
   const pickFont = (): string | null => {
-    const currentDir = path.dirname(fileURLToPath(import.meta.url));
     const candidates = [
-      // Project-bundled Arabic font (highest priority).
-      path.resolve(currentDir, '../../fonts/NotoSansArabic-Regular.ttf'),
-      path.resolve(process.cwd(), 'fonts/NotoSansArabic-Regular.ttf'),
-      path.resolve(process.cwd(), 'server/fonts/NotoSansArabic-Regular.ttf'),
       'C:\\Windows\\Fonts\\arial.ttf',
       'C:\\Windows\\Fonts\\tahoma.ttf',
       '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
@@ -979,11 +973,11 @@ async function buildDaftraInvoicePdfFromApiBody(
     doc.fontSize(size);
   };
   const setBoldItalic = (size: number) => {
-    doc.font(fontPath || 'Helvetica-BoldOblique');
+    doc.font('Helvetica-BoldOblique');
     doc.fontSize(size);
   };
   const setItalic = (size: number) => {
-    doc.font(fontPath || 'Helvetica-Oblique');
+    doc.font('Helvetica-Oblique');
     doc.fontSize(size);
   };
 
@@ -1320,38 +1314,6 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(htmlUrl: string, subdomain: st
     return null;
   }
 
-  const loadEmbeddedArabicFontCss = (): string | null => {
-    try {
-      const currentDir = path.dirname(fileURLToPath(import.meta.url));
-      const candidates = [
-        path.resolve(currentDir, '../../fonts/NotoSansArabic-Regular.ttf'),
-        path.resolve(process.cwd(), 'fonts/NotoSansArabic-Regular.ttf'),
-        path.resolve(process.cwd(), 'server/fonts/NotoSansArabic-Regular.ttf'),
-      ];
-      for (const fontPath of candidates) {
-        if (!fs.existsSync(fontPath)) continue;
-        const base64 = fs.readFileSync(fontPath).toString('base64');
-        return `
-@font-face {
-  font-family: 'BookatiNotoArabic';
-  src: url(data:font/ttf;base64,${base64}) format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: block;
-}
-html, body, table, tr, td, th, div, span, p, b, strong, em, i, h1, h2, h3, h4, h5, h6 {
-  font-family: 'BookatiNotoArabic', 'Noto Sans Arabic', Tahoma, Arial, sans-serif !important;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-}
-`;
-      }
-    } catch (e: any) {
-      logDaftraPdf('Could not prepare embedded Arabic font CSS for HTML render', { error: e?.message || String(e) });
-    }
-    return null;
-  };
-
   try {
     const puppeteerMod = await import('puppeteer');
     const puppeteer = (puppeteerMod as any).default ?? puppeteerMod;
@@ -1367,19 +1329,6 @@ html, body, table, tr, td, th, div, span, p, b, strong, em, i, h1, h2, h3, h4, h
       if (!res || !res.ok()) {
         logDaftraPdf('invoice_html_url render navigation failed', { status: res?.status(), url: resolved });
         return null;
-      }
-      const embeddedCss = loadEmbeddedArabicFontCss();
-      if (embeddedCss) {
-        await page.addStyleTag({ content: embeddedCss });
-        await page.evaluate(async () => {
-          const doc = (globalThis as any).document;
-          const fonts = doc?.fonts;
-          if (fonts?.ready) {
-            await fonts.ready;
-          }
-        });
-      } else {
-        logDaftraPdf('Arabic font CSS not applied for HTML render (font file not found)');
       }
       const pdfBytes = await page.pdf({
         format: 'A4',
@@ -1403,7 +1352,7 @@ html, body, table, tr, td, th, div, span, p, b, strong, em, i, h1, h2, h3, h4, h
   }
 }
 
-export type DaftraInvoicePdfSource = 'daftra-remote' | 'daftra-local';
+export type DaftraInvoicePdfSource = 'daftra-remote' | 'daftra-html-template' | 'daftra-local';
 
 type DaftraPdfDownloadOutcome = { buffer: Buffer; source: DaftraInvoicePdfSource };
 
@@ -1483,7 +1432,7 @@ async function tryDownloadDaftraInvoicePdf(
     if (links.htmlUrl) {
       const htmlPdf = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain);
       if (htmlPdf) {
-        return { buffer: htmlPdf, source: 'daftra-local' };
+        return { buffer: htmlPdf, source: 'daftra-html-template' };
       }
       logDaftraPdf('invoice_html_url did not render to PDF; will try local generated fallback', {
         internalInvoiceId: invoiceId,
@@ -1940,19 +1889,14 @@ export async function downloadDaftraInvoicePdfForTenant(
   }
   const raw = String(invoiceId).trim();
   let resolvedInvoiceId: number;
-  // Fast path: for internal numeric ids (no leading zeros), avoid expensive resolver calls.
-  if (/^\d+$/.test(raw) && !(raw.length > 1 && raw.startsWith('0'))) {
-    resolvedInvoiceId = parseInt(raw, 10);
-  } else {
-    try {
-      resolvedInvoiceId = await resolveDaftraInternalInvoiceId(settings, raw);
-    } catch (e: any) {
-      const message = String(e?.message || '');
-      if (message.toLowerCase().includes('not found')) {
-        throw new DaftraPdfDownloadError('Invoice not found', 404);
-      }
-      throw e;
+  try {
+    resolvedInvoiceId = await resolveDaftraInternalInvoiceId(settings, raw);
+  } catch (e: any) {
+    const message = String(e?.message || '');
+    if (message.toLowerCase().includes('not found')) {
+      throw new DaftraPdfDownloadError('Invoice not found', 404);
     }
+    throw e;
   }
 
   const invoiceUrl = `${apiBase(settings.subdomain)}/invoices/${resolvedInvoiceId}`;
@@ -1985,7 +1929,7 @@ export async function downloadDaftraInvoicePdfForTenant(
   const links = extractDaftraPdfLinkFields(invoiceMeta);
   const officialPdfUrl = extractDaftraOfficialPdfUrl(invoiceMeta);
   if (!officialPdfUrl) {
-    logDaftraPdf('Official invoicepdfurl missing; trying invoice_html_url then local PDF fallback', {
+    logDaftraPdf('Official invoicepdfurl missing; trying invoice_html_url template render', {
       tenantId,
       internalInvoiceId: resolvedInvoiceId,
       hasOfficialDirectUrlInInvoiceShape: !!links.directUrl,
@@ -1995,14 +1939,10 @@ export async function downloadDaftraInvoicePdfForTenant(
     if (links.htmlUrl) {
       const rendered = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain);
       if (rendered && rendered.length >= 100) {
-        return { pdf: rendered, source: 'daftra-local', resolvedInvoiceId };
+        return { pdf: rendered, source: 'daftra-html-template', resolvedInvoiceId };
       }
     }
-    const fallbackPdf = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, invoiceMeta, resolvedInvoiceId);
-    if (!fallbackPdf || fallbackPdf.length < 100) {
-      throw new DaftraPdfDownloadError('Failed to generate fallback local PDF', 500);
-    }
-    return { pdf: fallbackPdf, source: 'daftra-local', resolvedInvoiceId };
+    throw new DaftraPdfDownloadError('Official Daftra PDF is unavailable and HTML template rendering failed', 502);
   }
 
   logDaftraPdf('Downloading official PDF from invoicepdfurl', {
@@ -2023,13 +1963,9 @@ export async function downloadDaftraInvoicePdfForTenant(
     });
     const rendered = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain);
     if (rendered && rendered.length >= 100) {
-      return { pdf: rendered, source: 'daftra-local', resolvedInvoiceId };
+      return { pdf: rendered, source: 'daftra-html-template', resolvedInvoiceId };
     }
   }
 
-  const fallbackPdf = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, invoiceMeta, resolvedInvoiceId);
-  if (!fallbackPdf || fallbackPdf.length < 100) {
-    throw new DaftraPdfDownloadError('Failed to download official PDF and failed to generate fallback local PDF', 502);
-  }
-  return { pdf: fallbackPdf, source: 'daftra-local', resolvedInvoiceId };
+  throw new DaftraPdfDownloadError('Failed to download official Daftra PDF and failed to render HTML template PDF', 502);
 }
