@@ -1329,7 +1329,7 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(
   let qrDataUrlOverride: string | null = null;
   if (typeof qrPayloadOverride === 'string' && qrPayloadOverride.trim()) {
     try {
-      qrDataUrlOverride = await QRCode.toDataURL(qrPayloadOverride.trim(), { width: 280, margin: 1 });
+      qrDataUrlOverride = await QRCode.toDataURL(qrPayloadOverride.trim(), { width: 140, margin: 1 });
     } catch {
       qrDataUrlOverride = null;
     }
@@ -1459,18 +1459,94 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(
     }
   };
 
+  const MAX_PRINT_WIDTH_PX = 820; // keep portrait look; avoid stretched/wide template output
   const buildPdfFromPage = async (page: any): Promise<Buffer | null> => {
     await applyArabicFontFallback(page);
+    const pageSize = await page.evaluate(() => {
+      const d = (globalThis as any)?.document;
+      const body = d?.body;
+      const root = d?.documentElement;
+      const fallbackWidth = Math.ceil(
+        Math.max(
+          Number(root?.scrollWidth || 0),
+          Number(root?.offsetWidth || 0),
+          Number(body?.scrollWidth || 0),
+          Number(body?.offsetWidth || 0),
+          320
+        )
+      );
+      const fallbackHeight = Math.ceil(
+        Math.max(
+          Number(root?.scrollHeight || 0),
+          Number(root?.offsetHeight || 0),
+          Number(body?.scrollHeight || 0),
+          Number(body?.offsetHeight || 0),
+          320
+        )
+      );
+
+      const nodes = Array.from(
+        d?.querySelectorAll?.('img,svg,canvas,table,h1,h2,h3,h4,h5,h6,p,span,div,td,th,li,strong,b,em,i,a') || []
+      );
+      let minLeft = Number.POSITIVE_INFINITY;
+      let maxRight = 0;
+      let maxBottom = 0;
+      for (const n of nodes as any[]) {
+        if (!n || typeof n.getBoundingClientRect !== 'function') continue;
+        const style = (globalThis as any).getComputedStyle?.(n);
+        if (!style || style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) continue;
+        const rect = n.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) continue;
+        const tag = String(n.tagName || '').toUpperCase();
+        const text = String(n.textContent || '').trim();
+        const isMedia = ['IMG', 'SVG', 'CANVAS', 'TABLE'].includes(tag);
+        if (!isMedia && text.length === 0) continue;
+
+        const left = rect.left + (globalThis as any).scrollX;
+        const right = rect.right + (globalThis as any).scrollX;
+        const bottom = rect.bottom + (globalThis as any).scrollY;
+        if (left < minLeft) minLeft = left;
+        if (right > maxRight) maxRight = right;
+        if (bottom > maxBottom) maxBottom = bottom;
+      }
+
+      if (!Number.isFinite(minLeft) || maxBottom <= 0 || maxRight <= 0) {
+        return { width: fallbackWidth, height: fallbackHeight, documentHeight: fallbackHeight };
+      }
+
+      const width = Math.ceil(Math.max(320, maxRight - Math.max(0, minLeft) + 16));
+      const height = Math.ceil(Math.max(320, maxBottom + 24));
+      return {
+        width: Math.min(width, fallbackWidth),
+        height: Math.min(height, fallbackHeight),
+        documentHeight: fallbackHeight,
+      };
+    });
+    const printWidthPx = Math.min(pageSize.width, MAX_PRINT_WIDTH_PX);
+    const printHeightPx = Math.max(
+      Number(pageSize.height || 0),
+      Number(pageSize.documentHeight || 0),
+      900
+    );
     const pdfBytes = await page.pdf({
-      format: 'A4',
       printBackground: true,
-      preferCSSPageSize: true,
-      margin: { top: '6mm', right: '6mm', bottom: '6mm', left: '6mm' },
+      width: `${printWidthPx}px`,
+      height: `${printHeightPx}px`,
+      preferCSSPageSize: false,
+      margin: { top: '0', right: '0', bottom: '0', left: '0' },
     });
     const buffer = Buffer.from(pdfBytes);
     if (!isPdfMagic(buffer) || buffer.length < 100) {
       return null;
     }
+    logDaftraPdf('Rendered template PDF with content-sized page', {
+      measuredWidthPx: pageSize.width,
+      printWidthPx,
+      measuredHeightPx: pageSize.height,
+      measuredDocumentHeightPx: pageSize.documentHeight,
+      printHeightPx,
+      bytes: buffer.length,
+    });
     return buffer;
   };
 
@@ -1484,7 +1560,7 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(
     });
     try {
       const page = await browser.newPage();
-      await page.setViewport({ width: 1240, height: 1754 });
+      await page.setViewport({ width: 820, height: 1100 });
       await page.setExtraHTTPHeaders({
         Referer: `${portalOrigin}/`,
         Origin: portalOrigin,
@@ -1603,6 +1679,17 @@ async function tryDownloadDaftraInvoicePdf(
   }
 
   if (useRemote) {
+    // For booking-time delivery, prefer template render first so QR/font/layout overrides are always applied.
+    if (links.htmlUrl) {
+      const htmlPdf = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain, links.portalUrl);
+      if (htmlPdf) {
+        return { buffer: htmlPdf, source: 'daftra-template' };
+      }
+      logDaftraPdf('invoice_html_url did not render to PDF; falling back to direct/portal PDF URLs', {
+        internalInvoiceId: invoiceId,
+      });
+    }
+
     if (links.directUrl) {
       const buf = await tryFetchDaftraRemotePdfUrl(links.directUrl, settings.api_token, settings.subdomain, {
         kind: 'invoicepdfurl',
@@ -1620,15 +1707,6 @@ async function tryDownloadDaftraInvoicePdf(
         return { buffer: buf, source: 'daftra-remote' };
       }
       logDaftraPdf('invoice_pdf_url did not yield a PDF (often HTML login for server-side requests)', {
-        internalInvoiceId: invoiceId,
-      });
-    }
-    if (links.htmlUrl) {
-      const htmlPdf = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain, links.portalUrl);
-      if (htmlPdf) {
-        return { buffer: htmlPdf, source: 'daftra-template' };
-      }
-      logDaftraPdf('invoice_html_url did not render to PDF; will try local generated fallback', {
         internalInvoiceId: invoiceId,
       });
     }
@@ -2122,52 +2200,39 @@ export async function downloadDaftraInvoicePdfForTenant(
 
   const links = extractDaftraPdfLinkFields(invoiceMeta);
   const officialPdfUrl = extractDaftraOfficialPdfUrl(invoiceMeta);
-  if (!officialPdfUrl) {
-    logDaftraPdf('Official invoicepdfurl missing; trying invoice_html_url then local PDF fallback', {
-      tenantId,
-      internalInvoiceId: resolvedInvoiceId,
-      hasOfficialDirectUrlInInvoiceShape: !!links.directUrl,
-      hasInvoice_pdf_url: !!links.portalUrl,
-      hasInvoice_html_url: !!links.htmlUrl,
-    });
-    if (links.htmlUrl) {
-      const rendered = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain, links.portalUrl);
-      if (rendered && rendered.length >= 100) {
-        return { pdf: rendered, source: 'daftra-template', resolvedInvoiceId };
-      }
-    }
-    const fallbackPdf = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, invoiceMeta, resolvedInvoiceId);
-    if (!fallbackPdf || fallbackPdf.length < 100) {
-      throw new DaftraPdfDownloadError('Failed to generate fallback local PDF', 500);
-    }
-    return { pdf: fallbackPdf, source: 'daftra-local', resolvedInvoiceId };
-  }
-
-  logDaftraPdf('Downloading official PDF from invoicepdfurl', {
-    tenantId,
-    internalInvoiceId: resolvedInvoiceId,
-  });
-  const remotePdf = await tryFetchDaftraRemotePdfUrl(officialPdfUrl, settings.api_token, settings.subdomain, {
-    kind: 'invoicepdfurl',
-  }, resolvedInvoiceId);
-  if (remotePdf && remotePdf.length >= 100) {
-    return { pdf: remotePdf, source: 'daftra-remote', resolvedInvoiceId };
-  }
-
+  // Keep booking download output consistent with successful test renders:
+  // prefer template render first, then remote official URLs.
   if (links.htmlUrl) {
-    logDaftraPdf('Official invoicepdfurl failed; trying invoice_html_url render', {
-      tenantId,
-      internalInvoiceId: resolvedInvoiceId,
-    });
     const rendered = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain, links.portalUrl);
     if (rendered && rendered.length >= 100) {
       return { pdf: rendered, source: 'daftra-template', resolvedInvoiceId };
     }
   }
 
+  if (!officialPdfUrl) {
+    logDaftraPdf('Official invoicepdfurl missing; using local PDF fallback', {
+      tenantId,
+      internalInvoiceId: resolvedInvoiceId,
+      hasOfficialDirectUrlInInvoiceShape: !!links.directUrl,
+      hasInvoice_pdf_url: !!links.portalUrl,
+      hasInvoice_html_url: !!links.htmlUrl,
+    });
+  } else {
+    logDaftraPdf('Template render unavailable; downloading official PDF from invoicepdfurl', {
+      tenantId,
+      internalInvoiceId: resolvedInvoiceId,
+    });
+    const remotePdf = await tryFetchDaftraRemotePdfUrl(officialPdfUrl, settings.api_token, settings.subdomain, {
+      kind: 'invoicepdfurl',
+    }, resolvedInvoiceId);
+    if (remotePdf && remotePdf.length >= 100) {
+      return { pdf: remotePdf, source: 'daftra-remote', resolvedInvoiceId };
+    }
+  }
+
   const fallbackPdf = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, invoiceMeta, resolvedInvoiceId);
   if (!fallbackPdf || fallbackPdf.length < 100) {
-    throw new DaftraPdfDownloadError('Failed to download official PDF and failed to generate fallback local PDF', 502);
+    throw new DaftraPdfDownloadError('Failed to generate fallback local PDF', 500);
   }
   return { pdf: fallbackPdf, source: 'daftra-local', resolvedInvoiceId };
 }
