@@ -1523,31 +1523,58 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(
       };
     });
     const printWidthPx = Math.min(pageSize.width, MAX_PRINT_WIDTH_PX);
-    const printHeightPx = Math.max(
+    const basePrintHeightPx = Math.max(
       Number(pageSize.height || 0),
       Number(pageSize.documentHeight || 0),
       900
     );
-    const pdfBytes = await page.pdf({
-      printBackground: true,
-      width: `${printWidthPx}px`,
-      height: `${printHeightPx}px`,
-      preferCSSPageSize: false,
-      margin: { top: '0', right: '0', bottom: '0', left: '0' },
-    });
-    const buffer = Buffer.from(pdfBytes);
-    if (!isPdfMagic(buffer) || buffer.length < 100) {
-      return null;
+    const heightMultipliers = [1, 1.15, 1.35, 1.6, 2];
+    let selectedBuffer: Buffer | null = null;
+    let selectedHeightPx = basePrintHeightPx;
+    let selectedPageCount = 0;
+
+    for (const mul of heightMultipliers) {
+      const tryHeightPx = Math.ceil(basePrintHeightPx * mul);
+      const pdfBytes = await page.pdf({
+        printBackground: true,
+        width: `${printWidthPx}px`,
+        height: `${tryHeightPx}px`,
+        preferCSSPageSize: false,
+        margin: { top: '0', right: '0', bottom: '0', left: '0' },
+      });
+      const buffer = Buffer.from(pdfBytes);
+      if (!isPdfMagic(buffer) || buffer.length < 100) {
+        continue;
+      }
+      let pageCount = 0;
+      try {
+        const PDFLib = await import('pdf-lib');
+        const parsed = await PDFLib.PDFDocument.load(buffer, { ignoreEncryption: true });
+        pageCount = parsed.getPageCount();
+      } catch {
+        pageCount = 0;
+      }
+
+      // Prefer exactly one page; otherwise keep the best/latest attempt.
+      selectedBuffer = buffer;
+      selectedHeightPx = tryHeightPx;
+      selectedPageCount = pageCount;
+      if (pageCount === 1) {
+        break;
+      }
     }
+    if (!selectedBuffer) return null;
+
     logDaftraPdf('Rendered template PDF with content-sized page', {
       measuredWidthPx: pageSize.width,
       printWidthPx,
       measuredHeightPx: pageSize.height,
       measuredDocumentHeightPx: pageSize.documentHeight,
-      printHeightPx,
-      bytes: buffer.length,
+      printHeightPx: selectedHeightPx,
+      pageCount: selectedPageCount,
+      bytes: selectedBuffer.length,
     });
-    return buffer;
+    return selectedBuffer;
   };
 
   try {
