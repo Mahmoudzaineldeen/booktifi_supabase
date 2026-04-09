@@ -1634,18 +1634,12 @@ export function BookingsPage() {
       showNotification('warning', t('bookings.cannotEditBookingTime'));
       return;
     }
-    await fetchCreateServices();
-    await fetchEditPricingTagsForService(booking.service_id);
+
+    // Open modal immediately, then hydrate edit dependencies in background.
     const consumeByDefault = Number(booking.package_covered_quantity || 0) > 0 || !!booking.package_subscription_id;
-    setEditConsumeFromPackage(consumeByDefault);
-    try {
-      const packages = await fetchCustomerPackagesByPhone(booking.customer_phone || '');
-      setEditCustomerPackages(packages);
-    } catch {
-      setEditCustomerPackages([]);
-    }
     setEditingBooking(booking);
     setEditingOriginalBooking(booking);
+    setEditConsumeFromPackage(consumeByDefault);
     setEditSelectedTagId(booking.tag_id || '');
     let initialDate: Date;
     if (booking.slots?.slot_date) {
@@ -1658,7 +1652,18 @@ export function BookingsPage() {
     }
     setSelectedNewSlotId('');
     setChangeTimeEmployeeId('');
-    await fetchTimeSlots(booking.service_id, userProfile.tenant_id, initialDate);
+
+    void (async () => {
+      await fetchCreateServices();
+      await fetchEditPricingTagsForService(booking.service_id);
+      try {
+        const packages = await fetchCustomerPackagesByPhone(booking.customer_phone || '');
+        setEditCustomerPackages(packages);
+      } catch {
+        setEditCustomerPackages([]);
+      }
+      await fetchTimeSlots(booking.service_id, userProfile.tenant_id, initialDate);
+    })();
   }
 
   async function handleEditServiceChange(nextServiceId: string) {

@@ -2852,21 +2852,13 @@ export function ReceptionPage() {
       showNotification('warning', t('bookings.cannotEditBookingTime') || 'Cannot edit booking time');
       return;
     }
-    if (!services || services.length === 0) {
-      await fetchServices();
-    }
-    await fetchEditTagsForService((booking as any).service_id);
+
+    // Open modal immediately, then hydrate edit dependencies in background.
     const consumeByDefault = Number((booking as any).package_covered_quantity || 0) > 0 || !!(booking as any).package_subscription_id;
-    setEditConsumeFromPackage(consumeByDefault);
-    setEditSelectedTagId((booking as any).tag_id || '');
-    try {
-      const packages = await fetchCustomerPackagesByPhoneForEdit((booking as any).customer_phone || '');
-      setEditCustomerPackages(packages);
-    } catch {
-      setEditCustomerPackages([]);
-    }
     setEditingBooking(booking as Booking);
     setEditingOriginalBooking(booking as Booking);
+    setEditConsumeFromPackage(consumeByDefault);
+    setEditSelectedTagId((booking as any).tag_id || '');
     let initialDate: Date;
     if (booking.slots?.slot_date) {
       const [year, month, day] = booking.slots.slot_date.split('-').map(Number);
@@ -2878,7 +2870,20 @@ export function ReceptionPage() {
     }
     setSelectedNewSlotId('');
     setChangeTimeEmployeeId('');
-    await fetchTimeSlotsForEdit((booking as any).service_id, userProfile.tenant_id, initialDate);
+
+    void (async () => {
+      if (!services || services.length === 0) {
+        await fetchServices();
+      }
+      await fetchEditTagsForService((booking as any).service_id);
+      try {
+        const packages = await fetchCustomerPackagesByPhoneForEdit((booking as any).customer_phone || '');
+        setEditCustomerPackages(packages);
+      } catch {
+        setEditCustomerPackages([]);
+      }
+      await fetchTimeSlotsForEdit((booking as any).service_id, userProfile.tenant_id, initialDate);
+    })();
   }
 
   async function handleEditServiceChangeReception(nextServiceId: string) {
