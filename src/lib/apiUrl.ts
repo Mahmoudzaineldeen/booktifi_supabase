@@ -27,6 +27,29 @@ export function getApiUrl(): string {
 }
 
 /**
+ * Get API URL for binary downloads (PDF/files).
+ * On localhost Vite dev server, use backend origin directly to avoid browser extension/proxy interception.
+ */
+export function getDownloadApiUrl(): string {
+  if (typeof window !== 'undefined') {
+    const { origin, port } = window.location;
+    if (origin.startsWith('http://localhost:') && port === '5173') {
+      const configured = (import.meta.env.VITE_API_URL || '').trim();
+      if (configured) {
+        // If a remote backend (e.g. Railway) is configured, use it for downloads too.
+        const normalized = configured.endsWith('/api') ? configured : `${configured}/api`;
+        if (!normalized.includes('localhost:3001')) {
+          return normalized;
+        }
+      }
+      // Local fallback when no remote API URL is configured.
+      return 'http://localhost:3001/api';
+    }
+  }
+  return getApiUrl();
+}
+
+/**
  * Get the API base URL without /api suffix (for health checks, etc.)
  */
 export function getApiBaseUrl(): string {

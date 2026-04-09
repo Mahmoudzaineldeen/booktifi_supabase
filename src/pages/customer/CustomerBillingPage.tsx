@@ -11,7 +11,7 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { ArrowLeft, FileText, Download, Calendar, CheckCircle, XCircle, Clock, Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
-import { getApiUrl } from '../../lib/apiUrl';
+import { getApiUrl, getDownloadApiUrl } from '../../lib/apiUrl';
 import { showNotification } from '../../contexts/NotificationContext';
 
 interface Invoice {
@@ -107,7 +107,7 @@ export function CustomerBillingPage() {
     try {
       setLatestInvoiceFromDB(prev => ({ ...prev, loading: true }));
       // Use centralized API URL detection
-      const API_URL = getApiUrl();
+      const API_URL = getDownloadApiUrl();
       const token = localStorage.getItem('auth_token');
       
       const response = await fetch(`${API_URL}/customers/invoices/latest`, {
@@ -210,7 +210,7 @@ export function CustomerBillingPage() {
       
       // Use API endpoint to fetch invoices with pagination
       // Use centralized API URL detection
-      const API_URL = getApiUrl();
+      const API_URL = getDownloadApiUrl();
       const token = localStorage.getItem('auth_token');
       const limit = pagination.limit;
 
@@ -320,36 +320,65 @@ export function CustomerBillingPage() {
       setDownloadingInvoice(invoiceId);
       
       // Use centralized API URL utility
-      const API_URL = getApiUrl();
+      const API_URL = getDownloadApiUrl();
       
       const token = localStorage.getItem('auth_token');
       
       // Ensure API_URL doesn't have trailing slash
       const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
       const pathSeg = provider === 'daftra' ? 'daftra' : 'zoho';
-      // Add token as query parameter to bypass CORS header issues
-      const downloadUrl = `${baseUrl}/${pathSeg}/invoices/${invoiceRef}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      const endpointSuffix = provider === 'daftra' ? 'file' : 'download';
+      const query = new URLSearchParams();
+      if (token) query.set('token', token);
+      query.set('_ts', Date.now().toString()); // cache bust to avoid stale PDF from browser/proxy
+      const downloadUrl = `${baseUrl}/${pathSeg}/invoices/${invoiceRef}/${endpointSuffix}?${query.toString()}`;
       
       const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
       console.log('[CustomerBillingPage] Downloading invoice:', invoiceRef, 'provider:', provider);
       console.log('[CustomerBillingPage] Environment:', { isBolt, API_URL, downloadUrl: downloadUrl.replace(token || '', '***') });
       
-      // Use direct link approach - this bypasses CORS completely
-      // The browser will handle the download natively
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `invoice-${invoiceRef}.pdf`;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      
-      // Clean up after a short delay
-      setTimeout(() => {
-        document.body.removeChild(link);
-        setDownloadingInvoice(null);
-      }, 1000);
-      
-      console.log('[CustomerBillingPage] Download initiated via direct link');
+      // Use fetch/blob so browser extensions do not intercept localhost downloads.
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 60000);
+      try {
+        const response = await fetch(downloadUrl, {
+          method: 'GET',
+          headers: token
+            ? {
+                'Authorization': `Bearer ${token}`,
+              }
+            : {},
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to download invoice: ${response.status} ${response.statusText}. ${errorText}`);
+        }
+        const invoiceSource = response.headers.get('x-invoice-source') || '';
+        if (provider === 'daftra' && invoiceSource === 'bookati-local-generator') {
+          throw new Error('Official Daftra PDF is unavailable for this invoice (Daftra returned portal-only URL).');
+        }
+        const blob = await response.blob();
+        if (blob.size === 0) {
+          throw new Error('Empty PDF response from server.');
+        }
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = `invoice-${invoiceRef}.pdf`;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(blobUrl);
+          setDownloadingInvoice(null);
+        }, 100);
+        console.log('[CustomerBillingPage] Download completed via blob');
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
       
     } catch (error: any) {
       console.error('[CustomerBillingPage] Error downloading invoice:', error);

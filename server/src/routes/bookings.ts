@@ -5134,24 +5134,27 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
       } else {
         const { data: assignedRows, error: assignedRowsError } = await supabase
           .from('service_tag_assignments')
-          .select('service_id, fee_id')
+          .select('service_id, tag_id')
           .eq('service_id', effectiveServiceId)
           .limit(100);
         if (assignedRowsError || !assignedRows?.length) {
           return res.status(404).json({ error: 'Selected pricing tag is not assigned to this service' });
         }
-        const feeIds = assignedRows.map((row: any) => row.fee_id).filter(Boolean);
-        if (feeIds.length === 0) {
+        const assignedTagIds = new Set(
+          assignedRows
+            .map((row: any) => String(row?.tag_id || ''))
+            .filter(Boolean),
+        );
+        if (!assignedTagIds.has(String(updatePayload.tag_id))) {
           return res.status(404).json({ error: 'Selected pricing tag is not assigned to this service' });
         }
         const { data: matchedFee, error: matchedFeeError } = await supabase
           .from('tag_fees')
-          .select('id, tag_id, fee_value')
+          .select('tag_id, fee_value')
           .eq('tag_id', updatePayload.tag_id)
-          .in('id', feeIds)
           .maybeSingle();
-        if (matchedFeeError || !matchedFee) {
-          return res.status(404).json({ error: 'Selected pricing tag is not assigned to this service' });
+        if (matchedFeeError) {
+          return res.status(500).json({ error: 'Failed to resolve pricing tag fee' });
         }
         if (!Object.prototype.hasOwnProperty.call(updatePayload, 'applied_tag_fee')) {
           updatePayload.applied_tag_fee = Math.max(0, Number((matchedFee as any)?.fee_value ?? 0));

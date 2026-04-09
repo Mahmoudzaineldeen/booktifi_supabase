@@ -11,7 +11,7 @@ import { Modal } from '../../components/ui/Modal';
 import { Calendar, Clock, User, List, Grid, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X, Plus, Package, CalendarDays, Mail, Phone } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, parseISO, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfWeek as getStartOfWeek, endOfWeek } from 'date-fns';
 import { ar } from 'date-fns/locale';
-import { getApiUrl } from '../../lib/apiUrl';
+import { getApiUrl, getDownloadApiUrl } from '../../lib/apiUrl';
 import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
 import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { fetchAvailableSlots, Slot } from '../../lib/bookingAvailability';
@@ -1334,41 +1334,52 @@ export function BookingsPage() {
       setDownloadingInvoice(bookingId);
       
       // Use centralized API URL utility
-      const API_URL = getApiUrl();
+      const API_URL = getDownloadApiUrl();
       
       const token = localStorage.getItem('auth_token');
       
       // Ensure API_URL doesn't have trailing slash
       const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
       const pathSeg = provider === 'daftra' ? 'daftra' : 'zoho';
-      // Add token as query parameter to bypass CORS header issues
-      const downloadUrl = `${baseUrl}/${pathSeg}/invoices/${invoiceId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      const endpointSuffix = provider === 'daftra' ? 'file' : 'download';
+      const query = new URLSearchParams();
+      if (token) query.set('token', token);
+      query.set('_ts', Date.now().toString()); // cache bust to avoid stale PDF from browser/proxy
+      const downloadUrl = `${baseUrl}/${pathSeg}/invoices/${invoiceId}/${endpointSuffix}?${query.toString()}`;
       
       const isBolt = window.location.hostname.includes('bolt') || window.location.hostname.includes('webcontainer');
       console.log('[BookingsPage] Downloading invoice:', invoiceId, provider);
       console.log('[BookingsPage] Environment:', { isBolt, API_URL, downloadUrl: downloadUrl.replace(token || '', '***') });
       
-      // Use fetch to download the PDF and create a blob URL
-      // This approach is more reliable than direct link, especially in Bolt
+      // Keep download on fetch/blob to avoid browser download-manager interception on localhost.
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 60000);
       try {
-        // Invoice download may take time, use longer timeout
         const response = await fetch(downloadUrl, {
           method: 'GET',
-          headers: token ? {
-            'Authorization': `Bearer ${token}`,
-          } : {},
-          signal: createTimeoutSignal('/zoho/invoices', false), // 10s default, but can be extended
+          headers: token
+            ? {
+                'Authorization': `Bearer ${token}`,
+              }
+            : {},
+          cache: 'no-store',
+          signal: controller.signal,
         });
 
         if (!response.ok) {
           const errorText = await response.text();
           throw new Error(t('bookings.failedToDownloadInvoice', { message: `${response.status} ${response.statusText}. ${errorText}` }));
         }
+        const invoiceSource = response.headers.get('x-invoice-source') || '';
+        if (provider === 'daftra' && invoiceSource === 'bookati-local-generator') {
+          console.warn('[BookingsPage] Daftra official PDF unavailable, using server-generated fallback PDF');
+        }
 
-        // Get the PDF as a blob
         const blob = await response.blob();
-        
-        // Create a blob URL and trigger download
+        if (blob.size === 0) {
+          throw new Error(t('bookings.failedToDownloadInvoice', { message: 'Empty PDF response from server.' }));
+        }
+
         const blobUrl = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = blobUrl;
@@ -1376,31 +1387,14 @@ export function BookingsPage() {
         link.style.display = 'none';
         document.body.appendChild(link);
         link.click();
-        
-        // Clean up
         setTimeout(() => {
           document.body.removeChild(link);
           window.URL.revokeObjectURL(blobUrl);
           setDownloadingInvoice(null);
         }, 100);
-        
         console.log('[BookingsPage] Download completed successfully');
-      } catch (fetchError: any) {
-        console.error('[BookingsPage] Fetch error:', fetchError);
-        // Fallback to direct link approach if fetch fails
-        console.log('[BookingsPage] Falling back to direct link approach');
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = `invoice-${invoiceId}.pdf`;
-        link.target = '_blank';
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        
-        setTimeout(() => {
-          document.body.removeChild(link);
-          setDownloadingInvoice(null);
-        }, 1000);
+      } finally {
+        window.clearTimeout(timeoutId);
       }
       
     } catch (error: any) {

@@ -21,7 +21,7 @@ import { format, addDays, startOfWeek, isSameDay, parseISO } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { countryCodes } from '../../lib/countryCodes';
-import { getApiUrl } from '../../lib/apiUrl';
+import { getApiUrl, getDownloadApiUrl } from '../../lib/apiUrl';
 import { apiFetch } from '../../lib/apiClient';
 import { useTenantDefaultCountry } from '../../hooks/useTenantDefaultCountry';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
@@ -3405,36 +3405,50 @@ export function ReceptionPage() {
     try {
       setDownloadingInvoice(bookingId);
       
-      const API_URL = getApiUrl();
+      const API_URL = getDownloadApiUrl();
       const token = localStorage.getItem('auth_token');
       
       // Ensure API_URL doesn't have trailing slash
       const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
       const pathSeg = provider === 'daftra' ? 'daftra' : 'zoho';
-      const downloadUrl = `${baseUrl}/${pathSeg}/invoices/${invoiceId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      const endpointSuffix = provider === 'daftra' ? 'file' : 'download';
+      const query = new URLSearchParams();
+      if (token) query.set('token', token);
+      query.set('_ts', Date.now().toString()); // cache bust to avoid stale PDF from browser/proxy
+      const downloadUrl = `${baseUrl}/${pathSeg}/invoices/${invoiceId}/${endpointSuffix}?${query.toString()}`;
       
       console.log('[ReceptionPage] Downloading invoice:', invoiceId, provider);
       console.log('[ReceptionPage] Download URL:', downloadUrl.replace(token || '', '***'));
       
-      // Use fetch to download the PDF and create a blob URL
+      // Keep download on fetch/blob to avoid browser download-manager interception on localhost.
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 60000);
       try {
         const response = await fetch(downloadUrl, {
           method: 'GET',
-          headers: token ? {
-            'Authorization': `Bearer ${token}`,
-          } : {},
-          signal: createTimeoutSignal('/zoho/invoices', false),
+          headers: token
+            ? {
+                'Authorization': `Bearer ${token}`,
+              }
+            : {},
+          cache: 'no-store',
+          signal: controller.signal,
         });
 
         if (!response.ok) {
           const errorText = await response.text();
           throw new Error(`Failed to download invoice: ${response.status} ${response.statusText}. ${errorText}`);
         }
+        const invoiceSource = response.headers.get('x-invoice-source') || '';
+        if (provider === 'daftra' && invoiceSource === 'bookati-local-generator') {
+          console.warn('[ReceptionPage] Daftra official PDF unavailable, using server-generated fallback PDF');
+        }
 
-        // Get the PDF as a blob
         const blob = await response.blob();
-        
-        // Create a blob URL and trigger download
+        if (blob.size === 0) {
+          throw new Error('Empty PDF response from server.');
+        }
+
         const blobUrl = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = blobUrl;
@@ -3442,31 +3456,14 @@ export function ReceptionPage() {
         link.style.display = 'none';
         document.body.appendChild(link);
         link.click();
-        
-        // Clean up
         setTimeout(() => {
           document.body.removeChild(link);
           window.URL.revokeObjectURL(blobUrl);
           setDownloadingInvoice(null);
         }, 100);
-        
         console.log('[ReceptionPage] Download completed successfully');
-      } catch (fetchError: any) {
-        console.error('[ReceptionPage] Fetch error:', fetchError);
-        // Fallback to direct link approach if fetch fails
-        console.log('[ReceptionPage] Falling back to direct link approach');
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = `invoice-${invoiceId}.pdf`;
-        link.target = '_blank';
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        
-        setTimeout(() => {
-          document.body.removeChild(link);
-          setDownloadingInvoice(null);
-        }, 1000);
+      } finally {
+        window.clearTimeout(timeoutId);
       }
       
     } catch (error: any) {
