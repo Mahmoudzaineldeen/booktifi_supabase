@@ -17,7 +17,7 @@ import { Calendar, Plus, User, Phone, Mail, Clock, CheckCircle, XCircle, LogOut,
 import { ReceptionPackagesPage } from './ReceptionPackagesPage';
 import { ReceptionReportsSection } from './ReceptionReportsSection';
 import { QRScanner } from '../../components/qr/QRScanner';
-import { format, addDays, startOfWeek, isSameDay, parseISO } from 'date-fns';
+import { format, addDays, startOfWeek, isSameDay, parseISO, isValid } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { countryCodes } from '../../lib/countryCodes';
@@ -3033,6 +3033,7 @@ export function ReceptionPage() {
 
   // Handle time date change (same as tenant provider)
   async function handleTimeDateChange(newDate: Date) {
+    if (!isValid(newDate)) return;
     setEditingTimeDate(newDate);
     setSelectedNewSlotId('');
     setChangeTimeEmployeeId('');
@@ -6624,8 +6625,12 @@ export function ReceptionPage() {
                     <label className="block text-sm font-medium mb-1">{t('bookings.newDate')}</label>
                     <input
                       type="date"
-                      value={format(editingTimeDate, 'yyyy-MM-dd')}
-                      onChange={(e) => handleTimeDateChange(parseISO(e.target.value))}
+                      value={isValid(editingTimeDate) ? format(editingTimeDate, 'yyyy-MM-dd') : ''}
+                      onChange={(e) => {
+                        const nextDate = parseISO(e.target.value);
+                        if (!isValid(nextDate)) return;
+                        void handleTimeDateChange(nextDate);
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     />
                   </div>

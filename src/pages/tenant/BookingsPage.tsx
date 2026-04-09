@@ -9,7 +9,7 @@ import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Calendar, Clock, User, List, Grid, ChevronLeft, ChevronRight, FileText, Download, CheckCircle, XCircle, Edit, Trash2, DollarSign, AlertCircle, Search, X, Plus, Package, CalendarDays, Mail, Phone } from 'lucide-react';
-import { format, startOfWeek, addDays, isSameDay, parseISO, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfWeek as getStartOfWeek, endOfWeek } from 'date-fns';
+import { format, startOfWeek, addDays, isSameDay, parseISO, isValid, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfWeek as getStartOfWeek, endOfWeek } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { getApiUrl, getDownloadApiUrl } from '../../lib/apiUrl';
 import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
@@ -1790,6 +1790,7 @@ export function BookingsPage() {
   }
 
   async function handleTimeDateChange(newDate: Date) {
+    if (!isValid(newDate)) return;
     setEditingTimeDate(newDate);
     setSelectedNewSlotId('');
     setChangeTimeEmployeeId('');
@@ -4198,8 +4199,12 @@ export function BookingsPage() {
                   <label className="block text-sm font-medium mb-1">{t('bookings.newDate')}</label>
                   <input
                     type="date"
-                    value={format(editingTimeDate, 'yyyy-MM-dd')}
-                    onChange={(e) => handleTimeDateChange(parseISO(e.target.value))}
+                    value={isValid(editingTimeDate) ? format(editingTimeDate, 'yyyy-MM-dd') : ''}
+                    onChange={(e) => {
+                      const nextDate = parseISO(e.target.value);
+                      if (!isValid(nextDate)) return;
+                      void handleTimeDateChange(nextDate);
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </div>
