@@ -20,6 +20,7 @@ const router = express.Router();
 const handleInvoicePdfDownload: express.RequestHandler = async (req, res) => {
   try {
     const { invoiceId } = req.params;
+    let invoiceIdForDownload = String(invoiceId || '').trim();
     const token = (req.query.token as string) || req.headers.authorization?.replace('Bearer ', '');
 
     if (!invoiceId) {
@@ -68,6 +69,7 @@ const handleInvoicePdfDownload: express.RequestHandler = async (req, res) => {
           if (!second.error && second.data?.tenant_id) {
             booking = second.data;
             error = null;
+            invoiceIdForDownload = String(resolved);
           }
         } catch {
           /* keep 404 below */
@@ -85,7 +87,7 @@ const handleInvoicePdfDownload: express.RequestHandler = async (req, res) => {
       }
     }
 
-    const { pdf: pdfBuffer, source, resolvedInvoiceId } = await downloadDaftraInvoicePdfForTenant(booking.tenant_id, invoiceId);
+    const { pdf: pdfBuffer, source, resolvedInvoiceId } = await downloadDaftraInvoicePdfForTenant(booking.tenant_id, invoiceIdForDownload);
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');

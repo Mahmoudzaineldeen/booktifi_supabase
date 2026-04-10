@@ -66,6 +66,8 @@ class ZohoService {
   private clientSecret: string;
   private redirectUri: string;
   private scope: string;
+  private tenantApiBaseUrlCache = new Map<string, { value: string; expiresAt: number }>();
+  private tenantOrgIdCache = new Map<string, { value: string | null; expiresAt: number }>();
 
   constructor() {
     this.apiBaseUrl = process.env.ZOHO_API_BASE_URL || 'https://invoice.zoho.com/api/v3';
@@ -99,6 +101,29 @@ class ZohoService {
     }
     
     console.log('[ZohoService] ✅ Initialized. Credentials will be loaded from database per tenant when needed.');
+  }
+
+  private getCachedValue<T>(
+    cache: Map<string, { value: T; expiresAt: number }>,
+    key: string
+  ): T | undefined {
+    const now = Date.now();
+    const hit = cache.get(key);
+    if (!hit) return undefined;
+    if (hit.expiresAt <= now) {
+      cache.delete(key);
+      return undefined;
+    }
+    return hit.value;
+  }
+
+  private setCachedValue<T>(
+    cache: Map<string, { value: T; expiresAt: number }>,
+    key: string,
+    value: T,
+    ttlMs: number
+  ) {
+    cache.set(key, { value, expiresAt: Date.now() + ttlMs });
   }
 
   /**
@@ -323,6 +348,8 @@ class ZohoService {
    * Always returns a valid absolute URL (no relative or empty).
    */
   private async getApiBaseUrlForTenant(tenantId: string): Promise<string> {
+    const cached = this.getCachedValue(this.tenantApiBaseUrlCache, tenantId);
+    if (cached) return cached;
     try {
       const region = await zohoCredentials.getRegionForTenant(tenantId);
       
@@ -337,9 +364,13 @@ class ZohoService {
       };
       
       const base = regionMap[region] || regionMap['com'] || 'https://invoice.zoho.com/api/v3';
-      return this.normalizeApiBaseUrl(base);
+      const normalized = this.normalizeApiBaseUrl(base);
+      this.setCachedValue(this.tenantApiBaseUrlCache, tenantId, normalized, 60_000);
+      return normalized;
     } catch (error) {
-      return this.normalizeApiBaseUrl(this.apiBaseUrl);
+      const normalized = this.normalizeApiBaseUrl(this.apiBaseUrl);
+      this.setCachedValue(this.tenantApiBaseUrlCache, tenantId, normalized, 60_000);
+      return normalized;
     }
   }
 
@@ -349,16 +380,24 @@ class ZohoService {
    * Returns null if not set — do NOT call GET /organizations here (often 401).
    */
   async getZohoOrganizationId(tenantId: string): Promise<string | null> {
+    const cached = this.getCachedValue(this.tenantOrgIdCache, tenantId);
+    if (cached !== undefined) return cached;
     try {
       const { data, error } = await supabase
         .from('tenant_zoho_configs')
         .select('zoho_organization_id')
         .eq('tenant_id', tenantId)
         .single();
-      if (error || !data) return null;
+      if (error || !data) {
+        this.setCachedValue(this.tenantOrgIdCache, tenantId, null, 60_000);
+        return null;
+      }
       const id = (data as any)?.zoho_organization_id;
-      return id && String(id).trim() ? String(id).trim() : null;
+      const resolved = id && String(id).trim() ? String(id).trim() : null;
+      this.setCachedValue(this.tenantOrgIdCache, tenantId, resolved, 60_000);
+      return resolved;
     } catch {
+      this.setCachedValue(this.tenantOrgIdCache, tenantId, null, 10_000);
       return null;
     }
   }
@@ -393,6 +432,7 @@ class ZohoService {
         console.warn('[ZohoService] Could not save organization id:', error.message);
         return orgId;
       }
+      this.setCachedValue(this.tenantOrgIdCache, tenantId, String(orgId).trim(), 60_000);
       console.log('[ZohoService] Stored Zoho Organization ID for tenant', tenantId);
       return String(orgId).trim();
     } catch (e: any) {
@@ -805,9 +845,15 @@ class ZohoService {
    * Critical: Fetches latest payment status from Zoho; only sends if invoice is Paid.
    * Ensures invoice is sent via email with retry logic.
    */
-  async sendInvoiceEmail(tenantId: string, invoiceId: string, customerEmail: string, retryCount: number = 0): Promise<void> {
+  async sendInvoiceEmail(
+    tenantId: string,
+    invoiceId: string,
+    customerEmail: string,
+    retryCount: number = 0,
+    paymentStatusOverride?: { isPaid: boolean; status?: string; balance?: number; error?: string }
+  ): Promise<void> {
     const MAX_RETRIES = 2;
-    const paymentStatus = await this.getInvoicePaymentStatus(tenantId, invoiceId);
+    const paymentStatus = paymentStatusOverride || await this.getInvoicePaymentStatus(tenantId, invoiceId);
     if (paymentStatus.error) {
       throw new Error(paymentStatus.error);
     }
@@ -862,7 +908,7 @@ class ZohoService {
         if (retryCount < MAX_RETRIES && responseData.code !== 1025) {
           console.log(`[ZohoService] 🔄 Retrying email send (${retryCount + 1}/${MAX_RETRIES})...`);
           await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
-          return this.sendInvoiceEmail(tenantId, invoiceId, customerEmail, retryCount + 1);
+          return this.sendInvoiceEmail(tenantId, invoiceId, customerEmail, retryCount + 1, paymentStatusOverride);
         }
         
         // Don't throw error for non-zero codes - Zoho might still send the email
@@ -881,7 +927,7 @@ class ZohoService {
       )) {
         console.warn(`[ZohoService] ⚠️  Email send failed (attempt ${retryCount + 1}), retrying...`);
         await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
-        return this.sendInvoiceEmail(tenantId, invoiceId, customerEmail, retryCount + 1);
+        return this.sendInvoiceEmail(tenantId, invoiceId, customerEmail, retryCount + 1, paymentStatusOverride);
       }
       
       if (axiosError.response) {
@@ -1028,9 +1074,15 @@ class ZohoService {
    * Flow: Fetch latest payment status from Zoho → Only if Paid: Download PDF → Send via WhatsApp
    * Critical: Invoice must NOT be sent if Zoho status is not Paid.
    */
-  async sendInvoiceViaWhatsApp(tenantId: string, invoiceId: string, phoneNumber: string, customMessage?: string): Promise<void> {
+  async sendInvoiceViaWhatsApp(
+    tenantId: string,
+    invoiceId: string,
+    phoneNumber: string,
+    customMessage?: string,
+    paymentStatusOverride?: { isPaid: boolean; status?: string; balance?: number; error?: string }
+  ): Promise<void> {
     try {
-      const paymentStatus = await this.getInvoicePaymentStatus(tenantId, invoiceId);
+      const paymentStatus = paymentStatusOverride || await this.getInvoicePaymentStatus(tenantId, invoiceId);
       if (paymentStatus.error) {
         throw new Error(paymentStatus.error);
       }
@@ -1905,21 +1957,26 @@ class ZohoService {
       // ============================================================================
       // STEP 4: Verify Invoice Exists in Zoho (Post-Creation Verification)
       // ============================================================================
-      console.log(`[ZohoService] 🔍 Step 4: Verifying invoice exists in Zoho...`);
-      try {
-        const verificationResult = await this.getInvoice(booking.tenant_id, invoiceId);
-        if (verificationResult.invoice) {
-          console.log(`[ZohoService] ✅ Step 4 Complete: Invoice verified in Zoho`);
-          console.log(`[ZohoService]    Invoice Number: ${verificationResult.invoice.invoice_number || 'N/A'}`);
-          console.log(`[ZohoService]    Invoice Status: ${verificationResult.invoice.status || 'N/A'}`);
-          console.log(`[ZohoService]    Invoice Amount: ${verificationResult.invoice.total || 'N/A'}`);
-          console.log(`[ZohoService]    Invoice Currency: ${verificationResult.invoice.currency_code || 'N/A'}`);
-        } else {
-          console.warn(`[ZohoService] ⚠️ Step 4: Invoice verification failed: ${verificationResult.error || 'Unknown error'}`);
-          console.warn(`[ZohoService]    Invoice may still be processing in Zoho. This is non-critical.`);
+      const verifyCreatedInvoice = process.env.ZOHO_VERIFY_CREATED_INVOICE === 'true';
+      if (verifyCreatedInvoice) {
+        console.log(`[ZohoService] 🔍 Step 4: Verifying invoice exists in Zoho...`);
+        try {
+          const verificationResult = await this.getInvoice(booking.tenant_id, invoiceId);
+          if (verificationResult.invoice) {
+            console.log(`[ZohoService] ✅ Step 4 Complete: Invoice verified in Zoho`);
+            console.log(`[ZohoService]    Invoice Number: ${verificationResult.invoice.invoice_number || 'N/A'}`);
+            console.log(`[ZohoService]    Invoice Status: ${verificationResult.invoice.status || 'N/A'}`);
+            console.log(`[ZohoService]    Invoice Amount: ${verificationResult.invoice.total || 'N/A'}`);
+            console.log(`[ZohoService]    Invoice Currency: ${verificationResult.invoice.currency_code || 'N/A'}`);
+          } else {
+            console.warn(`[ZohoService] ⚠️ Step 4: Invoice verification failed: ${verificationResult.error || 'Unknown error'}`);
+            console.warn(`[ZohoService]    Invoice may still be processing in Zoho. This is non-critical.`);
+          }
+        } catch (verifyError: any) {
+          console.warn(`[ZohoService] ⚠️ Step 4: Invoice verification error (non-critical): ${verifyError.message}`);
         }
-      } catch (verifyError: any) {
-        console.warn(`[ZohoService] ⚠️ Step 4: Invoice verification error (non-critical): ${verifyError.message}`);
+      } else {
+        console.log(`[ZohoService] ⏭️ Step 4 skipped (ZOHO_VERIFY_CREATED_INVOICE !== true)`);
       }
       
       console.log(`[ZohoService] ✅ Invoice ${invoiceId} saved successfully`);
@@ -1936,6 +1993,10 @@ class ZohoService {
       // Send invoice via email (if email is provided) — ONLY when booking is paid
       // Note: Errors here won't affect invoice save since it's already persisted
       if (maySendInvoice) {
+      const deliveryPaymentStatus = await this.getInvoicePaymentStatus(booking.tenant_id, invoiceId);
+      if (deliveryPaymentStatus.error) {
+        console.warn(`[ZohoService] ⚠️ Could not verify Zoho payment status before delivery: ${deliveryPaymentStatus.error}`);
+      }
       // Ensure invoice is marked Paid in Zoho before sending (Zoho only allows email/WhatsApp when invoice is Paid)
       const totalAmount = Number((booking as any).total_price) || 0;
       if (totalAmount > 0) {
@@ -2002,7 +2063,7 @@ class ZohoService {
           console.log(`[ZohoService]    Tenant ID: ${booking.tenant_id}`);
           
           try {
-            await this.sendInvoiceEmail(booking.tenant_id, invoiceId, emailToSend);
+            await this.sendInvoiceEmail(booking.tenant_id, invoiceId, emailToSend, 0, deliveryPaymentStatus);
             console.log(`[ZohoService] ✅ Invoice sent via email to ${emailToSend}`);
             
             // Log successful email delivery
@@ -2072,7 +2133,7 @@ class ZohoService {
       if (invoiceData.customer_phone) {
         console.log(`[ZohoService] 📱 Step 2-3: Downloading invoice PDF and sending via WhatsApp to ${invoiceData.customer_phone}...`);
         try {
-          await this.sendInvoiceViaWhatsApp(booking.tenant_id, invoiceId, invoiceData.customer_phone);
+          await this.sendInvoiceViaWhatsApp(booking.tenant_id, invoiceId, invoiceData.customer_phone, undefined, deliveryPaymentStatus);
           console.log(`[ZohoService] ✅ Step 2-3 Complete: Invoice PDF sent via WhatsApp to ${invoiceData.customer_phone}`);
         } catch (whatsappError: any) {
           console.error(`[ZohoService] ❌ Step 2-3 Failed: ${whatsappError.message}`);

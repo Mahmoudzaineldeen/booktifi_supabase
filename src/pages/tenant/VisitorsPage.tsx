@@ -31,6 +31,7 @@ import {
 import { format, parseISO } from 'date-fns';
 import { safeTranslateStatus } from '../../lib/safeTranslation';
 import { formatTimeTo12Hour } from '../../lib/timeFormat';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 
 export interface VisitorRow {
   id: string;
@@ -113,6 +114,8 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
 
   const [nameFilter, setNameFilter] = useState('');
   const [phoneFilter, setPhoneFilter] = useState('');
+  const debouncedNameFilter = useDebouncedValue(nameFilter, 300);
+  const debouncedPhoneFilter = useDebouncedValue(phoneFilter, 300);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [bookingType, setBookingType] = useState<'all' | 'package_only' | 'paid_only'>('all');
@@ -141,8 +144,8 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
     return buildVisitorsListQueryString({
       page: pagination.page,
       limit: PAGE_SIZE,
-      nameFilter,
-      phoneFilter,
+      nameFilter: debouncedNameFilter,
+      phoneFilter: debouncedPhoneFilter,
       startDate,
       endDate,
       bookingType,
@@ -152,8 +155,8 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
     });
   }, [
     pagination.page,
-    nameFilter,
-    phoneFilter,
+    debouncedNameFilter,
+    debouncedPhoneFilter,
     startDate,
     endDate,
     bookingType,
@@ -215,8 +218,11 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
   }, [userProfile?.role]);
 
   const handleFilter = () => {
+    if (pagination.page === 1) {
+      void fetchVisitors();
+      return;
+    }
     setPagination((p) => ({ ...p, page: 1 }));
-    setTimeout(() => fetchVisitors(), 0);
   };
 
   const handleReset = () => {
@@ -228,8 +234,9 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
     setServiceId('');
     setBookingStatus('');
     setBranchId('all');
-    setPagination((p) => ({ ...p, page: 1 }));
-    setTimeout(() => fetchVisitors(), 0);
+    if (pagination.page !== 1) {
+      setPagination((p) => ({ ...p, page: 1 }));
+    }
   };
 
   const openDetail = async (row: VisitorRow) => {

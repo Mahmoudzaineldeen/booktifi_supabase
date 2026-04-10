@@ -47,6 +47,24 @@ async function requireTicketsEnabled(tenantId: string, res: express.Response): P
   return true;
 }
 
+function startEndpointPerf(req: express.Request, endpoint: string): () => void {
+  const shouldLog = String(process.env.PERF_ENDPOINT_TIMING || 'true').toLowerCase() !== 'false';
+  const startedAt = Date.now();
+  return () => {
+    if (!shouldLog) return;
+    const user = (req as any).user || {};
+    logger.info('endpoint_perf', {
+      endpoint,
+      method: req.method,
+      duration_ms: Date.now() - startedAt,
+      status_code: req.res?.statusCode,
+      tenant_id: user.tenant_id || req.body?.tenant_id || null,
+      booking_id: req.params?.id || req.body?.booking_id || null,
+      booking_group_id: req.body?.booking_group_id || null,
+    });
+  };
+}
+
 type SlotWindow = {
   tenantId: string;
   slotDate: string;
@@ -267,12 +285,53 @@ async function findEmployeeBookingConflict(params: {
   endTime: string;
   excludeBookingId?: string;
 }) {
-  const { tenantId, employeeId, slotDate, startTime, endTime, excludeBookingId } = params;
+  const { slotDate, startTime, endTime, excludeBookingId } = params;
+
+  const bookedWindows = await loadEmployeeBookedWindowsForDay(params);
+
+  return findOverlappingBooking(
+    { slotDate, startTime, endTime },
+    bookedWindows,
+    excludeBookingId ? { excludeBookingId } : undefined
+  );
+}
+
+async function loadEmployeeBookedWindowsForDay(params: {
+  tenantId: string;
+  employeeId: string;
+  slotDate: string;
+  excludeBookingId?: string;
+}) {
+  const { tenantId, employeeId, slotDate, excludeBookingId } = params;
+
+  // Limit conflict reads to slots on the requested employee/day to avoid scanning
+  // this employee's full booking history across all dates.
+  const { data: daySlots, error: daySlotsError } = await supabase
+    .from('slots')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('employee_id', employeeId)
+    .eq('slot_date', slotDate);
+  if (daySlotsError) {
+    throw daySlotsError;
+  }
+  const daySlotIds = (daySlots || []).map((s: any) => String(s.id)).filter(Boolean);
+  if (daySlotIds.length === 0) {
+    return [] as Array<{
+      bookingId: string;
+      slotId: string;
+      slotDate: string;
+      startTime: string;
+      endTime: string;
+    }>;
+  }
+
   let bookingQuery = supabase
     .from('bookings')
     .select('id, slot_id, tag_id, effective_start_time, effective_end_time, slots:slot_id(slot_date, start_time, end_time)')
     .eq('tenant_id', tenantId)
     .eq('employee_id', employeeId)
+    .in('slot_id', daySlotIds)
     .neq('status', 'cancelled');
 
   if (excludeBookingId) {
@@ -286,6 +345,7 @@ async function findEmployeeBookingConflict(params: {
       .select('id, slot_id, tag_id, slots:slot_id(slot_date, start_time, end_time)')
       .eq('tenant_id', tenantId)
       .eq('employee_id', employeeId)
+      .in('slot_id', daySlotIds)
       .neq('status', 'cancelled');
     if (excludeBookingId) {
       fallbackQuery = fallbackQuery.neq('id', excludeBookingId);
@@ -328,11 +388,7 @@ async function findEmployeeBookingConflict(params: {
       endTime: string;
     }>;
 
-  return findOverlappingBooking(
-    { slotDate, startTime, endTime },
-    bookedWindows,
-    excludeBookingId ? { excludeBookingId } : undefined
-  );
+  return bookedWindows;
 }
 
 // Extend Express Request type
@@ -1509,6 +1565,17 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       allSlotsForDate.push(...page);
       if (page.length < PAGE_SIZE) break;
     }
+    const allSlotsById = new Map<string, any>();
+    const employeeSlotWindows = new Map<string, Array<{ slotId: string; startM: number; endM: number }>>();
+    for (const s of allSlotsForDate) {
+      allSlotsById.set(s.id, s);
+      if (!s.employee_id) continue;
+      const sStartM = toMinutes((s.start_time || '').slice(0, 8));
+      const sEndRaw = toMinutes((s.end_time || '').slice(0, 8));
+      const sEndM = slotEndExclusiveMinutes(sStartM, sEndRaw);
+      if (!employeeSlotWindows.has(s.employee_id)) employeeSlotWindows.set(s.employee_id, []);
+      employeeSlotWindows.get(s.employee_id)!.push({ slotId: s.id, startM: sStartM, endM: sEndM });
+    }
 
     // 2) Booking counts per slot_id (non-cancelled only)
     const slotIdsForBookings = allSlotsForDate.map((s: any) => s.id);
@@ -1533,7 +1600,7 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       (bookingsList || []).forEach((b: any) => {
         if (b.slot_id) bookingCountBySlotId[b.slot_id] = (bookingCountBySlotId[b.slot_id] || 0) + 1;
         if (b.employee_id && b.slot_id) {
-          const slot = allSlotsForDate.find((s: any) => s.id === b.slot_id);
+          const slot = allSlotsById.get(b.slot_id);
           const startValue = (b as any).effective_start_time || slot?.start_time;
           const endValue = inferBookingEndFromTagSlotCount({
             effectiveEnd: (b as any).effective_end_time,
@@ -1703,19 +1770,12 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
             continue;
           }
           // Overlapping slots (same employee, time overlap) — minute-based (strings break at midnight)
-          const overlapping = allSlotsForDate.filter((s: any) => {
-            if (s.employee_id !== es.employee_id) return false;
-            const sStartM = toMinutes((s.start_time || '').slice(0, 8));
-            const sEndRaw = toMinutes((s.end_time || '').slice(0, 8));
-            const sEndM = slotEndExclusiveMinutes(sStartM, sEndRaw);
-            const candStartM = slotStartM;
-            const candEndM = slotEndM;
-            return intervalsOverlapExclusive(candStartM, candEndM, sStartM, sEndM);
-          });
           let overlapCount = 0;
-          overlapping.forEach((s: any) => {
-            overlapCount += bookingCountBySlotId[s.id] || 0;
-          });
+          const employeeWindows = employeeSlotWindows.get(es.employee_id) || [];
+          for (const sw of employeeWindows) {
+            if (!intervalsOverlapExclusive(slotStartM, slotEndM, sw.startM, sw.endM)) continue;
+            overlapCount += bookingCountBySlotId[sw.slotId] || 0;
+          }
           const availableCapacity = Math.max(0, 1 - overlapCount);
           if (availableCapacity === 0) {
             slotStartM += durationMinutes;
@@ -2090,6 +2150,7 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
     }
     console.warn('[Booking Creation] ⚠️ Attempted to send response twice, ignoring second attempt');
   };
+  const finishPerf = startEndpointPerf(req, 'bookings.create');
 
   let bookingTagIdForDb: string | null = null;
   let bookingAppliedTagFeeForDb = 0;
@@ -3542,6 +3603,8 @@ router.post('/create', authenticateCustomerOrStaff, async (req, res) => {
       code: error.code,
       type: error?.constructor?.name || 'Unknown'
     });
+  } finally {
+    finishPerf();
   }
 });
 
@@ -3557,6 +3620,7 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
   let bulkAppliedFeeTotal = 0;
   let bulkEffectiveDurationMinutes = 0;
   let bulkRequiredSlotCount = 1;
+  const finishPerf = startEndpointPerf(req, 'bookings.create-bulk');
 
   try {
     const {
@@ -3908,29 +3972,41 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
         }
       }
 
-      // Prevent overlap with already-booked slots (any service) for each requested employee/time.
+      // Prevent overlap with already-booked slots (any service).
+      // Batch by employee/day to avoid one full query per requested slot.
+      const windowsByEmployeeDay = new Map<string, typeof requestedEmployeeWindows>();
       for (const slotWindow of requestedEmployeeWindows) {
-        const existingConflict = await findEmployeeBookingConflict({
+        const key = `${slotWindow.employeeId}::${slotWindow.slotDate}`;
+        if (!windowsByEmployeeDay.has(key)) windowsByEmployeeDay.set(key, []);
+        windowsByEmployeeDay.get(key)!.push(slotWindow);
+      }
+      for (const [employeeDayKey, windows] of windowsByEmployeeDay.entries()) {
+        const [employeeId, slotDate] = employeeDayKey.split('::');
+        const bookedWindows = await loadEmployeeBookedWindowsForDay({
           tenantId: tenant_id,
-          employeeId: slotWindow.employeeId!,
-          slotDate: slotWindow.slotDate,
-          startTime: slotWindow.startTime,
-          endTime: slotWindow.endTime,
+          employeeId,
+          slotDate,
         });
-        if (existingConflict) {
-          return res.status(409).json({
-            error: 'Selected employee is already booked in another assigned service at this time.',
-            code: 'EMPLOYEE_TIME_CONFLICT',
-            conflict: {
-              employee_id: slotWindow.employeeId,
-              requested_slot_id: slotWindow.slotId,
-              booking_id: existingConflict.bookingId,
-              slot_id: existingConflict.slotId,
-              slot_date: existingConflict.slotDate,
-              start_time: existingConflict.startTime,
-              end_time: existingConflict.endTime,
-            },
-          });
+        for (const slotWindow of windows) {
+          const existingConflict = findOverlappingBooking(
+            { slotDate: slotWindow.slotDate, startTime: slotWindow.startTime, endTime: slotWindow.endTime },
+            bookedWindows
+          );
+          if (existingConflict) {
+            return res.status(409).json({
+              error: 'Selected employee is already booked in another assigned service at this time.',
+              code: 'EMPLOYEE_TIME_CONFLICT',
+              conflict: {
+                employee_id: slotWindow.employeeId,
+                requested_slot_id: slotWindow.slotId,
+                booking_id: existingConflict.bookingId,
+                slot_id: existingConflict.slotId,
+                slot_date: existingConflict.slotDate,
+                start_time: existingConflict.startTime,
+                end_time: existingConflict.endTime,
+              },
+            });
+          }
         }
       }
 
@@ -4303,6 +4379,8 @@ router.post('/create-bulk', authenticateReceptionistOrTenantAdmin, async (req, r
       tenant_id: req.body.tenant_id,
     });
     res.status(500).json({ error: error.message || 'Internal server error' });
+  } finally {
+    finishPerf();
   }
 });
 
@@ -6402,6 +6480,7 @@ router.delete('/:id', authenticateTenantAdminOrBookingEditForDelete, async (req,
 // Update payment status (Service Provider only) with Zoho synchronization
 // ============================================================================
 router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentStatus, async (req, res) => {
+  const finishPerf = startEndpointPerf(req, 'bookings.payment-status');
   try {
     const bookingId = req.params.id;
     const { payment_status, payment_method, transaction_reference } = req.body;
@@ -6656,11 +6735,14 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
       payment_status: req.body.payment_status,
     });
     res.status(500).json({ error: error.message || 'Internal server error' });
+  } finally {
+    finishPerf();
   }
 });
 
 // Cashier/Receptionist: Mark booking as paid (only if currently unpaid). Records Zoho payment and sends invoice via WhatsApp.
 router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
+  const finishPerf = startEndpointPerf(req, 'bookings.mark-paid');
   try {
     const bookingId = req.params.id;
     const { payment_method, transaction_reference } = req.body;
@@ -6812,6 +6894,8 @@ router.patch('/:id/mark-paid', authenticateCashierOnly, async (req, res) => {
   } catch (error: any) {
     logger.error('Mark paid error:', error);
     res.status(500).json({ error: error.message || 'Failed to mark booking as paid' });
+  } finally {
+    finishPerf();
   }
 });
 

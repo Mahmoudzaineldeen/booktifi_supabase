@@ -13,6 +13,7 @@ import { ar } from 'date-fns/locale';
 import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../../lib/timeFormat';
 import { Filter, RotateCcw } from 'lucide-react';
 import { safeTranslateStatus } from '../../../lib/safeTranslation';
+import { useDebouncedValue } from '../../../hooks/useDebouncedValue';
 
 const PAGE_SIZE = 25;
 
@@ -79,6 +80,12 @@ export function ReportsBookingsPage() {
   const [employeeId, setEmployeeId] = useState('');
   const [employees, setEmployees] = useState<{ id: string; full_name: string; full_name_ar?: string }[]>([]);
   const [exporting, setExporting] = useState<string | null>(null);
+  const debouncedStartDate = useDebouncedValue(startDate, 300);
+  const debouncedEndDate = useDebouncedValue(endDate, 300);
+  const debouncedBranchId = useDebouncedValue(branchId, 300);
+  const debouncedServiceId = useDebouncedValue(serviceId, 300);
+  const debouncedStatus = useDebouncedValue(status, 300);
+  const debouncedEmployeeId = useDebouncedValue(employeeId, 300);
 
   const isAr = i18n.language === 'ar';
 
@@ -86,15 +93,15 @@ export function ReportsBookingsPage() {
     const p = new URLSearchParams();
     p.set('page', String(page));
     p.set('limit', String(PAGE_SIZE));
-    if (startDate) p.set('startDate', startDate);
-    if (endDate) p.set('endDate', endDate);
-    if (branchId && branchId !== 'all') p.set('branch_id', branchId);
+    if (debouncedStartDate) p.set('startDate', debouncedStartDate);
+    if (debouncedEndDate) p.set('endDate', debouncedEndDate);
+    if (debouncedBranchId && debouncedBranchId !== 'all') p.set('branch_id', debouncedBranchId);
     else p.set('branch_id', 'all');
-    if (serviceId) p.set('service_id', serviceId);
-    if (status) p.set('status', status);
-    if (employeeId) p.set('employee_id', employeeId);
+    if (debouncedServiceId) p.set('service_id', debouncedServiceId);
+    if (debouncedStatus) p.set('status', debouncedStatus);
+    if (debouncedEmployeeId) p.set('employee_id', debouncedEmployeeId);
     return p.toString();
-  }, [page, startDate, endDate, branchId, serviceId, status, employeeId]);
+  }, [page, debouncedStartDate, debouncedEndDate, debouncedBranchId, debouncedServiceId, debouncedStatus, debouncedEmployeeId]);
 
   const load = useCallback(async () => {
     if (!userProfile?.tenant_id) return;
@@ -166,16 +173,17 @@ export function ReportsBookingsPage() {
   };
 
   const apply = () => {
-    setPage(1);
     if (page === 1) {
-      load();
+      void load();
+      return;
     }
+    setPage(1);
   };
 
   useEffect(() => {
     // If user is on page > 1, any filter change should start from first page.
     setPage((prev) => (prev === 1 ? prev : 1));
-  }, [startDate, endDate, branchId, serviceId, status, employeeId]);
+  }, [debouncedStartDate, debouncedEndDate, debouncedBranchId, debouncedServiceId, debouncedStatus, debouncedEmployeeId]);
 
   const exportFile = async (format: 'csv' | 'xlsx' | 'pdf') => {
     setExporting(format);

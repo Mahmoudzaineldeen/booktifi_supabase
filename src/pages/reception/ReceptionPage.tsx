@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
@@ -4323,7 +4323,7 @@ export function ReceptionPage() {
 
   // Use search results if searching, otherwise use regular bookings
   const bookingsToDisplay = showSearchResults ? searchResults : (activeTab === 'today' ? todayBookings : bookings);
-  const displayBookings = groupBookings(bookingsToDisplay);
+  const displayBookings = useMemo(() => groupBookings(bookingsToDisplay), [bookingsToDisplay]);
 
   return (
     <div className="min-h-screen bg-gray-50 overflow-x-hidden">
