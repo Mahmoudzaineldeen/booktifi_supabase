@@ -30,15 +30,7 @@ if (!isUsingServiceRole) {
   console.warn('   Get it from: Supabase Dashboard → Settings → API → service_role key');
 }
 
-function readIntEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw || !raw.trim()) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-}
-
-const MAX_SUPABASE_RETRIES = readIntEnv('SUPABASE_FETCH_MAX_RETRIES', 2);
-const RETRY_BASE_DELAY_MS = readIntEnv('SUPABASE_RETRY_BASE_DELAY_MS', 500);
+const MAX_SUPABASE_RETRIES = 2;
 
 function isTransientConnectionError(err: unknown): boolean {
   const msg = err && typeof (err as Error).message === 'string' ? (err as Error).message : '';
@@ -56,28 +48,6 @@ function isTransientConnectionError(err: unknown): boolean {
 
 function createFetchWithRetry(): typeof fetch {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const reqUrl = typeof input === 'string'
-      ? input
-      : input instanceof URL
-        ? input.toString()
-        : input.url;
-    const reqMethod = (init?.method || 'GET').toUpperCase();
-    const safeUrl = (() => {
-      try {
-        const u = new URL(reqUrl);
-        return `${u.origin}${u.pathname}`;
-      } catch {
-        return reqUrl;
-      }
-    })();
-    const queryLength = (() => {
-      try {
-        const u = new URL(reqUrl);
-        return u.search.length;
-      } catch {
-        return 0;
-      }
-    })();
     let lastError: unknown;
     for (let attempt = 0; attempt <= MAX_SUPABASE_RETRIES; attempt++) {
       try {
@@ -85,13 +55,8 @@ function createFetchWithRetry(): typeof fetch {
       } catch (err) {
         lastError = err;
         if (attempt < MAX_SUPABASE_RETRIES && isTransientConnectionError(err)) {
-          const delayMs = RETRY_BASE_DELAY_MS * (attempt + 1);
-          const message = (err as Error)?.message || 'Unknown fetch error';
-          const cause = (err as any)?.cause;
-          const causeCode = cause?.code ? ` code=${String(cause.code)}` : '';
-          console.warn(
-            `[Supabase] Transient connection error (attempt ${attempt + 1}/${MAX_SUPABASE_RETRIES + 1}), retrying in ${delayMs}ms:${causeCode} method=${reqMethod} url=${safeUrl} queryLen=${queryLength} ${message}`
-          );
+          const delayMs = 500 * (attempt + 1);
+          console.warn(`[Supabase] Transient connection error (attempt ${attempt + 1}/${MAX_SUPABASE_RETRIES + 1}), retrying in ${delayMs}ms:`, (err as Error).message);
           await new Promise((r) => setTimeout(r, delayMs));
           continue;
         }

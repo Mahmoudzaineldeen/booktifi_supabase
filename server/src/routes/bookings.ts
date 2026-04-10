@@ -84,26 +84,6 @@ function isMissingEffectiveBookingColumnError(error: any): boolean {
   return columns.some((c) => isMissingColumnError(error, c));
 }
 
-function readPositiveIntEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw || !raw.trim()) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function chunkArray<T>(items: T[], chunkSize: number): T[][] {
-  if (!Array.isArray(items) || items.length === 0) return [];
-  const normalizedSize = Math.max(1, chunkSize);
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += normalizedSize) {
-    out.push(items.slice(i, i + normalizedSize));
-  }
-  return out;
-}
-
-const SUPABASE_IN_FILTER_CHUNK_SIZE = readPositiveIntEnv('SUPABASE_IN_FILTER_CHUNK_SIZE', 200);
-const SLOT_INSERT_BATCH_SIZE = readPositiveIntEnv('SLOT_INSERT_BATCH_SIZE', 50);
-
 async function hasRequiredConsecutiveEmployeeSlots(params: {
   tenantId: string;
   employeeId: string;
@@ -1196,6 +1176,8 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
           },
         ])
       );
+      const slotIds = [...new Set((employeeDaySlots || []).map((s: any) => s.id).filter(Boolean))];
+
       const bookingsByEmployeePromise = supabase
         .from('bookings')
         .select('employee_id, slot_id, tag_id, effective_start_time, effective_end_time')
@@ -1203,26 +1185,12 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
         .in('employee_id', employeeIds)
         .neq('status', 'cancelled');
 
-      // Avoid large slot_id IN(...) filters (can produce Bad Request / transport failures on heavy days).
-      // Query by joined slot dimensions instead: same date + target employees.
-      const bookingsBySlotPromise = employeeIds.length > 0
+      const bookingsBySlotPromise = slotIds.length > 0
         ? supabase
             .from('bookings')
-            .select(`
-              employee_id,
-              slot_id,
-              tag_id,
-              effective_start_time,
-              effective_end_time,
-              slots:slot_id!inner (
-                id,
-                employee_id,
-                slot_date
-              )
-            `)
+            .select('employee_id, slot_id, tag_id, effective_start_time, effective_end_time')
             .eq('tenant_id', tenantId)
-            .eq('slots.slot_date', dateStr)
-            .in('slots.employee_id', employeeIds)
+            .in('slot_id', slotIds)
             .neq('status', 'cancelled')
         : Promise.resolve({ data: [], error: null } as any);
 
@@ -1238,22 +1206,12 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
           .eq('tenant_id', tenantId)
           .in('employee_id', employeeIds)
           .neq('status', 'cancelled');
-        const fallbackSlotPromise = employeeIds.length > 0
+        const fallbackSlotPromise = slotIds.length > 0
           ? supabase
               .from('bookings')
-              .select(`
-                employee_id,
-                slot_id,
-                tag_id,
-                slots:slot_id!inner (
-                  id,
-                  employee_id,
-                  slot_date
-                )
-              `)
+              .select('employee_id, slot_id, tag_id')
               .eq('tenant_id', tenantId)
-              .eq('slots.slot_date', dateStr)
-              .in('slots.employee_id', employeeIds)
+              .in('slot_id', slotIds)
               .neq('status', 'cancelled')
           : Promise.resolve({ data: [], error: null } as any);
         const [fbEmp, fbSlot] = await Promise.all([fallbackEmployeePromise, fallbackSlotPromise]);
@@ -1302,20 +1260,18 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
 
       const missingSlotIds = [...new Set(combinedBookings.map((b) => b.slot_id).filter((id) => !slotMeta.has(id)))];
       if (missingSlotIds.length > 0) {
-        for (const slotIdChunk of chunkArray(missingSlotIds, SUPABASE_IN_FILTER_CHUNK_SIZE)) {
-          const { data: missingSlots } = await supabase
-            .from('slots')
-            .select('id, employee_id, start_time, end_time')
-            .in('id', slotIdChunk)
-            .eq('slot_date', dateStr);
-          (missingSlots || []).forEach((s: any) => {
-            slotMeta.set(s.id, {
-              employee_id: s.employee_id ?? null,
-              start_time: s.start_time,
-              end_time: s.end_time,
-            });
+        const { data: missingSlots } = await supabase
+          .from('slots')
+          .select('id, employee_id, start_time, end_time')
+          .in('id', missingSlotIds)
+          .eq('slot_date', dateStr);
+        (missingSlots || []).forEach((s: any) => {
+          slotMeta.set(s.id, {
+            employee_id: s.employee_id ?? null,
+            start_time: s.start_time,
+            end_time: s.end_time,
           });
-        }
+        });
       }
 
       const employeeSet = new Set(employeeIds);
@@ -1560,45 +1516,18 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     // Global employee time lock: busy ranges per employee (any service) for this date
     const globalBusyRangesByEmployee = new Map<string, { startM: number; endM: number }[]>();
     if (slotIdsForBookings.length > 0) {
-      let bookingsList: any[] = [];
-      let bookingsListError: any = null;
-      for (const slotIdChunk of chunkArray(slotIdsForBookings, SUPABASE_IN_FILTER_CHUNK_SIZE)) {
-        const { data: page, error } = await supabase
-          .from('bookings')
-          .select('slot_id, employee_id, tag_id, effective_start_time, effective_end_time')
-          .in('slot_id', slotIdChunk)
-          .neq('status', 'cancelled');
-        if (error) {
-          bookingsListError = error;
-          break;
-        }
-        bookingsList.push(...(page || []));
-      }
+      let { data: bookingsList, error: bookingsListError } = await supabase
+        .from('bookings')
+        .select('slot_id, employee_id, tag_id, effective_start_time, effective_end_time')
+        .in('slot_id', slotIdsForBookings)
+        .neq('status', 'cancelled');
       if (bookingsListError && isMissingColumnError(bookingsListError, 'effective_start_time')) {
-        bookingsList = [];
-        bookingsListError = null;
-        for (const slotIdChunk of chunkArray(slotIdsForBookings, SUPABASE_IN_FILTER_CHUNK_SIZE)) {
-          const fallback = await supabase
-            .from('bookings')
-            .select('slot_id, employee_id, tag_id')
-            .in('slot_id', slotIdChunk)
-            .neq('status', 'cancelled');
-          if (fallback.error) {
-            bookingsListError = fallback.error;
-            break;
-          }
-          bookingsList.push(...(fallback.data || []));
-        }
-      }
-      if (bookingsListError) {
-        logger.warn('ensure-employee-based-slots: bookingsList fetch failed', {
-          serviceId,
-          dateStr,
-          message: bookingsListError.message,
-          code: (bookingsListError as any)?.code,
-          chunkSize: SUPABASE_IN_FILTER_CHUNK_SIZE,
-          slotIdsCount: slotIdsForBookings.length,
-        });
+        const fallback = await supabase
+          .from('bookings')
+          .select('slot_id, employee_id, tag_id')
+          .in('slot_id', slotIdsForBookings)
+          .neq('status', 'cancelled');
+        bookingsList = fallback.data;
       }
       const bookingsListTagSlots = await loadTagSlotCountMap((bookingsList || []).map((b: any) => b?.tag_id));
       (bookingsList || []).forEach((b: any) => {
@@ -1644,15 +1573,12 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     const otherBookingsTagSlots = await loadTagSlotCountMap((otherBookings || []).map((b: any) => b?.tag_id));
     const otherSlotIds = [...new Set((otherBookings || []).map((b: any) => b.slot_id).filter(Boolean))].filter((id: string) => !slotIdsForBookings.includes(id));
     if (otherSlotIds.length > 0) {
-      const otherSlotsMap = new Map<string, { id: string; start_time: string; end_time: string }>();
-      for (const slotIdChunk of chunkArray(otherSlotIds, SUPABASE_IN_FILTER_CHUNK_SIZE)) {
-        const { data: otherSlots } = await supabase
-          .from('slots')
-          .select('id, start_time, end_time')
-          .in('id', slotIdChunk)
-          .eq('slot_date', dateStr);
-        (otherSlots || []).forEach((s: any) => otherSlotsMap.set(s.id, s));
-      }
+      const { data: otherSlots } = await supabase
+        .from('slots')
+        .select('id, start_time, end_time')
+        .in('id', otherSlotIds)
+        .eq('slot_date', dateStr);
+      const otherSlotsMap = new Map((otherSlots || []).map((s: any) => [s.id, s]));
       (otherBookings || []).forEach((b: any) => {
         if (!b.employee_id || !b.slot_id) return;
         const slot = otherSlotsMap.get(b.slot_id);
@@ -1848,28 +1774,38 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
 
     // --- Bulk insert (no DB calls inside loops) ---
     let slotsCreated = 0;
-    for (let i = 0; i < rowsToInsert.length; i += SLOT_INSERT_BATCH_SIZE) {
-      const batch = rowsToInsert.slice(i, i + SLOT_INSERT_BATCH_SIZE);
+    for (let i = 0; i < rowsToInsert.length; i += 50) {
+      const batch = rowsToInsert.slice(i, i + 50);
       const rowsWithoutOverbooked = batch.map((r) => {
         const { is_overbooked, ...rest } = r as SlotRow & { is_overbooked?: boolean };
         return rest;
       });
-      const { data: insertedRows, error: insertErr } = await supabase
-        .from('slots')
-        .upsert(rowsWithoutOverbooked, {
-          onConflict: 'shift_id,employee_id,slot_date,start_time,end_time',
-          ignoreDuplicates: true,
-        })
-        .select('id');
+      const { error: insertErr } = await supabase.from('slots').insert(rowsWithoutOverbooked);
       if (insertErr) {
-        logger.warn('ensure-employee-based-slots: bulk slot upsert error', {
-          message: insertErr.message,
-          code: insertErr.code,
-          batchSize: batch.length,
-          configuredBatchSize: SLOT_INSERT_BATCH_SIZE,
-        });
+        logger.warn('ensure-employee-based-slots: bulk slot insert error', { message: insertErr.message, code: insertErr.code, batchSize: batch.length });
+        // Resilience guard: if one row conflicts or is malformed, do not lose the whole batch.
+        // Retry row-by-row so valid rows still get inserted.
+        for (const row of rowsWithoutOverbooked) {
+          const { error: rowErr } = await supabase.from('slots').insert(row);
+          if (!rowErr) {
+            slotsCreated += 1;
+            continue;
+          }
+          // Duplicate rows are non-fatal (already present from prior generation).
+          if ((rowErr as any)?.code === '23505') {
+            continue;
+          }
+          logger.warn('ensure-employee-based-slots: row insert error after batch failure', {
+            message: rowErr.message,
+            code: (rowErr as any)?.code,
+            employee_id: (row as any).employee_id,
+            slot_date: (row as any).slot_date,
+            start_time: (row as any).start_time,
+            end_time: (row as any).end_time,
+          });
+        }
       } else {
-        slotsCreated += Array.isArray(insertedRows) ? insertedRows.length : 0;
+        slotsCreated += batch.length;
       }
     }
 
