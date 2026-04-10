@@ -32,26 +32,6 @@ export type DaftraTenantSettings = {
   fallback_to_zoho?: boolean;
 };
 
-const DAFTRA_SETTINGS_CACHE_TTL_MS = 60_000;
-const daftraSettingsCache = new Map<string, { value: DaftraTenantSettings | null; expiresAt: number }>();
-const DAFTRA_INVOICE_NO_CACHE_TTL_MS = 60_000;
-const daftraInvoiceNoCache = new Map<string, { value: Map<string, number>; expiresAt: number }>();
-
-function getCachedValue<T>(cache: Map<string, { value: T; expiresAt: number }>, key: string): T | undefined {
-  const now = Date.now();
-  const hit = cache.get(key);
-  if (!hit) return undefined;
-  if (hit.expiresAt <= now) {
-    cache.delete(key);
-    return undefined;
-  }
-  return hit.value;
-}
-
-function setCachedValue<T>(cache: Map<string, { value: T; expiresAt: number }>, key: string, value: T, ttlMs: number): void {
-  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
-}
-
 function normalizeSubdomain(raw: string): string {
   let s = raw.trim().toLowerCase().replace(/^https?:\/\//, '');
   s = s.replace(/\.daftra\.com.*$/i, '');
@@ -83,16 +63,9 @@ function parseDaftraSettings(raw: unknown): DaftraTenantSettings | null {
 }
 
 export async function loadDaftraSettingsForTenant(tenantId: string): Promise<DaftraTenantSettings | null> {
-  const cached = getCachedValue(daftraSettingsCache, tenantId);
-  if (cached !== undefined) return cached;
   const { data, error } = await supabase.from('tenants').select('daftra_settings').eq('id', tenantId).maybeSingle();
-  if (error || !data?.daftra_settings) {
-    setCachedValue(daftraSettingsCache, tenantId, null, DAFTRA_SETTINGS_CACHE_TTL_MS);
-    return null;
-  }
-  const parsed = parseDaftraSettings(data.daftra_settings);
-  setCachedValue(daftraSettingsCache, tenantId, parsed, DAFTRA_SETTINGS_CACHE_TTL_MS);
-  return parsed;
+  if (error || !data?.daftra_settings) return null;
+  return parseDaftraSettings(data.daftra_settings);
 }
 
 function apiBase(subdomain: string): string {
@@ -172,7 +145,6 @@ async function persistCorrectedDaftraStoreId(tenantId: string, newStoreId: numbe
   if (upErr) {
     console.warn(`[DaftraInvoice] Could not persist corrected store_id: ${upErr.message}`);
   } else {
-    daftraSettingsCache.delete(tenantId);
     console.log(`[DaftraInvoice] Updated tenant Daftra store_id ${cur.store_id} → ${newStoreId} (was not a valid warehouse).`);
   }
 }
@@ -789,48 +761,16 @@ async function daftraInvoiceExists(settings: DaftraTenantSettings, id: number): 
   return false;
 }
 
-async function buildDaftraInvoiceNoIndex(settings: DaftraTenantSettings): Promise<Map<string, number>> {
-  const cacheKey = settings.subdomain;
-  const cached = getCachedValue(daftraInvoiceNoCache, cacheKey);
-  if (cached) return cached;
+async function findDaftraInvoiceInternalIdByNo(settings: DaftraTenantSettings, displayNo: string): Promise<number | null> {
   const base = apiBase(settings.subdomain);
   const res = await axios.get(`${base}/invoices.json`, {
     headers: daftraAuthHeaders(settings.api_token),
     validateStatus: () => true,
     timeout: 90000,
   });
-  if (res.status !== 200 || res.data == null) {
-    const empty = new Map<string, number>();
-    setCachedValue(daftraInvoiceNoCache, cacheKey, empty, 10_000);
-    return empty;
-  }
+  if (res.status !== 200 || res.data == null) return null;
   const payload = res.data as any;
   const rows: unknown[] = Array.isArray(payload.data) ? payload.data : Array.isArray(payload) ? payload : [];
-  const normalize = (no: string) => {
-    const t = no.trim();
-    const stripped = t.replace(/^0+/, '');
-    return stripped === '' ? '0' : stripped;
-  };
-  const index = new Map<string, number>();
-  for (const row of rows) {
-    const inv = (row as any)?.Invoice ?? row;
-    if (!inv || typeof inv !== 'object') continue;
-    const no = String((inv as any).no ?? '').trim();
-    const id = parseInt(String((inv as any).id ?? ''), 10);
-    if (!no || !Number.isFinite(id)) continue;
-    const variants = new Set<string>([no]);
-    if (/^\d+$/.test(no)) variants.add(no.padStart(6, '0'));
-    variants.add(normalize(no));
-    for (const key of variants) {
-      if (!key) continue;
-      if (!index.has(key)) index.set(key, id);
-    }
-  }
-  setCachedValue(daftraInvoiceNoCache, cacheKey, index, DAFTRA_INVOICE_NO_CACHE_TTL_MS);
-  return index;
-}
-
-async function findDaftraInvoiceInternalIdByNo(settings: DaftraTenantSettings, displayNo: string): Promise<number | null> {
   const normalize = (no: string) => {
     const t = no.trim();
     const stripped = t.replace(/^0+/, '');
@@ -839,9 +779,17 @@ async function findDaftraInvoiceInternalIdByNo(settings: DaftraTenantSettings, d
   const target = displayNo.trim();
   const targetNorm = normalize(target);
   const targetPadded6 = /^\d+$/.test(target) ? target.padStart(6, '0') : target;
-  const idx = await buildDaftraInvoiceNoIndex(settings);
-  const hit = idx.get(target) ?? idx.get(targetPadded6) ?? idx.get(targetNorm);
-  if (typeof hit === 'number' && Number.isFinite(hit)) return hit;
+
+  for (const row of rows) {
+    const inv = (row as any)?.Invoice ?? row;
+    if (!inv || typeof inv !== 'object') continue;
+    const no = String((inv as any).no ?? '').trim();
+    if (!no) continue;
+    if (no === target || no === targetPadded6 || normalize(no) === targetNorm) {
+      const id = parseInt(String((inv as any).id ?? ''), 10);
+      if (Number.isFinite(id)) return id;
+    }
+  }
   return null;
 }
 
@@ -869,16 +817,16 @@ export async function resolveDaftraInternalInvoiceId(settings: DaftraTenantSetti
     logDaftraPdf('Using internal invoice id', { internalId: n });
     return n;
   }
-  const idx = await buildDaftraInvoiceNoIndex(settings);
-  const normalize = (no: string) => {
-    const t = no.trim();
-    const stripped = t.replace(/^0+/, '');
-    return stripped === '' ? '0' : stripped;
-  };
-  const byNo = idx.get(s.padStart(6, '0')) ?? idx.get(s) ?? idx.get(normalize(s));
-  if (typeof byNo === 'number' && Number.isFinite(byNo)) {
+  const padded = s.padStart(6, '0');
+  const byNo = await findDaftraInvoiceInternalIdByNo(settings, padded);
+  if (byNo != null) {
     logDaftraPdf('Resolved numeric param as invoice no → internal id', { input: s, internalId: byNo });
     return byNo;
+  }
+  const byNoBare = await findDaftraInvoiceInternalIdByNo(settings, s);
+  if (byNoBare != null) {
+    logDaftraPdf('Resolved numeric param as invoice no (unpadded) → internal id', { input: s, internalId: byNoBare });
+    return byNoBare;
   }
   throw new Error(`Daftra invoice id ${s} not found`);
 }

@@ -10,7 +10,6 @@ import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { Filter, RotateCcw } from 'lucide-react';
 import { format as formatDate } from 'date-fns';
-import { useDebouncedValue } from '../../../hooks/useDebouncedValue';
 
 const PAGE_SIZE = 25;
 
@@ -49,11 +48,6 @@ export function ReportsTransactionsPage() {
   const [paymentMethod, setPaymentMethod] = useState('');
   const [transactionType, setTransactionType] = useState<'all' | 'booking_payment' | 'package_purchase'>('all');
   const [exporting, setExporting] = useState<string | null>(null);
-  const debouncedStartDate = useDebouncedValue(startDate, 300);
-  const debouncedEndDate = useDebouncedValue(endDate, 300);
-  const debouncedBranchId = useDebouncedValue(branchId, 300);
-  const debouncedPaymentMethod = useDebouncedValue(paymentMethod, 300);
-  const debouncedTransactionType = useDebouncedValue(transactionType, 300);
 
   const formatTransactionDateTime = (value?: string | null, fallbackDate?: string) => {
     const raw = value || '';
@@ -77,14 +71,14 @@ export function ReportsTransactionsPage() {
     const p = new URLSearchParams();
     p.set('page', String(page));
     p.set('limit', String(PAGE_SIZE));
-    if (debouncedStartDate) p.set('startDate', debouncedStartDate);
-    if (debouncedEndDate) p.set('endDate', debouncedEndDate);
-    if (debouncedBranchId && debouncedBranchId !== 'all') p.set('branch_id', debouncedBranchId);
+    if (startDate) p.set('startDate', startDate);
+    if (endDate) p.set('endDate', endDate);
+    if (branchId && branchId !== 'all') p.set('branch_id', branchId);
     else p.set('branch_id', 'all');
-    if (debouncedPaymentMethod.trim()) p.set('payment_method', debouncedPaymentMethod.trim());
-    p.set('transaction_type', debouncedTransactionType);
+    if (paymentMethod.trim()) p.set('payment_method', paymentMethod.trim());
+    p.set('transaction_type', transactionType);
     return p.toString();
-  }, [page, debouncedStartDate, debouncedEndDate, debouncedBranchId, debouncedPaymentMethod, debouncedTransactionType]);
+  }, [page, startDate, endDate, branchId, paymentMethod, transactionType]);
 
   const load = useCallback(async () => {
     if (!userProfile?.tenant_id) return;
@@ -126,19 +120,13 @@ export function ReportsTransactionsPage() {
     setBranchId('all');
     setPaymentMethod('');
     setTransactionType('all');
-    if (page === 1) {
-      void load();
-      return;
-    }
     setPage(1);
+    setTimeout(() => load(), 0);
   };
 
   const apply = () => {
-    if (page === 1) {
-      void load();
-      return;
-    }
     setPage(1);
+    setTimeout(() => load(), 0);
   };
 
   const exportFile = async (format: 'csv' | 'xlsx' | 'pdf') => {
