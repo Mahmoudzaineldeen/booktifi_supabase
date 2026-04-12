@@ -367,6 +367,11 @@ export function ReceptionPage() {
   const [markPaidMethod, setMarkPaidMethod] = useState<'onsite' | 'transfer'>('onsite');
   const [markPaidReference, setMarkPaidReference] = useState('');
   const [markPaidSubmitting, setMarkPaidSubmitting] = useState(false);
+  /** Same payment controls as tenant Bookings: dropdown + bank-transfer reference modal */
+  const [updatingPaymentStatus, setUpdatingPaymentStatus] = useState<string | null>(null);
+  const [paymentStatusModal, setPaymentStatusModal] = useState<{ bookingId: string } | null>(null);
+  const [paymentStatusModalReference, setPaymentStatusModalReference] = useState('');
+  const [paymentStatusModalSubmitting, setPaymentStatusModalSubmitting] = useState(false);
 
   useEffect(() => {
     setSearchCountryCode(tenantDefaultCountry);
@@ -386,6 +391,11 @@ export function ReceptionPage() {
       : 'automatic';
 
   const isCoordinator = (userProfile?.role as string) === 'coordinator';
+  const canUpdatePaymentStatus =
+    !isCoordinator &&
+    (hasPermission('issue_invoices') ||
+      hasPermission('manage_bookings') ||
+      ['receptionist', 'tenant_admin', 'customer_admin', 'admin_user'].includes(String(userProfile?.role || '')));
 
   // Track if initial auth check has been completed
   const [initialAuthDone, setInitialAuthDone] = useState(false);
@@ -2731,6 +2741,75 @@ export function ReceptionPage() {
     } catch (err: any) {
       console.error('Error updating booking:', err);
       showNotification('error', t('reception.errorCreatingBooking', { message: err.message || t('common.error') }));
+    }
+  }
+
+  async function updatePaymentStatus(
+    bookingId: string,
+    paymentStatus: string,
+    paymentMethod?: 'onsite' | 'transfer',
+    transactionReference?: string
+  ) {
+    try {
+      setUpdatingPaymentStatus(bookingId);
+      const API_URL = getApiUrl();
+      const token = localStorage.getItem('auth_token');
+
+      const body: Record<string, string> = { payment_status: paymentStatus };
+      if (paymentStatus === 'paid' || paymentStatus === 'paid_manual') {
+        if (paymentMethod) body.payment_method = paymentMethod;
+        if (paymentMethod === 'transfer' && transactionReference?.trim()) {
+          body.transaction_reference = transactionReference.trim();
+        }
+      }
+
+      const response = await fetch(`${API_URL}/bookings/${bookingId}/payment-status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && token.trim() ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || t('bookings.failedToUpdatePaymentStatus', { message: t('common.error') }));
+      }
+
+      const result = await response.json();
+
+      setSelectedBookingForDetails((prev) => {
+        if (!prev || prev.id !== bookingId) return prev;
+        const row = result.booking as Record<string, unknown> | undefined;
+        if (!row || typeof row !== 'object') return prev;
+        return {
+          ...prev,
+          payment_status: (row.payment_status as Booking['payment_status']) ?? prev.payment_status,
+          payment_method: (row.payment_method as Booking['payment_method']) ?? prev.payment_method,
+          zoho_invoice_id: (row.zoho_invoice_id as string | null | undefined) ?? prev.zoho_invoice_id,
+          zoho_invoice_created_at:
+            (row.zoho_invoice_created_at as string | null | undefined) ?? prev.zoho_invoice_created_at,
+          daftra_invoice_id: (row.daftra_invoice_id as string | null | undefined) ?? prev.daftra_invoice_id,
+          daftra_invoice_created_at:
+            (row.daftra_invoice_created_at as string | null | undefined) ?? prev.daftra_invoice_created_at,
+        };
+      });
+
+      await fetchBookings();
+      setUpdatingPaymentStatus(null);
+
+      const zoho = result.zoho_sync as { success?: boolean; error?: string } | undefined;
+      if (zoho && !zoho.success) {
+        showNotification('warning', t('bookings.paymentStatusUpdatedButZohoFailed', { error: zoho.error || 'Zoho sync failed' }));
+      } else {
+        const msg = (result.message && String(result.message).trim()) || t('bookings.paymentStatusUpdatedSuccessfully');
+        showNotification('success', msg);
+      }
+    } catch (error: any) {
+      console.error('Error updating payment status:', error);
+      showNotification('error', t('bookings.failedToUpdatePaymentStatus', { message: error.message }));
+      setUpdatingPaymentStatus(null);
     }
   }
 
@@ -6384,10 +6463,14 @@ export function ReceptionPage() {
           openEditBooking(b);
         }}
         onRepeatBooking={undefined}
-        onMarkPaid={(id) => {
-          setSelectedBookingForDetails(null);
-          setMarkPaidBookingId(id);
-        }}
+        onMarkPaid={
+          canUpdatePaymentStatus
+            ? undefined
+            : (id) => {
+                setSelectedBookingForDetails(null);
+                setMarkPaidBookingId(id);
+              }
+        }
         onConfirm={(id) => {
           updateBookingStatus(id, 'confirmed');
           setSelectedBookingForDetails(null);
@@ -6401,7 +6484,27 @@ export function ReceptionPage() {
           setSelectedBookingForDetails(null);
         }}
         onDownloadInvoice={(bookingId, invoiceId, provider) => downloadInvoice(bookingId, invoiceId, provider)}
-        showPaymentDropdown={false}
+        showPaymentDropdown={canUpdatePaymentStatus}
+        updatingPayment={
+          selectedBookingForDetails && updatingPaymentStatus === selectedBookingForDetails.id
+            ? selectedBookingForDetails.id
+            : null
+        }
+        onUpdatePaymentStatus={
+          canUpdatePaymentStatus
+            ? (id, value) => {
+                if (value === 'unpaid') {
+                  updatePaymentStatus(id, 'unpaid');
+                } else if (value === 'paid_onsite') {
+                  updatePaymentStatus(id, 'paid_manual', 'onsite');
+                } else {
+                  setSelectedBookingForDetails(null);
+                  setPaymentStatusModal({ bookingId: id });
+                  setPaymentStatusModalReference('');
+                }
+              }
+            : undefined
+        }
         downloadingInvoice={downloadingInvoice}
       />
 
@@ -6475,6 +6578,72 @@ export function ReceptionPage() {
                 icon={<DollarSign className="w-4 h-4" />}
               >
                 {markPaidSubmitting ? t('common.updating') : t('reception.confirmMarkAsPaid')}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {paymentStatusModal && (
+        <Modal
+          isOpen={!!paymentStatusModal}
+          onClose={() => {
+            setPaymentStatusModal(null);
+            setPaymentStatusModalReference('');
+          }}
+          title={t('bookings.setPaymentStatus')}
+          dir={i18n.language?.startsWith('ar') ? 'rtl' : 'ltr'}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">{t('bookings.enterReferenceForBankTransfer')}</p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('bookings.transactionReferenceNumberLabel')}
+              </label>
+              <input
+                type="text"
+                value={paymentStatusModalReference}
+                onChange={(e) => setPaymentStatusModalReference(e.target.value)}
+                placeholder={t('bookings.enterReferenceNumber')}
+                dir="ltr"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-start"
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setPaymentStatusModal(null);
+                  setPaymentStatusModalReference('');
+                }}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                variant="primary"
+                onClick={async () => {
+                  if (!paymentStatusModalReference.trim()) {
+                    showNotification('warning', t('bookings.transactionReferenceRequired'));
+                    return;
+                  }
+                  setPaymentStatusModalSubmitting(true);
+                  try {
+                    await updatePaymentStatus(
+                      paymentStatusModal.bookingId,
+                      'paid_manual',
+                      'transfer',
+                      paymentStatusModalReference.trim()
+                    );
+                    setPaymentStatusModal(null);
+                    setPaymentStatusModalReference('');
+                  } finally {
+                    setPaymentStatusModalSubmitting(false);
+                  }
+                }}
+                disabled={paymentStatusModalSubmitting || !paymentStatusModalReference.trim()}
+                icon={<DollarSign className="w-4 h-4" />}
+              >
+                {paymentStatusModalSubmitting ? t('bookings.updating') : t('common.confirm')}
               </Button>
             </div>
           </div>

@@ -442,14 +442,14 @@ async function authenticateAdminOrReceptionistForPaymentStatus(req: express.Requ
       return next();
     }
     const perms = await getPermissionsForUserByUserId(supabase, decoded.id);
-    if (perms.includes('issue_invoices')) {
+    if (perms.includes('issue_invoices') || perms.includes('manage_bookings')) {
       req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id, branch_id: decoded.branch_id ?? null, role_id: decoded.role_id ?? null };
       return next();
     }
     return res.status(403).json({
       error: 'You do not have permission to update payment status.',
       userRole: decoded.role,
-      hint: 'Required: Update payment status permission (or receptionist/admin role).',
+      hint: 'Required: issue_invoices or manage_bookings (or receptionist / tenant admin role).',
     });
   } catch (error: any) {
     return res.status(500).json({ error: 'Authentication error', hint: error.message });
@@ -6501,8 +6501,16 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
     const paymentMethodOrRefChanged =
       (currentBooking.payment_method !== payMethod) ||
       (refNum !== ((currentBooking.transaction_reference || '').trim()));
+    /** Invoice id for the active provider only (avoid treating a legacy id as “has invoice” for the wrong backend). */
+    const primaryInvoiceIdForProvider =
+      invoiceProvider === 'daftra'
+        ? (currentBooking as any).daftra_invoice_id
+        : currentBooking.zoho_invoice_id;
     const shouldRegenerateInvoice =
-      isPaidOrPaidManual && totalPrice > 0 && invoiceId && paymentMethodOrRefChanged;
+      isPaidOrPaidManual &&
+      totalPrice > 0 &&
+      !!primaryInvoiceIdForProvider &&
+      paymentMethodOrRefChanged;
     const shouldCreateInvoiceAndRecordPayment =
       isPaidOrPaidManual &&
       totalPrice > 0 &&
@@ -6510,30 +6518,38 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
       !shouldRegenerateInvoice;
 
     let invoiceCreateError: string | undefined;
-    if (invoiceProvider === 'zoho' && shouldRegenerateInvoice) {
-      // Run regeneration in background so the response returns immediately (better UX).
-      zohoSyncResult = { success: true, pending: true, message: 'Invoice is being regenerated and will be sent when ready.' };
+    if (shouldRegenerateInvoice) {
+      // Run regeneration in background (Zoho + Daftra) so the HTTP response returns quickly.
+      if (invoiceProvider === 'zoho') {
+        zohoSyncResult = { success: true, pending: true, message: 'Invoice is being regenerated and will be sent when ready.' };
+      }
       setImmediate(async () => {
         try {
-          const { zohoService } = await import('../services/zohoService.js');
-          const regenResult = await zohoService.regenerateInvoiceForBooking(bookingId);
-          if (regenResult.success) {
-            await supabase
-              .from('bookings')
-              .update({ zoho_sync_status: 'synced', updated_at: new Date().toISOString() })
-              .eq('id', bookingId);
-          } else {
+          const { invoiceRoutingService } = await import('../services/invoiceRoutingService.js');
+          const regenResult = await invoiceRoutingService.regenerateInvoiceForBooking(bookingId);
+          if (invoiceProvider === 'zoho') {
+            if (regenResult.success) {
+              await supabase
+                .from('bookings')
+                .update({ zoho_sync_status: 'synced', updated_at: new Date().toISOString() })
+                .eq('id', bookingId);
+            } else {
+              await supabase
+                .from('bookings')
+                .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
+                .eq('id', bookingId);
+              logger.error('Background invoice regeneration failed', { bookingId, error: regenResult.error });
+            }
+          } else if (invoiceProvider === 'daftra' && !regenResult.success) {
+            logger.error('Background Daftra invoice regeneration failed', { bookingId, error: regenResult.error });
+          }
+        } catch (e: any) {
+          if (invoiceProvider === 'zoho') {
             await supabase
               .from('bookings')
               .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
               .eq('id', bookingId);
-            logger.error('Background invoice regeneration failed', { bookingId, error: regenResult.error });
           }
-        } catch (e: any) {
-          await supabase
-            .from('bookings')
-            .update({ zoho_sync_status: 'pending', updated_at: new Date().toISOString() })
-            .eq('id', bookingId);
           logger.error('Background invoice regeneration threw', { bookingId, error: e?.message });
         }
       });
@@ -6617,7 +6633,13 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
           }
         }
       }
-    } else if (invoiceProvider === 'zoho' && invoiceId && !shouldCreateInvoiceAndRecordPayment && isPaidOrPaidManual) {
+    } else if (
+      invoiceProvider === 'zoho' &&
+      invoiceId &&
+      !shouldCreateInvoiceAndRecordPayment &&
+      !shouldRegenerateInvoice &&
+      isPaidOrPaidManual
+    ) {
       try {
         const { zohoService } = await import('../services/zohoService.js');
         const { data: zRow } = await supabase.from('bookings').select('zoho_invoice_id').eq('id', bookingId).maybeSingle();
@@ -6634,7 +6656,11 @@ router.patch('/:id/payment-status', authenticateAdminOrReceptionistForPaymentSta
           ? { success: false as const, error: invoiceCreateError || 'Invoice could not be created. Check Zoho configuration in Settings → Zoho Integration (Connect Zoho and complete OAuth).' }
           : { success: false as const, error: invoiceId ? 'Zoho sync failed. Check Settings → Zoho Integration.' : 'No invoice to sync. Create an invoice first or check Zoho setup in Settings.' }))
       : null;
-    const isPendingRegen = invoiceProvider === 'zoho' && (zohoSyncPayload as { pending?: boolean } | null)?.pending === true;
+    const isPendingRegen =
+      shouldRegenerateInvoice &&
+      (invoiceProvider === 'zoho'
+        ? (zohoSyncPayload as { pending?: boolean } | null)?.pending === true
+        : true);
     const responsePayload: Record<string, unknown> = {
       success: true,
       booking: updatedBooking,

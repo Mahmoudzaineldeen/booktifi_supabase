@@ -726,6 +726,11 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
               {pagination.total} {t('visitors.records', 'records')}
             </span>
           </div>
+          {!loading && (
+            <p className="px-5 py-3 text-sm text-slate-600 border-b border-slate-100 bg-slate-50/90 leading-relaxed">
+              {t('visitors.visitorListIdExplanation')}
+            </p>
+          )}
           {loading ? (
             <div className="flex justify-center py-16">
               <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-600 border-t-transparent" />
@@ -744,7 +749,14 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                       <th className="px-4 py-3.5 w-12" title={t('visitors.selectForExport', 'Select for export')}>
                         <span className="sr-only">{t('visitors.selectForExport', 'Select for export')}</span>
                       </th>
-                      <th className="px-4 py-3.5">{t('visitors.customerId', 'Customer ID')}</th>
+                      <th
+                        className="px-4 py-3.5 max-w-[200px]"
+                        title={t('visitors.customerIdColumnHint')}
+                      >
+                        <span className="border-b border-dotted border-slate-400 cursor-help">
+                          {t('visitors.customerProfileId')}
+                        </span>
+                      </th>
                       <th className="px-4 py-3.5">{t('visitors.customerName', 'Visitor Name')}</th>
                       <th className="px-4 py-3.5">{t('visitors.phone', 'Phone')}</th>
                       <th className="px-4 py-3.5">{t('visitors.email', 'Email')}</th>
@@ -781,7 +793,12 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                           </td>
                           <td className="px-4 py-3 align-middle">
                             {isGuest ? (
-                              <span className="text-gray-400 text-xs">—</span>
+                              <span
+                                className="text-gray-400 text-xs cursor-help"
+                                title={t('visitors.guestNoProfileIdTooltip')}
+                              >
+                                —
+                              </span>
                             ) : (
                               <span
                                 dir="ltr"
@@ -909,10 +926,15 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                 <UserCircle className="h-4 w-4 text-slate-500" />
                 {t('visitors.visitorInfo', 'Visitor Info')}
               </h3>
+              {detailVisitor.visitor.type === 'guest' && (
+                <p className="mb-4 text-sm text-amber-900 bg-amber-50/90 px-3 py-2 rounded-lg border border-amber-100 leading-relaxed">
+                  {t('visitors.detailGuestNoProfileId')}
+                </p>
+              )}
               <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
                 {detailVisitor.visitor.type === 'customer' && (
                   <>
-                    <dt className="text-gray-500 font-medium">{t('visitors.customerId', 'Customer ID')}</dt>
+                    <dt className="text-gray-500 font-medium">{t('visitors.customerProfileId')}</dt>
                     <dd className="font-mono text-xs text-slate-700 break-all bg-white/80 px-2 py-1 rounded border border-gray-100">{detailVisitor.visitor.id}</dd>
                   </>
                 )}

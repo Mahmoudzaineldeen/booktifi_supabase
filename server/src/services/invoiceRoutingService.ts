@@ -55,6 +55,32 @@ export const invoiceRoutingService = {
     return zohoService.generateReceipt(bookingId, options);
   },
 
+  /** Void/clear + recreate invoice for the tenant's active provider (Zoho or Daftra). */
+  async regenerateInvoiceForBooking(bookingId: string): Promise<{ success: boolean; invoiceId?: string; error?: string }> {
+    const { data: booking } = await supabase.from('bookings').select('tenant_id').eq('id', bookingId).maybeSingle();
+    const tenantId = booking?.tenant_id;
+    if (!tenantId) {
+      return { success: false, error: 'Booking not found' };
+    }
+
+    const provider = await getInvoiceProviderForTenant(tenantId);
+    console.log(`[InvoiceRouting] regenerate booking=${bookingId} tenant=${tenantId} provider=${provider}`);
+
+    if (provider === 'daftra') {
+      const daftra = await daftraInvoiceService.regenerateInvoiceForBooking(bookingId);
+      if (!daftra.success) {
+        const settings = await loadDaftraSettingsForTenant(tenantId);
+        if (settings?.fallback_to_zoho) {
+          console.warn(`[InvoiceRouting] Daftra regen failed (${daftra.error || 'unknown'}), falling back to Zoho`);
+          return zohoService.regenerateInvoiceForBooking(bookingId);
+        }
+      }
+      return daftra;
+    }
+
+    return zohoService.regenerateInvoiceForBooking(bookingId);
+  },
+
   async generateReceiptForBookingGroup(bookingGroupId: string): Promise<{ invoiceId: string; success: boolean; error?: string }> {
     const { data: rows } = await supabase
       .from('bookings')

@@ -8,9 +8,11 @@ interface ModalProps {
   title?: string;
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  /** When set, applies to the dialog panel (header + body) for correct RTL layout. */
+  dir?: 'ltr' | 'rtl';
 }
 
-export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, size = 'md', dir }: ModalProps) {
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -72,6 +74,7 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
         <div 
           className={`relative bg-white rounded-xl shadow-2xl w-full ${sizeClasses[size]} max-h-[90vh] overflow-y-auto flex flex-col`}
           style={{ zIndex: 10000 }}
+          {...(dir ? { dir } : {})}
         >
           {title && (
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50/80 sticky top-0 z-10">

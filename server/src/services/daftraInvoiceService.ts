@@ -2020,6 +2020,40 @@ export class DaftraInvoiceService {
     }
   }
 
+  /**
+   * Create a new Daftra invoice from current booking rows after payment method/reference changed.
+   * Clears stored `daftra_invoice_id` so `generateReceipt` does not short-circuit on the old invoice.
+   * The previous invoice may still exist in Daftra; the booking is updated to the new invoice id only.
+   */
+  async regenerateInvoiceForBooking(bookingId: string): Promise<{ success: boolean; invoiceId?: string; error?: string }> {
+    const { data: booking, error: bookErr } = await supabase
+      .from('bookings')
+      .select('id, tenant_id, daftra_invoice_id')
+      .eq('id', bookingId)
+      .maybeSingle();
+    if (bookErr || !booking?.tenant_id) {
+      return { success: false, error: bookErr?.message || 'Booking not found' };
+    }
+    const oldId = booking.daftra_invoice_id;
+    if (oldId) {
+      console.log(
+        `[DaftraInvoice] regenerateInvoiceForBooking: clearing stored id=${oldId} for booking=${bookingId} before recreate`
+      );
+    }
+    const { error: clearErr } = await supabase
+      .from('bookings')
+      .update({
+        daftra_invoice_id: null,
+        daftra_invoice_created_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', bookingId);
+    if (clearErr) {
+      return { success: false, error: clearErr.message };
+    }
+    return await this.generateReceipt(bookingId);
+  }
+
   async generateReceiptForBookingGroup(bookingGroupId: string): Promise<{ invoiceId: string; success: boolean; error?: string }> {
     try {
       const { data: rowList } = await supabase

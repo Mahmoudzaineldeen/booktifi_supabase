@@ -1601,6 +1601,24 @@ export function BookingsPage() {
       }
 
       const result = await response.json();
+
+      // Details modal holds a snapshot; merge PATCH response so payment UI updates without closing.
+      setDetailsBooking((prev) => {
+        if (!prev || prev.id !== bookingId) return prev;
+        const row = result.booking as Record<string, unknown> | undefined;
+        if (!row || typeof row !== 'object') return prev;
+        return {
+          ...prev,
+          payment_status: (row.payment_status as Booking['payment_status']) ?? prev.payment_status,
+          payment_method: (row.payment_method as Booking['payment_method']) ?? prev.payment_method,
+          zoho_invoice_id: (row.zoho_invoice_id as string | null | undefined) ?? prev.zoho_invoice_id,
+          zoho_invoice_created_at:
+            (row.zoho_invoice_created_at as string | null | undefined) ?? prev.zoho_invoice_created_at,
+          daftra_invoice_id: (row.daftra_invoice_id as string | null | undefined) ?? prev.daftra_invoice_id,
+          daftra_invoice_created_at:
+            (row.daftra_invoice_created_at as string | null | undefined) ?? prev.daftra_invoice_created_at,
+        };
+      });
       
       // Store Zoho sync status
       if (result.zoho_sync) {
@@ -3070,23 +3088,25 @@ export function BookingsPage() {
             setPaymentStatusModal(null);
             setPaymentStatusModalReference('');
           }}
-          title={t('bookings.setPaymentStatus', 'Set Payment Status')}
+          title={t('bookings.setPaymentStatus')}
+          dir={isAr ? 'rtl' : 'ltr'}
         >
           <div className="space-y-4">
             <p className="text-sm text-gray-600">
-              {t('bookings.enterReferenceForBankTransfer', 'Enter transaction reference for bank transfer. Invoice will be sent via WhatsApp after confirmation.')}
+              {t('bookings.enterReferenceForBankTransfer')}
             </p>
             {paymentStatusModalMethod === 'transfer' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t('bookings.transactionReferenceRequired', 'Transaction Reference Number (required)')}
+                  {t('bookings.transactionReferenceNumberLabel')}
                 </label>
                 <input
                   type="text"
                   value={paymentStatusModalReference}
                   onChange={(e) => setPaymentStatusModalReference(e.target.value)}
-                  placeholder={t('bookings.enterReferenceNumber', 'Enter reference number')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder={t('bookings.enterReferenceNumber')}
+                  dir="ltr"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-start"
                 />
               </div>
             )}
@@ -3104,7 +3124,7 @@ export function BookingsPage() {
                 variant="primary"
                 onClick={async () => {
                   if (!paymentStatusModalReference.trim()) {
-                    showNotification('warning', t('bookings.transactionReferenceRequired') || 'Transaction reference is required for transfer.');
+                    showNotification('warning', t('bookings.transactionReferenceRequired'));
                     return;
                   }
                   setPaymentStatusModalSubmitting(true);
