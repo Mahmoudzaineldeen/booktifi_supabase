@@ -315,8 +315,8 @@ export function ReportsBookingsPage() {
               <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-600 border-t-transparent" />
             </div>
           ) : (
-            <table className="w-full min-w-[1180px] text-sm">
-              <thead className="bg-slate-100 text-left text-xs font-semibold text-slate-600 uppercase">
+            <table className="w-full min-w-[1180px] text-sm" dir={isAr ? 'rtl' : 'ltr'}>
+              <thead className="bg-slate-100 text-start text-xs font-semibold text-slate-600 uppercase">
                 <tr>
                   <th className="px-3 py-2">{t('reports.bookings.col.date', 'Date')}</th>
                   <th className="px-3 py-2">{t('reports.bookings.col.bookingCreated', 'Booking created')}</th>
@@ -324,7 +324,7 @@ export function ReportsBookingsPage() {
                   <th className="px-3 py-2">{t('reports.bookings.col.customer', 'Customer')}</th>
                   <th className="px-3 py-2">{t('reports.bookings.col.status', 'Status')}</th>
                   <th className="px-3 py-2">{t('reports.bookings.col.paymentWay', 'Payment way')}</th>
-                  <th className="px-3 py-2">{t('reports.bookings.col.amount', 'Amount')}</th>
+                  <th className="px-3 py-2 text-end">{t('reports.bookings.col.amount', 'Amount')}</th>
                   <th className="px-3 py-2">{t('reports.bookings.col.employee', 'Employee')}</th>
                   <th className="px-3 py-2">{t('reports.bookings.col.branch', 'Branch')}</th>
                 </tr>
@@ -332,27 +332,33 @@ export function ReportsBookingsPage() {
               <tbody className="divide-y divide-gray-100">
                 {rows.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-2">
-                      <div>{r.slot_date || '—'}</div>
-                      <div className="text-xs text-gray-500">{r.start_time ? formatTimeTo12Hour(r.start_time) : ''}</div>
+                    <td className="px-3 py-2 text-start" dir="ltr">
+                      <div className="tabular-nums">{r.slot_date || '—'}</div>
+                      <div className="text-xs text-gray-500 tabular-nums">
+                        {r.start_time ? formatTimeTo12Hour(r.start_time) : ''}
+                      </div>
                     </td>
-                    <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">
+                    <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap" dir="ltr">
                       {r.created_at
                         ? formatDateTimeTo12Hour(r.created_at, { locale: isAr ? ar : undefined })
                         : '—'}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 text-start">
                       {i18n.language === 'ar' ? r.service_name_ar || r.service_name : r.service_name}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 text-start">
                       <div className="font-medium">{r.customer_name}</div>
-                      <div className="text-xs text-gray-500">{r.customer_phone}</div>
+                      <div className="text-xs text-gray-500 tabular-nums text-start" dir="ltr">
+                        {r.customer_phone || '—'}
+                      </div>
                     </td>
-                    <td className="px-3 py-2">{safeTranslateStatus(t, r.status)}</td>
-                    <td className="px-3 py-2 text-xs">{paymentWayLabel(t, effectivePaymentWay(r))}</td>
-                    <td className="px-3 py-2 tabular-nums">{formatPrice(r.total_price)}</td>
-                    <td className="px-3 py-2">{r.employee_name || '—'}</td>
-                    <td className="px-3 py-2">{r.branch_name || '—'}</td>
+                    <td className="px-3 py-2 text-start">{safeTranslateStatus(t, r.status)}</td>
+                    <td className="px-3 py-2 text-xs text-start">{paymentWayLabel(t, effectivePaymentWay(r))}</td>
+                    <td className="px-3 py-2 text-end tabular-nums" dir="ltr">
+                      {formatPrice(r.total_price)}
+                    </td>
+                    <td className="px-3 py-2 text-start">{r.employee_name || '—'}</td>
+                    <td className="px-3 py-2 text-start">{r.branch_name || '—'}</td>
                   </tr>
                 ))}
               </tbody>

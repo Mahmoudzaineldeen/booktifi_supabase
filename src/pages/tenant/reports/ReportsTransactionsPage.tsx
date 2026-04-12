@@ -30,7 +30,7 @@ type TxRow = {
 };
 
 export function ReportsTransactionsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { userProfile } = useAuth();
   const { formatPrice } = useCurrency();
   const [rows, setRows] = useState<TxRow[]>([]);
@@ -48,6 +48,22 @@ export function ReportsTransactionsPage() {
   const [paymentMethod, setPaymentMethod] = useState('');
   const [transactionType, setTransactionType] = useState<'all' | 'booking_payment' | 'package_purchase'>('all');
   const [exporting, setExporting] = useState<string | null>(null);
+  const isAr = i18n.language === 'ar';
+
+  const transactionTypeLabel = (value: string) => {
+    const key = String(value || '').toLowerCase();
+    if (key === 'booking_payment') return t('reports.transactions.bookingPayments', 'Booking payments');
+    if (key === 'package_purchase') return t('reports.transactions.packagePurchases', 'Package purchases');
+    return value || '—';
+  };
+
+  const paymentMethodLabel = (value: string) => {
+    const key = String(value || '').trim().toLowerCase();
+    if (!key) return '—';
+    if (key === 'onsite' || key === 'on site') return t('payment.displayPaidOnSite', 'Paid On Site');
+    if (key === 'transfer' || key === 'bank transfer') return t('payment.displayBankTransfer', 'Bank Transfer');
+    return value;
+  };
 
   const formatTransactionDateTime = (value?: string | null, fallbackDate?: string) => {
     const raw = value || '';
@@ -245,13 +261,13 @@ export function ReportsTransactionsPage() {
               <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-600 border-t-transparent" />
             </div>
           ) : (
-            <table className="w-full min-w-[960px] text-sm">
-              <thead className="bg-slate-100 text-left text-xs font-semibold text-slate-600 uppercase">
+            <table className="w-full min-w-[960px] text-sm" dir={isAr ? 'rtl' : 'ltr'}>
+              <thead className="bg-slate-100 text-start text-xs font-semibold text-slate-600 uppercase">
                 <tr>
                   <th className="px-3 py-2">{t('reports.transactions.col.type', 'Type')}</th>
                   <th className="px-3 py-2">{t('reports.transactions.col.date', 'Date')}</th>
                   <th className="px-3 py-2">{t('reports.transactions.col.customer', 'Customer')}</th>
-                  <th className="px-3 py-2">{t('reports.transactions.col.amount', 'Amount')}</th>
+                  <th className="px-3 py-2 text-end">{t('reports.transactions.col.amount', 'Amount')}</th>
                   <th className="px-3 py-2">{t('reports.transactions.col.payment', 'Payment')}</th>
                   <th className="px-3 py-2">{t('reports.transactions.col.booking', 'Booking')}</th>
                   <th className="px-3 py-2">{t('reports.transactions.col.package', 'Package')}</th>
@@ -262,18 +278,26 @@ export function ReportsTransactionsPage() {
               <tbody className="divide-y divide-gray-100">
                 {rows.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-2">{r.transaction_type}</td>
-                    <td className="px-3 py-2">{formatTransactionDateTime(r.transaction_at, r.date)}</td>
-                    <td className="px-3 py-2">
-                      <div className="font-medium">{r.customer_name}</div>
-                      <div className="text-xs text-gray-500">{r.customer_phone || '—'}</div>
+                    <td className="px-3 py-2 text-start">{transactionTypeLabel(r.transaction_type)}</td>
+                    <td className="px-3 py-2" dir="ltr">
+                      <span className="tabular-nums">{formatTransactionDateTime(r.transaction_at, r.date)}</span>
                     </td>
-                    <td className="px-3 py-2 tabular-nums">{formatPrice(r.amount)}</td>
-                    <td className="px-3 py-2">{r.payment_method || '—'}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{r.booking_id ? r.booking_id.slice(0, 8) + '…' : '—'}</td>
-                    <td className="px-3 py-2">{r.package_name || '—'}</td>
-                    <td className="px-3 py-2">{r.employee_name || '—'}</td>
-                    <td className="px-3 py-2">{r.branch_name || '—'}</td>
+                    <td className="px-3 py-2 text-start">
+                      <div className="font-medium">{r.customer_name}</div>
+                      <div className="text-xs text-gray-500 tabular-nums text-start" dir="ltr">
+                        {r.customer_phone || '—'}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-end tabular-nums" dir="ltr">
+                      {formatPrice(r.amount)}
+                    </td>
+                    <td className="px-3 py-2 text-start">{paymentMethodLabel(r.payment_method)}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-start" dir="ltr">
+                      {r.booking_id ? r.booking_id.slice(0, 8) + '…' : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-start">{r.package_name || '—'}</td>
+                    <td className="px-3 py-2 text-start">{r.employee_name || '—'}</td>
+                    <td className="px-3 py-2 text-start">{r.branch_name || '—'}</td>
                   </tr>
                 ))}
               </tbody>

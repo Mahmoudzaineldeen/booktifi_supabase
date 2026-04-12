@@ -17,8 +17,6 @@ import {
   Download,
   Filter,
   RotateCcw,
-  ChevronLeft,
-  ChevronRight,
   X,
   Ban,
   CheckCircle,
@@ -445,21 +443,21 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                 <div className="pt-1">
                   <button
                     type="button"
-                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 rounded"
+                    className="w-full px-4 py-2 text-start text-sm hover:bg-gray-100 rounded"
                     onClick={() => handleExport('csv')}
                   >
                     {t('visitors.exportCsv', 'CSV')}
                   </button>
                   <button
                     type="button"
-                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 rounded"
+                    className="w-full px-4 py-2 text-start text-sm hover:bg-gray-100 rounded"
                     onClick={() => handleExport('xlsx')}
                   >
                     {t('visitors.exportExcel', 'Excel (.xlsx)')}
                   </button>
                   <button
                     type="button"
-                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 rounded"
+                    className="w-full px-4 py-2 text-start text-sm hover:bg-gray-100 rounded"
                     onClick={() => handleExport('pdf')}
                   >
                     {t('visitors.exportPdf', 'PDF')}
@@ -742,7 +740,7 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[760px]">
                   <thead>
-                    <tr className="bg-slate-100/80 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider border-b border-slate-200">
+                    <tr className="bg-slate-100/80 text-start text-xs font-semibold text-slate-600 uppercase tracking-wider border-b border-slate-200">
                       <th className="px-4 py-3.5 w-12" title={t('visitors.selectForExport', 'Select for export')}>
                         <span className="sr-only">{t('visitors.selectForExport', 'Select for export')}</span>
                       </th>
@@ -750,8 +748,8 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                       <th className="px-4 py-3.5">{t('visitors.customerName', 'Visitor Name')}</th>
                       <th className="px-4 py-3.5">{t('visitors.phone', 'Phone')}</th>
                       <th className="px-4 py-3.5">{t('visitors.email', 'Email')}</th>
-                      <th className="px-4 py-3.5 text-right">{t('visitors.totalBookings', 'Total Bookings')}</th>
-                      <th className="px-4 py-3.5 text-right">{t('visitors.totalSpent', 'Total Spent')}</th>
+                      <th className="px-4 py-3.5 text-end">{t('visitors.totalBookings', 'Total Bookings')}</th>
+                      <th className="px-4 py-3.5 text-end">{t('visitors.totalSpent', 'Total Spent')}</th>
                       <th className="px-4 py-3.5 text-center">{t('visitors.packageBookings', 'Package')}</th>
                       <th className="px-4 py-3.5 text-center">{t('visitors.paidBookings', 'Paid')}</th>
                       <th className="px-4 py-3.5">{t('visitors.lastBooking', 'Last Booking')}</th>
@@ -785,7 +783,11 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                             {isGuest ? (
                               <span className="text-gray-400 text-xs">—</span>
                             ) : (
-                              <span className="inline-block font-mono text-xs text-slate-600 bg-slate-100 px-2 py-1 rounded max-w-[140px] truncate" title={row.id}>
+                              <span
+                                dir="ltr"
+                                className="inline-block font-mono text-xs text-slate-600 bg-slate-100 px-2 py-1 rounded max-w-[140px] truncate text-start"
+                                title={row.id}
+                              >
                                 {row.id}
                               </span>
                             )}
@@ -808,7 +810,9 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                           <td className="px-4 py-3 align-middle">
                             <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
                               <Phone className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                              <span className="truncate max-w-[120px]">{row.phone}</span>
+                              <span dir="ltr" className="truncate max-w-[120px] tabular-nums text-start">
+                                {row.phone}
+                              </span>
                             </span>
                           </td>
                           <td className="px-4 py-3 align-middle">
@@ -817,8 +821,12 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                               {row.email || '—'}
                             </span>
                           </td>
-                          <td className="px-4 py-3 align-middle text-right font-medium text-gray-900 tabular-nums">{row.total_bookings}</td>
-                          <td className="px-4 py-3 align-middle text-right font-medium text-gray-900 tabular-nums">{formatPrice(row.total_spent)}</td>
+                          <td className="px-4 py-3 align-middle text-end font-medium text-gray-900 tabular-nums" dir="ltr">
+                            {row.total_bookings}
+                          </td>
+                          <td className="px-4 py-3 align-middle text-end font-medium text-gray-900 tabular-nums" dir="ltr">
+                            {formatPrice(row.total_spent)}
+                          </td>
                           <td className="px-4 py-3 align-middle text-center">
                             <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-sm font-medium tabular-nums">
                               {row.package_bookings_count}
@@ -832,7 +840,9 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                           <td className="px-4 py-3 align-middle">
                             <span className="inline-flex items-center gap-1.5 text-sm text-gray-600">
                               <Calendar className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                              {row.last_booking_date ? format(parseISO(row.last_booking_date), 'MMM d, yyyy') : '—'}
+                              <span dir="ltr" className="tabular-nums">
+                                {row.last_booking_date ? format(parseISO(row.last_booking_date), 'MMM d, yyyy') : '—'}
+                              </span>
                             </span>
                           </td>
                           <td className="px-4 py-3 align-middle">
@@ -853,25 +863,25 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
               {pagination.totalPages > 1 && (
                 <div className="flex items-center justify-between px-5 py-4 border-t border-gray-200 bg-gray-50/50">
                   <span className="text-sm text-gray-600">
-                    {t('common.page', 'Page')} {pagination.page} {t('common.of', 'of')} {pagination.totalPages}
+                    {t('common.page', 'Page')} {pagination.page} / {pagination.totalPages}
                   </span>
                   <div className="flex gap-2">
                     <Button
                       variant="secondary"
                       size="sm"
-                      icon={<ChevronLeft className="w-4 h-4" />}
-                      onClick={() => setPagination((p) => ({ ...p, page: Math.max(1, p.page - 1) }))}
                       disabled={!pagination.hasPrevPage}
-                    />
+                      onClick={() => setPagination((p) => ({ ...p, page: Math.max(1, p.page - 1) }))}
+                    >
+                      {t('common.previous', 'Previous')}
+                    </Button>
                     <Button
                       variant="secondary"
                       size="sm"
-                      icon={<ChevronRight className="w-4 h-4" />}
-                      onClick={() =>
-                        setPagination((p) => ({ ...p, page: Math.min(pagination.totalPages, p.page + 1) }))
-                      }
                       disabled={!pagination.hasNextPage}
-                    />
+                      onClick={() => setPagination((p) => ({ ...p, page: Math.min(p.totalPages, p.page + 1) }))}
+                    >
+                      {t('common.next', 'Next')}
+                    </Button>
                   </div>
                 </div>
               )}
@@ -974,28 +984,36 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-100/80 sticky top-0 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                    <tr>
-                      <th className="px-3 py-2.5 text-left">{t('visitors.bookingId', 'Booking ID')}</th>
-                      <th className="px-3 py-2.5 text-left">{t('visitors.serviceName', 'Service')}</th>
-                      <th className="px-3 py-2.5 text-left">{t('visitors.date', 'Date')}</th>
-                      <th className="px-3 py-2.5 text-left">{t('visitors.time', 'Time')}</th>
-                      <th className="px-3 py-2.5 text-left">{t('visitors.visitorsCount', 'Visitors')}</th>
-                      <th className="px-3 py-2.5 text-left">{t('visitors.paymentType', 'Payment type')}</th>
-                      <th className="px-3 py-2.5 text-right">{t('visitors.amountPaid', 'Amount')}</th>
-                      <th className="px-3 py-2.5 text-left">{t('visitors.status', 'Status')}</th>
-                      <th className="px-3 py-2.5 text-left">{t('visitors.createdBy', 'Created By')}</th>
-                      <th className="px-3 py-2.5 text-left">{t('visitors.paymentMethod', 'Payment Method')}</th>
-                      <th className="px-3 py-2.5 text-left">{t('visitors.transactionReference', 'Transaction Reference')}</th>
+                    <tr className="text-start">
+                      <th className="px-3 py-2.5">{t('visitors.bookingId', 'Booking ID')}</th>
+                      <th className="px-3 py-2.5">{t('visitors.serviceName', 'Service')}</th>
+                      <th className="px-3 py-2.5">{t('visitors.date', 'Date')}</th>
+                      <th className="px-3 py-2.5">{t('visitors.time', 'Time')}</th>
+                      <th className="px-3 py-2.5 text-end">{t('visitors.visitorsCount', 'Visitors')}</th>
+                      <th className="px-3 py-2.5">{t('visitors.paymentType', 'Payment type')}</th>
+                      <th className="px-3 py-2.5 text-end">{t('visitors.amountPaid', 'Amount')}</th>
+                      <th className="px-3 py-2.5">{t('visitors.status', 'Status')}</th>
+                      <th className="px-3 py-2.5">{t('visitors.createdBy', 'Created By')}</th>
+                      <th className="px-3 py-2.5">{t('visitors.paymentMethod', 'Payment Method')}</th>
+                      <th className="px-3 py-2.5">{t('visitors.transactionReference', 'Transaction Reference')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {detailVisitor.bookings.map((b) => (
                       <tr key={b.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-3 py-2 font-mono text-xs text-slate-600">{b.id.slice(0, 8)}…</td>
+                        <td className="px-3 py-2 font-mono text-xs text-slate-600" dir="ltr">
+                          {b.id.slice(0, 8)}…
+                        </td>
                         <td className="px-3 py-2 font-medium text-gray-900">{b.service_name}</td>
-                        <td className="px-3 py-2 text-gray-700">{b.date || '—'}</td>
-                        <td className="px-3 py-2 text-gray-700 tabular-nums">{b.time ? formatTimeTo12Hour(b.time) : '—'}</td>
-                        <td className="px-3 py-2 text-gray-700 tabular-nums">{b.visitors_count}</td>
+                        <td className="px-3 py-2 text-gray-700" dir="ltr">
+                          <span className="tabular-nums">{b.date || '—'}</span>
+                        </td>
+                        <td className="px-3 py-2 text-gray-700 tabular-nums" dir="ltr">
+                          {b.time ? formatTimeTo12Hour(b.time) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-gray-700 tabular-nums text-end" dir="ltr">
+                          {b.visitors_count}
+                        </td>
                         <td className="px-3 py-2">
                           <span
                             className={`inline-flex px-2 py-0.5 rounded-md text-xs font-medium ${
@@ -1011,11 +1029,15 @@ export function VisitorsPage({ embeddedInReports = false }: VisitorsPageProps) {
                               : b.booking_type}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-right font-medium text-gray-900 tabular-nums">{formatPrice(b.amount_paid)}</td>
+                        <td className="px-3 py-2 text-end font-medium text-gray-900 tabular-nums" dir="ltr">
+                          {formatPrice(b.amount_paid)}
+                        </td>
                         <td className="px-3 py-2">{safeTranslateStatus(t, b.status)}</td>
                         <td className="px-3 py-2 text-gray-600">{b.created_by === 'staff' ? t('visitors.staff', 'Admin/Receptionist') : t('visitors.customer', 'Customer')}</td>
                         <td className="px-3 py-2 text-gray-600">{b.payment_method || '—'}</td>
-                        <td className="px-3 py-2 font-mono text-xs text-gray-500">{b.transaction_reference || '—'}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-gray-500" dir="ltr">
+                          {b.transaction_reference || '—'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
