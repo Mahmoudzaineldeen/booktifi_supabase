@@ -233,18 +233,33 @@ async function fetchLatestPaidEventAtByBooking(tenantId: string, bookingIds: str
   const out = new Map<string, string>();
   if (!Array.isArray(bookingIds) || bookingIds.length === 0) return out;
 
-  const CHUNK = 500;
+  // Keep `in(resource_id, ...)` list conservative because PostgREST uses query params
+  // for select calls and overly large URLs can fail for tenants with many bookings.
+  const CHUNK = 100;
   for (let i = 0; i < bookingIds.length; i += CHUNK) {
     const ids = bookingIds.slice(i, i + CHUNK);
-    const { data, error } = await supabase
-      .from('audit_logs')
-      .select('resource_id, created_at, new_values')
-      .eq('tenant_id', tenantId)
-      .eq('resource_type', 'booking')
-      .eq('action_type', 'payment_status_update')
-      .in('resource_id', ids)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
+    let data: any[] | null = null;
+    try {
+      const result = await supabase
+        .from('audit_logs')
+        .select('resource_id, created_at, new_values')
+        .eq('tenant_id', tenantId)
+        .eq('resource_type', 'booking')
+        .eq('action_type', 'payment_status_update')
+        .in('resource_id', ids)
+        .order('created_at', { ascending: false });
+      if (result.error) throw result.error;
+      data = result.data;
+    } catch (error: any) {
+      // Do not fail transactions report if paid-event enrichment fails.
+      // The report can still use booking.created_at as a stable fallback.
+      logger.warn('Reports transactions paid-event lookup failed; using booking creation timestamps fallback', {
+        tenantId,
+        bookingChunkSize: ids.length,
+        error: error?.message || String(error),
+      });
+      continue;
+    }
 
     for (const row of (data || []) as any[]) {
       const bookingId = String(row?.resource_id || '');
