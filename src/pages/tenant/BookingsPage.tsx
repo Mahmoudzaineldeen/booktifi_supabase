@@ -1704,7 +1704,7 @@ export function BookingsPage() {
       } catch {
         setEditCustomerPackages([]);
       }
-      await fetchTimeSlots(booking.service_id, userProfile.tenant_id, initialDate);
+      await fetchTimeSlots(booking.service_id, userProfile.tenant_id, initialDate, booking.id);
     })();
   }
 
@@ -1718,7 +1718,7 @@ export function BookingsPage() {
       setAvailableTimeSlots([]);
       return;
     }
-    await fetchTimeSlots(nextServiceId, userProfile.tenant_id, editingTimeDate);
+    await fetchTimeSlots(nextServiceId, userProfile.tenant_id, editingTimeDate, editingBooking?.id);
   }
 
   function handleEditTagChange(nextTagId: string) {
@@ -1748,7 +1748,7 @@ export function BookingsPage() {
     setEditSelectedTagId(editPricingTags[0].id);
   }, [editingBooking?.id, editSelectedTagId, editPricingTags]);
 
-  async function fetchTimeSlots(serviceId: string, tenantId: string, date?: Date) {
+  async function fetchTimeSlots(serviceId: string, tenantId: string, date?: Date, excludeBookingId?: string) {
     // Use provided date or fall back to state
     const targetDate = date || editingTimeDate;
     if (!targetDate) {
@@ -1774,6 +1774,7 @@ export function BookingsPage() {
         includePastSlots: false, // Same as create flow: filter out past slots
         includeLockedSlots: false, // Still exclude locked slots
         includeZeroCapacity: false, // Still exclude fully booked slots
+        excludeBookingId: excludeBookingId || editingBooking?.id,
       });
 
       console.log('[BookingsPage] ========================================');
@@ -1807,6 +1808,7 @@ export function BookingsPage() {
               includePastSlots: false,
               includeLockedSlots: false,
               includeZeroCapacity: true, // Include fully booked slots
+              excludeBookingId: excludeBookingId || editingBooking?.id,
             });
             
             if (resultWithZero.slots.length > 0) {
@@ -1837,7 +1839,7 @@ export function BookingsPage() {
     setSelectedNewSlotId('');
     setChangeTimeEmployeeId('');
     if (editingBooking && userProfile?.tenant_id) {
-      await fetchTimeSlots(editingBooking.service_id, userProfile.tenant_id, newDate);
+      await fetchTimeSlots(editingBooking.service_id, userProfile.tenant_id, newDate, editingBooking.id);
     }
   }
 

@@ -1113,7 +1113,7 @@ router.get('/capacity/:customerId/:serviceId', authenticate, async (req, res) =>
 // ============================================================================
 router.post('/ensure-employee-based-slots', async (req, res) => {
   try {
-    const { tenantId, serviceId, date: dateStr } = req.body;
+    const { tenantId, serviceId, date: dateStr, excludeBookingId } = req.body;
     if (!tenantId || !serviceId || !dateStr) {
       return res.status(400).json({ error: 'tenantId, serviceId, and date are required' });
     }
@@ -1184,18 +1184,25 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
         .eq('tenant_id', tenantId)
         .in('employee_id', employeeIds)
         .neq('status', 'cancelled');
+      const bookingsByEmployeeQuery = excludeBookingId
+        ? bookingsByEmployeePromise.neq('id', excludeBookingId)
+        : bookingsByEmployeePromise;
 
-      const bookingsBySlotPromise = slotIds.length > 0
+      let bookingsBySlotQuery = slotIds.length > 0
         ? supabase
             .from('bookings')
             .select('employee_id, slot_id, tag_id, effective_start_time, effective_end_time')
             .eq('tenant_id', tenantId)
             .in('slot_id', slotIds)
             .neq('status', 'cancelled')
-        : Promise.resolve({ data: [], error: null } as any);
+        : null;
+      if (bookingsBySlotQuery && excludeBookingId) {
+        bookingsBySlotQuery = bookingsBySlotQuery.neq('id', excludeBookingId);
+      }
+      const bookingsBySlotPromise = bookingsBySlotQuery ?? Promise.resolve({ data: [], error: null } as any);
 
       let [{ data: bookingsByEmployee, error: bookingsByEmployeeError }, { data: bookingsBySlot, error: bookingsBySlotError }] =
-        await Promise.all([bookingsByEmployeePromise, bookingsBySlotPromise]);
+        await Promise.all([bookingsByEmployeeQuery, bookingsBySlotPromise]);
       if (
         (bookingsByEmployeeError && isMissingColumnError(bookingsByEmployeeError, 'effective_start_time')) ||
         (bookingsBySlotError && isMissingColumnError(bookingsBySlotError, 'effective_start_time'))
@@ -1206,15 +1213,22 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
           .eq('tenant_id', tenantId)
           .in('employee_id', employeeIds)
           .neq('status', 'cancelled');
-        const fallbackSlotPromise = slotIds.length > 0
+        const fallbackEmployeeQuery = excludeBookingId
+          ? fallbackEmployeePromise.neq('id', excludeBookingId)
+          : fallbackEmployeePromise;
+        let fallbackSlotQuery = slotIds.length > 0
           ? supabase
               .from('bookings')
               .select('employee_id, slot_id, tag_id')
               .eq('tenant_id', tenantId)
               .in('slot_id', slotIds)
               .neq('status', 'cancelled')
-          : Promise.resolve({ data: [], error: null } as any);
-        const [fbEmp, fbSlot] = await Promise.all([fallbackEmployeePromise, fallbackSlotPromise]);
+          : null;
+        if (fallbackSlotQuery && excludeBookingId) {
+          fallbackSlotQuery = fallbackSlotQuery.neq('id', excludeBookingId);
+        }
+        const fallbackSlotPromise = fallbackSlotQuery ?? Promise.resolve({ data: [], error: null } as any);
+        const [fbEmp, fbSlot] = await Promise.all([fallbackEmployeeQuery, fallbackSlotPromise]);
         bookingsByEmployee = fbEmp.data;
         bookingsByEmployeeError = fbEmp.error;
         bookingsBySlot = fbSlot.data;
@@ -1356,7 +1370,10 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     }
 
     // Short-term cache: return cached result for same service/date (avoids N+1 and recomputation)
-    const cached = getEmployeeAvailabilityCached<{ shiftIds: string[]; slots?: any[]; employees?: any[] }>(tenantId, serviceId, dateStr);
+    const shouldUseCache = !excludeBookingId;
+    const cached = shouldUseCache
+      ? getEmployeeAvailabilityCached<{ shiftIds: string[]; slots?: any[]; employees?: any[] }>(tenantId, serviceId, dateStr)
+      : undefined;
     if (cached && Array.isArray(cached.shiftIds) && cached.shiftIds.length > 0) {
       logger.info('ensure-employee-based-slots: cache hit', { serviceId, dateStr });
       // Global time lock: on cache hit still filter out slots where employee is busy (bookings may have been created since cache)
@@ -1897,7 +1914,9 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       }));
     }
 
-    setEmployeeAvailabilityCached(tenantId, serviceId, dateStr, payload);
+    if (shouldUseCache) {
+      setEmployeeAvailabilityCached(tenantId, serviceId, dateStr, payload);
+    }
     return res.json(payload);
   } catch (error: any) {
     logger.error('ensure-employee-based-slots error', error);

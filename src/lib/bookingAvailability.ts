@@ -45,6 +45,7 @@ export interface AvailabilityOptions {
   includePastSlots?: boolean; // For receptionist: show past slots but mark them
   includeLockedSlots?: boolean; // For receptionist: show locked slots but mark them
   includeZeroCapacity?: boolean; // For receptionist: show fully booked slots
+  excludeBookingId?: string; // For edit flow: exclude current booking from busy checks
 }
 
 export interface AvailabilityResult {
@@ -79,6 +80,7 @@ export async function fetchAvailableSlots(
     includePastSlots = false,
     includeLockedSlots = false,
     includeZeroCapacity = false,
+    excludeBookingId,
   } = options;
 
   const dateStr = format(date, 'yyyy-MM-dd');
@@ -113,7 +115,7 @@ export async function fetchAvailableSlots(
       const res = await fetch(`${API_URL}/bookings/ensure-employee-based-slots`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, serviceId, date: dateStr }),
+        body: JSON.stringify({ tenantId, serviceId, date: dateStr, excludeBookingId }),
       });
       if (res.ok) {
         const body = await res.json();
@@ -133,7 +135,7 @@ export async function fetchAvailableSlots(
       const res = await fetch(`${API_URL}/bookings/ensure-employee-based-slots`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, serviceId, date: dateStr }),
+        body: JSON.stringify({ tenantId, serviceId, date: dateStr, excludeBookingId }),
       });
       if (res.ok) {
         const body = await res.json();
