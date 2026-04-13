@@ -19,6 +19,7 @@ let token = null;
 let tenantId = null;
 let userId = null;
 let serviceId = null;
+let tagId = null;
 let bookingId = null;
 let oldSlotId = null;
 let newSlotId = null;
@@ -103,6 +104,26 @@ async function setup() {
     throw new Error('Failed to fetch services');
   }
 
+  // Resolve a valid tag for create payloads
+  const tagResponse = await apiRequest('/query', {
+    method: 'POST',
+    body: JSON.stringify({
+      table: 'service_tag_assignments',
+      select: 'tag_id',
+      where: { service_id: serviceId },
+      limit: 1,
+    }),
+  });
+  if (tagResponse.ok) {
+    const tagRows = Array.isArray(tagResponse.data)
+      ? tagResponse.data
+      : (tagResponse.data?.data || []);
+    tagId = tagRows[0]?.tag_id || null;
+  }
+  if (!tagId) {
+    throw new Error(`No tag assigned to service ${serviceId}. Cannot create booking test payload.`);
+  }
+
   // Try to find an existing booking first
   console.log(`\n🔍 Looking for existing bookings...`);
   const existingBookingsResponse = await apiRequest('/query', {
@@ -132,7 +153,7 @@ async function setup() {
       const slotsResponse = await apiRequest('/query', {
         method: 'POST',
         body: JSON.stringify({
-          table: 'time_slots',
+          table: 'slots',
           select: '*',
           where: {
             tenant_id: tenantId,
@@ -158,8 +179,8 @@ async function setup() {
           const oldSlotResponse = await apiRequest('/query', {
             method: 'POST',
             body: JSON.stringify({
-              table: 'time_slots',
-              select: 'id, remaining_capacity, total_capacity',
+              table: 'slots',
+              select: 'id, available_capacity, original_capacity',
               where: { id: oldSlotId },
               limit: 1,
             }),
@@ -168,8 +189,8 @@ async function setup() {
           const newSlotResponse = await apiRequest('/query', {
             method: 'POST',
             body: JSON.stringify({
-              table: 'time_slots',
-              select: 'id, remaining_capacity, total_capacity',
+              table: 'slots',
+              select: 'id, available_capacity, original_capacity',
               where: { id: newSlotId },
               limit: 1,
             }),
@@ -184,8 +205,8 @@ async function setup() {
             : (newSlotResponse.data?.data?.[0] || newSlotResponse.data);
 
           console.log(`📊 Initial Slot Capacities:`);
-          console.log(`   Old Slot: ${oldSlot?.remaining_capacity || 'N/A'} / ${oldSlot?.total_capacity || 'N/A'}`);
-          console.log(`   New Slot: ${newSlot?.remaining_capacity || 'N/A'} / ${newSlot?.total_capacity || 'N/A'}`);
+          console.log(`   Old Slot: ${oldSlot?.available_capacity || 'N/A'} / ${oldSlot?.original_capacity || 'N/A'}`);
+          console.log(`   New Slot: ${newSlot?.available_capacity || 'N/A'} / ${newSlot?.original_capacity || 'N/A'}`);
           
           return; // Skip booking creation
         }
@@ -193,36 +214,94 @@ async function setup() {
     }
   }
 
-  // If no existing booking, try to find slots to create one
-  console.log(`⚠️  No existing booking found. Looking for slots...`);
-  const slotsResponse = await apiRequest('/query', {
-    method: 'POST',
-    body: JSON.stringify({
-      table: 'time_slots',
-      select: '*',
-      where: {
-        tenant_id: tenantId,
-      },
-      limit: 20,
-    }),
-  });
-
-  if (!slotsResponse.ok) {
-    throw new Error('Failed to fetch slots. Please create slots manually via admin panel.');
+  // If no existing booking, find service-matched slots via availability endpoint
+  console.log(`⚠️  No existing booking found. Looking for service-matched slots...`);
+  const candidateSlots = [];
+  const baseDate = new Date();
+  baseDate.setDate(baseDate.getDate() + 1);
+  for (let i = 0; i < 10 && candidateSlots.length < 2; i++) {
+    const d = new Date(baseDate);
+    d.setDate(baseDate.getDate() + i);
+    const dateStr = d.toISOString().split('T')[0];
+    const ensureResponse = await apiRequest('/bookings/ensure-employee-based-slots', {
+      method: 'POST',
+      body: JSON.stringify({
+        tenantId,
+        serviceId,
+        date: dateStr,
+      }),
+    });
+    if (!ensureResponse.ok) continue;
+    const slots = Array.isArray(ensureResponse.data?.slots) ? ensureResponse.data.slots : [];
+    for (const slot of slots) {
+      if (Number(slot.available_capacity || 0) > 0) candidateSlots.push(slot);
+      if (candidateSlots.length >= 2) break;
+    }
+  }
+  
+  console.log(`📊 Found ${candidateSlots.length} service-matched slots`);
+  
+  if (candidateSlots.length < 2) {
+    // Fallback: pick another active service that has tag + slots
+    const servicesResponse = await apiRequest('/query', {
+      method: 'POST',
+      body: JSON.stringify({
+        table: 'services',
+        select: 'id, name',
+        where: { tenant_id: tenantId, is_active: true },
+        limit: 30,
+      }),
+    });
+    const services = Array.isArray(servicesResponse.data)
+      ? servicesResponse.data
+      : (servicesResponse.data?.data || []);
+    let switched = false;
+    for (const svc of services) {
+      if (!svc?.id || svc.id === serviceId) continue;
+      const tagLookup = await apiRequest('/query', {
+        method: 'POST',
+        body: JSON.stringify({
+          table: 'service_tag_assignments',
+          select: 'tag_id',
+          where: { service_id: svc.id },
+          limit: 1,
+        }),
+      });
+      const tagRows = Array.isArray(tagLookup.data) ? tagLookup.data : (tagLookup.data?.data || []);
+      const nextTag = tagRows[0]?.tag_id || null;
+      if (!nextTag) continue;
+      const nextSlots = [];
+      for (let i = 0; i < 10 && nextSlots.length < 2; i++) {
+        const d = new Date(baseDate);
+        d.setDate(baseDate.getDate() + i);
+        const dateStr = d.toISOString().split('T')[0];
+        const ensureResponse = await apiRequest('/bookings/ensure-employee-based-slots', {
+          method: 'POST',
+          body: JSON.stringify({ tenantId, serviceId: svc.id, date: dateStr }),
+        });
+        if (!ensureResponse.ok) continue;
+        const slots = Array.isArray(ensureResponse.data?.slots) ? ensureResponse.data.slots : [];
+        for (const slot of slots) {
+          if (Number(slot.available_capacity || 0) > 0) nextSlots.push(slot);
+          if (nextSlots.length >= 2) break;
+        }
+      }
+      if (nextSlots.length >= 2) {
+        serviceId = svc.id;
+        tagId = nextTag;
+        candidateSlots.splice(0, candidateSlots.length, ...nextSlots);
+        switched = true;
+        console.log(`✅ Switched to service ${svc.name} for test slots`);
+        break;
+      }
+    }
+    if (!switched) {
+      throw new Error(`Need at least 2 service slots for testing. Found: ${candidateSlots.length}.`);
+    }
   }
 
-  const slots = Array.isArray(slotsResponse.data) 
-    ? slotsResponse.data 
-    : (slotsResponse.data?.data || []);
-  
-  console.log(`📊 Found ${slots.length} total slots`);
-  
-  if (slots.length < 2) {
-    throw new Error(`Need at least 2 slots for testing. Found: ${slots.length}. Please create slots via admin panel.`);
-  }
-
-  oldSlotId = slots[0].id;
-  newSlotId = slots[1].id;
+  oldSlotId = candidateSlots[0].id;
+  newSlotId = candidateSlots[1].id;
 
   console.log(`✅ Using slots for test`);
   console.log(`   Old Slot ID: ${oldSlotId}`);
@@ -232,8 +311,8 @@ async function setup() {
   const oldSlotResponse = await apiRequest('/query', {
     method: 'POST',
     body: JSON.stringify({
-      table: 'time_slots',
-      select: 'id, remaining_capacity, total_capacity',
+      table: 'slots',
+      select: 'id, available_capacity, original_capacity',
       where: { id: oldSlotId },
       limit: 1,
     }),
@@ -242,8 +321,8 @@ async function setup() {
   const newSlotResponse = await apiRequest('/query', {
     method: 'POST',
     body: JSON.stringify({
-      table: 'time_slots',
-      select: 'id, remaining_capacity, total_capacity',
+      table: 'slots',
+      select: 'id, available_capacity, original_capacity',
       where: { id: newSlotId },
       limit: 1,
     }),
@@ -258,8 +337,8 @@ async function setup() {
     : (newSlotResponse.data?.data?.[0] || newSlotResponse.data);
 
   console.log(`📊 Initial Slot Capacities:`);
-  console.log(`   Old Slot: ${oldSlot?.remaining_capacity || 'N/A'} / ${oldSlot?.total_capacity || 'N/A'}`);
-  console.log(`   New Slot: ${newSlot?.remaining_capacity || 'N/A'} / ${newSlot?.total_capacity || 'N/A'}`);
+  console.log(`   Old Slot: ${oldSlot?.available_capacity || 'N/A'} / ${oldSlot?.original_capacity || 'N/A'}`);
+  console.log(`   New Slot: ${newSlot?.available_capacity || 'N/A'} / ${newSlot?.original_capacity || 'N/A'}`);
 
   // Create a test booking only if we don't have one
   if (!bookingId) {
@@ -269,6 +348,7 @@ async function setup() {
     body: JSON.stringify({
       slot_id: oldSlotId,
       service_id: serviceId,
+      tag_id: tagId,
       tenant_id: tenantId,
       customer_name: 'Time Edit Test Customer',
       customer_phone: '+201234567890',
@@ -321,8 +401,8 @@ async function testBookingTimeEdit() {
   const beforeOldSlotResponse = await apiRequest('/query', {
     method: 'POST',
     body: JSON.stringify({
-      table: 'time_slots',
-      select: 'id, remaining_capacity, total_capacity',
+      table: 'slots',
+      select: 'id, available_capacity, original_capacity',
       where: { id: oldSlotId },
       limit: 1,
     }),
@@ -331,8 +411,8 @@ async function testBookingTimeEdit() {
   const beforeNewSlotResponse = await apiRequest('/query', {
     method: 'POST',
     body: JSON.stringify({
-      table: 'time_slots',
-      select: 'id, remaining_capacity, total_capacity',
+      table: 'slots',
+      select: 'id, available_capacity, original_capacity',
       where: { id: newSlotId },
       limit: 1,
     }),
@@ -346,8 +426,8 @@ async function testBookingTimeEdit() {
     ? beforeNewSlotResponse.data[0] 
     : (beforeNewSlotResponse.data?.data?.[0] || beforeNewSlotResponse.data);
 
-  const oldSlotCapacityBefore = beforeOldSlot?.remaining_capacity || 0;
-  const newSlotCapacityBefore = beforeNewSlot?.remaining_capacity || 0;
+  const oldSlotCapacityBefore = beforeOldSlot?.available_capacity || 0;
+  const newSlotCapacityBefore = beforeNewSlot?.available_capacity || 0;
 
   console.log(`📊 Slot Capacities Before Edit:`);
   console.log(`   Old Slot: ${oldSlotCapacityBefore}`);
@@ -379,8 +459,8 @@ async function testBookingTimeEdit() {
   const afterOldSlotResponse = await apiRequest('/query', {
     method: 'POST',
     body: JSON.stringify({
-      table: 'time_slots',
-      select: 'id, remaining_capacity, total_capacity',
+      table: 'slots',
+      select: 'id, available_capacity, original_capacity',
       where: { id: oldSlotId },
       limit: 1,
     }),
@@ -389,8 +469,8 @@ async function testBookingTimeEdit() {
   const afterNewSlotResponse = await apiRequest('/query', {
     method: 'POST',
     body: JSON.stringify({
-      table: 'time_slots',
-      select: 'id, remaining_capacity, total_capacity',
+      table: 'slots',
+      select: 'id, available_capacity, original_capacity',
       where: { id: newSlotId },
       limit: 1,
     }),
@@ -404,8 +484,8 @@ async function testBookingTimeEdit() {
     ? afterNewSlotResponse.data[0] 
     : (afterNewSlotResponse.data?.data?.[0] || afterNewSlotResponse.data);
 
-  const oldSlotCapacityAfter = afterOldSlot?.remaining_capacity || 0;
-  const newSlotCapacityAfter = afterNewSlot?.remaining_capacity || 0;
+  const oldSlotCapacityAfter = afterOldSlot?.available_capacity || 0;
+  const newSlotCapacityAfter = afterNewSlot?.available_capacity || 0;
 
   console.log(`\n📊 Slot Capacities After Edit:`);
   console.log(`   Old Slot: ${oldSlotCapacityAfter} (was: ${oldSlotCapacityBefore})`);

@@ -24,6 +24,7 @@ let token = null;
 let tenantId = null;
 let userId = null;
 let serviceId = null;
+let tagId = null;
 
 function apiRequest(endpoint, options = {}) {
   const url = `${API_URL}${endpoint}`;
@@ -81,6 +82,22 @@ async function findMixService() {
   console.log('✅ Found service:', mix.name, '(' + serviceId.slice(0, 8) + '...)');
 }
 
+async function resolveServiceTag() {
+  const res = await apiRequest('/query', {
+    method: 'POST',
+    body: JSON.stringify({
+      table: 'service_tag_assignments',
+      select: 'tag_id',
+      where: { service_id: serviceId },
+      limit: 1,
+    }),
+  });
+  if (!res.ok) throw new Error('Failed to resolve service tag: ' + JSON.stringify(res.data));
+  const rows = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+  tagId = rows[0]?.tag_id || null;
+  if (!tagId) throw new Error(`No tag assigned to service ${serviceId}`);
+}
+
 function getNextWeekdayDate() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -110,6 +127,7 @@ async function createSingleBooking(slotId, slot) {
     body: JSON.stringify({
       tenant_id: tenantId,
       service_id: serviceId,
+      tag_id: tagId,
       slot_id: slotId,
       employee_id: slot?.employee_id || null,
       customer_name: 'Test Customer Single',
@@ -132,6 +150,7 @@ async function createBulkBooking(slotIds, customerName, customerPhone) {
     body: JSON.stringify({
       tenant_id: tenantId,
       service_id: serviceId,
+      tag_id: tagId,
       slot_ids: slotIds,
       customer_name: customerName,
       customer_phone: customerPhone,
@@ -165,6 +184,7 @@ async function run() {
 
   await login();
   await findMixService();
+  await resolveServiceTag();
   let dateStr = getNextWeekdayDate();
   let slots = await getSlotsForDate(dateStr);
   for (let tries = 0; tries < 5 && (slots.length === 0 || slots.length < 4); tries++) {

@@ -142,7 +142,9 @@ async function findTestBooking(token, tenantId) {
   }
 
   const bookings = Array.isArray(data) ? data : (data.data || []);
-  const bookingWithSlot = bookings.find(b => b.slot_id && b.service_id);
+  const bookingWithSlot = bookings.find(
+    b => b.slot_id && b.service_id && (!b.tenant_id || b.tenant_id === tenantId)
+  );
   
   if (!bookingWithSlot) {
     throw new Error('No bookings with valid slots found');
@@ -305,21 +307,27 @@ async function testTimeChange(role, token, tenantId, booking, newSlotId, newSlot
   // Wait for database consistency
   await new Promise(resolve => setTimeout(resolve, 2000));
   
-  // Verify database directly
-  log(`\n🗄️  Verifying Database Update...`, 'cyan');
-  
-  // First, check the booking's slot_id directly (no relationship query)
-  const { data: dbBookingData, ok: dbOk } = await makeRequest(
-    `/query?table=bookings&id=eq.${booking.id}&select=slot_id&single=true`,
-    { token }
-  );
-
+  // Verify persisted booking state via query endpoint (works across environments)
+  log(`\n🗄️  Verifying Persisted Booking Update...`, 'cyan');
+  const { data: dbBookingData, ok: dbOk } = await makeRequest('/query', {
+    token,
+    method: 'POST',
+    body: {
+      table: 'bookings',
+      select: 'slot_id,slots:slot_id(slot_date,start_time,end_time)',
+      where: { id: booking.id },
+      limit: 1,
+    },
+  });
   if (!dbOk || !dbBookingData) {
-    throw new Error('Failed to verify updated booking in database');
+    throw new Error('Failed to verify updated booking in query API');
   }
-
-  const dbBooking = Array.isArray(dbBookingData) ? dbBookingData[0] : dbBookingData;
-  const dbSlotId = dbBooking.slot_id;
+  const rows = Array.isArray(dbBookingData) ? dbBookingData : (dbBookingData.data || []);
+  const dbBooking = rows[0];
+  if (!dbBooking) {
+    throw new Error('Updated booking row not found in query API');
+  }
+  const dbSlotId = dbBooking?.slot_id;
   
   log(`   Database slot_id (direct): ${dbSlotId?.substring(0, 8) || 'N/A'}...`);
   
@@ -330,17 +338,7 @@ async function testTimeChange(role, token, tenantId, booking, newSlotId, newSlot
   
   log(`   ✅ Database slot_id matches expected`, 'green');
   
-  // Now verify the slot_date by querying the slots table directly
-  const { data: slotData, ok: slotOk } = await makeRequest(
-    `/query?table=slots&id=eq.${dbSlotId}&select=slot_date,start_time,end_time&single=true`,
-    { token }
-  );
-
-  if (!slotOk || !slotData) {
-    throw new Error('Failed to verify slot data in database');
-  }
-
-  const slot = Array.isArray(slotData) ? slotData[0] : slotData;
+  const slot = dbBooking?.slots || {};
   
   log(`   Database slot_date (direct): ${slot.slot_date || 'MISSING!'}`);
   log(`   Database start_time (direct): ${slot.start_time || 'MISSING!'}`);

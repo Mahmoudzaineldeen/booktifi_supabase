@@ -19,12 +19,34 @@ let token = null;
 let tenantId = null;
 let userId = null;
 let serviceId = null;
+let tagId = null;
 let slotIds = [];
 let testResults = {
   passed: 0,
   failed: 0,
   tests: []
 };
+
+async function findServiceSlotsForDays(targetServiceId) {
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() + 1);
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(startDate);
+    d.setDate(startDate.getDate() + i);
+    const dateStr = d.toISOString().split('T')[0];
+    const ensureResponse = await apiRequest('/bookings/ensure-employee-based-slots', {
+      method: 'POST',
+      body: JSON.stringify({ tenantId, serviceId: targetServiceId, date: dateStr }),
+    });
+    if (!ensureResponse.ok) continue;
+    const slots = Array.isArray(ensureResponse.data?.slots) ? ensureResponse.data.slots : [];
+    const availableSlots = slots.filter((s) => Number(s.available_capacity || 0) >= 1);
+    if (availableSlots.length >= 2) {
+      return availableSlots.slice(0, 3).map((s) => s.id);
+    }
+  }
+  return [];
+}
 
 // Helper function to make API requests
 async function apiRequest(endpoint, options = {}) {
@@ -104,10 +126,12 @@ async function setup() {
     }),
   });
 
+  let candidateServices = [];
   if (serviceResponse.ok) {
     const services = Array.isArray(serviceResponse.data) 
       ? serviceResponse.data 
       : (serviceResponse.data?.data || []);
+    candidateServices = services;
     
     if (services.length > 0) {
       serviceId = services[0].id;
@@ -145,38 +169,46 @@ async function setup() {
     }
   }
 
-  // Get slots for tomorrow
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  slotIds = await findServiceSlotsForDays(serviceId);
 
-  const slotsResponse = await apiRequest('/query', {
-    method: 'POST',
-    body: JSON.stringify({
-      table: 'slots',
-      select: 'id, slot_date, start_time, end_time, available_capacity',
-      where: {
-        tenant_id: tenantId,
-        slot_date: tomorrowStr,
-        is_available: true,
-      },
-      limit: 5,
-    }),
-  });
+  const resolveTagForService = async (sid) => {
+    const tagResponse = await apiRequest('/query', {
+      method: 'POST',
+      body: JSON.stringify({
+        table: 'service_tag_assignments',
+        select: 'tag_id',
+        where: { service_id: sid },
+        limit: 1,
+      }),
+    });
+    if (!tagResponse.ok) return null;
+    const tagRows = Array.isArray(tagResponse.data)
+      ? tagResponse.data
+      : (tagResponse.data?.data || []);
+    return tagRows[0]?.tag_id || null;
+  };
 
-  if (slotsResponse.ok) {
-    const slots = Array.isArray(slotsResponse.data) 
-      ? slotsResponse.data 
-      : (slotsResponse.data?.data || []);
-    
-    // Filter slots with available capacity
-    const availableSlots = slots.filter(s => (s.available_capacity || 0) >= 1);
-    slotIds = availableSlots.slice(0, 3).map(s => s.id);
-    console.log(`✅ Found ${slotIds.length} available slots for testing`);
+  tagId = await resolveTagForService(serviceId);
+
+  if (slotIds.length < 2 || !tagId) {
+    for (const svc of candidateServices) {
+      const sid = svc?.id;
+      if (!sid || sid === serviceId) continue;
+      const candidateTag = await resolveTagForService(sid);
+      if (!candidateTag) continue;
+      const candidateSlots = await findServiceSlotsForDays(sid);
+      if (candidateSlots.length >= 2) {
+        serviceId = sid;
+        tagId = candidateTag;
+        slotIds = candidateSlots;
+        console.log(`✅ Switched to service with valid slots+tag: ${svc?.name || sid}`);
+        break;
+      }
+    }
   }
 
-  if (!serviceId || slotIds.length < 2) {
-    throw new Error('Setup failed: Need at least service and 2 slots for testing');
+  if (!serviceId || slotIds.length < 2 || !tagId) {
+    throw new Error('Setup failed: Need service with assigned tag and at least 2 available slots');
   }
 }
 
@@ -201,6 +233,7 @@ async function testBulkBookingSuccess() {
       body: JSON.stringify({
         slot_ids: testSlots,
         service_id: serviceId,
+        tag_id: tagId,
         tenant_id: tenantId,
         customer_name: 'Endpoint Test Customer',
         customer_phone: '+201234567890',
@@ -256,6 +289,7 @@ async function testOverbookingPrevention() {
     body: JSON.stringify({
       slot_ids: [testSlotId],
       service_id: serviceId,
+      tag_id: tagId,
       tenant_id: tenantId,
       customer_name: 'Pre-booking for Overbooking Test',
       customer_phone: '+201234567890',
@@ -283,6 +317,7 @@ async function testOverbookingPrevention() {
       body: JSON.stringify({
         slot_ids: [testSlotId, testSlotId], // Try to book same slot twice - should be rejected
         service_id: serviceId,
+        tag_id: tagId,
         tenant_id: tenantId,
         customer_name: 'Overbooking Test',
         customer_phone: '+201234567891',
@@ -336,6 +371,7 @@ async function testMissingFields() {
       method: 'POST',
       body: JSON.stringify({
         service_id: serviceId,
+        tag_id: tagId,
         tenant_id: tenantId,
         customer_name: 'Test',
         customer_phone: '+201234567892',
@@ -436,6 +472,7 @@ async function testSlotCapacityDecrement() {
     body: JSON.stringify({
       slot_ids: [testSlotId],
       service_id: serviceId,
+      tag_id: tagId,
       tenant_id: tenantId,
       customer_name: 'Capacity Test',
       customer_phone: '+201234567894',
@@ -508,6 +545,7 @@ async function testInvoiceGeneration() {
     body: JSON.stringify({
       slot_ids: testSlots,
       service_id: serviceId,
+      tag_id: tagId,
       tenant_id: tenantId,
       customer_name: 'Invoice Test',
       customer_phone: '+201234567895',
@@ -581,6 +619,7 @@ async function testAuthorization() {
     body: JSON.stringify({
       slot_ids: slotIds.slice(0, 1),
       service_id: serviceId,
+      tag_id: tagId,
       tenant_id: tenantId,
       customer_name: 'Auth Test',
       customer_phone: '+201234567896',

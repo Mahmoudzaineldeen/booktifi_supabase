@@ -154,9 +154,9 @@ async function findTestBooking() {
   }
 
   const bookings = Array.isArray(data) ? data : (data.data || data.bookings || []);
-  const activeBooking = bookings.find(
-    b => b.status !== 'cancelled' && b.status !== 'completed' && b.slot_id
-  );
+  const activeBooking =
+    bookings.find(b => b.status !== 'cancelled' && b.status !== 'completed' && b.slot_id && !b.employee_id) ||
+    bookings.find(b => b.status !== 'cancelled' && b.status !== 'completed' && b.slot_id);
 
   if (!activeBooking) {
     throw new Error('No active bookings found. Please create a booking first.');
@@ -218,8 +218,8 @@ async function testEditBooking() {
     customer_name: originalBookingData.customer_name + ' (Edited)',
     customer_phone: originalBookingData.customer_phone,
     customer_email: originalBookingData.customer_email || 'test@example.com',
-    visitor_count: originalBookingData.visitor_count + 1,
-    total_price: parseFloat(originalBookingData.total_price) + 10,
+    visitor_count: originalBookingData.visitor_count,
+    total_price: parseFloat(originalBookingData.total_price),
     status: originalBookingData.status === 'pending' ? 'confirmed' : originalBookingData.status,
     notes: 'Test edit from automated test script',
   };

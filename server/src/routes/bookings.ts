@@ -1533,17 +1533,25 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
     // Global employee time lock: busy ranges per employee (any service) for this date
     const globalBusyRangesByEmployee = new Map<string, { startM: number; endM: number }[]>();
     if (slotIdsForBookings.length > 0) {
-      let { data: bookingsList, error: bookingsListError } = await supabase
+      let bookingsListQuery = supabase
         .from('bookings')
         .select('slot_id, employee_id, tag_id, effective_start_time, effective_end_time')
         .in('slot_id', slotIdsForBookings)
         .neq('status', 'cancelled');
+      if (excludeBookingId) {
+        bookingsListQuery = bookingsListQuery.neq('id', excludeBookingId);
+      }
+      let { data: bookingsList, error: bookingsListError } = await bookingsListQuery;
       if (bookingsListError && isMissingColumnError(bookingsListError, 'effective_start_time')) {
-        const fallback = await supabase
+        let fallbackQuery = supabase
           .from('bookings')
           .select('slot_id, employee_id, tag_id')
           .in('slot_id', slotIdsForBookings)
           .neq('status', 'cancelled');
+        if (excludeBookingId) {
+          fallbackQuery = fallbackQuery.neq('id', excludeBookingId);
+        }
+        const fallback = await fallbackQuery;
         bookingsList = fallback.data;
       }
       const bookingsListTagSlots = await loadTagSlotCountMap((bookingsList || []).map((b: any) => b?.tag_id));
@@ -1572,19 +1580,27 @@ router.post('/ensure-employee-based-slots', async (req, res) => {
       });
     }
     // Also fetch bookings for these employees on this date that reference slots NOT in allSlotsForDate (e.g. other services we haven't loaded yet)
-    let { data: otherBookings, error: otherBookingsError } = await supabase
+    let otherBookingsQuery = supabase
       .from('bookings')
       .select('employee_id, slot_id, tag_id, effective_start_time, effective_end_time')
       .eq('tenant_id', tenantId)
       .in('employee_id', employeeIdsFromShifts)
       .neq('status', 'cancelled');
+    if (excludeBookingId) {
+      otherBookingsQuery = otherBookingsQuery.neq('id', excludeBookingId);
+    }
+    let { data: otherBookings, error: otherBookingsError } = await otherBookingsQuery;
     if (otherBookingsError && isMissingColumnError(otherBookingsError, 'effective_start_time')) {
-      const fallback = await supabase
+      let fallbackQuery = supabase
         .from('bookings')
         .select('employee_id, slot_id, tag_id')
         .eq('tenant_id', tenantId)
         .in('employee_id', employeeIdsFromShifts)
         .neq('status', 'cancelled');
+      if (excludeBookingId) {
+        fallbackQuery = fallbackQuery.neq('id', excludeBookingId);
+      }
+      const fallback = await fallbackQuery;
       otherBookings = fallback.data;
     }
     const otherBookingsTagSlots = await loadTagSlotCountMap((otherBookings || []).map((b: any) => b?.tag_id));

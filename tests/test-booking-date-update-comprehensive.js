@@ -264,8 +264,8 @@ async function findTestBooking() {
       }
 
       // Find a booking with a valid slot and service
-      const bookingWithSlot = bookings.find(b => 
-        b.slot_id && b.service_id
+      const bookingWithSlot = bookings.find(b =>
+        b.slot_id && b.service_id && (!b.tenant_id || b.tenant_id === tenantId)
       );
       
       if (!bookingWithSlot) {
@@ -487,14 +487,25 @@ async function testTenantProviderDateUpdate() {
     logInfo('Waiting 2 seconds for database to update...');
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Verify database update
-    logInfo('Verifying database update...');
-    const { data: updatedBooking, ok: verifyOk } = await makeRequest(
-      `/query?table=bookings&id=eq.${testBooking.id}&select=*,slots:slot_id(slot_date,start_time,end_time)&single=true`
-    );
+    // Verify persisted booking state via query endpoint
+    logInfo('Verifying persisted booking update...');
+    const { data: bookingResp, ok: verifyOk } = await makeRequest('/query', {
+      method: 'POST',
+      body: {
+        table: 'bookings',
+        select: 'slot_id,slots:slot_id(slot_date,start_time,end_time)',
+        where: { id: testBooking.id },
+        limit: 1,
+      },
+    });
 
-    if (!verifyOk || !updatedBooking) {
+    if (!verifyOk || !bookingResp) {
       throw new Error('Failed to verify updated booking');
+    }
+    const rows = Array.isArray(bookingResp) ? bookingResp : (bookingResp.data || []);
+    const updatedBooking = rows[0];
+    if (!updatedBooking) {
+      throw new Error('Updated booking row not found');
     }
 
     logInfo('Database verification:');
@@ -571,12 +582,23 @@ async function testReceptionistDateUpdate() {
     // Wait and verify
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    const { data: updatedBooking, ok: verifyOk } = await makeRequest(
-      `/query?table=bookings&id=eq.${testBooking.id}&select=*,slots:slot_id(slot_date,start_time,end_time)&single=true`
-    );
+    const { data: bookingResp, ok: verifyOk } = await makeRequest('/query', {
+      method: 'POST',
+      body: {
+        table: 'bookings',
+        select: 'slot_id,slots:slot_id(slot_date,start_time,end_time)',
+        where: { id: testBooking.id },
+        limit: 1,
+      },
+    });
 
-    if (!verifyOk || !updatedBooking) {
+    if (!verifyOk || !bookingResp) {
       throw new Error('Failed to verify updated booking');
+    }
+    const rows = Array.isArray(bookingResp) ? bookingResp : (bookingResp.data || []);
+    const updatedBooking = rows[0];
+    if (!updatedBooking) {
+      throw new Error('Updated booking row not found');
     }
 
     if (updatedBooking.slot_id !== newSlotId) {

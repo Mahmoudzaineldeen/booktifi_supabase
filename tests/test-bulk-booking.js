@@ -19,7 +19,29 @@ let token = null;
 let tenantId = null;
 let userId = null;
 let serviceId = null;
+let tagId = null;
 let slotIds = [];
+function toMinutes(t) {
+  const [hh, mm] = String(t || '00:00:00').slice(0, 5).split(':').map(Number);
+  return (hh || 0) * 60 + (mm || 0);
+}
+function overlaps(a, b) {
+  const aS = toMinutes(a.start_time);
+  const aE = toMinutes(a.end_time);
+  const bS = toMinutes(b.start_time);
+  const bE = toMinutes(b.end_time);
+  return aS < bE && aE > bS;
+}
+function pickNonOverlappingSlots(slots, count = 3) {
+  const sorted = [...slots].sort((x, y) => String(x.start_time).localeCompare(String(y.start_time)));
+  const picked = [];
+  for (const slot of sorted) {
+    if (picked.some((p) => overlaps(p, slot))) continue;
+    picked.push(slot);
+    if (picked.length >= count) break;
+  }
+  return picked;
+}
 
 // Helper function to make API requests
 async function apiRequest(endpoint, options = {}) {
@@ -91,9 +113,12 @@ async function getOrCreateTestService() {
     }),
   });
 
-  if (findResponse.ok && findResponse.data?.data?.[0]) {
-    serviceId = findResponse.data.data[0].id;
-    console.log(`✅ Found existing service: ${findResponse.data.data[0].name} (${serviceId.substring(0, 8)}...)`);
+  const foundServices = Array.isArray(findResponse.data)
+    ? findResponse.data
+    : (findResponse.data?.data || []);
+  if (findResponse.ok && foundServices[0]) {
+    serviceId = foundServices[0].id;
+    console.log(`✅ Found existing service: ${foundServices[0].name} (${serviceId.substring(0, 8)}...)`);
     return;
   }
 
@@ -135,119 +160,103 @@ async function getOrCreateTestService() {
   console.log(`✅ Created test service: ${serviceData.name} (${serviceId.substring(0, 8)}...)`);
 }
 
+async function resolveServiceTagId() {
+  const tagResponse = await apiRequest('/query', {
+    method: 'POST',
+    body: JSON.stringify({
+      table: 'service_tag_assignments',
+      select: 'tag_id',
+      where: { service_id: serviceId },
+      limit: 1,
+    }),
+  });
+  if (!tagResponse.ok) {
+    throw new Error(`Failed to resolve service tag: ${JSON.stringify(tagResponse.data)}`);
+  }
+  const tagRows = Array.isArray(tagResponse.data)
+    ? tagResponse.data
+    : (tagResponse.data?.data || []);
+  tagId = tagRows[0]?.tag_id || null;
+  if (!tagId) {
+    throw new Error(`No tag assigned to service ${serviceId}`);
+  }
+}
+
 // Get or create test slots for tomorrow
 async function getOrCreateTestSlots() {
-  console.log(`\n🔍 Finding or creating test slots for tomorrow...`);
+  console.log(`\n🔍 Finding service-matched slots for next days...`);
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() + 1);
 
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
-
-  // Try to find existing slots
-  const findResponse = await apiRequest('/query', {
-    method: 'POST',
-    body: JSON.stringify({
-      table: 'slots',
-      select: 'id, slot_date, start_time, end_time, available_capacity, booked_count',
-      where: {
-        tenant_id: tenantId,
-        slot_date: tomorrowStr,
-        is_available: true,
-      },
-      limit: 5,
-    }),
-  });
-
-  if (findResponse.ok && Array.isArray(findResponse.data) && findResponse.data.length >= 3) {
-    slotIds = findResponse.data.slice(0, 3).map(s => s.id);
-    console.log(`✅ Found ${slotIds.length} existing slots for tomorrow`);
-    findResponse.data.slice(0, 3).forEach((slot, i) => {
-      console.log(`   Slot ${i + 1}: ${slot.start_time} - ${slot.end_time} (Capacity: ${slot.available_capacity})`);
-    });
-    return;
-  }
-
-  // Create shift and slots
-  console.log(`   No slots found. Creating shift and slots...`);
-
-  // Create shift
-  const startTimeUtc = `${tomorrowStr}T10:00:00Z`;
-  const endTimeUtc = `${tomorrowStr}T18:00:00Z`;
-
-  const shiftResponse = await apiRequest('/query', {
-    method: 'POST',
-    body: JSON.stringify({
-      table: 'shifts',
-      method: 'POST',
-      data: {
-        tenant_id: tenantId,
-        employee_id: userId,
-        shift_date: tomorrowStr,
-        start_time_utc: startTimeUtc,
-        end_time_utc: endTimeUtc,
-        is_active: true,
-      },
-      returning: '*',
-    }),
-  });
-
-  if (!shiftResponse.ok) {
-    throw new Error(`Failed to create shift: ${JSON.stringify(shiftResponse.data)}`);
-  }
-
-  const shiftId = shiftResponse.data?.data?.[0]?.id || shiftResponse.data?.id;
-  if (!shiftId) {
-    throw new Error(`Failed to get shift ID from response`);
-  }
-
-  console.log(`✅ Created shift: ${shiftId.substring(0, 8)}...`);
-
-  // Create 3 slots
-  const slotTimes = [
-    { start: '10:00:00', end: '11:00:00' },
-    { start: '11:00:00', end: '12:00:00' },
-    { start: '12:00:00', end: '13:00:00' },
-  ];
-
-  for (let i = 0; i < slotTimes.length; i++) {
-    const slotTime = slotTimes[i];
-    const startTimeUtcSlot = `${tomorrowStr}T${slotTime.start}Z`;
-    const endTimeUtcSlot = `${tomorrowStr}T${slotTime.end}Z`;
-
-    const slotResponse = await apiRequest('/query', {
+  for (let i = 0; i < 10 && slotIds.length < 3; i++) {
+    const d = new Date(startDate);
+    d.setDate(startDate.getDate() + i);
+    const dateStr = d.toISOString().split('T')[0];
+    const ensure = await apiRequest('/bookings/ensure-employee-based-slots', {
       method: 'POST',
       body: JSON.stringify({
-        table: 'slots',
-        method: 'POST',
-        data: {
-          tenant_id: tenantId,
-          shift_id: shiftId,
-          slot_date: tomorrowStr,
-          start_time: slotTime.start,
-          end_time: slotTime.end,
-          start_time_utc: startTimeUtcSlot,
-          end_time_utc: endTimeUtcSlot,
-          original_capacity: 10,
-          available_capacity: 10,
-          booked_count: 0,
-          is_available: true,
-        },
-        returning: '*',
+        tenantId,
+        serviceId,
+        date: dateStr,
       }),
     });
-
-    if (!slotResponse.ok) {
-      throw new Error(`Failed to create slot ${i + 1}: ${JSON.stringify(slotResponse.data)}`);
+    if (!ensure.ok) continue;
+    const slots = Array.isArray(ensure.data?.slots) ? ensure.data.slots : [];
+      const available = slots.filter((s) => Number(s.available_capacity || 0) > 0);
+      const picked = pickNonOverlappingSlots(available, 3);
+      if (picked.length >= 3) {
+        slotIds = picked.map((s) => s.id);
+      console.log(`✅ Found ${slotIds.length} slots for ${dateStr}`);
+        picked.forEach((slot, idx) => {
+        console.log(`   Slot ${idx + 1}: ${slot.start_time} - ${slot.end_time} (Capacity: ${slot.available_capacity})`);
+      });
+      return;
     }
-
-    const slotId = slotResponse.data?.data?.[0]?.id || slotResponse.data?.id;
-    if (!slotId) {
-      throw new Error(`Failed to get slot ID from response`);
-    }
-
-    slotIds.push(slotId);
-    console.log(`✅ Created slot ${i + 1}: ${slotTime.start} - ${slotTime.end} (${slotId.substring(0, 8)}...)`);
   }
+
+  // Fallback: try other services in this tenant that have tag assignments and available slots
+  const servicesResponse = await apiRequest('/query', {
+    method: 'POST',
+    body: JSON.stringify({
+      table: 'services',
+      select: 'id, name',
+      where: { tenant_id: tenantId, is_active: true },
+      limit: 30,
+    }),
+  });
+  const services = Array.isArray(servicesResponse.data)
+    ? servicesResponse.data
+    : (servicesResponse.data?.data || []);
+  for (const svc of services) {
+    if (!svc?.id || svc.id === serviceId) continue;
+    serviceId = svc.id;
+    try {
+      await resolveServiceTagId();
+    } catch {
+      continue;
+    }
+    slotIds = [];
+    for (let i = 0; i < 10 && slotIds.length < 3; i++) {
+      const d = new Date(startDate);
+      d.setDate(startDate.getDate() + i);
+      const dateStr = d.toISOString().split('T')[0];
+      const ensure = await apiRequest('/bookings/ensure-employee-based-slots', {
+        method: 'POST',
+        body: JSON.stringify({ tenantId, serviceId, date: dateStr }),
+      });
+      if (!ensure.ok) continue;
+      const slots = Array.isArray(ensure.data?.slots) ? ensure.data.slots : [];
+      const available = slots.filter((s) => Number(s.available_capacity || 0) > 0);
+      const picked = pickNonOverlappingSlots(available, 3);
+      if (picked.length >= 3) {
+        slotIds = picked.map((s) => s.id);
+        console.log(`✅ Switched to service ${svc.name} with ${slotIds.length} slots on ${dateStr}`);
+        return;
+      }
+    }
+  }
+
+  throw new Error('Could not find 3 available service-matched slots in next 10 days (across active services)');
 }
 
 // Get slot details
@@ -307,6 +316,7 @@ async function testBulkBooking() {
     body: JSON.stringify({
       slot_ids: slotIds,
       service_id: serviceId,
+      tag_id: tagId,
       tenant_id: tenantId,
       customer_name: 'Test Customer',
       customer_phone: '+201234567890',
@@ -466,6 +476,7 @@ async function testOverbookingPrevention() {
     body: JSON.stringify({
       slot_ids: overbookingSlotIds,
       service_id: serviceId,
+      tag_id: tagId,
       tenant_id: tenantId,
       customer_name: 'Overbooking Test',
       customer_phone: '+201234567891',
@@ -498,6 +509,7 @@ async function runTests() {
 
     await login();
     await getOrCreateTestService();
+    await resolveServiceTagId();
     await getOrCreateTestSlots();
 
     if (slotIds.length < 3) {
