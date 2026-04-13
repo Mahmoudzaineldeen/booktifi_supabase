@@ -83,7 +83,7 @@ export function RolesPage() {
     try {
       const res = await apiFetch(`/roles/${role.id}`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load role');
+      if (!res.ok) throw new Error(data.error || t('roleManagement.failedToLoadRole'));
       setEditingRole(data);
       const roleCategory = data.category as 'admin' | 'employee';
       const allPermIds = data.permission_ids || [];
@@ -101,7 +101,7 @@ export function RolesPage() {
       });
       setModalOpen(true);
     } catch (e: any) {
-      showNotification('error', e.message || 'Failed to load role');
+      showNotification('error', e.message || t('roleManagement.failedToLoadRole'));
     }
   }
 
@@ -141,7 +141,7 @@ export function RolesPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) {
-      showNotification('error', 'Role name is required');
+      showNotification('error', t('roleManagement.roleNameRequired'));
       return;
     }
     setSaving(true);
@@ -164,10 +164,12 @@ export function RolesPage() {
         });
         const data = await res.json();
         if (!res.ok) {
-          const msg = data.details ? `${data.error || 'Failed to update role'}. ${data.details}` : (data.error || 'Failed to update role');
+          const msg = data.details
+            ? `${data.error || t('roleManagement.failedToUpdateRole')}. ${data.details}`
+            : (data.error || t('roleManagement.failedToUpdateRole'));
           throw new Error(msg);
         }
-        showNotification('success', 'Role updated');
+        showNotification('success', t('roleManagement.roleUpdated'));
         // Refetch current user permissions so if they have this role they see the new access immediately
         await refetchPermissions();
       } else {
@@ -177,15 +179,17 @@ export function RolesPage() {
         });
         const data = await res.json();
         if (!res.ok) {
-          const msg = data.details ? `${data.error || 'Failed to create role'}. ${data.details}` : (data.error || 'Failed to create role');
+          const msg = data.details
+            ? `${data.error || t('roleManagement.failedToCreateRole')}. ${data.details}`
+            : (data.error || t('roleManagement.failedToCreateRole'));
           throw new Error(msg);
         }
-        showNotification('success', 'Role created');
+        showNotification('success', t('roleManagement.roleCreated'));
       }
       setModalOpen(false);
       loadRoles();
     } catch (e: any) {
-      showNotification('error', e.message || 'Failed to save role');
+      showNotification('error', e.message || t('roleManagement.failedToSaveRole'));
     } finally {
       setSaving(false);
     }
@@ -200,11 +204,11 @@ export function RolesPage() {
     try {
       const res = await apiFetch(`/roles/${role.id}/disable`, { method: 'POST' });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to disable role');
-      showNotification('success', data.message || 'Role disabled');
+      if (!res.ok) throw new Error(data.error || t('roleManagement.failedToDisableRole'));
+      showNotification('success', data.message || t('roleManagement.roleDisabled'));
       loadRoles();
     } catch (e: any) {
-      showNotification('error', e.message || 'Failed to disable role');
+      showNotification('error', e.message || t('roleManagement.failedToDisableRole'));
     }
   }
 
@@ -219,10 +223,10 @@ export function RolesPage() {
       const res = await apiFetch(`/roles/${role.id}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Cannot delete role while users are assigned. Remove or reassign users first.');
-      showNotification('success', 'Role deleted');
+      showNotification('success', t('roleManagement.roleDeleted'));
       loadRoles();
     } catch (e: any) {
-      showNotification('error', e.message || 'Failed to delete role');
+      showNotification('error', e.message || t('roleManagement.failedToDeleteRole'));
     }
   }
 

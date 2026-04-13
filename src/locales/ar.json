@@ -1404,7 +1404,18 @@
     "disableConfirmDescription": "سيتم تعطيل المستخدمين الذين لديهم دور \"{{name}}\". لن يتمكنوا من تسجيل الدخول حتى تعيّن دوراً آخر أو تعيد التفعيل.",
     "deleteConfirmTitle": "حذف الدور؟",
     "deleteConfirmDescription": "لا يمكن التراجع عن هذا. سيتم إزالة الدور \"{{name}}\". يمكن حذف الأدوار التي لا يوجد لها مستخدمون معيّنون فقط.",
-    "noPermission": "ليس لديك صلاحية لإدارة الأدوار."
+    "noPermission": "ليس لديك صلاحية لإدارة الأدوار.",
+    "roleNameRequired": "اسم الدور مطلوب",
+    "roleUpdated": "تم تحديث الدور",
+    "roleCreated": "تم إنشاء الدور",
+    "roleDisabled": "تم تعطيل الدور",
+    "roleDeleted": "تم حذف الدور",
+    "failedToLoadRole": "فشل تحميل الدور",
+    "failedToSaveRole": "فشل حفظ الدور",
+    "failedToDisableRole": "فشل تعطيل الدور",
+    "failedToDeleteRole": "فشل حذف الدور",
+    "failedToUpdateRole": "فشل تحديث الدور",
+    "failedToCreateRole": "فشل إنشاء الدور"
   },
   "support": {
     "assignFixingTicket": "تعيين تذكرة إصلاح"

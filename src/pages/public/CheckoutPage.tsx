@@ -301,7 +301,7 @@ export function CheckoutPage() {
       if (isPackagePurchase) {
         const packageId = locationState?.packageId;
         if (!packageId) {
-          showNotification('error','Package ID is required');
+          showNotification('error', t('common.packageIdRequired'));
           navigate(`/${tenantSlug}/book`);
           return;
         }

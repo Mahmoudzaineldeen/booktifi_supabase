@@ -1036,7 +1036,18 @@
     "disableConfirmDescription": "Users with role \"{{name}}\" will be deactivated. They will not be able to sign in until you assign a different role or reactivate.",
     "deleteConfirmTitle": "Delete role?",
     "deleteConfirmDescription": "This cannot be undone. The role \"{{name}}\" will be removed. Only roles with no assigned users can be deleted.",
-    "noPermission": "You do not have permission to manage roles."
+    "noPermission": "You do not have permission to manage roles.",
+    "roleNameRequired": "Role name is required",
+    "roleUpdated": "Role updated",
+    "roleCreated": "Role created",
+    "roleDisabled": "Role disabled",
+    "roleDeleted": "Role deleted",
+    "failedToLoadRole": "Failed to load role",
+    "failedToSaveRole": "Failed to save role",
+    "failedToDisableRole": "Failed to disable role",
+    "failedToDeleteRole": "Failed to delete role",
+    "failedToUpdateRole": "Failed to update role",
+    "failedToCreateRole": "Failed to create role"
   },
   "support": {
     "assignFixingTicket": "Assign Fixing Ticket"

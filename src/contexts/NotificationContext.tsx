@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useRef, useState } from 
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
+import { localizeUiMessage } from '../lib/localizeUiMessage';
 
 export type NotificationType = 'success' | 'error' | 'warning' | 'info';
 
@@ -48,11 +49,12 @@ function ToastItem({
   notification: Notification;
   onDismiss: (id: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [visible, setVisible] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const style = TYPE_STYLES[notification.type];
   const { Icon } = style;
+  const localizedMessage = localizeUiMessage(notification.message, t);
 
   React.useEffect(() => {
     const rafId = requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
@@ -82,10 +84,10 @@ function ToastItem({
         min-w-[280px] max-w-[420px] transition-all duration-300 ease-out
         ${visible && !leaving ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'}
       `}
-      style={{ direction: 'ltr' }}
+      style={{ direction: i18n.language?.startsWith('ar') ? 'rtl' : 'ltr' }}
     >
       <Icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${style.icon}`} />
-      <p className="flex-1 text-sm font-medium text-gray-800 break-words">{notification.message}</p>
+      <p className="flex-1 text-sm font-medium text-gray-800 break-words">{localizedMessage}</p>
       <button
         type="button"
         onClick={handleClose}
@@ -99,6 +101,7 @@ function ToastItem({
 }
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
+  const { i18n } = useTranslation();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const addRef = useRef<(type: NotificationType, message: string, options?: { duration?: number }) => void>();
 
@@ -129,7 +132,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const toastContainer = (
     <div
       className="fixed top-4 right-4 z-[10000] flex flex-col gap-3 pointer-events-none"
-      style={{ direction: 'ltr' }}
+      style={{ direction: i18n.language?.startsWith('ar') ? 'rtl' : 'ltr' }}
     >
       <div className="flex flex-col gap-3 pointer-events-auto">
         {notifications.map((n) => (

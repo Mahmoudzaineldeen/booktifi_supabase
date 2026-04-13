@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, X } from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import { localizeUiMessage } from '../lib/localizeUiMessage';
 
 export interface ConfirmOptions {
   title: string;
@@ -31,7 +32,7 @@ export function showConfirm(options: ConfirmOptions): Promise<boolean> {
 }
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [state, setState] = useState<ConfirmState | null>(null);
   const showConfirmRef = useRef<(options: ConfirmOptions) => Promise<boolean>>();
 
@@ -68,7 +69,12 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
 
   const modal =
     state?.open && state.resolve ? (
-      <div className="fixed inset-0 z-[9999] overflow-y-auto" aria-modal="true" role="dialog">
+      <div
+        className="fixed inset-0 z-[9999] overflow-y-auto"
+        aria-modal="true"
+        role="dialog"
+        style={{ direction: i18n.language?.startsWith('ar') ? 'rtl' : 'ltr' }}
+      >
         <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={handleCancel} />
         <div className="flex min-h-full items-center justify-center p-4">
           <div
@@ -86,8 +92,8 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="text-lg font-semibold text-gray-900">{state.title}</h3>
-                <p className="mt-2 text-sm text-gray-600">{state.description}</p>
+                <h3 className="text-lg font-semibold text-gray-900">{localizeUiMessage(state.title, t)}</h3>
+                <p className="mt-2 text-sm text-gray-600">{localizeUiMessage(state.description, t)}</p>
               </div>
               <button
                 type="button"
@@ -108,10 +114,10 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                     : undefined
                 }
               >
-                {state.confirmText ?? t('common.confirm')}
+                {state.confirmText ? localizeUiMessage(state.confirmText, t) : t('common.confirm')}
               </Button>
               <Button variant="secondary" onClick={handleCancel}>
-                {state.cancelText ?? t('common.cancel')}
+                {state.cancelText ? localizeUiMessage(state.cancelText, t) : t('common.cancel')}
               </Button>
             </div>
           </div>

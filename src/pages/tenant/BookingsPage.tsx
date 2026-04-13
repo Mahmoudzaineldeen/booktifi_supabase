@@ -595,6 +595,27 @@ export function BookingsPage() {
     return Math.max(0, Number(tag.fee_value ?? 0));
   }
 
+  function getEditSelectedTagSlotCount(targetBooking: Booking): number {
+    const chosenTagId = editSelectedTagId || targetBooking.tag_id || '';
+    const selectedTag = editPricingTags.find((x) => x.id === chosenTagId);
+    const selectedTagSlots = Number(selectedTag?.slot_count ?? NaN);
+    if (Number.isFinite(selectedTagSlots) && selectedTagSlots >= 1) {
+      return Math.max(1, Math.ceil(selectedTagSlots));
+    }
+
+    const fallbackTagSlots = chosenTagId ? Number(bookingTagSlotCountMap[String(chosenTagId)] ?? NaN) : NaN;
+    if (Number.isFinite(fallbackTagSlots) && fallbackTagSlots >= 1) {
+      return Math.max(1, Math.ceil(fallbackTagSlots));
+    }
+
+    const bookingRequiredSlots = Number(targetBooking.required_slot_count ?? NaN);
+    if (Number.isFinite(bookingRequiredSlots) && bookingRequiredSlots >= 1) {
+      return Math.max(1, Math.ceil(bookingRequiredSlots));
+    }
+
+    return 1;
+  }
+
   function getEditPricingMeta(targetBooking: Booking, tagId: string, consumeFromPackage: boolean) {
     const service = createServices.find((s) => s.id === targetBooking.service_id);
     const unitPrice = Number(service?.base_price ?? 0);
@@ -1747,7 +1768,7 @@ export function BookingsPage() {
         tenantId,
         serviceId,
         date: targetDate,
-        includePastSlots: true,  // Allow rescheduling to any slot (past or future)
+        includePastSlots: false, // Same as create flow: filter out past slots
         includeLockedSlots: false, // Still exclude locked slots
         includeZeroCapacity: false, // Still exclude fully booked slots
       });
@@ -1780,7 +1801,7 @@ export function BookingsPage() {
               tenantId,
               serviceId,
               date: targetDate,
-              includePastSlots: true,
+              includePastSlots: false,
               includeLockedSlots: false,
               includeZeroCapacity: true, // Include fully booked slots
             });
@@ -2343,6 +2364,11 @@ export function BookingsPage() {
   const createSlotsForSelection = createForm.visitor_count <= 1
     ? (filterSlotsByRequiredConsecutive(createSlots, requiredDurationSlotsForCreate) as Slot[])
     : createSlots;
+  const requiredDurationSlotsForEdit =
+    editingBooking && Number(editingBooking.visitor_count || 1) <= 1
+      ? getEditSelectedTagSlotCount(editingBooking)
+      : 1;
+  const editSlotsForSelection = (filterSlotsByRequiredConsecutive(availableTimeSlots, requiredDurationSlotsForEdit) as Slot[]);
 
   if (loading) {
     return (
@@ -4240,7 +4266,7 @@ export function BookingsPage() {
                       <option value="">{t('reception.chooseEmployee') || 'Choose employee'}</option>
                       {(() => {
                         const empMap = new Map<string, { id: string; name: string; name_ar: string }>();
-                        availableTimeSlots.forEach(slot => {
+                        editSlotsForSelection.forEach(slot => {
                           if ((slot as any).employee_id && !empMap.has((slot as any).employee_id)) {
                             const u = (slot as any).users;
                             empMap.set((slot as any).employee_id, {
@@ -4269,8 +4295,8 @@ export function BookingsPage() {
                   ) : (() => {
                     const requireEmployeeFirst = isEmployeeBasedMode && (tenantAssignmentMode === 'manual' || tenantAssignmentMode === 'both');
                     const slotsToShow = changeTimeEmployeeId
-                      ? availableTimeSlots.filter((s) => (s as any).employee_id === changeTimeEmployeeId)
-                      : requireEmployeeFirst ? [] : availableTimeSlots;
+                      ? editSlotsForSelection.filter((s) => (s as any).employee_id === changeTimeEmployeeId)
+                      : requireEmployeeFirst ? [] : editSlotsForSelection;
                     if (requireEmployeeFirst && !changeTimeEmployeeId) {
                       return (
                         <p className="text-sm text-blue-800 p-4 bg-blue-50 rounded-lg border border-blue-200">
