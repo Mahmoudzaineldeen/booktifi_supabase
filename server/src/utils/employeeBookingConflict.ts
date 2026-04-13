@@ -32,3 +32,13 @@ export function findOverlappingBooking(
   }
   return null;
 }
+
+export function resolveEmployeeForBookingTimeEdit(params: {
+  newSlotEmployeeId?: string | null;
+  currentBookingEmployeeId?: string | null;
+}): string | null {
+  const { newSlotEmployeeId, currentBookingEmployeeId } = params;
+  if (newSlotEmployeeId) return newSlotEmployeeId;
+  if (currentBookingEmployeeId) return currentBookingEmployeeId;
+  return null;
+}

@@ -13,7 +13,7 @@ import { formatTimeTo12Hour } from '../utils/timeFormat';
 import { getPermissionsForUserByUserId } from '../permissions.js';
 import { computeTagAdjustedDuration, resolveBookingTagForCreate } from '../services/tagPricingResolve.js';
 import { buildEffectiveEmployeeShifts, mergeEffectiveShiftsForCalendarDay, type EffectiveShift } from '../utils/employeeShiftResolution';
-import { findOverlappingBooking } from '../utils/employeeBookingConflict';
+import { findOverlappingBooking, resolveEmployeeForBookingTimeEdit } from '../utils/employeeBookingConflict';
 import { normalizePhoneNumber } from '../utils/normalizePhoneNumber';
 import {
   buildDigitFuzzyPattern,
@@ -5261,13 +5261,42 @@ router.patch('/:id', authenticateReceptionistOrCoordinatorForPatch, async (req, 
       throw updateError;
     }
 
-    // Invalidate employee-based availability cache when booking is cancelled (employee-based mode only)
-    if (updatePayload.status === 'cancelled' && currentBooking.service_id) {
-      try {
-        const { data: s } = await supabase.from('slots').select('slot_date').eq('id', currentBooking.slot_id).single();
-        if ((s as any)?.slot_date) invalidateEmployeeAvailability(tenantId, currentBooking.service_id, (s as any).slot_date);
-      } catch (_) { /* non-blocking */ }
-    }
+    // Invalidate employee-based availability cache after any booking update.
+    // This covers employee re-assignment, service/slot/date changes, and cancellations.
+    try {
+      const oldServiceId = currentBooking.service_id || null;
+      const newServiceId = (updatedBooking as any)?.service_id || oldServiceId;
+      const slotIdsForDates = Array.from(
+        new Set(
+          [currentBooking.slot_id, (updatedBooking as any)?.slot_id]
+            .filter(Boolean)
+            .map((id) => String(id))
+        )
+      );
+      const slotDateById = new Map<string, string>();
+      if (slotIdsForDates.length > 0) {
+        const { data: slotRows } = await supabase
+          .from('slots')
+          .select('id, slot_date')
+          .in('id', slotIdsForDates);
+        for (const row of slotRows || []) {
+          if ((row as any)?.id && (row as any)?.slot_date) {
+            slotDateById.set(String((row as any).id), String((row as any).slot_date));
+          }
+        }
+      }
+      const oldDate = currentBooking.slot_id ? slotDateById.get(String(currentBooking.slot_id)) : null;
+      const newDate = (updatedBooking as any)?.slot_id ? slotDateById.get(String((updatedBooking as any).slot_id)) : null;
+
+      if (oldServiceId) {
+        if (oldDate) invalidateEmployeeAvailability(tenantId, oldServiceId, oldDate);
+        else invalidateEmployeeAvailability(tenantId, oldServiceId);
+      }
+      if (newServiceId && (newServiceId !== oldServiceId || newDate !== oldDate)) {
+        if (newDate) invalidateEmployeeAvailability(tenantId, newServiceId, newDate);
+        else invalidateEmployeeAvailability(tenantId, newServiceId);
+      }
+    } catch (_) { /* non-blocking */ }
 
     // TASK 9 & 10: If slot changed, invalidate old ticket and generate new one, then notify customer
     if (slotChanged && oldSlotId) {
@@ -5508,7 +5537,7 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
 
     const { data: currentBookingForConflict, error: currentBookingFetchError } = await supabase
       .from('bookings')
-      .select('id, tenant_id, employee_id')
+      .select('id, tenant_id, employee_id, service_id, slot_id')
       .eq('id', bookingId)
       .single();
     if (currentBookingFetchError || !currentBookingForConflict) {
@@ -5526,7 +5555,10 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
       return res.status(403).json({ error: 'Selected new slot belongs to a different tenant' });
     }
 
-    const effectiveEmployeeIdForEdit = (currentBookingForConflict as any).employee_id || newSlotForConflict.employeeId;
+    const effectiveEmployeeIdForEdit = resolveEmployeeForBookingTimeEdit({
+      newSlotEmployeeId: newSlotForConflict.employeeId,
+      currentBookingEmployeeId: (currentBookingForConflict as any).employee_id,
+    });
     if (effectiveEmployeeIdForEdit) {
       const editConflict = await findEmployeeBookingConflict({
         tenantId,
@@ -6111,6 +6143,34 @@ router.patch('/:id/time', authenticateReceptionistOrTenantAdmin, async (req, res
       console.error(`[Booking Time Edit]    User Role: ${req.user?.role || 'N/A'}`);
       console.error(`[Booking Time Edit]    This means tickets will NOT be sent to the customer!`);
     }
+
+    // Invalidate employee-based availability cache for both old/new service+date.
+    // This prevents stale "employee is busy" state after reassignment/reschedule.
+    try {
+      const oldServiceId = (currentBookingForConflict as any)?.service_id || null;
+      const newServiceId = (updatedBooking as any)?.service_id || oldServiceId;
+
+      let oldDate: string | null = null;
+      const oldSlotId = (currentBookingForConflict as any)?.slot_id || null;
+      if (oldSlotId) {
+        const { data: oldSlotRow } = await supabase
+          .from('slots')
+          .select('slot_date')
+          .eq('id', oldSlotId)
+          .maybeSingle();
+        oldDate = ((oldSlotRow as any)?.slot_date as string | undefined) || null;
+      }
+      const newDate = ((updatedBooking as any)?.slots?.slot_date as string | undefined) || oldDate;
+
+      if (oldServiceId) {
+        if (oldDate) invalidateEmployeeAvailability(tenantId, oldServiceId, oldDate);
+        else invalidateEmployeeAvailability(tenantId, oldServiceId);
+      }
+      if (newServiceId && (newServiceId !== oldServiceId || newDate !== oldDate)) {
+        if (newDate) invalidateEmployeeAvailability(tenantId, newServiceId, newDate);
+        else invalidateEmployeeAvailability(tenantId, newServiceId);
+      }
+    } catch (_) { /* non-blocking */ }
 
     // Update invoice if price changed (asynchronously)
     if (editData.price_changed && updatedBooking?.zoho_invoice_id) {

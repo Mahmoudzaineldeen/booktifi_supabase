@@ -2926,7 +2926,13 @@ export function ReceptionPage() {
         setEditConsumeFromPackage(false);
         setEditCustomerPackages([]);
       }
-      const msg = (result.message && String(result.message).trim()) || t('bookings.bookingUpdatedSuccessfully') || 'Booking updated successfully!';
+      const slotChanged = !!result.slot_changed;
+      const invoiceRegenerating = !!result.invoice_created;
+      const msg = slotChanged
+        ? t('bookings.bookingRescheduledTicketSent')
+        : invoiceRegenerating
+          ? t('bookings.bookingUpdatedInvoiceRegenerating')
+          : t('bookings.bookingUpdatedSuccessfully');
       showNotification('success', msg);
     } catch (err: any) {
       console.error('Error updating booking:', err);
@@ -3003,7 +3009,7 @@ export function ReceptionPage() {
     const tagChanged = !!editingOriginalBooking && ((editingBooking as any).tag_id || '') !== ((editingOriginalBooking as any).tag_id || '');
     const timeChanged = selectedNewSlotId && selectedNewSlotId !== (editingBooking as any).slot_id;
     if ((serviceChanged || tagChanged) && !timeChanged) {
-      showNotification('warning', t('bookings.selectNewSlotAfterServiceChange') || 'Please select a new time slot for the selected service.');
+      showNotification('warning', t('bookings.pleaseSelectNewTimeSlotAfterServiceOrTagChange') || 'Please select a new time slot after changing the service or tag.');
       return;
     }
     if (timeChanged) {
@@ -3433,25 +3439,11 @@ export function ReceptionPage() {
         }
       }, 1500);
       
-      // Show a clear, informative success message
-      let successMessage = '';
-      
-      if (result.message) {
-        // Use the backend message which is already comprehensive
-        successMessage = result.message;
-      } else {
-        // Fallback to translation or default
-        successMessage = t('bookings.bookingTimeUpdatedSuccessfully') || 'Booking time updated successfully!';
-        
-        // Add details if available
-        if (result.tickets_invalidated) {
-          successMessage += '\n\n' + (t('bookings.oldTicketsInvalidated') || 'Old tickets have been invalidated.');
-        }
-        if (result.new_ticket_generated) {
-          successMessage += '\n' + (t('bookings.newTicketSent') || 'A new ticket has been sent to the customer.');
-        }
-      }
-      
+      const successMessage = result.tickets_sent
+        ? t('bookings.bookingTimeUpdatedTicketSent')
+        : result.new_ticket_generated
+          ? t('bookings.bookingTimeUpdatedTicketNotSent')
+          : t('bookings.bookingTimeUpdatedTicketNoData');
       showNotification('success', successMessage);
     } catch (error: any) {
       console.error('[ReceptionPage] ❌ Error updating booking time:', error);

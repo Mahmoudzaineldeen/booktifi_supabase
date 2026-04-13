@@ -1456,10 +1456,13 @@ export function BookingsPage() {
         setEditConsumeFromPackage(false);
       }
 
-      const message = (result.message && String(result.message).trim())
-        || (result.invoice_created
-          ? (t('bookings.bookingUpdatedAndInvoiceSent') || 'Booking updated. A new invoice has been created and sent to the customer.')
-          : t('bookings.bookingUpdatedSuccessfully'));
+      const slotChanged = !!result.slot_changed;
+      const invoiceRegenerating = !!result.invoice_created;
+      const message = slotChanged
+        ? t('bookings.bookingRescheduledTicketSent')
+        : invoiceRegenerating
+          ? t('bookings.bookingUpdatedInvoiceRegenerating')
+          : t('bookings.bookingUpdatedSuccessfully');
       showNotification('success', message);
       return result;
     } catch (error: any) {
@@ -1480,7 +1483,7 @@ export function BookingsPage() {
     const tagChanged = !!editingOriginalBooking && (editingBooking.tag_id || '') !== (editingOriginalBooking.tag_id || '');
     const timeChanged = selectedNewSlotId && selectedNewSlotId !== editingBooking.slot_id;
     if ((serviceChanged || tagChanged) && !timeChanged) {
-      showNotification('warning', t('bookings.selectNewSlotAfterServiceChange') || 'Please select a new time slot for the selected service.');
+      showNotification('warning', t('bookings.pleaseSelectNewTimeSlotAfterServiceOrTagChange') || 'Please select a new time slot after changing the service or tag.');
       return;
     }
     if (timeChanged) {

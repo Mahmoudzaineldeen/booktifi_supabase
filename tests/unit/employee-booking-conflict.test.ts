@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { findOverlappingBooking, rangesOverlap } from '../../server/src/utils/employeeBookingConflict';
+import {
+  findOverlappingBooking,
+  rangesOverlap,
+  resolveEmployeeForBookingTimeEdit,
+} from '../../server/src/utils/employeeBookingConflict';
 
 describe('employee booking conflict helper', () => {
   it('detects overlap with the same date', () => {
@@ -44,5 +48,13 @@ describe('employee booking conflict helper', () => {
       { excludeBookingId: 'same' }
     );
     expect(overlap).toBeNull();
+  });
+
+  it('prefers new slot employee during time edits', () => {
+    const resolved = resolveEmployeeForBookingTimeEdit({
+      newSlotEmployeeId: 'employee-1111',
+      currentBookingEmployeeId: 'employee-2',
+    });
+    expect(resolved).toBe('employee-1111');
   });
 });
