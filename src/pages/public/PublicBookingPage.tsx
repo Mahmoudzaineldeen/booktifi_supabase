@@ -12,7 +12,7 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { Modal } from '../../components/ui/Modal';
 import { LanguageToggle } from '../../components/layout/LanguageToggle';
 import { PhoneInput } from '../../components/ui/PhoneInput';
-import { Calendar, Clock, CheckCircle, Phone, Mail, MapPin, Facebook, Twitter, Instagram, User, Edit2, Trash2, UserPlus, Package, X, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Calendar, Clock, CheckCircle, Phone, Mail, MapPin, Facebook, Twitter, Instagram, User, Edit2, Trash2, UserPlus, Package, X, ChevronLeft, ChevronRight, Search, Star, CreditCard } from 'lucide-react';
 import { ImageCarousel } from '../../components/ui/ImageCarousel';
 import { ImageGallery } from '../../components/ui/ImageGallery';
 import { StarRating } from '../../components/ui/StarRating';
@@ -38,6 +38,7 @@ interface Tenant {
   name: string;
   name_ar: string;
   slug: string;
+  logo_url?: string;
   landing_page_settings: any;
 }
 
@@ -331,7 +332,7 @@ function PublicBookingPage() {
       setLoading(true);
       const { data: tenantData, error: tenantError } = await db
         .from('tenants')
-        .select('id, name, name_ar, slug, landing_page_settings, is_active, maintenance_mode')
+        .select('id, name, name_ar, slug, logo_url, landing_page_settings, is_active, maintenance_mode')
         .eq('slug', tenantSlug)
         .maybeSingle();
 
@@ -1296,6 +1297,7 @@ function PublicBookingPage() {
   const testimonials = Array.isArray(settings.testimonials) ? (settings.testimonials as Testimonial[]) : [];
   const faqItems = Array.isArray(settings.faq_items) ? (settings.faq_items as FAQItem[]) : [];
   const videoUrl = settings.video_url || null;
+  const tenantLogoUrl = typeof tenant.logo_url === 'string' ? tenant.logo_url : '';
 
   // Calculate trust indicators from database reviews
   const calculatedRating = allReviews.length > 0
@@ -1306,22 +1308,37 @@ function PublicBookingPage() {
   // Round rating to 1 decimal place
   const displayRating = calculatedRating > 0 ? Math.round(calculatedRating * 10) / 10 : 0;
   const displayReviewCount = calculatedReviewCount;
+  const dynamicHeroColors =
+    dynamicLandingPage?.sections?.find((section) => section?.type === 'hero')?.content || {};
+  const dynamicPrimaryColor = typeof dynamicHeroColors.primary_color === 'string' ? dynamicHeroColors.primary_color : primaryColor;
+  const dynamicSecondaryColor = typeof dynamicHeroColors.secondary_color === 'string' ? dynamicHeroColors.secondary_color : secondaryColor;
+
+  const hasVisiblePackagesSection =
+    !!dynamicLandingPage?.sections?.some((s) => s.type === 'packages' && s.is_visible !== false);
 
   if (dynamicLandingPage && dynamicLandingPage.sections.length > 0) {
     return (
       <div className="min-h-screen bg-gray-50">
         <header
           className="bg-white/95 backdrop-blur-md shadow-md sticky top-0 z-50 border-b"
-          style={{ borderColor: `${primaryColor}15` }}
+          style={{ borderColor: `${dynamicPrimaryColor}15` }}
         >
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div
-                className="p-2.5 rounded-xl shadow-lg"
-                style={{ background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)` }}
-              >
-                <Package className="w-6 h-6 text-white" />
-              </div>
+              {tenantLogoUrl ? (
+                <img
+                  src={tenantLogoUrl}
+                  alt={i18n.language === 'ar' ? tenant.name_ar : tenant.name}
+                  className="h-10 w-auto max-w-[12rem] object-contain"
+                />
+              ) : (
+                <div
+                  className="p-2.5 rounded-xl shadow-lg"
+                  style={{ background: `linear-gradient(135deg, ${dynamicPrimaryColor} 0%, ${dynamicSecondaryColor} 100%)` }}
+                >
+                  <Package className="w-6 h-6 text-white" />
+                </div>
+              )}
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-gray-900">
                   {i18n.language === 'ar' ? tenant.name_ar : tenant.name}
@@ -1330,6 +1347,27 @@ function PublicBookingPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
+              {isLoggedIn ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate(`/${tenantSlug}/customer/dashboard`)}
+                  style={{ color: dynamicPrimaryColor }}
+                >
+                  <User className="w-4 h-4 mr-2" />
+                  {t('booking.myAccount')}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={() => navigate(`/${tenantSlug}/customer/login`)}
+                  style={{ backgroundColor: dynamicPrimaryColor, borderColor: dynamicPrimaryColor, color: 'white' }}
+                >
+                  <User className="w-4 h-4 mr-2" />
+                  {t('booking.signIn')}
+                </Button>
+              )}
+              <div className="h-6 w-px bg-gray-300"></div>
               <LanguageToggle />
             </div>
           </div>
@@ -1342,6 +1380,15 @@ function PublicBookingPage() {
           tenantNameAr={tenant.name_ar}
           services={services}
           formatPrice={formatPrice}
+          packages={packages}
+          packagesEnabled={packagesEnabled}
+          formatPackageDisplayName={(pkg, lang) => formatPackageName(pkg as ServicePackage, lang)}
+          serviceReviewsByServiceId={serviceReviews}
+          onShowMoreService={(service) => setServiceDetailModal({ isOpen: true, service: service as Service })}
+          onSelectPackage={(pkg) => {
+            if (!tenantSlug || !pkg.id) return;
+            navigate(`/${tenantSlug}/packages/${pkg.id}/schedule`);
+          }}
           onSelectService={(service) => {
             if (!tenantSlug) return;
             const maybeOffer = service as any;
@@ -1352,6 +1399,139 @@ function PublicBookingPage() {
             }
           }}
         />
+
+        {/* Packages fallback when layout has no Packages section (backward compatible) */}
+        {!hasVisiblePackagesSection && packagesEnabled && packages.length > 0 && (
+          <section id="packages" className="py-16 px-4 bg-gray-50">
+            <div className="max-w-7xl mx-auto">
+              <div className="text-center mb-12">
+                <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
+                  {t('booking.ourPackages')}
+                </h2>
+                <p className="text-lg text-gray-600 mt-2">{t('booking.choosePackage')}</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {packages.map((pkg) => {
+                  const packageDisplayName = formatPackageName(pkg, i18n.language);
+                  const packageImages = pkg.gallery_urls && pkg.gallery_urls.length > 0
+                    ? pkg.gallery_urls
+                    : (pkg.image_url ? [pkg.image_url] : []);
+                  return (
+                    <div
+                      key={pkg.id}
+                      className="bg-white rounded-lg shadow-lg overflow-hidden border-2 border-gray-200 hover:border-blue-400 transition-all duration-300 cursor-pointer"
+                      onClick={() => {
+                        if (tenantSlug && pkg.id) {
+                          navigate(`/${tenantSlug}/packages/${pkg.id}/schedule`);
+                        }
+                      }}
+                    >
+                      <div className="h-48 bg-gray-100">
+                        {packageImages.length > 1 ? (
+                          <ImageCarousel images={packageImages} className="h-full w-full" aspectRatio="auto" showDots showArrows />
+                        ) : packageImages.length === 1 ? (
+                          <img src={packageImages[0]} alt={packageDisplayName} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Package className="w-16 h-16 text-gray-400" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-5">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">{packageDisplayName}</h3>
+                        <p className="text-xl font-bold" style={{ color: dynamicPrimaryColor }}>
+                          {formatPrice(pkg.total_price)}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* About + YouTube section (kept in dynamic mode) */}
+        <section id="about" className="py-16 md:py-24 px-4 bg-white">
+          <div className="max-w-4xl mx-auto text-center">
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-6">
+              {i18n.language === 'ar'
+                ? settings.about_title_ar || 'حول خدماتنا المميزة'
+                : settings.about_title || 'About Our Premium Services'}
+            </h2>
+            <p className="text-lg md:text-xl text-gray-600 leading-relaxed max-w-3xl mx-auto">
+              {i18n.language === 'ar'
+                ? settings.about_description_ar || 'نقدم خدمات عالية الجودة مع فريق محترف'
+                : settings.about_description || 'We provide quality services with professional staff'}
+            </p>
+          </div>
+        </section>
+
+        {videoUrl && videoUrl.trim() && (
+          <section className="py-16 md:py-24 px-4 bg-gray-50">
+            <div className="max-w-5xl mx-auto">
+              <VideoEmbed url={videoUrl} className="rounded-lg shadow-xl" />
+            </div>
+          </section>
+        )}
+
+        {/* booking.youMayAlsoLike section (kept in dynamic mode) */}
+        {services.length > 1 && (
+          <section className="py-16 md:py-24 px-4 bg-white">
+            <div className="max-w-7xl mx-auto">
+              <div className="text-center mb-12">
+                <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+                  {t('booking.youMayAlsoLike')}
+                </h2>
+                <p className="text-lg text-gray-600">{t('booking.discoverMoreServices')}</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {services.slice(0, 4).map((service) => {
+                  const serviceImages =
+                    Array.isArray(service.gallery_urls) && service.gallery_urls.length > 0
+                      ? service.gallery_urls.filter((img: any) => img && typeof img === 'string')
+                      : (service.image_url ? [service.image_url] : []);
+                  return (
+                    <div
+                      key={service.id}
+                      className="hover:shadow-xl transition-all duration-300 cursor-pointer overflow-hidden group bg-white rounded-lg shadow-md"
+                      onClick={() => {
+                        if (!tenantSlug) return;
+                        const maybeOffer = service as any;
+                        if (maybeOffer.is_offer && maybeOffer.service_id) {
+                          navigate(`/${tenantSlug}/book/${maybeOffer.service_id}?offer=${maybeOffer.offer_id}`);
+                        } else {
+                          navigate(`/${tenantSlug}/book/${service.id}`);
+                        }
+                      }}
+                    >
+                      {serviceImages.length > 0 ? (
+                        <img
+                          src={serviceImages[0]}
+                          alt={i18n.language === 'ar' ? service.name_ar : service.name}
+                          className="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                      ) : (
+                        <div className="w-full h-40 bg-gray-100 flex items-center justify-center">
+                          <Package className="w-12 h-12 text-gray-400" />
+                        </div>
+                      )}
+                      <div className="p-4">
+                        <h3 className="text-lg font-bold text-gray-900 mb-2 line-clamp-2">
+                          {i18n.language === 'ar' ? service.name_ar : service.name}
+                        </h3>
+                        <p className="text-lg font-bold" style={{ color: dynamicPrimaryColor }}>
+                          {formatPrice(service.base_price)}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
       </div>
     );
   }
@@ -1385,14 +1565,22 @@ function PublicBookingPage() {
           <div className="flex items-center justify-between py-6">
             {/* Logo/Brand Section */}
             <div className="flex items-center gap-3 cursor-pointer group" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-              <div 
-                className="p-3 rounded-xl shadow-lg transition-all duration-300 group-hover:scale-105 group-hover:shadow-xl"
-                style={{ 
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`
-                }}
-              >
-                <Package className="w-7 h-7 text-white" />
-              </div>
+              {tenantLogoUrl ? (
+                <img
+                  src={tenantLogoUrl}
+                  alt={i18n.language === 'ar' ? tenant.name_ar : tenant.name}
+                  className="h-12 md:h-14 w-auto max-w-[14rem] object-contain transition-all duration-300 group-hover:scale-105"
+                />
+              ) : (
+                <div
+                  className="p-3 rounded-xl shadow-lg transition-all duration-300 group-hover:scale-105 group-hover:shadow-xl"
+                  style={{
+                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`
+                  }}
+                >
+                  <Package className="w-7 h-7 text-white" />
+                </div>
+              )}
               <div className="flex flex-col">
                 <h1 
                   className="text-2xl md:text-3xl font-bold bg-clip-text text-transparent transition-all duration-300 group-hover:opacity-80"
@@ -2791,7 +2979,7 @@ function PublicBookingPage() {
         />
       )}
 
-      {/* Service Detail Modal - Shows images and latest 5 reviews */}
+      {/* Service Detail Modal - gallery + reviews */}
       {serviceDetailModal.isOpen && serviceDetailModal.service && (() => {
         const modalService = serviceDetailModal.service!;
         let modalServiceImages: string[] = [];
@@ -2806,7 +2994,7 @@ function PublicBookingPage() {
         
         // Get latest 5 reviews for this service
         const serviceReviewsList = serviceReviews[modalService.id] || [];
-        const latestReviews = serviceReviewsList
+        const latestReviews = [...serviceReviewsList]
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
           .slice(0, 5)
           .map(review => ({
@@ -2814,21 +3002,24 @@ function PublicBookingPage() {
             service_name: modalService.name,
             service_name_ar: modalService.name_ar,
           }));
+        const modalServiceRating = latestReviews.length > 0
+          ? Math.round((latestReviews.reduce((sum, review) => sum + (review.rating || 0), 0) / latestReviews.length) * 10) / 10
+          : Math.round(((modalService.average_rating || 0) * 10)) / 10;
+        const modalReviewCount = serviceReviewsList.length > 0 ? serviceReviewsList.length : (modalService.total_reviews || 0);
+        const modalBookNowPayLaterText = i18n.language === 'ar' ? 'احجز الآن وادفع لاحقاً' : 'Book now, pay later';
+        const modalFlexibleDurationText = i18n.language === 'ar' ? 'مدة مرنة' : 'Flexible duration';
         
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Transparent black background with fade animation */}
             <div 
               className="fixed inset-0 bg-black bg-opacity-60 animate-[fadeIn_0.3s_ease-out]" 
               onClick={() => setServiceDetailModal({ isOpen: false, service: null })} 
             />
 
-            {/* Modal Content - Square, centered with smooth animation */}
-            <div className="relative bg-white rounded-lg shadow-2xl w-full max-w-4xl aspect-square max-h-[90vh] overflow-hidden flex flex-col animate-[modalAppear_0.3s_ease-out]">
-              {/* Header */}
-              <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10 flex-shrink-0">
-                <h2 className="text-xl font-bold text-gray-900 truncate pr-4">
-                  {i18n.language === 'ar' ? modalService.name_ar : modalService.name}
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col animate-[modalAppear_0.3s_ease-out]">
+              <div className="sticky top-0 bg-white px-5 py-4 flex items-center justify-between z-10 flex-shrink-0 border-b border-gray-100">
+                <h2 className="text-lg md:text-xl font-bold text-gray-900 truncate pr-4">
+                  {i18n.language === 'ar' ? (modalService.name_ar || modalService.name) : (modalService.name || modalService.name_ar)}
                 </h2>
                 <button
                   onClick={() => setServiceDetailModal({ isOpen: false, service: null })}
@@ -2838,34 +3029,69 @@ function PublicBookingPage() {
                 </button>
               </div>
 
-              {/* Content - Flex Layout */}
-              <div className="flex-1 overflow-hidden p-4 space-y-4 flex flex-col min-h-0">
-                {/* Gallery Images - Full Size with Carousel */}
-                {modalServiceImages.length > 0 && (
-                  <div className="flex-1 min-h-0 flex flex-col">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3 flex-shrink-0">
-                      {t('booking.photos')}
-                    </h3>
-                    <div className="flex-1 min-h-0 relative bg-gray-50 rounded-lg">
-                      <ImageCarousel
-                        images={modalServiceImages}
-                        className="h-full w-full"
-                        aspectRatio="auto"
-                        showDots={true}
-                        showArrows={true}
-                        autoPlay={false}
-                      />
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {modalServiceImages.length > 0 ? (
+                  <div className="p-4 md:p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 rounded-xl overflow-hidden bg-gray-100">
+                      <div className="md:col-span-2 h-64 md:h-[320px] relative group">
+                        <img src={modalServiceImages[0]} alt="Service main" className="w-full h-full object-cover" />
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-1 gap-2 h-64 md:h-[320px]">
+                        <div className="h-full relative group">
+                          <img
+                            src={modalServiceImages[1] || modalServiceImages[0]}
+                            alt="Service side 1"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="h-full relative group">
+                          <img
+                            src={modalServiceImages[2] || modalServiceImages[0]}
+                            alt="Service side 2"
+                            className="w-full h-full object-cover"
+                          />
+                          {modalServiceImages.length > 3 && (
+                            <span className="absolute bottom-3 right-3 px-3 py-1.5 rounded-lg bg-black/65 text-white text-sm font-semibold">
+                              +{modalServiceImages.length - 3} {i18n.language === 'ar' ? 'صور' : 'photos'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                )}
+                ) : null}
 
-                {/* Latest 5 Reviews */}
-                {latestReviews.length > 0 && (
-                  <div className="flex-shrink-0">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                      {t('booking.latestReviews', { count: latestReviews.length })}
-                    </h3>
-                    <div className="relative overflow-visible px-0">
+                <div className="px-4 md:px-6 pb-6">
+                  <div className="flex items-center gap-2 text-sm text-fuchsia-600 font-semibold">
+                    <Star className="w-4 h-4 fill-current" />
+                    <span>{modalServiceRating || 0}</span>
+                    <span className="underline">({modalReviewCount.toLocaleString(i18n.language === 'ar' ? 'ar' : undefined)})</span>
+                    <span className="text-gray-500 font-normal">{i18n.language === 'ar' ? 'تذاكر' : 'Tickets'}</span>
+                  </div>
+                  <h3 className="text-3xl font-bold text-gray-900 mt-3 leading-tight">
+                    {i18n.language === 'ar' ? (modalService.name_ar || modalService.name) : (modalService.name || modalService.name_ar)}
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-4 mt-3 text-gray-700">
+                    <div className="inline-flex items-center gap-2">
+                      <CreditCard className="w-4 h-4" />
+                      <span className="underline">{modalBookNowPayLaterText}</span>
+                    </div>
+                    <div className="inline-flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      <span>{modalFlexibleDurationText}</span>
+                    </div>
+                  </div>
+
+                  {latestReviews.length > 0 ? (
+                    <div className="mt-8">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-fuchsia-600 font-semibold text-2xl">
+                          {modalServiceRating || 0}/5 ({modalReviewCount.toLocaleString(i18n.language === 'ar' ? 'ar' : undefined)})
+                        </p>
+                        <button type="button" className="text-lg font-semibold underline text-gray-900 cursor-default">
+                          {i18n.language === 'ar' ? `عرض كل ${modalReviewCount} مراجعة` : `Show all ${modalReviewCount} reviews`}
+                        </button>
+                      </div>
                       <ReviewsCarousel
                         reviews={latestReviews}
                         language={i18n.language as 'en' | 'ar'}
@@ -2932,31 +3158,34 @@ function PublicBookingPage() {
                         currentUserId={userProfile?.id}
                       />
                     </div>
-                  </div>
-                )}
-
-                {/* No Reviews Message */}
-                {latestReviews.length === 0 && (
-                  <div className="text-center py-6">
-                    <p className="text-gray-500 text-sm">
-                      {i18n.language === 'ar' ? 'لا توجد مراجعات بعد' : 'No reviews yet'}
-                    </p>
-                  </div>
-                )}
-
+                  ) : (
+                    <div className="mt-8 text-center py-6 border border-dashed border-gray-200 rounded-xl">
+                      <p className="text-gray-500 text-sm">
+                        {i18n.language === 'ar' ? 'لا توجد مراجعات بعد' : 'No reviews yet'}
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Action Button - Fixed at bottom */}
-              <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex-shrink-0">
+              <div className="sticky bottom-0 bg-white border-t border-gray-200 px-5 py-4 flex items-center justify-between gap-4 flex-shrink-0">
+                <div>
+                  <p className="text-sm text-gray-500">{i18n.language === 'ar' ? 'من' : 'from'}</p>
+                  <p className="text-4xl font-bold text-gray-900 leading-none">{formatPrice(Number(modalService.base_price || 0))}</p>
+                </div>
                 <button
                   onClick={() => {
                     setServiceDetailModal({ isOpen: false, service: null });
-                    navigate(`/${tenantSlug}/book/${modalService.id}`);
+                    if (modalService.is_offer && modalService.service_id) {
+                      navigate(`/${tenantSlug}/book/${modalService.service_id}?offer=${modalService.offer_id}`);
+                    } else {
+                      navigate(`/${tenantSlug}/book/${modalService.id}`);
+                    }
                   }}
-                  className="w-full px-6 py-3 font-semibold text-white rounded-lg transition-all hover:opacity-90"
+                  className="px-8 py-3 font-semibold text-white rounded-xl transition-all hover:opacity-90"
                   style={{ backgroundColor: primaryColor }}
                 >
-                  Check availability
+                  {i18n.language === 'ar' ? 'تحقق من التوفر' : 'Check availability'}
                 </button>
               </div>
             </div>

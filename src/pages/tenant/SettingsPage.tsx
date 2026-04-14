@@ -21,7 +21,7 @@ export function SettingsPage() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const isRtl = i18n.language === 'ar';
-  const { userProfile, tenant, user, signOut, loading: authLoading } = useAuth();
+  const { userProfile, tenant, user, signOut, loading: authLoading, refreshSessionFromStorage } = useAuth();
   const { tenantSlug, section } = useParams<{ tenantSlug: string; section: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const appTab = normalizeAppManagerTab(searchParams.get('tab'));
@@ -117,6 +117,8 @@ export function SettingsPage() {
   const [selectedCurrencyCode, setSelectedCurrencyCode] = useState<string>('SAR');
   const [currencyLoading, setCurrencyLoading] = useState(false);
   const [currencyMessage, setCurrencyMessage] = useState<{ type: 'success' | 'error'; text: string; warning?: string } | null>(null);
+  const [logoUrl, setLogoUrl] = useState('');
+  const [logoUploading, setLogoUploading] = useState(false);
 
   // Access control: Redirect customers and unauthorized users
   useEffect(() => {
@@ -170,8 +172,69 @@ export function SettingsPage() {
         contact_email: tenant.contact_email || '',
         tenant_time_zone: tenant.tenant_time_zone || 'Asia/Riyadh',
       });
+      setLogoUrl(tenant.logo_url || '');
     }
   }, [tenant]);
+
+  const fileToDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  const compressImageToDataUrl = async (file: File): Promise<string> => {
+    const dataUrl = await fileToDataUrl(file);
+    return await new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => {
+        const maxSize = 900;
+        const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.floor(image.width * scale));
+        canvas.height = Math.max(1, Math.floor(image.height * scale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      image.onerror = () => resolve(dataUrl);
+      image.src = dataUrl;
+    });
+  };
+
+  const saveLogoUrl = async (nextLogoUrl: string | null) => {
+    setLogoUploading(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const API_URL = getApiUrl();
+      const response = await fetch(`${API_URL}/tenants/branding`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ logo_url: nextLogoUrl || null }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || t('common.error'));
+      }
+
+      setLogoUrl(nextLogoUrl || '');
+      await refreshSessionFromStorage();
+      showNotification('success', t('common.saved', 'Saved'));
+    } catch (error: any) {
+      showNotification('error', error.message || t('common.error'));
+    } finally {
+      setLogoUploading(false);
+    }
+  };
 
   // Load currency settings - use CurrencyContext as primary source
   useEffect(() => {
@@ -1916,7 +1979,7 @@ export function SettingsPage() {
 
         {section === 'logos' && (
           <section className="scroll-mt-24">
-            <Card>
+            <Card className="mb-4">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <ImageLucide className="w-5 h-5" />
@@ -1925,6 +1988,49 @@ export function SettingsPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm text-gray-600">{t('settings.logosCardDescription')}</p>
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+                  <p className="text-sm font-medium text-gray-900">
+                    {t('settings.logoUploadTitle', 'Main Logo')}
+                  </p>
+                  <p className="text-xs text-gray-600">
+                    {t('settings.logoUploadHint', 'This logo appears on admin and customer pages.')}
+                  </p>
+
+                  <div className="h-20 w-20 rounded-xl border border-gray-200 bg-white flex items-center justify-center overflow-hidden">
+                    {logoUrl ? (
+                      <img src={logoUrl} alt="Tenant logo" className="h-full w-full object-contain" />
+                    ) : (
+                      <ImageLucide className="w-6 h-6 text-gray-400" />
+                    )}
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const compressed = await compressImageToDataUrl(file);
+                          await saveLogoUrl(compressed);
+                        } finally {
+                          e.currentTarget.value = '';
+                        }
+                      }}
+                      disabled={logoUploading}
+                      className="block w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-gray-300 file:text-sm"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => void saveLogoUrl(null)}
+                      disabled={logoUploading || !logoUrl}
+                    >
+                      {t('common.remove', 'Remove')}
+                    </Button>
+                  </div>
+                </div>
                 {tenantSlug ? (
                   <Link
                     to={`/${tenantSlug}/admin/landing`}

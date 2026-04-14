@@ -301,13 +301,26 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
     navigate('/login');
   }
 
+  const tenantLogoUrl = typeof tenant?.logo_url === 'string' ? tenant.logo_url : '';
+  const BrandMark = ({ sizeClass }: { sizeClass: string }) => (
+    tenantLogoUrl ? (
+      <img
+        src={tenantLogoUrl}
+        alt={tenant?.name || 'Tenant logo'}
+        className={`${sizeClass} object-contain`}
+      />
+    ) : (
+      <Calendar className={`${sizeClass} text-blue-600`} />
+    )
+  );
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-30">
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center gap-3">
-            <Calendar className="w-6 h-6 text-blue-600" />
+            <BrandMark sizeClass="h-7 w-auto max-w-[7.5rem]" />
             <h1 className="text-lg font-bold text-gray-900">
               {tenant?.name || 'Bookati'}
             </h1>
@@ -339,7 +352,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
         `}>
           <div className="hidden lg:block p-6 border-b border-gray-200">
             <div className="flex items-center gap-3">
-              <Calendar className="w-8 h-8 text-blue-600" />
+              <BrandMark sizeClass="h-9 w-auto max-w-[9rem]" />
               <div>
                 <h1 className="text-xl font-bold text-gray-900">
                   {tenant?.name || 'Bookati'}
@@ -353,7 +366,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
           <div className="lg:hidden p-6 border-b border-gray-200">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Calendar className="w-8 h-8 text-blue-600" />
+                <BrandMark sizeClass="h-9 w-auto max-w-[9rem]" />
                 <div>
                   <h1 className="text-xl font-bold text-gray-900">
                     {tenant?.name || 'Bookati'}

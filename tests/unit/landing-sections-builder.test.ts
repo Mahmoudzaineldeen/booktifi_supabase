@@ -3,6 +3,7 @@ import {
   normalizeSections,
   validateSections,
   duplicateSectionInList,
+  createSectionsFromTemplate,
   type LandingSection,
 } from '../../src/lib/landingSections';
 
@@ -85,5 +86,15 @@ describe('landing sections builder contracts', () => {
 
     const errors = validateSections(invalid);
     expect(errors.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('provides predefined templates with valid section order', () => {
+    const minimal = createSectionsFromTemplate('minimal');
+    const conversion = createSectionsFromTemplate('conversion');
+
+    expect(minimal.map((s) => s.type)).toEqual(['hero', 'services', 'packages', 'cta', 'footer']);
+    expect(conversion[0].type).toBe('hero');
+    expect(conversion.some((s) => s.type === 'faq')).toBe(true);
+    expect(conversion.every((s, i) => s.order_index === i)).toBe(true);
   });
 });

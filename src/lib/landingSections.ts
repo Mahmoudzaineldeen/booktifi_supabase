@@ -5,12 +5,15 @@ export const LANDING_SECTION_TYPES = [
   'stats',
   'faq',
   'services',
+  'packages',
   'partners',
   'cta',
   'footer',
 ] as const;
 
 export type LandingSectionType = (typeof LANDING_SECTION_TYPES)[number];
+export const LANDING_TEMPLATE_IDS = ['default', 'conversion', 'minimal'] as const;
+export type LandingTemplateId = (typeof LANDING_TEMPLATE_IDS)[number];
 
 export interface LandingSection {
   id?: string;
@@ -60,7 +63,18 @@ export function defaultSectionContent(type: LandingSectionType): Record<string, 
         title_ar: 'خدماتنا',
         subtitle: 'Choose the right service for your needs',
         subtitle_ar: 'اختر الخدمة المناسبة لاحتياجك',
+        book_now_pay_later_text: 'Book now, pay later',
+        book_now_pay_later_text_ar: 'احجز الآن وادفع لاحقاً',
+        flexible_duration_text: 'Flexible duration',
+        flexible_duration_text_ar: 'مدة مرنة',
         enable_search: true,
+      };
+    case 'packages':
+      return {
+        title: 'Our Packages',
+        title_ar: 'باقاتنا',
+        subtitle: 'Save more when you bundle services',
+        subtitle_ar: 'وفّر أكثر عند دمج الخدمات',
       };
     case 'partners':
       return { title: 'Our Partners', title_ar: 'شركاؤنا', logos: [] };
@@ -98,6 +112,61 @@ export function createDefaultSections(): LandingSection[] {
     is_visible: true,
     content: defaultSectionContent(type),
   }));
+}
+
+export function createSectionsFromTemplate(templateId: LandingTemplateId): LandingSection[] {
+  if (templateId === 'minimal') {
+    const minimalOrder: LandingSectionType[] = ['hero', 'services', 'packages', 'cta', 'footer'];
+    return minimalOrder.map((type, index) => ({
+      type,
+      order_index: index,
+      is_visible: true,
+      content: defaultSectionContent(type),
+    }));
+  }
+
+  if (templateId === 'conversion') {
+    const conversionOrder: LandingSectionType[] = ['hero', 'stats', 'features', 'services', 'packages', 'faq', 'cta', 'footer'];
+    return conversionOrder.map((type, index) => {
+      const base = defaultSectionContent(type);
+      if (type === 'hero') {
+        return {
+          type,
+          order_index: index,
+          is_visible: true,
+          content: {
+            ...base,
+            title: 'Book Your Appointment in 60 Seconds',
+            title_ar: 'احجز موعدك خلال 60 ثانية',
+            subtitle: 'Fast booking, trusted service, and instant confirmation.',
+            subtitle_ar: 'حجز سريع، خدمة موثوقة، وتأكيد فوري.',
+          },
+        };
+      }
+      if (type === 'cta') {
+        return {
+          type,
+          order_index: index,
+          is_visible: true,
+          content: {
+            ...base,
+            title: 'Limited Slots Available Today',
+            title_ar: 'مقاعد محدودة متاحة اليوم',
+            button_label: 'Reserve My Slot',
+            button_label_ar: 'احجز مقعدي الآن',
+          },
+        };
+      }
+      return {
+        type,
+        order_index: index,
+        is_visible: true,
+        content: base,
+      };
+    });
+  }
+
+  return createDefaultSections();
 }
 
 function normalizeCards(value: unknown): Array<Record<string, unknown>> {

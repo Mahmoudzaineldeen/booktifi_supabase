@@ -80,6 +80,7 @@ interface Booking {
   effective_start_time?: string | null;
   effective_end_time?: string | null;
   created_at: string;
+  created_by_user_id?: string | null;
   zoho_invoice_id?: string | null;
   zoho_invoice_created_at?: string | null;
   daftra_invoice_id?: string | null;
@@ -1109,6 +1110,7 @@ export function BookingsPage() {
           payment_method,
           tag_id,
           created_at,
+          created_by_user_id,
           zoho_invoice_id,
           zoho_invoice_created_at,
           daftra_invoice_id,
@@ -2268,6 +2270,7 @@ export function BookingsPage() {
         payment_status: b.payment_status,
         payment_method: b.payment_method,
         created_at: b.created_at,
+        created_by_user_id: b.created_by_user_id ?? null,
         zoho_invoice_id: b.zoho_invoice_id,
         zoho_invoice_created_at: b.zoho_invoice_created_at,
         daftra_invoice_id: b.daftra_invoice_id,

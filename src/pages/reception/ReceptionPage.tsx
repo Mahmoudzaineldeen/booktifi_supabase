@@ -60,6 +60,7 @@ interface Booking {
   effective_end_time?: string | null;
   notes: string | null;
   created_at: string;
+  created_by_user_id?: string | null;
   booking_group_id: string | null;
   zoho_invoice_id?: string | null;
   zoho_invoice_created_at?: string | null;
@@ -1203,6 +1204,7 @@ export function ReceptionPage() {
         effective_end_time: b.effective_end_time ?? null,
         notes: b.notes,
         created_at: b.created_at,
+        created_by_user_id: b.created_by_user_id ?? null,
         booking_group_id: b.booking_group_id,
         zoho_invoice_id: b.zoho_invoice_id,
         zoho_invoice_created_at: b.zoho_invoice_created_at,
@@ -1331,6 +1333,7 @@ export function ReceptionPage() {
           tag_id,
           notes,
           created_at,
+          created_by_user_id,
           booking_group_id,
           service_id,
           slot_id,

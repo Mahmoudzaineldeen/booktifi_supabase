@@ -387,7 +387,10 @@
     "pleaseSelectDateAndTime": "Please select a date and time slot",
     "pleaseSelectOptionFromOffers": "Please select an option from the available offers",
     "editDateAndTime": "Edit date and time",
-    "edit": "Edit"
+    "edit": "Edit",
+    "searchServices": "Search services…",
+    "showMore": "Show more",
+    "checkAvailability": "Check availability"
   },
   "dashboard": {
     "dashboard": "Dashboard",

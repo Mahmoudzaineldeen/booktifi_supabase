@@ -44,6 +44,7 @@ export interface BookingDetailsModalBooking {
   payment_method?: string | null;
   notes?: string | null;
   created_at?: string;
+  created_by_user_id?: string | null;
   zoho_invoice_id?: string | null;
   zoho_invoice_created_at?: string | null;
   daftra_invoice_id?: string | null;
@@ -122,6 +123,10 @@ export function BookingDetailsModal({
   const isAr = i18n.language?.startsWith('ar') ?? false;
   const [menuOpen, setMenuOpen] = useState(false);
   const [tagSlotCount, setTagSlotCount] = useState(1);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityEntries, setActivityEntries] = useState<
+    Array<{ id: string; title: string; details: string; actor: string; created_at: string }>
+  >([]);
   const [mounted, setMounted] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
   const exitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -176,6 +181,208 @@ export function BookingDetailsModal({
       cancelled = true;
     };
   }, [isOpen, displayBooking?.tag_id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isOpen || !displayBooking?.id) {
+      setActivityEntries([]);
+      setActivityLoading(false);
+      return;
+    }
+
+    const readablePaymentStatus = (value: unknown, paymentMethod?: unknown): string => {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (!normalized) return '—';
+      if (normalized === 'unpaid' || normalized === 'awaiting_payment' || normalized === 'refunded') {
+        return t('payment.displayUnpaid', 'Unpaid');
+      }
+      if (normalized === 'paid_manual') {
+        const method = String(paymentMethod || '').trim().toLowerCase();
+        if (method === 'transfer') return t('payment.displayBankTransfer', 'Bank transfer');
+        return t('payment.displayPaidOnSite', 'Paid on site');
+      }
+      if (normalized === 'paid') return t('payment.displayPaid', 'Paid');
+      return normalized.replace(/_/g, ' ');
+    };
+
+    const readableStatus = (value: unknown): string => {
+      const normalized = String(value || '').trim();
+      if (!normalized) return '—';
+      return t(`status.${normalized}`, normalized.replace(/_/g, ' '));
+    };
+
+    const humanizeFieldValue = (key: string, value: unknown, valuesObj?: Record<string, unknown>): string => {
+      if (value == null || value === '') return '—';
+      if (key === 'status') return readableStatus(value);
+      if (key === 'payment_status') {
+        return readablePaymentStatus(value, valuesObj?.payment_method);
+      }
+      if (key === 'payment_method') {
+        const normalized = String(value).toLowerCase();
+        if (normalized === 'transfer') return t('payment.displayBankTransfer', 'Bank transfer');
+        if (normalized === 'onsite') return t('payment.displayPaidOnSite', 'Paid on site');
+        return String(value).replace(/_/g, ' ');
+      }
+      if (typeof value === 'number') return String(value);
+      if (typeof value === 'boolean') return value ? t('common.yes', 'Yes') : t('common.no', 'No');
+      return String(value);
+    };
+
+    const fieldLabel = (key: string): string => {
+      const labels: Record<string, string> = {
+        status: t('booking.status', 'Status'),
+        payment_status: t('booking.paymentStatus', 'Payment status'),
+        payment_method: t('bookings.paymentMethod', 'Payment method'),
+        transaction_reference: t('bookings.transactionReferenceNumberLabel', 'Transaction reference'),
+        visitor_count: t('booking.visitorCount', 'Quantity'),
+        total_price: t('booking.totalPrice', 'Total price'),
+        notes: t('booking.notes', 'Notes'),
+        customer_name: t('booking.customerName', 'Customer name'),
+        customer_phone: t('booking.customerPhone', 'Customer phone'),
+        customer_email: t('booking.customerEmail', 'Customer email'),
+        slot_id: t('bookings.changeAppointment', 'Appointment'),
+        service_id: t('booking.selectService', 'Service'),
+        tag_id: t('tags.title', 'Pricing tag'),
+      };
+      return labels[key] || key.replace(/_/g, ' ');
+    };
+
+    const buildChangeSummary = (oldValuesRaw: unknown, newValuesRaw: unknown): string => {
+      const oldValues = (oldValuesRaw && typeof oldValuesRaw === 'object') ? (oldValuesRaw as Record<string, unknown>) : {};
+      const newValues = (newValuesRaw && typeof newValuesRaw === 'object') ? (newValuesRaw as Record<string, unknown>) : {};
+      const ignoreKeys = new Set([
+        'updated_at',
+        'status_changed_at',
+        'zoho_sync_status',
+        'invoice_processing_status',
+        'invoice_last_error',
+      ]);
+      const keys = Array.from(new Set([...Object.keys(oldValues), ...Object.keys(newValues)]))
+        .filter((k) => !ignoreKeys.has(k));
+
+      const changes: string[] = [];
+      for (const key of keys) {
+        const prev = oldValues[key];
+        const next = newValues[key];
+        if (JSON.stringify(prev) === JSON.stringify(next)) continue;
+        const label = fieldLabel(key);
+        const prevText = humanizeFieldValue(key, prev, oldValues);
+        const nextText = humanizeFieldValue(key, next, newValues);
+        if ((prev == null || prev === '') && (next != null && next !== '')) {
+          changes.push(`${label}: ${nextText}`);
+        } else if ((next == null || next === '') && (prev != null && prev !== '')) {
+          changes.push(`${label}: ${t('common.removed', 'removed')}`);
+        } else {
+          changes.push(`${label}: ${prevText} -> ${nextText}`);
+        }
+      }
+      if (changes.length === 0) return t('bookings.detailsUpdated', 'Booking details were updated.');
+      const maxShown = 3;
+      const visible = changes.slice(0, maxShown);
+      const remaining = changes.length - visible.length;
+      return remaining > 0
+        ? `${visible.join(' | ')} +${remaining} ${isAr ? 'تعديلات إضافية' : 'more changes'}`
+        : visible.join(' | ');
+    };
+
+    (async () => {
+      setActivityLoading(true);
+      try {
+        const logsResponse = await apiFetch('/query', {
+          method: 'POST',
+          body: JSON.stringify({
+            table: 'audit_logs',
+            select: 'id,user_id,action_type,old_values,new_values,created_at',
+            where: {
+              resource_type: 'booking',
+              resource_id: displayBooking.id,
+            },
+            orderBy: { column: 'created_at', ascending: false },
+            limit: 30,
+          }),
+        });
+
+        const logsPayload = logsResponse.ok ? await logsResponse.json().catch(() => []) : [];
+        const logs = Array.isArray(logsPayload) ? logsPayload : (Array.isArray(logsPayload?.value) ? logsPayload.value : []);
+
+        const userIds = new Set<string>();
+        if (displayBooking.created_by_user_id) userIds.add(String(displayBooking.created_by_user_id));
+        for (const log of logs) {
+          if (log?.user_id) userIds.add(String(log.user_id));
+        }
+
+        let userMap = new Map<string, { full_name?: string; full_name_ar?: string }>();
+        if (userIds.size > 0) {
+          const usersResponse = await apiFetch('/query', {
+            method: 'POST',
+            body: JSON.stringify({
+              table: 'users',
+              select: 'id,full_name,full_name_ar',
+              where: { id__in: Array.from(userIds) },
+              limit: Math.max(10, userIds.size + 2),
+            }),
+          });
+          const usersPayload = usersResponse.ok ? await usersResponse.json().catch(() => []) : [];
+          const users = Array.isArray(usersPayload) ? usersPayload : (Array.isArray(usersPayload?.value) ? usersPayload.value : []);
+          userMap = new Map(
+            users
+              .filter((u: any) => u?.id)
+              .map((u: any) => [String(u.id), { full_name: u.full_name, full_name_ar: u.full_name_ar }])
+          );
+        }
+
+        const actorNameForId = (userId?: string | null): string => {
+          if (!userId) return t('bookings.unknownStaff', 'Unknown staff');
+          const user = userMap.get(String(userId));
+          if (!user) return t('bookings.unknownStaff', 'Unknown staff');
+          return isAr ? (user.full_name_ar || user.full_name || t('bookings.unknownStaff', 'Unknown staff')) : (user.full_name || user.full_name_ar || t('bookings.unknownStaff', 'Unknown staff'));
+        };
+
+        const entries: Array<{ id: string; title: string; details: string; actor: string; created_at: string }> = [];
+
+        if (displayBooking.created_at) {
+          entries.push({
+            id: `created-${displayBooking.id}`,
+            title: t('bookings.activityCreatedTitle', 'Booking created'),
+            details: t('bookings.activityCreatedDetails', 'Booking was created.'),
+            actor: actorNameForId(displayBooking.created_by_user_id || null),
+            created_at: displayBooking.created_at,
+          });
+        }
+
+        for (const log of logs) {
+          const actionType = String(log?.action_type || '').toLowerCase();
+          const oldValues = (log?.old_values && typeof log.old_values === 'object') ? log.old_values : {};
+          const newValues = (log?.new_values && typeof log.new_values === 'object') ? log.new_values : {};
+          const newStatus = String((newValues as Record<string, unknown>)?.status || '').toLowerCase();
+          const wasCancelled = actionType === 'delete' || newStatus === 'cancelled';
+
+          let title = t('bookings.activityEditedTitle', 'Booking updated');
+          if (actionType === 'payment_status_update') title = t('bookings.activityPaymentTitle', 'Payment updated');
+          if (wasCancelled) title = t('bookings.activityCancelledTitle', 'Booking cancelled');
+
+          entries.push({
+            id: String(log?.id || `${actionType}-${log?.created_at || Math.random()}`),
+            title,
+            details: buildChangeSummary(oldValues, newValues),
+            actor: actorNameForId(log?.user_id || null),
+            created_at: String(log?.created_at || new Date().toISOString()),
+          });
+        }
+
+        entries.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        if (!cancelled) setActivityEntries(entries);
+      } catch {
+        if (!cancelled) setActivityEntries([]);
+      } finally {
+        if (!cancelled) setActivityLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, displayBooking?.id, displayBooking?.created_at, displayBooking?.created_by_user_id, isAr, t]);
 
   useEffect(() => {
     if (!isOpen && previousBookingRef.current) {
@@ -588,6 +795,35 @@ export function BookingDetailsModal({
                     </Button>
                   )}
                 </div>
+              </section>
+
+              {/* Booking activity log (human-readable) */}
+              <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm ring-1 ring-gray-100">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-4">
+                  {t('bookings.activityLog', 'Booking activity')}
+                </h3>
+                {activityLoading ? (
+                  <p className="text-sm text-gray-500">{t('common.loading', 'Loading...')}</p>
+                ) : activityEntries.length === 0 ? (
+                  <p className="text-sm text-gray-500">{t('bookings.noActivityYet', 'No activity recorded yet.')}</p>
+                ) : (
+                  <div className="space-y-3">
+                    {activityEntries.map((entry) => (
+                      <div key={entry.id} className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-gray-900">{entry.title}</p>
+                          <p className="text-xs text-gray-500">
+                            {formatDateTimeTo12Hour(entry.created_at, { locale: isAr ? ar : undefined })}
+                          </p>
+                        </div>
+                        <p className="mt-1 text-xs text-gray-600">
+                          {t('bookings.activityBy', 'By')}: <span className="font-medium text-gray-700">{entry.actor}</span>
+                        </p>
+                        <p className="mt-1 text-sm text-gray-700 leading-relaxed">{entry.details}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </section>
 
               {/* Actions */}

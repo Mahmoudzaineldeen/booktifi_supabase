@@ -5,6 +5,7 @@ export const LANDING_SECTION_TYPES = [
   'stats',
   'faq',
   'services',
+  'packages',
   'partners',
   'cta',
   'footer',
@@ -118,7 +119,18 @@ export function defaultSectionContent(type: LandingSectionType): Record<string, 
         title_ar: 'خدماتنا',
         subtitle: 'Choose the right service for your needs',
         subtitle_ar: 'اختر الخدمة المناسبة لاحتياجك',
+        book_now_pay_later_text: 'Book now, pay later',
+        book_now_pay_later_text_ar: 'احجز الآن وادفع لاحقاً',
+        flexible_duration_text: 'Flexible duration',
+        flexible_duration_text_ar: 'مدة مرنة',
         enable_search: true,
+      };
+    case 'packages':
+      return {
+        title: 'Our Packages',
+        title_ar: 'باقاتنا',
+        subtitle: 'Save more when you bundle services',
+        subtitle_ar: 'وفّر أكثر عند دمج الخدمات',
       };
     case 'partners':
       return {

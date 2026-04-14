@@ -1595,6 +1595,65 @@ router.put('/settings', authenticateTenantAdmin, async (req, res) => {
 });
 
 // ============================================================================
+// Branding (logo upload)
+// ============================================================================
+router.put('/branding', authenticateTenantAdmin, async (req, res) => {
+  // Block restricted roles from accessing settings
+  if (req.user?.role === 'customer_admin' || req.user?.role === 'admin_user') {
+    return res.status(403).json({
+      error: 'Access denied. This role does not have permission to access settings.',
+      userRole: req.user.role
+    });
+  }
+
+  try {
+    const tenantId = req.user!.tenant_id!;
+    const rawLogo = req.body?.logo_url;
+
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID not found' });
+    }
+
+    let logoUrl: string | null = null;
+    if (typeof rawLogo === 'string' && rawLogo.trim().length > 0) {
+      logoUrl = rawLogo.trim();
+
+      // Guard against unexpectedly large payloads (base64 or remote URL abuse)
+      if (logoUrl.length > 2_000_000) {
+        return res.status(400).json({ error: 'Logo is too large. Please upload a smaller image.' });
+      }
+    }
+
+    const { data: updatedTenant, error } = await supabase
+      .from('tenants')
+      .update({
+        logo_url: logoUrl,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', tenantId)
+      .select('id, logo_url')
+      .single();
+
+    if (error || !updatedTenant) {
+      return res.status(500).json({
+        error: 'Failed to update branding',
+        details: error?.message
+      });
+    }
+
+    return res.json({
+      success: true,
+      logo_url: updatedTenant.logo_url || null
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      error: error.message || 'Internal server error',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+// ============================================================================
 // Invoice provider (Zoho vs Daftra) + Daftra credentials
 // ============================================================================
 router.get('/invoice-provider-settings', authenticateTenantAdmin, async (req, res) => {

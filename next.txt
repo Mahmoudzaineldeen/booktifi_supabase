@@ -120,26 +120,28 @@ done when edit the booking ensure the booking ensure that the selected employee 
 
 done add edit button to the main card of booking  
 
-add a cancel filter in bookings
+done add a cancel filter in bookings
 
-add avaiable employees shifts in a new page this page is under employees
+done add available employees shifts in a new page this page is under employees
 
-devide the settings page debend on the titles WhatsApp Settings and account settings (security settings, Business Information, Currency Settings ) and 
-app manger( all integrations smtp,whatsapp,invoices add logos to switch selection ) , and  assign fixing ticket under settings (all this should appear like the reports dorpdown) and assign-fixing-ticket in dropdown menu
+done divide the settings page depend on the titles account settings (security settings, Business Information, Currency Settings ) and 
+app manger( all integrations smtp,whatsapp,invoices add logos to switch selection ) , and  assign fixing ticket under settings (all this should appear like the reports dropdown) and assign-fixing-ticket in dropdown menu
 
-dashboard and customize dashboard in dropdown menu
+done dashboard and customize dashboard in dropdown menu
 
-packages,packages subicribers in dropdown menu
+done packages, packages subscribers in dropdown menu
 
-employees and employee-shifts(view option) , role mangement (in drop down) in dropdown menu 
+done employees and employee-shifts(view option) , role mangement (in drop down) in dropdown menu 
 
-move maintance to the landpage so both (maintance mode(onlinebooking) and enable tickets in dropdown menu
+done move maintance to the landpage so both (maintance mode(onlinebooking) and enable tickets in dropdown menu
 
-services and offers in dropdown menu
+done services and offers in dropdown menu
 
 add option to import services as csv file add fixed temelpate of the csv 
 
-make landing page drag and drop as dashboard
+done in the bookings add a log under the paylog it tells who created the booking and when and who edited the booking and what is the edit he made and booking is canceled and who did and make it simple so it is readble for nonprogramers apply this in booking details section in both admin and receptionst 
+
+done make landing page drag and drop as dashboard
 
 done add vat
 
