@@ -29,6 +29,9 @@ import { fetchAvailableSlots as fetchAvailableSlotsUtil } from '../../lib/bookin
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
+import { fetchPublicLandingPage } from '../../lib/landingBuilderApi';
+import type { LandingPageData } from '../../lib/landingSections';
+import { LandingSectionsRenderer } from '../../components/landing/LandingSectionsRenderer';
 
 interface Tenant {
   id: string;
@@ -146,6 +149,7 @@ function PublicBookingPage() {
   const isLoggedIn = userProfile?.role === 'customer';
   const isServiceProvider = userProfile?.role === 'tenant_admin' || userProfile?.role === 'receptionist' || userProfile?.role === 'cashier';
   const [tenant, setTenant] = useState<Tenant | null>(null);
+  const [dynamicLandingPage, setDynamicLandingPage] = useState<LandingPageData | null>(null);
   
   // Check if maintenance mode is enabled and user is a customer
   const isMaintenanceMode = tenant?.maintenance_mode === true;
@@ -371,6 +375,13 @@ function PublicBookingPage() {
       }
 
       setTenant(tenantData);
+      try {
+        const dynamicPage = await fetchPublicLandingPage(tenantSlug);
+        setDynamicLandingPage(dynamicPage);
+      } catch (dynamicPageError) {
+        console.warn('[PublicBookingPage] Failed to load dynamic landing page, falling back to legacy renderer.', dynamicPageError);
+        setDynamicLandingPage(null);
+      }
 
       const { data: features } = await db
         .from('tenant_features')
@@ -1295,6 +1306,55 @@ function PublicBookingPage() {
   // Round rating to 1 decimal place
   const displayRating = calculatedRating > 0 ? Math.round(calculatedRating * 10) / 10 : 0;
   const displayReviewCount = calculatedReviewCount;
+
+  if (dynamicLandingPage && dynamicLandingPage.sections.length > 0) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header
+          className="bg-white/95 backdrop-blur-md shadow-md sticky top-0 z-50 border-b"
+          style={{ borderColor: `${primaryColor}15` }}
+        >
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div
+                className="p-2.5 rounded-xl shadow-lg"
+                style={{ background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)` }}
+              >
+                <Package className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl md:text-2xl font-bold text-gray-900">
+                  {i18n.language === 'ar' ? tenant.name_ar : tenant.name}
+                </h1>
+                <p className="text-xs text-gray-500">{t('booking.bookYourServices')}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <LanguageToggle />
+            </div>
+          </div>
+        </header>
+
+        <LandingSectionsRenderer
+          sections={dynamicLandingPage.sections}
+          language={i18n.language}
+          tenantName={tenant.name}
+          tenantNameAr={tenant.name_ar}
+          services={services}
+          formatPrice={formatPrice}
+          onSelectService={(service) => {
+            if (!tenantSlug) return;
+            const maybeOffer = service as any;
+            if (maybeOffer.is_offer && maybeOffer.service_id) {
+              navigate(`/${tenantSlug}/book/${maybeOffer.service_id}?offer=${maybeOffer.offer_id}`);
+            } else {
+              navigate(`/${tenantSlug}/book/${service.id}`);
+            }
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
