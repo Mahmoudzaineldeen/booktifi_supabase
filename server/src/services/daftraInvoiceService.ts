@@ -527,6 +527,8 @@ async function createDaftraInvoice(
     InvoiceItem: items,
   };
 
+  console.log(`[DaftraInvoice] createDaftraInvoice PRE-SEND | items=${items.length} | vatPct=${vatPercentage} | vatAmt=${vatAmount} | subtotal=${subtotal} | total=${total} | itemNames=${JSON.stringify(items.map(i => i.item))}`);
+
   const invoiceUrl = `${base}/invoices.json`;
   const invoiceHeaders = {
     ...daftraAuthHeaders(settings.api_token),
@@ -538,6 +540,7 @@ async function createDaftraInvoice(
     validateStatus: () => true,
   });
   logDaftraApiDebug('response', { url: invoiceUrl, status: res.status, body: res.data });
+  console.log(`[DaftraInvoice] createDaftraInvoice POST-SEND | status=${res.status} | id=${(res.data as any)?.id} | bodyItemCount=${body.InvoiceItem?.length}`);
 
   const id = (res.data as any)?.id;
   if (res.status >= 200 && res.status < 300 && id != null) {
@@ -572,6 +575,41 @@ async function hasBillableContentInDaftraInvoice(
     // If we cannot verify current invoice content, keep existing id to avoid duplicates.
     return true;
   }
+}
+
+async function readDaftraInvoiceSummaryTotal(
+  settings: DaftraTenantSettings,
+  invoiceId: number
+): Promise<number | null> {
+  try {
+    const res = await axios.get(`${apiBase(settings.subdomain)}/invoices/${invoiceId}.json`, {
+      headers: daftraAuthHeaders(settings.api_token),
+      validateStatus: (s) => s === 200,
+      timeout: 20000,
+    });
+    const { invoice } = normalizeDaftraInvoiceRecord(res.data);
+    const summaryTotal = Number(invoice?.summary_total ?? invoice?.total ?? 0);
+    return Number.isFinite(summaryTotal) ? summaryTotal : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readDaftraInvoiceSummaryTotalWithRetry(
+  settings: DaftraTenantSettings,
+  invoiceId: number,
+  options?: { attempts?: number; delayMs?: number }
+): Promise<number | null> {
+  const attempts = Math.max(1, Math.min(6, Number(options?.attempts ?? 4)));
+  const delayMs = Math.max(100, Math.min(5000, Number(options?.delayMs ?? 700)));
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const summaryTotal = await readDaftraInvoiceSummaryTotal(settings, invoiceId);
+    if (Number.isFinite(summaryTotal)) return Number(summaryTotal);
+    if (attempt < attempts) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return null;
 }
 
 function mapBookingPaymentMethodToDaftra(method?: string | null): string {
@@ -2142,7 +2180,24 @@ export class DaftraInvoiceService {
         if (Number.isFinite(existingInvoiceId)) {
           const existingIsBillable = await hasBillableContentInDaftraInvoice(settings, existingInvoiceId);
           if (existingIsBillable) {
-            return { invoiceId: String(booking.daftra_invoice_id), success: true };
+            const bookingTotal = parseFloat(booking.total_price?.toString?.() || '0');
+            const cfgVat = Number.isFinite(Number(settings.vat_percentage)) ? Number(settings.vat_percentage) : 15;
+            const expectedVatInclusiveTotal = roundTo2(bookingTotal + roundTo2(bookingTotal * cfgVat / 100));
+            if (cfgVat > 0 && bookingTotal > 0 && expectedVatInclusiveTotal > bookingTotal) {
+              const existingSummaryTotal = await readDaftraInvoiceSummaryTotalWithRetry(settings, existingInvoiceId, {
+                attempts: 3,
+                delayMs: 600,
+              });
+              if (Number.isFinite(existingSummaryTotal) && Number(existingSummaryTotal) + 0.01 < expectedVatInclusiveTotal) {
+                console.warn(
+                  `[DaftraInvoice] Existing invoice ${existingInvoiceId} is under-billed (summary_total=${existingSummaryTotal}, expected>=${expectedVatInclusiveTotal}); regenerating booking ${bookingId}.`
+                );
+              } else {
+                return { invoiceId: String(booking.daftra_invoice_id), success: true };
+              }
+            } else {
+              return { invoiceId: String(booking.daftra_invoice_id), success: true };
+            }
           }
           console.warn(
             `[DaftraInvoice] Existing invoice ${booking.daftra_invoice_id} has no billable content; regenerating for booking ${bookingId}`
@@ -2190,7 +2245,7 @@ export class DaftraInvoiceService {
         business_info_2: unified.context.branch_name || '',
       });
 
-      const invoiceNum = await createDaftraInvoice(
+      let invoiceNum = await createDaftraInvoice(
         settings,
         clientId,
         unified,
@@ -2199,12 +2254,35 @@ export class DaftraInvoiceService {
         unified.booking_id,
         booking.tenant_id
       );
-      const invoiceIdStr = String(invoiceNum);
+      let invoiceIdStr = String(invoiceNum);
       console.log(`[DaftraInvoice] Created invoice in Daftra id=${invoiceIdStr} booking=${bookingId}`);
+      const cfgVat = Number.isFinite(Number(settings.vat_percentage)) ? Number(settings.vat_percentage) : 15;
+      const expectedVatInclusiveTotal = roundTo2(totalPrice + roundTo2(totalPrice * cfgVat / 100));
+      if (cfgVat > 0 && expectedVatInclusiveTotal > totalPrice) {
+        const createdSummaryTotal = await readDaftraInvoiceSummaryTotalWithRetry(settings, invoiceNum, {
+          attempts: 4,
+          delayMs: 700,
+        });
+        if (!Number.isFinite(createdSummaryTotal) || Number(createdSummaryTotal) + 0.01 < expectedVatInclusiveTotal) {
+          console.warn(
+            `[DaftraInvoice] Invoice ${invoiceNum} VAT verification failed (summary_total=${createdSummaryTotal ?? 'n/a'}, expected>=${expectedVatInclusiveTotal}). Retrying create once.`
+          );
+          invoiceNum = await createDaftraInvoice(
+            settings,
+            clientId,
+            unified,
+            daftraNotes,
+            daftraHtmlNotes,
+            unified.booking_id,
+            booking.tenant_id
+          );
+          invoiceIdStr = String(invoiceNum);
+          console.log(`[DaftraInvoice] Recreated invoice with VAT guard id=${invoiceIdStr} booking=${bookingId}`);
+        }
+      }
 
       if (booking.payment_status === 'paid' || booking.payment_status === 'paid_manual') {
         try {
-          const cfgVat = Number.isFinite(Number(settings.vat_percentage)) ? Number(settings.vat_percentage) : 15;
           const vatInclusiveTotal = roundTo2(totalPrice + roundTo2(totalPrice * cfgVat / 100));
           const paidAmount = vatInclusiveTotal > 0 ? vatInclusiveTotal : totalPrice;
           await markDaftraInvoicePaid({
@@ -2383,7 +2461,7 @@ export class DaftraInvoiceService {
         business_info_1: `Booking group ${unified.booking_group_id}`,
         business_info_2: `Primary booking ${unified.primary_booking_id}`,
       });
-      const invoiceNum = await createDaftraInvoice(
+      let invoiceNum = await createDaftraInvoice(
         settings,
         clientId,
         unified,
@@ -2392,7 +2470,31 @@ export class DaftraInvoiceService {
         unified.booking_group_id,
         tenantId
       );
-      const invoiceIdStr = String(invoiceNum);
+      let invoiceIdStr = String(invoiceNum);
+      const cfgVat = Number.isFinite(Number(settings.vat_percentage)) ? Number(settings.vat_percentage) : 15;
+      const expectedGroupTotal = roundTo2(totalAmt + roundTo2(totalAmt * cfgVat / 100));
+      if (cfgVat > 0 && expectedGroupTotal > totalAmt) {
+        const createdSummaryTotal = await readDaftraInvoiceSummaryTotalWithRetry(settings, invoiceNum, {
+          attempts: 4,
+          delayMs: 700,
+        });
+        if (!Number.isFinite(createdSummaryTotal) || Number(createdSummaryTotal) + 0.01 < expectedGroupTotal) {
+          console.warn(
+            `[DaftraInvoice] Group invoice ${invoiceNum} VAT verification failed (summary_total=${createdSummaryTotal ?? 'n/a'}, expected>=${expectedGroupTotal}). Retrying create once.`
+          );
+          invoiceNum = await createDaftraInvoice(
+            settings,
+            clientId,
+            unified,
+            notes,
+            groupHtmlNotes,
+            unified.booking_group_id,
+            tenantId
+          );
+          invoiceIdStr = String(invoiceNum);
+          console.log(`[DaftraInvoice] Recreated group invoice with VAT guard id=${invoiceIdStr} group=${bookingGroupId}`);
+        }
+      }
       const { data: first } = await supabase
         .from('bookings')
         .select('customer_email, customer_phone, payment_status')
@@ -2401,7 +2503,6 @@ export class DaftraInvoiceService {
 
       if (first?.payment_status === 'paid' || first?.payment_status === 'paid_manual') {
         try {
-          const cfgVat = Number.isFinite(Number(settings.vat_percentage)) ? Number(settings.vat_percentage) : 15;
           const groupPaidAmount = roundTo2(totalAmt + roundTo2(totalAmt * cfgVat / 100));
           await markDaftraInvoicePaid({
             settings,
