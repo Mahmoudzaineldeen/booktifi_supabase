@@ -18,6 +18,10 @@ export interface UnifiedBookingInvoice {
   customer_email?: string;
   customer_phone?: string;
   line_items: UnifiedLineItem[];
+  subtotal: number;
+  vat_percentage: number;
+  vat_amount: number;
+  total: number;
   date: string;
   due_date: string;
   currency_code: string;
@@ -53,6 +57,10 @@ export interface UnifiedBookingGroupInvoice {
   customer_email?: string;
   customer_phone?: string;
   line_items: UnifiedLineItem[];
+  subtotal: number;
+  vat_percentage: number;
+  vat_amount: number;
+  total: number;
   date: string;
   due_date: string;
   currency_code: string;

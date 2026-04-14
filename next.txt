@@ -95,7 +95,9 @@ done make a tag mechanism so the admin can name a tag and add option of extra fe
 quick fixes done when login as from superadmin to employee in don't work as excepted
 done in reports there are unpaid that shows as paid in customer more details
 
-in tags add time this means if we created a tag we can add time so if the service is 60 min we can add transaction time 60 so when we create the booking with a service that is will be 120 min so the employee is not available for 2 shifts if for this service 
+done integrate with daftra
+
+done in tags add time this means if we created a tag we can add time so if the service is 60 min we can add transaction time 60 so when we create the booking with a service that is will be 120 min so the employee is not available for 2 shifts if for this service 
 
 done add gride view for bookings in the receptionist page 
 
@@ -109,10 +111,34 @@ done give the ability to book two or more services at same booking
 
 done set option when create a booking we need to add option to consume from package or not
 
-done integrate with daftra
+
 
 done i need when i create booking when i write the customer number it gives me options in numbers dropdown menu so i dont need to write the custoemr full number and when i choose one of the drop down menu or i wirte the full number the other fildes are autofilled and esure that the data in drop down menu is accurate and ensure that the dropdown menu dont over lap the fileds under it 
 
-fix paid filter in reports and blot while sharing the link
+
+when edit the booking ensure the booking ensure that the selected employee for booking the selected by default and its slots are loaded by default and still able to select the employee and shifts and so on
+
+add edit button to the main card of booking  
+
+add a cancel filter in bookings
+
+add avable employees shifts in a new page this page is under employees
+
+devide the settings page debend on the titles WhatsApp Settings and account settings (security settings, Business Information, Currency Settings ) and 
+app manger( all integrations smtp,whatsapp,invoices add logos to switch selection ) , and  assign fixing ticket under settings (all this should appear like the reports dorpdown) and assign-fixing-ticket in dropdown menu
+
+dashboard and customize dashboard in dropdown menu
+
+packages,packages subicribers in dropdown menu
+
+employees and employee-shifts(view option) , role mangement (in drop down) in dropdown menu 
+
+move maintance to the landpage so both (maintance mode(onlinebooking) and enable tickets in dropdown menu
+
+services and offers in dropdown menu
+
+add option to import services as csv file add fixed temelpate of the csv 
+
+
 
 social media track link

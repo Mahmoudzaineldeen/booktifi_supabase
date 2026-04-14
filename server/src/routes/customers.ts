@@ -1,9 +1,15 @@
 import express from 'express';
 import { supabase } from '../db';
 import jwt from 'jsonwebtoken';
+import { getDaftraInvoiceVatBreakdownForTenant, loadDaftraSettingsForTenant } from '../services/daftraInvoiceService';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const DEFAULT_VAT_PERCENTAGE = 15;
+
+function roundTo2(value: number): number {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
 
 // Middleware to authenticate customer
 function authenticate(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -316,29 +322,73 @@ router.get('/invoices', authenticate, async (req, res) => {
     const total = count || 0;
     const totalPages = Math.ceil(total / limit);
 
+    const daftraSettings = await loadDaftraSettingsForTenant(tenantId).catch(() => null);
+    const tenantVatPercentage =
+      daftraSettings && Number.isFinite(Number(daftraSettings.vat_percentage))
+        ? Number(daftraSettings.vat_percentage)
+        : DEFAULT_VAT_PERCENTAGE;
+
     // Transform the nested data structure to match the original flat structure
-    const transformedData = data.map((booking: any) => ({
-      invoice_provider: booking.daftra_invoice_id ? 'daftra' : 'zoho',
-      invoice_id: booking.daftra_invoice_id || booking.zoho_invoice_id,
-      invoice_created_at: booking.daftra_invoice_created_at || booking.zoho_invoice_created_at || booking.created_at,
-      id: booking.id,
-      zoho_invoice_id: booking.zoho_invoice_id,
-      zoho_invoice_created_at: booking.zoho_invoice_created_at,
-      daftra_invoice_id: booking.daftra_invoice_id,
-      daftra_invoice_created_at: booking.daftra_invoice_created_at,
-      total_price: booking.total_price,
-      status: booking.status,
-      payment_status: booking.payment_status,
-      customer_name: booking.customer_name,
-      customer_email: booking.customer_email,
-      customer_phone: booking.customer_phone,
-      created_at: booking.created_at,
-      service_name: booking.services?.name || 'Unknown Service',
-      service_name_ar: booking.services?.name_ar || '',
-      slot_date: booking.slots?.slot_date,
-      start_time: booking.slots?.start_time,
-      end_time: booking.slots?.end_time,
-    }));
+    const transformedData = await Promise.all(
+      data.map(async (booking: any) => {
+        const fallbackSubtotal = roundTo2(Number(booking.total_price || 0));
+        // VAT calculation
+        const fallbackVatAmount = roundTo2(fallbackSubtotal * (tenantVatPercentage / 100));
+        const fallbackTotal = roundTo2(fallbackSubtotal + fallbackVatAmount);
+        let vatSummary = {
+          subtotal: fallbackSubtotal,
+          vat_percentage: tenantVatPercentage,
+          vat_amount: fallbackVatAmount,
+          total: fallbackTotal,
+        };
+
+        if (booking.daftra_invoice_id) {
+          try {
+            const fetched = await getDaftraInvoiceVatBreakdownForTenant({
+              tenantId,
+              invoiceId: booking.daftra_invoice_id,
+              defaultVatPercentage: tenantVatPercentage,
+            });
+            if (fetched) {
+              vatSummary = fetched;
+            }
+          } catch (err: any) {
+            console.warn('[Customer Invoices API] Could not fetch VAT from Daftra, using fallback', {
+              bookingId: booking.id,
+              invoiceId: booking.daftra_invoice_id,
+              error: err?.message || String(err),
+            });
+          }
+        }
+
+        return {
+          invoice_provider: booking.daftra_invoice_id ? 'daftra' : 'zoho',
+          invoice_id: booking.daftra_invoice_id || booking.zoho_invoice_id,
+          invoice_created_at: booking.daftra_invoice_created_at || booking.zoho_invoice_created_at || booking.created_at,
+          id: booking.id,
+          zoho_invoice_id: booking.zoho_invoice_id,
+          zoho_invoice_created_at: booking.zoho_invoice_created_at,
+          daftra_invoice_id: booking.daftra_invoice_id,
+          daftra_invoice_created_at: booking.daftra_invoice_created_at,
+          total_price: booking.total_price,
+          subtotal: vatSummary.subtotal,
+          vat_percentage: vatSummary.vat_percentage,
+          vat_amount: vatSummary.vat_amount,
+          total: vatSummary.total,
+          status: booking.status,
+          payment_status: booking.payment_status,
+          customer_name: booking.customer_name,
+          customer_email: booking.customer_email,
+          customer_phone: booking.customer_phone,
+          created_at: booking.created_at,
+          service_name: booking.services?.name || 'Unknown Service',
+          service_name_ar: booking.services?.name_ar || '',
+          slot_date: booking.slots?.slot_date,
+          start_time: booking.slots?.start_time,
+          end_time: booking.slots?.end_time,
+        };
+      })
+    );
 
     // Log for debugging
     console.log(`[Customer Invoices API] Customer: ${userId}, Page: ${page}, Limit: ${limit}, Total: ${total}, Results: ${transformedData.length}`);

@@ -105,6 +105,8 @@ export function SettingsPage() {
     store_id: '',
     default_product_id: '',
     invoice_layout_id: '',
+    vat_percentage: '15',
+    vat_registration_number: '',
     api_token: '',
     country_code: 'SA',
     fallback_to_zoho: false,
@@ -388,6 +390,14 @@ export function SettingsPage() {
             invoice_layout_id:
               data.daftra_settings.invoice_layout_id !== '' && data.daftra_settings.invoice_layout_id != null
                 ? String(data.daftra_settings.invoice_layout_id)
+                : '',
+            vat_percentage:
+              data.daftra_settings.vat_percentage !== '' && data.daftra_settings.vat_percentage != null
+                ? String(data.daftra_settings.vat_percentage)
+                : '15',
+            vat_registration_number:
+              typeof data.daftra_settings.vat_registration_number === 'string'
+                ? data.daftra_settings.vat_registration_number
                 : '',
             country_code: String(data.daftra_settings.country_code || 'SA'),
             fallback_to_zoho: !!data.daftra_settings.fallback_to_zoho,
@@ -837,6 +847,14 @@ export function SettingsPage() {
         setInvoiceProviderMessage({ type: 'error', text: t('settings.invoiceProvider.tokenRequired') });
         return;
       }
+      const vatPercentage = parseFloat(daftraForm.vat_percentage);
+      if (!Number.isFinite(vatPercentage) || vatPercentage < 0 || vatPercentage > 100) {
+        setInvoiceProviderMessage({
+          type: 'error',
+          text: t('settings.invoiceProvider.vatInvalid', 'VAT percentage must be between 0 and 100'),
+        });
+        return;
+      }
       if (daftraForm.invoice_layout_id.trim()) {
         const layoutId = parseInt(daftraForm.invoice_layout_id, 10);
         if (!Number.isFinite(layoutId)) {
@@ -861,6 +879,8 @@ export function SettingsPage() {
           ...(daftraForm.invoice_layout_id.trim()
             ? { invoice_layout_id: parseInt(daftraForm.invoice_layout_id, 10) }
             : {}),
+          vat_percentage: parseFloat(daftraForm.vat_percentage || '15'),
+          vat_registration_number: daftraForm.vat_registration_number.trim().slice(0, 64),
           country_code: (daftraForm.country_code || 'SA').trim(),
           fallback_to_zoho: daftraForm.fallback_to_zoho,
           ...(daftraForm.api_token.trim() ? { api_token: daftraForm.api_token.trim() } : {}),
@@ -2254,6 +2274,37 @@ export function SettingsPage() {
                         {t(
                           'settings.invoiceProvider.layoutIdHint',
                           'Force a specific Daftra template layout id for all created invoices.'
+                        )}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
+                      <Input
+                        label={t('settings.invoiceProvider.vatPercentage', 'VAT Percentage (%)')}
+                        type="number"
+                        value={daftraForm.vat_percentage}
+                        onChange={(e) => setDaftraForm({ ...daftraForm, vat_percentage: e.target.value })}
+                        min="0"
+                        max="100"
+                        step="0.01"
+                      />
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        {t('settings.invoiceProvider.vatPercentageHint', 'Default 15 for Saudi invoices. Set 0 to hide VAT row.')}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-5 space-y-2">
+                      <Input
+                        label={t('settings.invoiceProvider.vatRegistrationNumber', 'VAT registration number (Tax ID)')}
+                        value={daftraForm.vat_registration_number}
+                        onChange={(e) =>
+                          setDaftraForm({ ...daftraForm, vat_registration_number: e.target.value.slice(0, 64) })
+                        }
+                        maxLength={64}
+                        placeholder="305002706700003"
+                      />
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        {t(
+                          'settings.invoiceProvider.vatRegistrationNumberHint',
+                          'Shown on Daftra invoices (e.g. Saudi ZATCA: 15 digits). Leave empty if not applicable.'
                         )}
                       </p>
                     </div>

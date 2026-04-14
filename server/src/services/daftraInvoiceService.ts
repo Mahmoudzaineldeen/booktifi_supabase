@@ -28,6 +28,9 @@ export type DaftraTenantSettings = {
   store_id: number;
   default_product_id: number;
   invoice_layout_id?: number;
+  vat_percentage?: number;
+  /** Seller tax / VAT registration number (e.g. Saudi 15-digit الرقم الضريبي) — shown on invoices */
+  vat_registration_number?: string;
   country_code?: string;
   fallback_to_zoho?: boolean;
 };
@@ -50,13 +53,19 @@ function parseDaftraSettings(raw: unknown): DaftraTenantSettings | null {
     typeof o.default_product_id === 'number' ? o.default_product_id : parseInt(String(o.default_product_id || ''), 10);
   const invoice_layout_id =
     typeof o.invoice_layout_id === 'number' ? o.invoice_layout_id : parseInt(String(o.invoice_layout_id || ''), 10);
+  const vat_percentage =
+    typeof o.vat_percentage === 'number' ? o.vat_percentage : parseFloat(String(o.vat_percentage || '15'));
   if (!subdomain || !api_token || !Number.isFinite(store_id) || !Number.isFinite(default_product_id)) return null;
+  const vat_registration_number =
+    typeof o.vat_registration_number === 'string' ? o.vat_registration_number.trim().slice(0, 64) : '';
   return {
     subdomain,
     api_token,
     store_id,
     default_product_id,
     ...(Number.isFinite(invoice_layout_id) ? { invoice_layout_id } : {}),
+    vat_percentage: Number.isFinite(vat_percentage) ? Math.max(0, Math.min(100, vat_percentage)) : 15,
+    ...(vat_registration_number ? { vat_registration_number } : {}),
     country_code: typeof o.country_code === 'string' ? o.country_code : 'SA',
     fallback_to_zoho: o.fallback_to_zoho === true,
   };
@@ -104,6 +113,15 @@ function redactDaftraHeadersForLog(h: Record<string, string>): Record<string, st
 function logDaftraApiDebug(kind: 'request' | 'response', payload: Record<string, unknown>): void {
   if (!DAFTRA_API_DEBUG) return;
   console.log(`[Daftra API DEBUG] ${kind}:`, JSON.stringify(payload, null, 2));
+}
+
+function toNumberOrNull(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : parseFloat(String(value ?? ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function roundTo2(value: number): number {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
 /** Parse numeric store/warehouse ids from GET /api2/stores.json (shape varies by account). */
@@ -187,6 +205,44 @@ async function resolveDaftraInvoiceStoreId(
   }
 }
 
+async function resolveDaftraTaxIdForPercentage(
+  settings: DaftraTenantSettings,
+  vatPercentage: number
+): Promise<{ taxId: number | null; effectiveRate: number | null; name: string | null }> {
+  if (!Number.isFinite(vatPercentage) || vatPercentage <= 0) {
+    return { taxId: null, effectiveRate: null, name: null };
+  }
+  try {
+    const res = await axios.get(`${apiBase(settings.subdomain)}/taxes.json`, {
+      headers: daftraAuthHeaders(settings.api_token),
+      validateStatus: () => true,
+      timeout: 15000,
+    });
+    if (res.status < 200 || res.status >= 300) {
+      return { taxId: null, effectiveRate: null, name: null };
+    }
+    const list = Array.isArray((res.data as any)?.data) ? (res.data as any).data : [];
+    const taxes = list
+      .map((entry: any) => entry?.Tax ?? entry)
+      .map((tax: any) => ({
+        id: Number(tax?.id),
+        value: Number(tax?.value),
+        name: typeof tax?.name === 'string' ? tax.name : 'VAT',
+      }))
+      .filter((t: any) => Number.isFinite(t.id) && t.id > 0 && Number.isFinite(t.value) && t.value > 0);
+    if (taxes.length === 0) return { taxId: null, effectiveRate: null, name: null };
+    const exact = taxes.find((t: any) => Math.abs(t.value - vatPercentage) < 0.0001);
+    if (exact) return { taxId: exact.id, effectiveRate: exact.value, name: exact.name || 'VAT' };
+    const nearest = [...taxes].sort((a, b) => Math.abs(a.value - vatPercentage) - Math.abs(b.value - vatPercentage))[0];
+    console.warn(
+      `[DaftraInvoice] No tax configured at ${vatPercentage}%. Using nearest Daftra tax id=${nearest.id} (${nearest.value}%).`
+    );
+    return { taxId: nearest.id, effectiveRate: nearest.value, name: nearest.name || 'VAT' };
+  } catch {
+    return { taxId: null, effectiveRate: null, name: null };
+  }
+}
+
 function buildDaftraInvoiceNotes(u: UnifiedBookingInvoice): string {
   const c = u.context;
   // Keep Daftra note compact and customer-facing so printed invoices stay clean.
@@ -216,6 +272,22 @@ function escapeHtml(input: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/** Seller VAT / tax registration ID for Daftra invoice notes (ZATCA-style header text). */
+function buildSellerVatNotesPrefix(vatReg?: string | null): string {
+  const t = (vatReg || '').trim();
+  if (!t) return '';
+  return `الرقم الضريبي: ${t}\nTax registration (VAT): ${t}\n\n`;
+}
+
+/** Daftra html_notes: centered bilingual VAT block above booking details. */
+function buildSellerVatHtmlPrefix(vatReg?: string | null): string {
+  const t = (vatReg || '').trim();
+  if (!t) return '';
+  return `<div style="text-align:center;font-size:11px;line-height:1.45;color:#111827;margin-bottom:8px"><span dir="rtl">الرقم الضريبي: ${escapeHtml(
+    t
+  )}</span><br/><span>Tax registration (VAT): ${escapeHtml(t)}</span></div>`;
 }
 
 function buildBookingDetailsHtml(u: UnifiedBookingInvoice): string {
@@ -355,6 +427,9 @@ async function createDaftraInvoice(
 ): Promise<number> {
   const storeId = await resolveDaftraInvoiceStoreId(settings, tenantId);
   const base = apiBase(settings.subdomain);
+  const vatPercentage = roundTo2(
+    Number.isFinite(Number(settings.vat_percentage)) ? Number(settings.vat_percentage) : 15
+  );
   let validProductId: number | null = null;
   if (Number.isFinite(settings.default_product_id) && settings.default_product_id > 0) {
     try {
@@ -389,12 +464,10 @@ async function createDaftraInvoice(
       }
       return {
         ...(validProductId ? { product_id: validProductId } : {}),
-        // Daftra standard item table fields.
         item: (li.name || 'Item').slice(0, 255),
         description: (li.description || '').toString().slice(0, 255),
         quantity: qty,
         unit_price: unitPrice,
-        // Keep custom layout columns for templates that already bind to col_3/col_4.
         col_3: (li.name || 'Item').slice(0, 255),
         col_4: (li.description || '').toString().slice(0, 255),
       };
@@ -405,6 +478,22 @@ async function createDaftraInvoice(
   if (items.length === 0 || !Number.isFinite(computedItemsTotal) || computedItemsTotal <= 0) {
     throw new Error('Cannot create Daftra invoice: no billable line items');
   }
+  const subtotal = roundTo2(computedItemsTotal);
+  const vatAmount = roundTo2(vatPercentage > 0 ? subtotal * (vatPercentage / 100) : 0);
+  // Daftra free plan ignores tax1 on line items and recalculates summary_total
+  // from line items alone. The only reliable way to include VAT on all plans is
+  // to add it as an explicit line item so it becomes part of the Daftra total.
+  if (vatPercentage > 0 && vatAmount > 0) {
+    items.push({
+      item: `VAT (${vatPercentage}%)`.slice(0, 255),
+      description: '',
+      quantity: 1,
+      unit_price: vatAmount,
+      col_3: `VAT (${vatPercentage}%)`.slice(0, 255),
+      col_4: '',
+    });
+  }
+  const total = roundTo2(subtotal + vatAmount);
 
   /** Daftra parses line items only when `InvoiceItem` is a top-level key next to `Invoice` (nested `Invoice.InvoiceItem` yields "Invoice is empty"). */
   const body = {
@@ -415,8 +504,8 @@ async function createDaftraInvoice(
       currency_code: u.currency_code,
       date: u.date,
       draft: 0,
-      notes: notes.slice(0, 65000),
-      ...(htmlNotes ? { html_notes: htmlNotes } : {}),
+      notes: (buildSellerVatNotesPrefix(settings.vat_registration_number) + notes).slice(0, 65000),
+      ...(htmlNotes ? { html_notes: buildSellerVatHtmlPrefix(settings.vat_registration_number) + htmlNotes } : {}),
       po_number: poNumber.slice(0, 255),
       // Keep template-friendly client fields mirrored on invoice when available.
       client_business_name: (u.customer_name || '-').slice(0, 255),
@@ -429,6 +518,8 @@ async function createDaftraInvoice(
       client_state: '',
       client_postal_code: '',
       client_country_code: (settings.country_code || 'SA').slice(0, 3),
+      summary_subtotal: subtotal,
+      summary_total: total,
       // Compatibility: some Daftra tenants parse items from nested Invoice.InvoiceItem.
       // We still send top-level InvoiceItem below (documented shape) for other tenants.
       InvoiceItem: items,
@@ -886,13 +977,79 @@ function normalizeDaftraInvoiceRecord(apiBody: any): {
   return { invoice, items, client, pdfUrl };
 }
 
+type DaftraVatSummary = {
+  subtotal: number;
+  vat_percentage: number;
+  vat_amount: number;
+  total: number;
+};
+
+function extractVatSummaryFromDaftraInvoice(
+  invoice: Record<string, unknown>,
+  defaultVatPercentage: number
+): DaftraVatSummary {
+  const summarySubtotal =
+    toNumberOrNull(invoice.summary_subtotal) ??
+    toNumberOrNull(invoice.subtotal) ??
+    toNumberOrNull(invoice.total_before_tax) ??
+    null;
+  const summaryTotal = toNumberOrNull(invoice.summary_total) ?? toNumberOrNull(invoice.total) ?? null;
+  const summaryVatAmount =
+    toNumberOrNull(invoice.summary_tax1_amount) ??
+    toNumberOrNull(invoice.summary_tax_amount) ??
+    toNumberOrNull(invoice.summary_tax) ??
+    toNumberOrNull(invoice.tax1_amount) ??
+    toNumberOrNull(invoice.vat_amount) ??
+    toNumberOrNull(invoice.tax_amount) ??
+    toNumberOrNull(invoice.total_tax) ??
+    null;
+  const summaryVatPercent =
+    toNumberOrNull(invoice.tax1_percentage) ??
+    toNumberOrNull(invoice.tax1) ??
+    toNumberOrNull(invoice.summary_tax1_percentage) ??
+    toNumberOrNull(invoice.summary_tax_percentage) ??
+    toNumberOrNull(invoice.tax_percentage) ??
+    toNumberOrNull(invoice.vat_percentage) ??
+    null;
+
+  const subtotal = roundTo2(summarySubtotal ?? Math.max(0, (summaryTotal ?? 0) - (summaryVatAmount ?? 0)));
+  let vatAmount = summaryVatAmount != null ? roundTo2(summaryVatAmount) : null;
+  if (vatAmount == null && summaryTotal != null && subtotal > 0) {
+    const diff = roundTo2(summaryTotal - subtotal);
+    vatAmount = diff > 0 ? diff : 0;
+  }
+
+  let vatPercentage = summaryVatPercent != null ? roundTo2(summaryVatPercent) : null;
+  if (vatPercentage == null && vatAmount != null && subtotal > 0) {
+    vatPercentage = roundTo2((vatAmount / subtotal) * 100);
+  }
+
+  if (vatAmount == null && subtotal > 0) {
+    // VAT calculation
+    const fallbackPct = roundTo2(defaultVatPercentage);
+    vatPercentage = fallbackPct;
+    vatAmount = roundTo2(subtotal * (fallbackPct / 100));
+  }
+
+  const finalVatAmount = roundTo2(vatAmount ?? 0);
+  const finalVatPercentage = roundTo2(vatPercentage ?? (finalVatAmount > 0 ? defaultVatPercentage : 0));
+  const total = roundTo2(summaryTotal ?? subtotal + finalVatAmount);
+  return {
+    subtotal,
+    vat_percentage: finalVatPercentage,
+    vat_amount: finalVatAmount,
+    total,
+  };
+}
+
 /**
  * Fallback: if `invoicepdfurl` fetch fails or returns non-PDF, build a simple PDF from invoice JSON.
  */
 async function buildDaftraInvoicePdfFromApiBody(
   subdomain: string,
   apiBody: any,
-  invoiceId: number
+  invoiceId: number,
+  pdfOpts?: { sellerVatRegistration?: string | null; defaultVatPercentage?: number | null }
 ): Promise<Buffer> {
   const { invoice, items, client } = normalizeDaftraInvoiceRecord(apiBody);
   const page = { width: 313, height: 808 };
@@ -988,9 +1145,18 @@ async function buildDaftraInvoicePdfFromApiBody(
   doc.text(toStr(client?.business_info_1) || toStr(subdomain), 0, 40, { align: 'center', width: page.width });
   setBaseFont(11);
   doc.text(`Company Register: ${companyRegister || '—'}`, 0, 64, { align: 'center', width: page.width });
+  const sellerVat = (pdfOpts?.sellerVatRegistration || '').trim();
+  let addressTop = 80;
+  if (sellerVat) {
+    setBaseFont(11);
+    doc.text(`الرقم الضريبي: ${sellerVat}`, 0, 78, { align: 'center', width: page.width });
+    setBaseFont(10);
+    doc.text(`Tax registration (VAT): ${sellerVat}`, 0, 92, { align: 'center', width: page.width });
+    addressTop = 108;
+  }
   if (companyAddress) {
     setBaseFont(10);
-    doc.text(companyAddress, 30, 80, { align: 'center', width: page.width - 60, lineGap: 1 });
+    doc.text(companyAddress, 30, addressTop, { align: 'center', width: page.width - 60, lineGap: 1 });
   }
   if (customerName) {
     setBaseFont(12);
@@ -1042,6 +1208,22 @@ async function buildDaftraInvoicePdfFromApiBody(
     return sum + sub;
   }, 0);
   const summarySubtotal = toNum(invoice?.summary_subtotal ?? invoice?.summary_total);
+  const summaryVatAmount = toNum(
+    invoice?.summary_tax1_amount ??
+      invoice?.summary_tax_amount ??
+      invoice?.summary_tax ??
+      invoice?.tax1_amount ??
+      invoice?.vat_amount ??
+      0
+  );
+  const fallbackVatPct = toNum(pdfOpts?.defaultVatPercentage ?? 0);
+  const summaryVatPercentage = toNum(
+    invoice?.tax1_percentage ??
+      invoice?.tax1 ??
+      invoice?.summary_tax1_percentage ??
+      invoice?.summary_tax_percentage ??
+      (fallbackVatPct > 0 ? fallbackVatPct : 0)
+  );
   const summaryTotal = toNum(invoice?.summary_total);
   const summaryPaid = toNum(invoice?.summary_paid ?? 0);
   const summaryUnpaid = toNum(invoice?.summary_unpaid ?? invoice?.summary_total ?? 0);
@@ -1066,11 +1248,32 @@ async function buildDaftraInvoicePdfFromApiBody(
     y += rowH;
   }
 
-  const summaryRows = [
-    ['Items Total', fmtCurrency(summarySubtotal > 0 ? summarySubtotal : derivedItemsTotal)],
-    ['Total', fmtCurrency(summaryTotal > 0 ? summaryTotal : derivedItemsTotal)],
+  const resolvedSubtotal = summarySubtotal > 0 ? summarySubtotal : derivedItemsTotal;
+  const derivedVatFromTotals = summaryTotal > resolvedSubtotal ? roundTo2(summaryTotal - resolvedSubtotal) : 0;
+  const resolvedVatAmount =
+    summaryVatAmount > 0
+      ? summaryVatAmount
+      : derivedVatFromTotals > 0
+        ? derivedVatFromTotals
+        : resolvedSubtotal > 0 && summaryVatPercentage > 0
+          ? roundTo2(resolvedSubtotal * (summaryVatPercentage / 100))
+          : 0;
+  const resolvedTotal =
+    summaryTotal > 0 && summaryTotal > resolvedSubtotal ? summaryTotal : roundTo2(resolvedSubtotal + resolvedVatAmount);
+  const resolvedVatPercentage =
+    resolvedSubtotal > 0 && resolvedVatAmount > 0
+      ? roundTo2((resolvedVatAmount / resolvedSubtotal) * 100)
+      : summaryVatPercentage;
+  const vatPercentageLabel = Number.isInteger(resolvedVatPercentage)
+    ? resolvedVatPercentage.toFixed(0)
+    : resolvedVatPercentage.toFixed(2);
+  // Invoice rendering
+  const summaryRows: Array<[string, string]> = [
+    ['Subtotal', fmtCurrency(resolvedSubtotal)],
+    ...(resolvedVatAmount > 0 ? [[`VAT (${vatPercentageLabel}%)`, fmtCurrency(resolvedVatAmount)] as [string, string]] : []),
+    ['Total', fmtCurrency(resolvedTotal)],
     ['Paid', fmtCurrency(summaryPaid)],
-    ['Balance Due', fmtCurrency(summaryUnpaid > 0 ? summaryUnpaid : Math.max(0, derivedItemsTotal - summaryPaid))],
+    ['Balance Due', fmtCurrency(summaryUnpaid > 0 ? summaryUnpaid : Math.max(0, resolvedTotal - summaryPaid))],
   ];
   for (const [label, value] of summaryRows) {
     const rowH = 30;
@@ -1226,7 +1429,7 @@ async function tryFetchDaftraRemotePdfUrl(
     Number.isFinite(invoiceId) && Number(invoiceId) > 0
       ? `https://${subdomain}.daftra.com/client/invoices/view/${Number(invoiceId)}.pdf`
       : null;
-  const attempts: Array<{ label: string; headers: Record<string, string> }> = [
+  const baseAttempts: Array<{ label: string; headers: Record<string, string> }> = [
     {
       label: 'referer+origin',
       headers: {
@@ -1249,6 +1452,10 @@ async function tryFetchDaftraRemotePdfUrl(
     { label: 'apikey-header', headers: { apikey: apiToken, Accept: 'application/pdf,*/*', Referer: `${portalOrigin}/` } },
     { label: 'apikey-only', headers: { apikey: apiToken, Accept: 'application/pdf,*/*' } },
   ];
+  const attempts =
+    attemptKind.kind === 'invoice_pdf_url'
+      ? baseAttempts.filter((a) => a.label === 'apikey-header' || a.label === 'apikey-only')
+      : baseAttempts;
   let daftraQueryUrl: string | null = null;
   try {
     const u = new URL(resolved);
@@ -1261,10 +1468,11 @@ async function tryFetchDaftraRemotePdfUrl(
     /* ignore */
   }
   const urlsToTry = [
-    ...(preferredClientPdfUrl ? [preferredClientPdfUrl] : []),
+    ...(attemptKind.kind === 'invoicepdfurl' && preferredClientPdfUrl ? [preferredClientPdfUrl] : []),
     resolved,
     ...(daftraQueryUrl && daftraQueryUrl !== resolved ? [daftraQueryUrl] : []),
   ];
+  const requestTimeoutMs = attemptKind.kind === 'invoice_pdf_url' ? 12000 : 30000;
   for (const url of urlsToTry) {
     for (const { label, headers } of attempts) {
       try {
@@ -1272,7 +1480,7 @@ async function tryFetchDaftraRemotePdfUrl(
           responseType: 'arraybuffer',
           headers,
           validateStatus: (s) => s === 200,
-          timeout: 45000,
+          timeout: requestTimeoutMs,
           maxRedirects: 10,
         });
         const buf = pdfRes.data && Buffer.from(pdfRes.data);
@@ -1289,6 +1497,11 @@ async function tryFetchDaftraRemotePdfUrl(
             contentType: contentType || '(missing)',
             bodyPreview: preview,
           });
+          // `invoice_pdf_url` commonly returns Daftra login HTML for server-side requests.
+          // Bail out quickly to local fallback instead of retrying many similar attempts.
+          if ((contentType || '').toLowerCase().includes('text/html') && attemptKind.kind === 'invoice_pdf_url') {
+            return null;
+          }
           continue;
         }
         logDaftraPdf('Remote PDF download OK', { attemptKind, strategy: label, contentType: contentType || '(unknown)', bytes: buf.length });
@@ -1649,6 +1862,26 @@ async function tryRenderDaftraInvoiceHtmlUrlToPdf(
   }
 }
 
+async function tryRenderDaftraInvoiceHtmlFromMeta(
+  meta: any,
+  settings: DaftraTenantSettings,
+  timeoutMs = 25000
+): Promise<Buffer | null> {
+  const links = extractDaftraPdfLinkFields(meta);
+  if (!links.htmlUrl) return null;
+  const rendered = await Promise.race<Buffer | null>([
+    tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain, links.portalUrl),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+  ]);
+  if (!rendered) {
+    logDaftraPdf('invoice_html_url render skipped/failed within timeout; using next fallback', {
+      timeoutMs,
+    });
+    return null;
+  }
+  return rendered;
+}
+
 export type DaftraInvoicePdfSource = 'daftra-remote' | 'daftra-template' | 'daftra-local';
 
 type DaftraPdfDownloadOutcome = { buffer: Buffer; source: DaftraInvoicePdfSource };
@@ -1667,10 +1900,11 @@ async function tryDownloadDaftraInvoicePdf(
   settings: DaftraTenantSettings,
   invoiceId: number,
   tenantId: string | null,
-  options?: { allowGeneratedFallback?: boolean; generatedOnly?: boolean }
+  options?: { allowGeneratedFallback?: boolean; generatedOnly?: boolean; allowHtmlTemplateRender?: boolean }
 ): Promise<DaftraPdfDownloadOutcome | null> {
   const allowGeneratedFallback = options?.allowGeneratedFallback !== false;
   const generatedOnly = options?.generatedOnly === true;
+  const allowHtmlTemplateRender = options?.allowHtmlTemplateRender !== false;
   const useRemote = daftraRemotePdfEnabled() && !generatedOnly;
 
   let meta: any;
@@ -1697,7 +1931,10 @@ async function tryDownloadDaftraInvoicePdf(
 
   if (generatedOnly) {
     try {
-      const buffer = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, meta, invoiceId);
+      const buffer = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, meta, invoiceId, {
+        sellerVatRegistration: settings.vat_registration_number,
+        defaultVatPercentage: settings.vat_percentage,
+      });
       return { buffer, source: 'daftra-local' };
     } catch (e: any) {
       console.warn('[DaftraInvoice] Could not build PDF from invoice JSON:', e?.message);
@@ -1706,17 +1943,7 @@ async function tryDownloadDaftraInvoicePdf(
   }
 
   if (useRemote) {
-    // For booking-time delivery, prefer template render first so QR/font/layout overrides are always applied.
-    if (links.htmlUrl) {
-      const htmlPdf = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain, links.portalUrl);
-      if (htmlPdf) {
-        return { buffer: htmlPdf, source: 'daftra-template' };
-      }
-      logDaftraPdf('invoice_html_url did not render to PDF; falling back to direct/portal PDF URLs', {
-        internalInvoiceId: invoiceId,
-      });
-    }
-
+    // Fast path first to avoid long Chromium/template waits in worker.
     if (links.directUrl) {
       const buf = await tryFetchDaftraRemotePdfUrl(links.directUrl, settings.api_token, settings.subdomain, {
         kind: 'invoicepdfurl',
@@ -1737,11 +1964,30 @@ async function tryDownloadDaftraInvoicePdf(
         internalInvoiceId: invoiceId,
       });
     }
+    // Template render from `invoice_html_url` in invoice JSON (last remote fallback).
+    if (links.htmlUrl && allowHtmlTemplateRender) {
+      const htmlPdf = await tryRenderDaftraInvoiceHtmlFromMeta(meta, settings, 25000);
+      if (htmlPdf) {
+        return { buffer: htmlPdf, source: 'daftra-template' };
+      }
+    }
+    if (links.htmlUrl && !allowHtmlTemplateRender) {
+      logDaftraPdf('Skipping invoice_html_url template render for fast worker path', {
+        internalInvoiceId: invoiceId,
+      });
+    }
     if (!links.directUrl && !links.portalUrl && !links.htmlUrl) {
       logDaftraPdf('No invoicepdfurl, invoice_pdf_url, or invoice_html_url on invoice record', { internalInvoiceId: invoiceId });
     }
   } else {
     logDaftraPdf('Skipping remote PDF (DAFTRA_USE_REMOTE_PDF=false or generatedOnly)', { internalInvoiceId: invoiceId });
+    // Even when remote PDF links are disabled, keep html-url conversion available (unless explicitly disabled).
+    if (allowHtmlTemplateRender) {
+      const htmlPdf = await tryRenderDaftraInvoiceHtmlFromMeta(meta, settings, 25000);
+      if (htmlPdf) {
+        return { buffer: htmlPdf, source: 'daftra-template' };
+      }
+    }
   }
 
   if (!allowGeneratedFallback) {
@@ -1750,12 +1996,32 @@ async function tryDownloadDaftraInvoicePdf(
 
   logDaftraPdf('Falling back to local PDF generator', { internalInvoiceId: invoiceId });
   try {
-    const buffer = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, meta, invoiceId);
+    const buffer = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, meta, invoiceId, {
+      sellerVatRegistration: settings.vat_registration_number,
+      defaultVatPercentage: settings.vat_percentage,
+    });
     return { buffer, source: 'daftra-local' };
   } catch (e: any) {
     console.warn('[DaftraInvoice] Could not build PDF from invoice JSON:', e?.message);
     return null;
   }
+}
+
+export async function getDaftraInvoiceVatBreakdownForTenant(params: {
+  tenantId: string;
+  invoiceId: string | number;
+  defaultVatPercentage?: number;
+}): Promise<DaftraVatSummary | null> {
+  const defaultVatPercentage = roundTo2(Number(params.defaultVatPercentage ?? 15));
+  const settings = await loadDaftraSettingsForTenant(params.tenantId);
+  if (!settings) return null;
+
+  const resolvedInvoiceId = await resolveDaftraInternalInvoiceId(settings, String(params.invoiceId));
+  const meta = await fetchDaftraInvoiceRecord(settings, resolvedInvoiceId);
+  if (!meta) return null;
+
+  const { invoice } = normalizeDaftraInvoiceRecord(meta);
+  return extractVatSummaryFromDaftraInvoice(invoice, defaultVatPercentage);
 }
 
 async function getSmtpFromAddress(tenantId: string): Promise<string> {
@@ -1938,15 +2204,18 @@ export class DaftraInvoiceService {
 
       if (booking.payment_status === 'paid' || booking.payment_status === 'paid_manual') {
         try {
+          const cfgVat = Number.isFinite(Number(settings.vat_percentage)) ? Number(settings.vat_percentage) : 15;
+          const vatInclusiveTotal = roundTo2(totalPrice + roundTo2(totalPrice * cfgVat / 100));
+          const paidAmount = vatInclusiveTotal > 0 ? vatInclusiveTotal : totalPrice;
           await markDaftraInvoicePaid({
             settings,
             invoiceId: invoiceNum,
-            amount: totalPrice,
+            amount: paidAmount,
             paymentMethod: payMethod || booking.payment_method,
             transactionReference: payRef || booking.transaction_reference,
             paidAtIso: new Date().toISOString(),
           });
-          console.log(`[DaftraInvoice] Paid status handling completed id=${invoiceIdStr} amount=${totalPrice}`);
+          console.log(`[DaftraInvoice] Paid status handling completed id=${invoiceIdStr} amount=${paidAmount}`);
         } catch (e: any) {
           console.warn(`[DaftraInvoice] Could not mark invoice paid id=${invoiceIdStr}: ${e?.message}`);
         }
@@ -1984,7 +2253,9 @@ export class DaftraInvoiceService {
       }
 
       const qrPng = await QRCode.toBuffer(unified.context.qr_data_json, { type: 'png', width: 320, margin: 1 });
-      const pdfOut = await tryDownloadDaftraInvoicePdf(settings, invoiceNum, booking.tenant_id);
+      const pdfOut = await tryDownloadDaftraInvoicePdf(settings, invoiceNum, booking.tenant_id, {
+        allowHtmlTemplateRender: false,
+      });
       const pdf = pdfOut?.buffer ?? null;
       const caption = `Your invoice (#${invoiceNum}) is ready.\nBooking ID: ${unified.booking_id}\n${unified.context.payment_summary}`;
 
@@ -2130,14 +2401,16 @@ export class DaftraInvoiceService {
 
       if (first?.payment_status === 'paid' || first?.payment_status === 'paid_manual') {
         try {
+          const cfgVat = Number.isFinite(Number(settings.vat_percentage)) ? Number(settings.vat_percentage) : 15;
+          const groupPaidAmount = roundTo2(totalAmt + roundTo2(totalAmt * cfgVat / 100));
           await markDaftraInvoicePaid({
             settings,
             invoiceId: invoiceNum,
-            amount: totalAmt,
+            amount: groupPaidAmount,
             paymentMethod: 'cash',
             paidAtIso: new Date().toISOString(),
           });
-          console.log(`[DaftraInvoice] Group paid status handling completed id=${invoiceIdStr} amount=${totalAmt}`);
+          console.log(`[DaftraInvoice] Group paid status handling completed id=${invoiceIdStr} amount=${groupPaidAmount}`);
         } catch (e: any) {
           console.warn(`[DaftraInvoice] Could not mark group invoice paid id=${invoiceIdStr}: ${e?.message}`);
         }
@@ -2179,7 +2452,9 @@ export class DaftraInvoiceService {
       const uSingle = await mapBookingToUnifiedInvoice(unified.primary_booking_id).catch(() => null);
       const qrJson = uSingle?.context.qr_data_json || JSON.stringify({ booking_id: unified.primary_booking_id, type: 'booking_ticket' });
       const qrPng = await QRCode.toBuffer(qrJson, { type: 'png', width: 320, margin: 1 });
-      const pdfOut = await tryDownloadDaftraInvoicePdf(settings, invoiceNum, tenantId);
+      const pdfOut = await tryDownloadDaftraInvoicePdf(settings, invoiceNum, tenantId, {
+        allowHtmlTemplateRender: false,
+      });
       const pdf = pdfOut?.buffer ?? null;
 
       if (first?.payment_status === 'paid' || first?.payment_status === 'paid_manual') {
@@ -2263,11 +2538,9 @@ export async function downloadDaftraInvoicePdfForTenant(
   const officialPdfUrl = extractDaftraOfficialPdfUrl(invoiceMeta);
   // Keep booking download output consistent with successful test renders:
   // prefer template render first, then remote official URLs.
-  if (links.htmlUrl) {
-    const rendered = await tryRenderDaftraInvoiceHtmlUrlToPdf(links.htmlUrl, settings.subdomain, links.portalUrl);
-    if (rendered && rendered.length >= 100) {
-      return { pdf: rendered, source: 'daftra-template', resolvedInvoiceId };
-    }
+  const renderedFromHtmlUrl = await tryRenderDaftraInvoiceHtmlFromMeta(invoiceMeta, settings, 25000);
+  if (renderedFromHtmlUrl && renderedFromHtmlUrl.length >= 100) {
+    return { pdf: renderedFromHtmlUrl, source: 'daftra-template', resolvedInvoiceId };
   }
 
   if (!officialPdfUrl) {
@@ -2291,7 +2564,10 @@ export async function downloadDaftraInvoicePdfForTenant(
     }
   }
 
-  const fallbackPdf = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, invoiceMeta, resolvedInvoiceId);
+  const fallbackPdf = await buildDaftraInvoicePdfFromApiBody(settings.subdomain, invoiceMeta, resolvedInvoiceId, {
+    sellerVatRegistration: settings.vat_registration_number,
+    defaultVatPercentage: settings.vat_percentage,
+  });
   if (!fallbackPdf || fallbackPdf.length < 100) {
     throw new DaftraPdfDownloadError('Failed to generate fallback local PDF', 500);
   }

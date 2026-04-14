@@ -3,6 +3,12 @@ import { formatTimeTo12Hour } from '../../utils/timeFormat';
 import { effectivePaidQuantityForInvoice } from './invoicePaidQuantity';
 import type { UnifiedBookingGroupInvoice, UnifiedBookingInvoice, UnifiedLineItem } from './unifiedInvoiceTypes';
 
+const DEFAULT_VAT_PERCENTAGE = 15;
+
+function roundTo2(value: number): number {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
 function normalizeCurrency(code: string | undefined | null): string {
   let c = (code || 'SAR').trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(c)) c = 'SAR';
@@ -172,6 +178,10 @@ export async function mapBookingToUnifiedInvoice(bookingId: string): Promise<Uni
   if (totalPrice <= 0) {
     throw new Error('Invalid invoice data: paid quantity > 0 but total price = 0');
   }
+  const subtotal = roundTo2(totalPrice);
+  // VAT calculation
+  const vat_amount = roundTo2(subtotal * (DEFAULT_VAT_PERCENTAGE / 100));
+  const total = roundTo2(subtotal + vat_amount);
 
   const lineItems: UnifiedLineItem[] = [];
   let itemName = serviceName;
@@ -307,6 +317,10 @@ export async function mapBookingToUnifiedInvoice(bookingId: string): Promise<Uni
     customer_email: bookings.customer_email || undefined,
     customer_phone: bookings.customer_phone || undefined,
     line_items: lineItems,
+    subtotal,
+    vat_percentage: DEFAULT_VAT_PERCENTAGE,
+    vat_amount,
+    total,
     date: invoiceDate.toISOString().split('T')[0],
     due_date: dueDate.toISOString().split('T')[0],
     currency_code,
@@ -447,6 +461,12 @@ export async function mapBookingGroupToUnifiedInvoice(bookingGroupId: string): P
   }
 
   const currency_code = normalizeCurrency((firstBooking as any).tenants?.currency_code);
+  const groupSubtotal = roundTo2(
+    bookings.reduce((sum, booking) => sum + parseFloat(String(booking.total_price || 0)), 0)
+  );
+  // VAT calculation
+  const groupVatAmount = roundTo2(groupSubtotal * (DEFAULT_VAT_PERCENTAGE / 100));
+  const groupTotal = roundTo2(groupSubtotal + groupVatAmount);
 
   return {
     tenant_id: tenantId,
@@ -456,6 +476,10 @@ export async function mapBookingGroupToUnifiedInvoice(bookingGroupId: string): P
     customer_email: firstBooking.customer_email || undefined,
     customer_phone: firstBooking.customer_phone || undefined,
     line_items: lineItems,
+    subtotal: groupSubtotal,
+    vat_percentage: DEFAULT_VAT_PERCENTAGE,
+    vat_amount: groupVatAmount,
+    total: groupTotal,
     date: new Date().toISOString().split('T')[0],
     due_date: new Date().toISOString().split('T')[0],
     currency_code,

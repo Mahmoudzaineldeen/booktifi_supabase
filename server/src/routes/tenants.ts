@@ -1623,6 +1623,8 @@ router.get('/invoice-provider-settings', authenticateTenantAdmin, async (req, re
       store_id: raw.store_id ?? '',
       default_product_id: raw.default_product_id ?? '',
       invoice_layout_id: raw.invoice_layout_id ?? '',
+      vat_percentage: raw.vat_percentage ?? 15,
+      vat_registration_number: typeof raw.vat_registration_number === 'string' ? raw.vat_registration_number : '',
       country_code: typeof raw.country_code === 'string' ? raw.country_code : 'SA',
       fallback_to_zoho: raw.fallback_to_zoho === true,
       api_token_set: hasToken,
@@ -1681,6 +1683,22 @@ router.put('/invoice-provider-settings', authenticateTenantAdmin, async (req, re
               : parseInt(String(daftra_settings.invoice_layout_id), 10);
         }
       }
+      if (daftra_settings.vat_percentage !== undefined && daftra_settings.vat_percentage !== '') {
+        const vatPct =
+          typeof daftra_settings.vat_percentage === 'number'
+            ? daftra_settings.vat_percentage
+            : parseFloat(String(daftra_settings.vat_percentage));
+        if (!Number.isNaN(vatPct) && Number.isFinite(vatPct)) {
+          merged.vat_percentage = Math.max(0, Math.min(100, vatPct));
+        }
+      }
+      if (daftra_settings.vat_registration_number !== undefined) {
+        if (daftra_settings.vat_registration_number === '' || daftra_settings.vat_registration_number === null) {
+          delete merged.vat_registration_number;
+        } else if (typeof daftra_settings.vat_registration_number === 'string') {
+          merged.vat_registration_number = daftra_settings.vat_registration_number.trim().slice(0, 64);
+        }
+      }
       if (typeof daftra_settings.country_code === 'string') merged.country_code = daftra_settings.country_code.trim();
       if (daftra_settings.fallback_to_zoho !== undefined) merged.fallback_to_zoho = daftra_settings.fallback_to_zoho === true;
       const newTok = daftra_settings.api_token;
@@ -1725,6 +1743,8 @@ router.put('/invoice-provider-settings', authenticateTenantAdmin, async (req, re
         store_id: raw.store_id ?? '',
         default_product_id: raw.default_product_id ?? '',
         invoice_layout_id: raw.invoice_layout_id ?? '',
+        vat_percentage: raw.vat_percentage ?? 15,
+        vat_registration_number: typeof raw.vat_registration_number === 'string' ? raw.vat_registration_number : '',
         country_code: typeof raw.country_code === 'string' ? raw.country_code : 'SA',
         fallback_to_zoho: raw.fallback_to_zoho === true,
         api_token_set: hasToken,

@@ -11,7 +11,7 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { ArrowLeft, FileText, Download, Calendar, CheckCircle, XCircle, Clock, Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
-import { getApiUrl, getDownloadApiUrl } from '../../lib/apiUrl';
+import { getDownloadApiUrl } from '../../lib/apiUrl';
 import { showNotification } from '../../contexts/NotificationContext';
 
 interface Invoice {
@@ -30,6 +30,10 @@ interface Invoice {
   start_time: string;
   end_time: string;
   total_price: number;
+  subtotal: number;
+  vat_percentage: number;
+  vat_amount: number;
+  total: number;
   status: string;
   payment_status: string;
   customer_name: string;
@@ -79,6 +83,15 @@ export function CustomerBillingPage() {
     invoiceId: string | null;
     loading: boolean;
   }>({ timestamp: null, invoiceId: null, loading: false });
+
+  const formatInvoiceCurrency = useCallback((amount: number): string => {
+    return `${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'} SAR`;
+  }, []);
+
+  const formatVatPercentage = useCallback((percentage: number): string => {
+    if (!Number.isFinite(percentage)) return '0';
+    return Number.isInteger(percentage) ? percentage.toFixed(0) : percentage.toFixed(2);
+  }, []);
 
   useEffect(() => {
     if (authLoading) {
@@ -271,6 +284,18 @@ export function CustomerBillingPage() {
         total_price: typeof invoice.total_price === 'string' 
           ? parseFloat(invoice.total_price) 
           : (invoice.total_price || 0),
+        subtotal: typeof invoice.subtotal === 'string'
+          ? parseFloat(invoice.subtotal)
+          : (invoice.subtotal ?? (typeof invoice.total_price === 'string' ? parseFloat(invoice.total_price) : (invoice.total_price || 0))),
+        vat_percentage: typeof invoice.vat_percentage === 'string'
+          ? parseFloat(invoice.vat_percentage)
+          : (invoice.vat_percentage ?? 15),
+        vat_amount: typeof invoice.vat_amount === 'string'
+          ? parseFloat(invoice.vat_amount)
+          : (invoice.vat_amount ?? 0),
+        total: typeof invoice.total === 'string'
+          ? parseFloat(invoice.total)
+          : (invoice.total ?? (typeof invoice.total_price === 'string' ? parseFloat(invoice.total_price) : (invoice.total_price || 0))),
         status: invoice.status || 'unknown',
         payment_status: invoice.payment_status || 'unpaid',
         customer_name: invoice.customer_name || '',
@@ -701,7 +726,7 @@ export function CustomerBillingPage() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div 
+                      <div
                         className="text-3xl font-bold mb-2"
                         style={{ 
                           background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
@@ -710,7 +735,7 @@ export function CustomerBillingPage() {
                           backgroundClip: 'text'
                         }}
                       >
-                        {formatPrice(invoice.total_price)}
+                        {formatPrice(invoice.total)}
                       </div>
                       <div className="flex items-center gap-2 justify-end">
                         {invoice.payment_status === 'paid' ? (
@@ -765,6 +790,32 @@ export function CustomerBillingPage() {
                           ? formatDateTimeTo12Hour(invoice.invoice_created_at)
                           : 'N/A'}
                       </p>
+                    </div>
+                  </div>
+
+                  <div
+                    className="mb-6 rounded-lg border bg-white px-4 py-3"
+                    style={{ borderColor: `${primaryColor}20` }}
+                  >
+                    {/* Invoice rendering */}
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between font-medium text-gray-700">
+                        <span>{i18n.language === 'ar' ? 'المجموع الفرعي' : 'Subtotal'}</span>
+                        <span className="font-mono tabular-nums">{formatInvoiceCurrency(invoice.subtotal)}</span>
+                      </div>
+                      {invoice.vat_amount > 0 && invoice.vat_percentage > 0 && (
+                        <div className="flex items-center justify-between font-medium text-gray-700">
+                          <span>{`VAT (${formatVatPercentage(invoice.vat_percentage)}%)`}</span>
+                          <span className="font-mono tabular-nums">{formatInvoiceCurrency(invoice.vat_amount)}</span>
+                        </div>
+                      )}
+                      <div
+                        className="flex items-center justify-between border-t pt-2 text-base font-bold"
+                        style={{ borderColor: `${primaryColor}20`, color: primaryColor }}
+                      >
+                        <span>{i18n.language === 'ar' ? 'الإجمالي' : 'Total'}</span>
+                        <span className="font-mono tabular-nums">{formatInvoiceCurrency(invoice.total)}</span>
+                      </div>
                     </div>
                   </div>
 
