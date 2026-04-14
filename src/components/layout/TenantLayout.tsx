@@ -5,8 +5,143 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { showNotification } from '../../contexts/NotificationContext';
 import { LanguageToggle } from './LanguageToggle';
-import { Calendar, Users, Briefcase, Settings, LogOut, LayoutDashboard, Globe, Package, Gift, Menu, X, UserCheck, Clock, Building2, Wrench, UserX, Shield, BarChart3, ChevronDown, Tag, PanelsTopLeft } from 'lucide-react';
+import {
+  Calendar,
+  Users,
+  Briefcase,
+  Settings,
+  LogOut,
+  LayoutDashboard,
+  Globe,
+  Package,
+  Gift,
+  Menu,
+  X,
+  UserCheck,
+  Clock,
+  Building2,
+  Wrench,
+  UserX,
+  Shield,
+  BarChart3,
+  ChevronDown,
+  Tag,
+  PanelsTopLeft,
+} from 'lucide-react';
 import { Button } from '../ui/Button';
+
+function routeMatches(location: { pathname: string; hash: string }, to: string): boolean {
+  const [pathRaw, frag] = to.split('#');
+  const path = pathRaw.replace(/\/$/, '') || '';
+  const pathOk = location.pathname === path || (path ? location.pathname.startsWith(`${path}/`) : false);
+  if (!frag) return pathOk;
+  return pathOk && location.hash === `#${frag}`;
+}
+
+type NavSubDef = { key: string; label: string; to: string; visible: boolean };
+
+function NavDropdownGroup({
+  location,
+  baseTo,
+  baseLabel,
+  Icon,
+  expanded,
+  setExpanded,
+  subItems,
+  onMobileClose,
+}: {
+  location: ReturnType<typeof useLocation>;
+  baseTo: string;
+  baseLabel: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  expanded: boolean;
+  setExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  subItems: NavSubDef[];
+  onMobileClose: () => void;
+}) {
+  const subs = subItems.filter((s) => s.visible);
+  if (subs.length === 0) return null;
+
+  const isMatch = (to: string) => routeMatches(location, to);
+  const groupActive = isMatch(baseTo) || subs.some((s) => isMatch(s.to));
+
+  if (subs.length === 1) {
+    const only = subs[0];
+    const active = isMatch(only.to);
+    return (
+      <Link
+        to={only.to}
+        onClick={() => onMobileClose()}
+        className={`flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
+          active ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50'
+        }`}
+      >
+        <Icon className="w-5 h-5 shrink-0" />
+        <span className="truncate">{only.label}</span>
+      </Link>
+    );
+  }
+
+  return (
+    <div className="space-y-0.5">
+      <div
+        className={`flex w-full items-stretch rounded-lg overflow-hidden ${
+          groupActive ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50'
+        }`}
+      >
+        <Link
+          to={baseTo}
+          onClick={() => {
+            setExpanded(true);
+            onMobileClose();
+          }}
+          className={`flex flex-1 items-center gap-3 px-4 py-3 text-sm font-medium min-w-0 ${
+            groupActive ? '' : 'hover:bg-gray-50/80'
+          }`}
+        >
+          <Icon className="w-5 h-5 shrink-0" />
+          <span className="truncate">{baseLabel}</span>
+        </Link>
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={expanded ? 'Collapse' : 'Expand'}
+          onClick={(e) => {
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }}
+          className={`px-2 flex items-center shrink-0 border-l border-blue-100/80 ${
+            groupActive ? 'border-blue-200/60' : 'border-gray-200'
+          } hover:bg-black/5`}
+        >
+          <ChevronDown
+            className={`w-4 h-4 text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
+        </button>
+      </div>
+      {expanded && (
+        <div className="ml-2 pl-4 border-l-2 border-blue-100 space-y-0.5 py-1">
+          {subs.map((sub) => {
+            const subActive = isMatch(sub.to);
+            return (
+              <Link
+                key={sub.key}
+                to={sub.to}
+                onClick={() => onMobileClose()}
+                className={`block px-3 py-2 text-sm rounded-md transition-colors ${
+                  subActive ? 'bg-blue-50 text-blue-800 font-medium' : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {sub.label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface TenantLayoutProps {
   children: React.ReactNode;
@@ -55,121 +190,94 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
   // Permission-based visibility: custom roles see only what their permissions allow; built-in roles get permissions from role_permissions (seeded)
   const canAccessBookings = hasPermission('create_booking') || hasPermission('edit_booking') || hasPermission('cancel_booking') || hasPermission('manage_bookings') || hasPermission('view_schedules');
   const canAccessVisitors = hasPermission('register_visitors') || hasPermission('view_schedules') || hasPermission('manage_bookings');
-  const baseNavigation = [
-    {
-      name: t('navigation.home'),
-      href: `/${tenantSlug}/admin`,
-      icon: LayoutDashboard,
-      current: location.pathname === `/${tenantSlug}/admin`,
-      visible: hasAssignedRole ? true : !isAdminUser,
-    },
-    {
-      name: t('navigation.customizeDashboard', 'Customize Dashboard'),
-      href: `/${tenantSlug}/admin/dashboard-customize`,
-      icon: PanelsTopLeft,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/dashboard-customize`),
-      visible: hasPermission('customize_dashboard'),
-    },
-    {
-      name: t('navigation.services'),
-      href: `/${tenantSlug}/admin/services`,
-      icon: Briefcase,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/services`),
-      visible: hasPermission('manage_services'),
-    },
-    {
-      name: t('navigation.pricingTags', 'Pricing tags'),
-      href: `/${tenantSlug}/admin/tags`,
-      icon: Tag,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/tags`),
-      visible:
-        hasPermission('manage_tags') ||
-        hasPermission('view_tags') ||
-        hasPermission('assign_tags_to_services'),
-    },
-    {
-      name: t('navigation.packages'),
-      href: `/${tenantSlug}/admin/packages`,
-      icon: Package,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/packages`),
-      visible: hasFeatures && (features?.packages_enabled ?? true) && hasPermission('manage_packages'),
-    },
-    {
-      name: t('navigation.branches', 'Branches'),
-      href: `/${tenantSlug}/admin/branches`,
-      icon: Building2,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/branches`),
-      visible: hasPermission('manage_branches'),
-    },
-    {
-      name: t('navigation.packageSubscribers', 'Package Subscribers'),
-      href: `/${tenantSlug}/admin/package-subscribers`,
-      icon: UserCheck,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/package-subscribers`),
-      visible: hasFeatures && (features?.packages_enabled ?? true) &&
-               (hasPermission('sell_packages') || hasPermission('manage_packages')),
-    },
-    {
-      name: t('navigation.offers'),
-      href: `/${tenantSlug}/admin/offers`,
-      icon: Gift,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/offers`),
-      visible: hasAssignedRole ? true : !isAdminUser,
-    },
-    {
-      name: t('navigation.bookings'),
-      href: `/${tenantSlug}/admin/bookings`,
-      icon: Calendar,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/bookings`),
-      visible: canAccessBookings,
-    },
-    {
-      name: t('navigation.employees'),
-      href: `/${tenantSlug}/admin/employees`,
-      icon: Users,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/employees`),
-      visible: hasFeatures && (features?.employees_enabled ?? true) && hasPermission('manage_employees'),
-    },
-    {
-      name: t('navigation.roles', 'Role Management'),
-      href: `/${tenantSlug}/admin/roles`,
-      icon: Shield,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/roles`),
-      visible: hasPermission('manage_roles'),
-    },
-    {
-      name: t('navigation.employeeShifts', 'Employee Shifts & Assignments'),
-      href: `/${tenantSlug}/admin/employee-shifts`,
-      icon: Clock,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/employee-shifts`),
-      visible: hasFeatures && (features?.scheduling_mode === 'employee_based') && hasPermission('manage_shifts'),
-    },
-    {
-      name: t('navigation.landingPage'),
-      href: `/${tenantSlug}/admin/landing`,
-      icon: Globe,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/landing`),
-      visible: hasFeatures && (features?.landing_page_enabled ?? true) && !isRestrictedRole,
-    },
-    {
-      name: t('navigation.settings'),
-      href: `/${tenantSlug}/admin/settings`,
-      icon: Settings,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/settings`),
-      visible: !isRestrictedRole && hasPermission('edit_system_settings'),
-    },
-    {
-      name: t('navigation.assignFixingTicket', 'Assign Fixing Ticket'),
-      href: `/${tenantSlug}/admin/assign-fixing-ticket`,
-      icon: Wrench,
-      current: location.pathname.startsWith(`/${tenantSlug}/admin/assign-fixing-ticket`),
-      visible: !!userProfile?.role &&
-        userProfile.role !== 'solution_owner' &&
-        !['customer', 'customer_admin'].includes(userProfile.role),
-    },
-  ];
 
-  const navigation = baseNavigation.filter((item) => item.visible);
+  const adminBase = tenantSlug ? `/${tenantSlug}/admin` : '';
+  const settingsBase = adminBase ? `${adminBase}/settings` : '';
+
+  const dashboardHomeVisible = hasAssignedRole ? true : !isAdminUser;
+  const customizeVisible = hasPermission('customize_dashboard');
+  const servicesVisible = hasPermission('manage_services');
+  const tagsVisible =
+    hasPermission('manage_tags') ||
+    hasPermission('view_tags') ||
+    hasPermission('assign_tags_to_services');
+  const packagesVisible = hasFeatures && (features?.packages_enabled ?? true) && hasPermission('manage_packages');
+  const packageSubscribersVisible =
+    hasFeatures &&
+    (features?.packages_enabled ?? true) &&
+    (hasPermission('sell_packages') || hasPermission('manage_packages'));
+  const branchesVisible = hasPermission('manage_branches');
+  const offersVisible = hasAssignedRole ? true : !isAdminUser;
+  const bookingsVisible = canAccessBookings;
+  const employeesVisible = hasFeatures && (features?.employees_enabled ?? true) && hasPermission('manage_employees');
+  const rolesVisible = hasPermission('manage_roles');
+  const shiftsVisible =
+    hasFeatures && features?.scheduling_mode === 'employee_based' && hasPermission('manage_shifts');
+  const landingEditorVisible = hasFeatures && (features?.landing_page_enabled ?? true) && !isRestrictedRole;
+  const settingsVisible = !isRestrictedRole && hasPermission('edit_system_settings');
+  const assignFixingVisible =
+    !!userProfile?.role &&
+    userProfile.role !== 'solution_owner' &&
+    !['customer', 'customer_admin'].includes(userProfile.role);
+  const isDashboardRoute =
+    !!adminBase &&
+    (location.pathname === adminBase || location.pathname.startsWith(`${adminBase}/dashboard-customize`));
+  const [dashboardExpanded, setDashboardExpanded] = useState(isDashboardRoute);
+  useEffect(() => {
+    if (isDashboardRoute) setDashboardExpanded(true);
+  }, [isDashboardRoute]);
+
+  const isServicesRoute =
+    !!adminBase &&
+    (location.pathname.startsWith(`${adminBase}/services`) ||
+      location.pathname.startsWith(`${adminBase}/offers`) ||
+      location.pathname.startsWith(`${adminBase}/tags`));
+  const [servicesExpanded, setServicesExpanded] = useState(isServicesRoute);
+  useEffect(() => {
+    if (isServicesRoute) setServicesExpanded(true);
+  }, [isServicesRoute]);
+
+  const isPackagesRoute =
+    !!adminBase &&
+    (location.pathname.startsWith(`${adminBase}/packages`) ||
+      location.pathname.startsWith(`${adminBase}/package-subscribers`));
+  const [packagesExpanded, setPackagesExpanded] = useState(isPackagesRoute);
+  useEffect(() => {
+    if (isPackagesRoute) setPackagesExpanded(true);
+  }, [isPackagesRoute]);
+
+  const isEmployeesRoute =
+    !!adminBase &&
+    (location.pathname.startsWith(`${adminBase}/employees`) ||
+      location.pathname.startsWith(`${adminBase}/employee-shifts`) ||
+      location.pathname.startsWith(`${adminBase}/roles`));
+  const [employeesExpanded, setEmployeesExpanded] = useState(isEmployeesRoute);
+  useEffect(() => {
+    if (isEmployeesRoute) setEmployeesExpanded(true);
+  }, [isEmployeesRoute]);
+
+  const isLandingRoute = !!adminBase && location.pathname.startsWith(`${adminBase}/landing`);
+  const [landingExpanded, setLandingExpanded] = useState(isLandingRoute);
+  useEffect(() => {
+    if (isLandingRoute) setLandingExpanded(true);
+  }, [isLandingRoute]);
+
+  const isSettingsRoute = !!adminBase && location.pathname.startsWith(`${adminBase}/settings`);
+  const isAssignFixingRoute = !!adminBase && location.pathname.startsWith(`${adminBase}/assign-fixing-ticket`);
+  const [settingsExpanded, setSettingsExpanded] = useState(isSettingsRoute || isAssignFixingRoute);
+  useEffect(() => {
+    if (isSettingsRoute || isAssignFixingRoute) setSettingsExpanded(true);
+  }, [isSettingsRoute, isAssignFixingRoute]);
+
+  const employeesBase =
+    employeesVisible || !adminBase
+      ? `${adminBase}/employees`
+      : shiftsVisible
+        ? `${adminBase}/employee-shifts`
+        : `${adminBase}/roles`;
+
+  const landingNavBase = adminBase ? `${adminBase}/landing` : '';
+
   const showReportsNav = (canAccessBookings || canAccessVisitors) && !!tenantSlug;
   const reportSubItems = [
     { name: t('reports.nav.visitors', 'Visitors'), href: `${reportsBasePath}/visitors` },
@@ -257,24 +365,267 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
           </div>
 
           <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-            {navigation.map((item) => {
-              const Icon = item.icon;
+            {adminBase && (dashboardHomeVisible || customizeVisible) && (
+              <NavDropdownGroup
+                location={location}
+                baseTo={adminBase}
+                baseLabel={t('navigation.groupDashboard', 'Dashboard')}
+                Icon={LayoutDashboard}
+                expanded={dashboardExpanded}
+                setExpanded={setDashboardExpanded}
+                onMobileClose={() => setMobileMenuOpen(false)}
+                subItems={[
+                  {
+                    key: 'dash-home',
+                    label: t('navigation.home'),
+                    to: adminBase,
+                    visible: dashboardHomeVisible,
+                  },
+                  {
+                    key: 'dash-custom',
+                    label: t('navigation.customizeDashboard', 'Customize Dashboard'),
+                    to: `${adminBase}/dashboard-customize`,
+                    visible: customizeVisible,
+                  },
+                ]}
+              />
+            )}
+
+            {adminBase && (servicesVisible || offersVisible || tagsVisible) && (
+              <NavDropdownGroup
+                location={location}
+                baseTo={`${adminBase}/services`}
+                baseLabel={t('navigation.groupServicesAndOffers', 'Services & Offers')}
+                Icon={Briefcase}
+                expanded={servicesExpanded}
+                setExpanded={setServicesExpanded}
+                onMobileClose={() => setMobileMenuOpen(false)}
+                subItems={[
+                  {
+                    key: 'svc',
+                    label: t('navigation.services'),
+                    to: `${adminBase}/services`,
+                    visible: servicesVisible,
+                  },
+                  {
+                    key: 'off',
+                    label: t('navigation.offers'),
+                    to: `${adminBase}/offers`,
+                    visible: offersVisible,
+                  },
+                  {
+                    key: 'tag',
+                    label: t('navigation.pricingTags', 'Pricing tags'),
+                    to: `${adminBase}/tags`,
+                    visible: tagsVisible,
+                  },
+                ]}
+              />
+            )}
+
+            {adminBase && (packagesVisible || packageSubscribersVisible) && (
+              <NavDropdownGroup
+                location={location}
+                baseTo={`${adminBase}/packages`}
+                baseLabel={t('navigation.groupPackages', 'Packages')}
+                Icon={Package}
+                expanded={packagesExpanded}
+                setExpanded={setPackagesExpanded}
+                onMobileClose={() => setMobileMenuOpen(false)}
+                subItems={[
+                  {
+                    key: 'pkg',
+                    label: t('navigation.packages'),
+                    to: `${adminBase}/packages`,
+                    visible: packagesVisible,
+                  },
+                  {
+                    key: 'sub',
+                    label: t('navigation.packageSubscribers', 'Package Subscribers'),
+                    to: `${adminBase}/package-subscribers`,
+                    visible: packageSubscribersVisible,
+                  },
+                ]}
+              />
+            )}
+
+            {adminBase && branchesVisible && (
+              <Link
+                to={`${adminBase}/branches`}
+                onClick={() => setMobileMenuOpen(false)}
+                className={`flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
+                  location.pathname.startsWith(`${adminBase}/branches`)
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <Building2 className="w-5 h-5 shrink-0" />
+                {t('navigation.branches', 'Branches')}
+              </Link>
+            )}
+
+            {adminBase && bookingsVisible && (
+              <Link
+                to={`${adminBase}/bookings`}
+                onClick={() => setMobileMenuOpen(false)}
+                className={`flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
+                  location.pathname.startsWith(`${adminBase}/bookings`)
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <Calendar className="w-5 h-5 shrink-0" />
+                {t('navigation.bookings')}
+              </Link>
+            )}
+
+            {adminBase && (employeesVisible || shiftsVisible || rolesVisible) && (
+              <NavDropdownGroup
+                location={location}
+                baseTo={employeesBase}
+                baseLabel={t('navigation.groupEmployees', 'Employees')}
+                Icon={Users}
+                expanded={employeesExpanded}
+                setExpanded={setEmployeesExpanded}
+                onMobileClose={() => setMobileMenuOpen(false)}
+                subItems={[
+                  {
+                    key: 'emp',
+                    label: t('navigation.employees'),
+                    to: `${adminBase}/employees`,
+                    visible: employeesVisible,
+                  },
+                  {
+                    key: 'shf',
+                    label: t('navigation.employeeShifts', 'Employee Shifts & Assignments'),
+                    to: `${adminBase}/employee-shifts`,
+                    visible: shiftsVisible,
+                  },
+                  {
+                    key: 'rol',
+                    label: t('navigation.roles', 'Role Management'),
+                    to: `${adminBase}/roles`,
+                    visible: rolesVisible,
+                  },
+                ]}
+              />
+            )}
+
+            {adminBase && landingEditorVisible && (
+              <NavDropdownGroup
+                location={location}
+                baseTo={landingNavBase}
+                baseLabel={t('navigation.groupLanding', 'Website Builder')}
+                Icon={Globe}
+                expanded={landingExpanded}
+                setExpanded={setLandingExpanded}
+                onMobileClose={() => setMobileMenuOpen(false)}
+                subItems={[
+                  {
+                    key: 'lp',
+                    label: t('navigation.landingPage'),
+                    to: `${adminBase}/landing`,
+                    visible: true,
+                  },
+                ]}
+              />
+            )}
+
+            {adminBase && settingsVisible && (() => {
+              const settingsSubNavItems = [
+                {
+                  key: 'ac',
+                  label: t('navigation.accountSettings', 'Account settings'),
+                  href: `${settingsBase}/account`,
+                  visible: true,
+                },
+                {
+                  key: 'am',
+                  label: t('navigation.appManager', 'App manager'),
+                  href: `${settingsBase}/app-manager`,
+                  visible: true,
+                },
+                {
+                  key: 'sch',
+                  label: t('navigation.schedulingNav', 'Scheduling'),
+                  href: `${settingsBase}/scheduling`,
+                  visible: true,
+                },
+                {
+                  key: 'lg',
+                  label: t('navigation.logosAndBranding', 'Logos & branding'),
+                  href: `${settingsBase}/logos`,
+                  visible: true,
+                },
+                {
+                  key: 'fix',
+                  label: t('navigation.assignFixingTicket', 'Assign Fixing Ticket'),
+                  href: `${adminBase}/assign-fixing-ticket`,
+                  visible: assignFixingVisible,
+                },
+              ].filter((i) => i.visible);
+              const settingsGroupActive = isSettingsRoute || isAssignFixingRoute;
               return (
-                <Link
-                  key={item.name}
-                  to={item.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={`flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
-                    item.current
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  <Icon className="w-5 h-5 shrink-0" />
-                  {item.name}
-                </Link>
+                <div className="space-y-0.5">
+                  <div
+                    className={`flex w-full items-stretch rounded-lg overflow-hidden ${
+                      settingsGroupActive ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Link
+                      to={`${settingsBase}/account`}
+                      onClick={() => {
+                        setSettingsExpanded(true);
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`flex flex-1 items-center gap-3 px-4 py-3 text-sm font-medium min-w-0 ${
+                        settingsGroupActive ? '' : 'hover:bg-gray-50/80'
+                      }`}
+                    >
+                      <Settings className="w-5 h-5 shrink-0" />
+                      <span className="truncate">{t('navigation.groupSettings', 'Settings')}</span>
+                    </Link>
+                    <button
+                      type="button"
+                      aria-expanded={settingsExpanded}
+                      aria-label={settingsExpanded ? t('common.collapse', 'Collapse') : t('common.expand', 'Expand')}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setSettingsExpanded((v) => !v);
+                      }}
+                      className={`px-2 flex items-center shrink-0 border-l border-blue-100/80 ${
+                        settingsGroupActive ? 'border-blue-200/60' : 'border-gray-200'
+                      } hover:bg-black/5`}
+                    >
+                      <ChevronDown
+                        className={`w-4 h-4 text-gray-500 transition-transform ${settingsExpanded ? 'rotate-180' : ''}`}
+                        aria-hidden
+                      />
+                    </button>
+                  </div>
+                  {settingsExpanded && (
+                    <div className="ml-2 pl-4 border-l-2 border-blue-100 space-y-0.5 py-1">
+                      {settingsSubNavItems.map((sub) => {
+                        const subActive =
+                          location.pathname === sub.href || location.pathname.startsWith(`${sub.href}/`);
+                        return (
+                          <Link
+                            key={sub.key}
+                            to={sub.href}
+                            onClick={() => setMobileMenuOpen(false)}
+                            className={`block px-3 py-2 text-sm rounded-md transition-colors ${
+                              subActive ? 'bg-blue-50 text-blue-800 font-medium' : 'text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            {sub.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               );
-            })}
+            })()}
 
             {showReportsNav && (
               <div className="space-y-0.5">

@@ -1,15 +1,29 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
+import { format, parseISO } from 'date-fns';
+import { ar as arDateLocale } from 'date-fns/locale';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { getApiUrl } from '../../lib/apiUrl';
 import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import { safeTranslateNested } from '../../lib/safeTranslation';
 import { Card, CardContent } from '../../components/ui/Card';
-import { Input } from '../../components/ui/Input';
+import { Button } from '../../components/ui/Button';
 import { searchBarWrapperClass, searchSelectClass } from '../../components/ui/SearchInput';
-import { Users, Search, X, Clock, Briefcase, MapPin } from 'lucide-react';
+import {
+  Users,
+  Search,
+  X,
+  Clock,
+  Briefcase,
+  MapPin,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  Timer,
+  CalendarCheck2,
+} from 'lucide-react';
 
 interface EmployeeShiftRow {
   id: string;
@@ -18,13 +32,6 @@ interface EmployeeShiftRow {
   start_time_utc: string;
   end_time_utc: string;
   is_active: boolean;
-}
-
-/** Branch default shift (from branch_shifts) for display */
-interface BranchDefaultShiftRow {
-  days_of_week: number[];
-  start_time_utc: string;
-  end_time_utc: string;
 }
 
 interface ServiceRow {
@@ -47,17 +54,47 @@ type SearchType = 'employee_name' | 'service_name' | 'branch_name' | '';
 const DAY_NAMES_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NAMES_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 
-function formatShiftDays(shift: EmployeeShiftRow | BranchDefaultShiftRow, isAr: boolean): string {
-  const dayNames = isAr ? DAY_NAMES_AR : DAY_NAMES_EN;
-  return (shift.days_of_week || [])
-    .filter(d => d >= 0 && d <= 6)
-    .sort((a, b) => a - b)
-    .map(d => dayNames[d])
-    .join(', ');
+function formatDayHeaderParts(dateStr: string, lang: string): { weekday: string; dateLine: string } {
+  try {
+    const d = parseISO(dateStr);
+    const locale = lang === 'ar' ? arDateLocale : undefined;
+    return {
+      weekday: format(d, 'EEE', { locale }),
+      dateLine: format(d, 'd MMM yyyy', { locale }),
+    };
+  } catch {
+    return { weekday: '', dateLine: dateStr };
+  }
 }
 
-function formatShiftTime(shift: EmployeeShiftRow | BranchDefaultShiftRow, _isAr?: boolean): string {
-  return `${formatTimeTo12Hour(shift.start_time_utc)} – ${formatTimeTo12Hour(shift.end_time_utc)}`;
+/** Calendar Sunday (local) as YYYY-MM-DD */
+function formatSundayYMD(d: Date): string {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = x.getDay();
+  x.setDate(x.getDate() - day);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+}
+
+function addDaysYMD(iso: string, n: number): string {
+  const [y, m, dd] = iso.split('-').map(Number);
+  const d = new Date(y, m - 1, dd + n, 12, 0, 0, 0);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+interface WeekDayAvailability {
+  date: string;
+  day_of_week: number;
+  windows: { start: string; end: string }[];
+}
+
+interface WeekBookingRow {
+  booking_id: string;
+  status: string;
+  customer_name: string | null;
+  service_name: string;
+  service_name_ar: string | null;
+  start_time: string;
+  end_time: string;
 }
 
 export function EmployeeShiftsPage() {
@@ -68,8 +105,11 @@ export function EmployeeShiftsPage() {
   const { features, loading: featuresLoading } = useTenantFeatures(userProfile?.tenant_id);
   const [employees, setEmployees] = useState<EmployeeWithShiftsAndServices[]>([]);
   const [branchesById, setBranchesById] = useState<Map<string, { name: string; name_ar?: string }>>(new Map());
-  const [branchShiftsByBranchId, setBranchShiftsByBranchId] = useState<Map<string, BranchDefaultShiftRow[]>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [weekStart, setWeekStart] = useState(() => formatSundayYMD(new Date()));
+  const [weekRange, setWeekRange] = useState<{ start: string; end: string } | null>(null);
+  const [weeklyAvailability, setWeeklyAvailability] = useState<Record<string, WeekDayAvailability[]>>({});
+  const [weeklyBookings, setWeeklyBookings] = useState<Record<string, Record<string, WeekBookingRow[]>>>({});
 
   // Mode-dependent: only visible in Employee-Based Mode; redirect when Service-Based
   const schedulingMode = features?.scheduling_mode ?? 'service_slot_based';
@@ -96,7 +136,7 @@ export function EmployeeShiftsPage() {
       try {
         // Single endpoint: one round-trip instead of three (faster load)
         const token = localStorage.getItem('auth_token');
-        const url = `${getApiUrl()}/employees/shifts-page-data?tenant_id=${encodeURIComponent(tenantId)}`;
+        const url = `${getApiUrl()}/employees/shifts-page-data?tenant_id=${encodeURIComponent(tenantId)}&week_start=${encodeURIComponent(weekStart)}`;
         const res = await fetch(url, {
           method: 'GET',
           headers: {
@@ -113,7 +153,6 @@ export function EmployeeShiftsPage() {
         const shifts = (json.employee_shifts ?? []) as EmployeeShiftRow[];
         const empServices = json.employee_services ?? [];
         const branches = (json.branches ?? []) as Array<{ id: string; name?: string; name_ar?: string }>;
-        const branchShiftsByBranch = (json.branch_shifts_by_branch ?? {}) as Record<string, BranchDefaultShiftRow[]>;
         const shiftByEmployee = new Map<string, EmployeeShiftRow[]>();
         for (const s of shifts) {
           const list = shiftByEmployee.get(s.employee_id) || [];
@@ -128,10 +167,6 @@ export function EmployeeShiftsPage() {
         }
         const branchById = new Map<string, { name: string; name_ar?: string }>();
         branches.forEach((b: any) => { branchById.set(b.id, { name: b.name || '', name_ar: b.name_ar }); });
-        const branchShiftsMap = new Map<string, BranchDefaultShiftRow[]>();
-        Object.entries(branchShiftsByBranch).forEach(([branchId, list]) => {
-          branchShiftsMap.set(branchId, Array.isArray(list) ? list : []);
-        });
         const rows: EmployeeWithShiftsAndServices[] = users.map((row: any) => ({
           id: row.id,
           full_name: row.full_name || '',
@@ -143,7 +178,10 @@ export function EmployeeShiftsPage() {
         }));
         setEmployees(rows);
         setBranchesById(branchById);
-        setBranchShiftsByBranchId(branchShiftsMap);
+        const wk = json.week as { start?: string; end?: string } | undefined;
+        setWeekRange(wk?.start && wk?.end ? { start: wk.start, end: wk.end } : null);
+        setWeeklyAvailability((json.weekly_availability as Record<string, WeekDayAvailability[]>) || {});
+        setWeeklyBookings((json.weekly_bookings as Record<string, Record<string, WeekBookingRow[]>>) || {});
       } catch (e) {
         if (!cancelled) {
           console.error('Error fetching employees for shifts:', e);
@@ -154,7 +192,7 @@ export function EmployeeShiftsPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [userProfile?.tenant_id, isEmployeeBased]);
+  }, [userProfile?.tenant_id, isEmployeeBased, weekStart]);
 
   // Live filter: by employee name or service name (no reload)
   const displayEmployees = useMemo(() => {
@@ -326,6 +364,55 @@ export function EmployeeShiftsPage() {
         )}
       </div>
 
+      <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-slate-50/50 to-blue-50/30 px-4 py-4 shadow-[0_4px_24px_-4px_rgba(15,23,42,0.08)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="shrink-0 border border-slate-200/80 bg-white shadow-sm hover:bg-slate-50"
+          onClick={() => setWeekStart((w) => addDaysYMD(w, -7))}
+          icon={<ChevronLeft className="w-4 h-4" aria-hidden />}
+        >
+          {t('employeeShifts.weekPrev')}
+        </Button>
+        <div className="flex flex-1 flex-col items-center gap-1 text-center order-first sm:order-none min-w-0">
+          <div className="inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-slate-600 ring-1 ring-slate-200/80 shadow-sm">
+            <CalendarDays className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              {t('employeeShifts.weekScheduleTitle')}
+            </span>
+          </div>
+          <p className="text-base font-semibold tracking-tight text-slate-900 sm:text-lg">
+            {weekRange
+              ? t('employeeShifts.weekLabel', { start: weekRange.start, end: weekRange.end })
+              : weekStart}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-end shrink-0">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="font-medium text-blue-700 hover:bg-blue-50"
+            onClick={() => setWeekStart(formatSundayYMD(new Date()))}
+          >
+            {t('employeeShifts.weekThis')}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="border border-slate-200/80 bg-white shadow-sm hover:bg-slate-50"
+            onClick={() => setWeekStart((w) => addDaysYMD(w, 7))}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              {t('employeeShifts.weekNext')}
+              <ChevronRight className="w-4 h-4 shrink-0" aria-hidden />
+            </span>
+          </Button>
+        </div>
+      </div>
+
       {effectiveList.length === 0 ? (
         <Card className="shadow-sm border border-gray-200/80">
           <CardContent className="py-12 text-center">
@@ -343,123 +430,152 @@ export function EmployeeShiftsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-6">
           {effectiveList.map((emp) => {
             const displayName = i18n.language === 'ar' ? (emp.full_name_ar || emp.full_name) : emp.full_name;
             const services = (emp.employee_services || []).map(es => es.services).filter(Boolean);
             const serviceNames = services.map(s => (i18n.language === 'ar' ? (s?.name_ar || s?.name) : s?.name)).filter(Boolean);
-            const customShifts = (emp.employee_shifts || []).filter(s => s.is_active !== false);
-            const branchDefaultShifts = emp.branch_id ? (branchShiftsByBranchId.get(emp.branch_id) ?? []) : [];
             const isAr = i18n.language === 'ar';
+            const lang = i18n.language;
+            const weekDays = weeklyAvailability[emp.id] || [];
+            const bookingsForEmp = weeklyBookings[emp.id] || {};
             return (
-              <Card key={emp.id} className="shadow-sm border border-gray-200/80 hover:shadow-md transition-shadow">
-                <CardContent className="py-4">
-                  <div className="flex flex-col md:flex-row md:items-start gap-4">
-                    <div className="md:w-48 shrink-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Users className="w-5 h-5 text-gray-500 shrink-0" />
-                        <span className="font-semibold text-gray-900">{displayName}</span>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
-                          {safeTranslateNested(t, 'employee.roles', emp.role, emp.role)}
-                        </span>
-                        {emp.branch_id && (() => {
-                          const branch = branchesById.get(emp.branch_id);
-                          const branchName = branch ? (isAr ? (branch.name_ar || branch.name) : branch.name) : null;
-                          return branchName ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700" title={t('employeeShifts.branch', 'Branch')}>
-                              <MapPin className="w-3.5 h-3.5" />
-                              {branchName}
-                            </span>
-                          ) : null;
-                        })()}
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                            customShifts.length > 0
-                              ? 'bg-indigo-100 text-indigo-800'
-                              : 'bg-amber-100 text-amber-800'
-                          }`}
-                        >
-                          {customShifts.length > 0
-                            ? (t('employee.usingCustomShifts', 'Using Custom Shifts'))
-                            : (() => {
-                                const branch = emp.branch_id ? branchesById.get(emp.branch_id) : null;
-                                const branchName = branch ? (i18n.language === 'ar' ? (branch.name_ar || branch.name) : branch.name) : null;
-                                return branchName
-                                  ? (t('employee.usingBranchDefaultShiftsNamed', 'Using {{branchName}} default shifts', { branchName }) || `Using ${branchName} default shifts`)
-                                  : (t('employee.usingBranchDefaultShifts', 'Using Branch Default Shifts'));
-                              })()}
-                        </span>
+              <Card
+                key={emp.id}
+                className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_30px_-8px_rgba(15,23,42,0.12)] transition-shadow hover:shadow-[0_12px_40px_-10px_rgba(15,23,42,0.14)]"
+              >
+                <CardContent className="p-0">
+                  <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-sky-50/40 px-5 py-5">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                        <Users className="h-5 w-5 text-slate-600" aria-hidden />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-lg font-semibold text-slate-900">{displayName}</p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center rounded-full bg-slate-100/90 px-2.5 py-0.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200/60">
+                            {safeTranslateNested(t, 'employee.roles', emp.role, emp.role)}
+                          </span>
+                          {emp.branch_id && (() => {
+                            const branch = branchesById.get(emp.branch_id);
+                            const branchName = branch ? (isAr ? (branch.name_ar || branch.name) : branch.name) : null;
+                            return branchName ? (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200/80 shadow-sm"
+                                title={t('employeeShifts.branch', 'Branch')}
+                              >
+                                <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden />
+                                {branchName}
+                              </span>
+                            ) : null;
+                          })()}
+                        </div>
                       </div>
                     </div>
-                    <div className="flex-1 min-w-0 space-y-3">
-                      <div>
-                        <h4 className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-                          <Briefcase className="w-4 h-4" />
-                          {t('employee.assignedServices')}
-                        </h4>
-                        {serviceNames.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {serviceNames.map((name, idx) => (
-                              <span
-                                key={idx}
-                                className="inline-flex items-center px-2.5 py-0.5 rounded-md text-sm bg-blue-50 text-blue-800"
-                              >
-                                {name}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-gray-500">{t('employeeShifts.noServices', 'No services assigned')}</p>
-                        )}
+                  </div>
+
+                  <div className="border-b border-slate-100 px-5 py-4">
+                    <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
+                        <Briefcase className="h-4 w-4" aria-hidden />
+                      </span>
+                      {t('employee.assignedServices')}
+                    </h4>
+                    {serviceNames.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {serviceNames.map((name, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex max-w-full items-center rounded-full border border-sky-200/80 bg-gradient-to-br from-sky-50 to-white px-3.5 py-1.5 text-sm font-medium text-sky-950 shadow-sm"
+                          >
+                            <span className="truncate">{name}</span>
+                          </span>
+                        ))}
                       </div>
-                      <div>
-                        <h4 className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-                          <Clock className="w-4 h-4" />
-                          {t('employee.workingShifts')}
-                        </h4>
-                        {branchDefaultShifts.length > 0 ? (
-                          <div className="space-y-2">
-                            <p className="text-xs font-medium text-blue-700">
-                              {t('employee.branchDefault', 'Branch default')}
-                            </p>
-                            <ul className="text-sm text-gray-700 space-y-2">
-                              {branchDefaultShifts.map((shift, idx) => (
-                                <li key={`branch-${idx}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                                  <span>{formatShiftDays(shift, isAr)}</span>
-                                  <span className="font-medium text-gray-900 whitespace-nowrap">
-                                    {formatShiftTime(shift, isAr)}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
-                        {customShifts.length > 0 ? (
-                          <div className={branchDefaultShifts.length > 0 ? 'mt-3 space-y-2' : 'space-y-2'}>
-                            {branchDefaultShifts.length > 0 && (
-                              <p className="text-xs font-medium text-amber-700">
-                                {t('employeeShifts.customShiftsOverride', 'Custom shifts (override)')}
-                              </p>
-                            )}
-                            <ul className="text-sm text-gray-700 space-y-2">
-                              {customShifts.map((shift) => (
-                                <li key={shift.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                                  <span>{formatShiftDays(shift, isAr)}</span>
-                                  <span className="font-medium text-gray-900 whitespace-nowrap">
-                                    {formatShiftTime(shift, isAr)}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
-                        {branchDefaultShifts.length === 0 && customShifts.length === 0 && (
-                          <p className="text-sm text-gray-500">
-                            {emp.branch_id && branchesById.has(emp.branch_id)
-                              ? (t('employeeShifts.usingBranchShiftsFrom', 'Using assigned branch default shifts (Branches → branch → Working Shifts)') || 'Using assigned branch default shifts. Configure in Branches → branch → Working Shifts.')
-                              : t('employeeShifts.usingBranchShifts', 'Using branch default shifts (assign employee to a branch and configure in Branches → branch → Working Shifts)')}
-                          </p>
-                        )}
+                    ) : (
+                      <p className="text-sm text-slate-500">{t('employeeShifts.noServices', 'No services assigned')}</p>
+                    )}
+                  </div>
+
+                  <div className="px-4 pb-5 pt-5 sm:px-5">
+                    <h4 className="mb-4 flex items-center gap-2 border-l-4 border-blue-500 pl-3 text-base font-semibold text-slate-900">
+                      <Clock className="h-5 w-5 shrink-0 text-blue-600" aria-hidden />
+                      {t('employeeShifts.dailyBreakdown')}
+                    </h4>
+                    <div className="-mx-1 overflow-x-auto pb-2 [scrollbar-width:thin]">
+                      <div className="flex min-w-0 snap-x snap-mandatory gap-3 lg:grid lg:snap-none lg:grid-cols-7 lg:gap-3">
+                        {weekDays.map((day) => {
+                          const dayBookings = bookingsForEmp[day.date] || [];
+                          const headerParts = formatDayHeaderParts(day.date, lang);
+                          return (
+                            <article
+                              key={day.date}
+                              className="flex w-[min(100%,calc(100vw-3rem))] shrink-0 snap-start flex-col rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-900/[0.04] transition hover:ring-slate-900/[0.08] sm:min-w-[11.5rem] lg:min-w-0"
+                            >
+                              <header className="rounded-t-2xl bg-gradient-to-br from-slate-800 via-slate-800 to-slate-900 px-3.5 py-3 text-white">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-300">
+                                  {headerParts.weekday || (isAr ? DAY_NAMES_AR[day.day_of_week] : DAY_NAMES_EN[day.day_of_week])}
+                                </p>
+                                <p className="mt-0.5 text-sm font-semibold leading-tight text-white">{headerParts.dateLine}</p>
+                              </header>
+                              <div className="flex flex-1 flex-col gap-3 p-3">
+                                <section className="rounded-xl border border-emerald-200/60 bg-emerald-50/60 p-3">
+                                  <div className="mb-2 flex items-center gap-1.5 text-emerald-900">
+                                    <Timer className="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden />
+                                    <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-900/90">
+                                      {t('employeeShifts.availableShifts')}
+                                    </span>
+                                  </div>
+                                  {day.windows.length === 0 ? (
+                                    <p className="text-xs leading-relaxed text-emerald-800/70">{t('employeeShifts.noAvailabilityDay')}</p>
+                                  ) : (
+                                    <ul className="space-y-1.5">
+                                      {day.windows.map((w, wi) => (
+                                        <li key={wi}>
+                                          <span className="inline-flex w-full items-center justify-center rounded-lg bg-white/90 px-2 py-1.5 text-center text-xs font-semibold text-emerald-950 shadow-sm ring-1 ring-emerald-100/80">
+                                            {formatTimeTo12Hour(w.start)} – {formatTimeTo12Hour(w.end)}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </section>
+                                <section className="rounded-xl border border-violet-200/70 bg-violet-50/50 p-3">
+                                  <div className="mb-2 flex items-center gap-1.5 text-violet-900">
+                                    <CalendarCheck2 className="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden />
+                                    <span className="text-[11px] font-bold uppercase tracking-wide text-violet-900/90">
+                                      {t('employeeShifts.bookedSlots')}
+                                    </span>
+                                  </div>
+                                  {dayBookings.length === 0 ? (
+                                    <p className="text-xs italic text-violet-700/70">{t('employeeShifts.noBookingsDay')}</p>
+                                  ) : (
+                                    <ul className="space-y-2">
+                                      {dayBookings.map((b) => (
+                                        <li
+                                          key={b.booking_id}
+                                          className="rounded-xl border border-violet-100 bg-white p-2.5 shadow-sm ring-1 ring-violet-900/[0.04]"
+                                        >
+                                          <p className="text-xs font-bold tabular-nums text-violet-950">
+                                            {formatTimeTo12Hour(b.start_time)} – {formatTimeTo12Hour(b.end_time)}
+                                          </p>
+                                          <p className="mt-1 line-clamp-2 text-xs font-medium leading-snug text-slate-800" title={b.service_name}>
+                                            {isAr ? (b.service_name_ar || b.service_name) : b.service_name}
+                                          </p>
+                                          {b.customer_name ? (
+                                            <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-slate-500" title={b.customer_name ?? undefined}>
+                                              {b.customer_name}
+                                            </p>
+                                          ) : null}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </section>
+                              </div>
+                            </article>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>

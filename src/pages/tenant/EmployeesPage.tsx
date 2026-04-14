@@ -11,7 +11,7 @@ import { Input } from '../../components/ui/Input';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { PhoneInput } from '../../components/ui/PhoneInput';
 import { countryCodes } from '../../lib/countryCodes';
-import { Plus, Edit, Users, Mail, Phone, Briefcase, UserX, UserCheck, Search, Trash2, Clock } from 'lucide-react';
+import { Plus, Edit, Users, Mail, Phone, Briefcase, UserX, UserCheck, Trash2, Clock, LayoutGrid, List, MapPin } from 'lucide-react';
 import { getApiUrl } from '../../lib/apiUrl';
 import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
 import { formatTimeTo12Hour } from '../../lib/timeFormat';
@@ -213,6 +213,13 @@ export function EmployeesPage() {
     [roleOptions]
   );
 
+  function getBranchDisplayName(branchId: string | null): string | null {
+    if (!branchId) return null;
+    const b = branches.find((x) => x.id === branchId);
+    if (!b) return null;
+    return i18n.language === 'ar' ? (b as { name_ar?: string }).name_ar || b.name : b.name;
+  }
+
   function getRoleDisplayName(emp: { role?: string; role_id?: string | null }): string {
     if (emp.role_id && emp.role_id in ROLE_ID_TO_LEGACY) {
       return safeTranslateNested(t, 'employee.roles', ROLE_ID_TO_LEGACY[emp.role_id], emp.role || '');
@@ -225,6 +232,7 @@ export function EmployeesPage() {
   }
   const [phoneFull, setPhoneFull] = useState<string>(''); // Full phone number with country code
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedRole, setSelectedRole] = useState<string>('all');
   const [isPausedUntil, setIsPausedUntil] = useState<string>('');
   const [employeeShifts, setEmployeeShifts] = useState<EmployeeShift[]>([]);
@@ -805,12 +813,48 @@ export function EmployeesPage() {
           </div>
           <p className="text-sm md:text-base text-slate-600 mt-1">{t('employee.manageTeam')}</p>
         </div>
-        <Button
-          onClick={() => setIsModalOpen(true)}
-          icon={<Plus className="w-4 h-4" />}
-        >
-          {t('employee.addEmployee')}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div
+            className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 shadow-sm"
+            role="group"
+            aria-label={t('employee.viewGrid')}
+          >
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                viewMode === 'grid'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+              aria-pressed={viewMode === 'grid'}
+              title={t('employee.viewGrid')}
+            >
+              <LayoutGrid className="w-4 h-4 shrink-0" aria-hidden />
+              <span className="hidden sm:inline">{t('employee.viewGrid')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                viewMode === 'list'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+              aria-pressed={viewMode === 'list'}
+              title={t('employee.viewList')}
+            >
+              <List className="w-4 h-4 shrink-0" aria-hidden />
+              <span className="hidden sm:inline">{t('employee.viewList')}</span>
+            </button>
+          </div>
+          <Button
+            onClick={() => setIsModalOpen(true)}
+            icon={<Plus className="w-4 h-4" />}
+          >
+            {t('employee.addEmployee')}
+          </Button>
+        </div>
       </div>
 
       {/* Search and Filter Section */}
@@ -959,88 +1003,198 @@ export function EmployeesPage() {
           );
         }
 
-        return (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredEmployees.map((employee) => (
-            <Card key={employee.id} className="shadow-sm border border-gray-200/80 hover:shadow-md transition-shadow">
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <span className="truncate">
-                    {i18n.language === 'ar' ? (employee.full_name_ar || employee.full_name) : employee.full_name}
+        const renderEmployeeCardGrid = (employee: Employee) => (
+          <Card key={employee.id} className="shadow-sm border border-gray-200/80 hover:shadow-md transition-shadow">
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span className="truncate">
+                  {i18n.language === 'ar' ? (employee.full_name_ar || employee.full_name) : employee.full_name}
+                </span>
+                <span className={`text-xs px-2 py-1 rounded ${
+                  employee.is_active
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-gray-100 text-gray-800'
+                }`}>
+                  {employee.is_active ? t('employee.active') : t('employee.inactive')}
+                </span>
+                {employee.is_paused_until && (
+                  <span className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800" title={employee.is_paused_until}>
+                    {t('employee.pausedUntil')} {employee.is_paused_until.split('T')[0]}
                   </span>
-                  <span className={`text-xs px-2 py-1 rounded ${
-                    employee.is_active
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-gray-100 text-gray-800'
-                  }`}>
-                    {employee.is_active ? t('employee.active') : t('employee.inactive')}
-                  </span>
-                  {employee.is_paused_until && (
-                    <span className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800" title={employee.is_paused_until}>
-                      {t('employee.pausedUntil')} {employee.is_paused_until.split('T')[0]}
-                    </span>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2 mb-4">
-                  {employee.email && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Mail className="w-4 h-4" />
-                      <span className="truncate">{employee.email}</span>
-                    </div>
-                  )}
-                  {employee.phone && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Phone className="w-4 h-4" />
-                      <span>{employee.phone}</span>
-                    </div>
-                  )}
-                  <div className="mt-2">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 capitalize">
-                      {getRoleDisplayName(employee)}
-                    </span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 mb-4">
+                {employee.email && (
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <Mail className="w-4 h-4" />
+                    <span className="truncate">{employee.email}</span>
                   </div>
-                  {employee.role === 'employee' && employee.employee_services && employee.employee_services.length > 0 && (
-                    <div className="mt-3 pt-3 border-t">
-                      <div className="flex items-center gap-1 text-xs text-gray-500 mb-1">
-                        <Briefcase className="w-3 h-3" />
-                        <span>{t('employee.assignedServices')}</span>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {employee.employee_services.map((es, idx) => (
-                          <span key={idx} className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 rounded">
-                            {i18n.language === 'ar' ? es.services.name_ar : es.services.name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                )}
+                {employee.phone && (
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <Phone className="w-4 h-4" />
+                    <span>{employee.phone}</span>
+                  </div>
+                )}
+                <div className="mt-2">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 capitalize">
+                    {getRoleDisplayName(employee)}
+                  </span>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => openEditModal(employee)}
-                    icon={<Edit className="w-4 h-4" />}
-                  >
-                    {t('common.edit')}
-                  </Button>
-                  <Button
-                    variant={employee.is_active ? "secondary" : "primary"}
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => toggleEmployeeStatus(employee.id, employee.is_active)}
-                    icon={employee.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-                  >
-                    {employee.is_active ? t('employee.deactivate') : t('employee.activate')}
-                  </Button>
+                {employee.role === 'employee' && employee.employee_services && employee.employee_services.length > 0 && (
+                  <div className="mt-3 pt-3 border-t">
+                    <div className="flex items-center gap-1 text-xs text-gray-500 mb-1">
+                      <Briefcase className="w-3 h-3" />
+                      <span>{t('employee.assignedServices')}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {employee.employee_services.map((es, idx) => (
+                        <span key={idx} className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 rounded">
+                          {i18n.language === 'ar' ? es.services.name_ar : es.services.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => openEditModal(employee)}
+                  icon={<Edit className="w-4 h-4" />}
+                >
+                  {t('common.edit')}
+                </Button>
+                <Button
+                  variant={employee.is_active ? "secondary" : "primary"}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => toggleEmployeeStatus(employee.id, employee.is_active)}
+                  icon={employee.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                >
+                  {employee.is_active ? t('employee.deactivate') : t('employee.activate')}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+        const renderEmployeeCardList = (employee: Employee) => {
+          const displayName = i18n.language === 'ar' ? (employee.full_name_ar || employee.full_name) : employee.full_name;
+          const branchName = getBranchDisplayName(employee.branch_id);
+          return (
+            <Card key={employee.id} className="shadow-sm border border-gray-200/80 hover:shadow-md transition-shadow">
+              <CardContent className="py-4">
+                <div className="flex flex-col md:flex-row md:items-start gap-4">
+                  <div className="md:w-52 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Users className="w-5 h-5 text-gray-500 shrink-0" aria-hidden />
+                      <span className="font-semibold text-gray-900">{displayName}</span>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          employee.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
+                        {employee.is_active ? t('employee.active') : t('employee.inactive')}
+                      </span>
+                      {employee.is_paused_until && (
+                        <span
+                          className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800"
+                          title={employee.is_paused_until}
+                        >
+                          {t('employee.pausedUntil')} {employee.is_paused_until.split('T')[0]}
+                        </span>
+                      )}
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                        {getRoleDisplayName(employee)}
+                      </span>
+                      {branchName && (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700"
+                          title={t('employee.assignToBranch')}
+                        >
+                          <MapPin className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                          {branchName}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => openEditModal(employee)}
+                        icon={<Edit className="w-4 h-4" />}
+                      >
+                        {t('common.edit')}
+                      </Button>
+                      <Button
+                        variant={employee.is_active ? 'secondary' : 'primary'}
+                        size="sm"
+                        onClick={() => toggleEmployeeStatus(employee.id, employee.is_active)}
+                        icon={employee.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                      >
+                        {employee.is_active ? t('employee.deactivate') : t('employee.activate')}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-3">
+                    {employee.email && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                          <Mail className="w-4 h-4" aria-hidden />
+                          {t('employee.email')}
+                        </h4>
+                        <p className="text-sm text-gray-700 break-all">{employee.email}</p>
+                      </div>
+                    )}
+                    {employee.phone && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                          <Phone className="w-4 h-4" aria-hidden />
+                          {t('employee.phone')}
+                        </h4>
+                        <p className="text-sm text-gray-700">{employee.phone}</p>
+                      </div>
+                    )}
+                    {employee.role === 'employee' && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                          <Briefcase className="w-4 h-4" aria-hidden />
+                          {t('employee.assignedServices')}
+                        </h4>
+                        {employee.employee_services && employee.employee_services.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {employee.employee_services.map((es, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center px-2.5 py-0.5 rounded-md text-sm bg-blue-50 text-blue-800"
+                              >
+                                {i18n.language === 'ar' ? es.services.name_ar : es.services.name}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-500">{t('employeeShifts.noServices', 'No services assigned')}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
-            ))}
+          );
+        };
+
+        return viewMode === 'grid' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredEmployees.map((employee) => renderEmployeeCardGrid(employee))}
           </div>
+        ) : (
+          <div className="space-y-4">{filteredEmployees.map((employee) => renderEmployeeCardList(employee))}</div>
         );
       })()}
 

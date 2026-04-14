@@ -99,7 +99,7 @@ interface Booking {
   paid_quantity?: number | null;
   package_subscription_id?: string | null;
   employee_id?: string | null;
-  users?: { full_name: string; full_name_ar?: string | null } | null;
+  users?: { id?: string; full_name: string; full_name_ar?: string | null } | null;
   notes?: string | null;
 }
 
@@ -296,6 +296,7 @@ export function BookingsPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('today');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+  const [hideCancelled, setHideCancelled] = useState(true);
   const [searchType, setSearchType] = useState<SearchType>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDate, setSearchDate] = useState<string>('');
@@ -1129,6 +1130,7 @@ export function BookingsPage() {
             end_time
           ),
           users:employee_id (
+            id,
             full_name,
             full_name_ar
           )
@@ -1693,7 +1695,15 @@ export function BookingsPage() {
       setEditingTimeDate(initialDate);
     }
     setSelectedNewSlotId('');
-    setChangeTimeEmployeeId('');
+    const assignEmp =
+      isEmployeeBasedMode && (tenantAssignmentMode === 'manual' || tenantAssignmentMode === 'both');
+    const bookingEmpId =
+      booking.employee_id != null && String(booking.employee_id).trim() !== ''
+        ? String(booking.employee_id)
+        : booking.users?.id != null && String(booking.users.id).trim() !== ''
+          ? String(booking.users.id)
+          : '';
+    setChangeTimeEmployeeId(assignEmp && bookingEmpId ? bookingEmpId : '');
 
     void (async () => {
       await fetchCreateServices();
@@ -1704,7 +1714,7 @@ export function BookingsPage() {
       } catch {
         setEditCustomerPackages([]);
       }
-      await fetchTimeSlots(booking.service_id, userProfile.tenant_id, initialDate, booking.id);
+      await fetchTimeSlots(booking.service_id, userProfile.tenant_id, initialDate, booking.id, booking);
     })();
   }
 
@@ -1718,7 +1728,7 @@ export function BookingsPage() {
       setAvailableTimeSlots([]);
       return;
     }
-    await fetchTimeSlots(nextServiceId, userProfile.tenant_id, editingTimeDate, editingBooking?.id);
+    await fetchTimeSlots(nextServiceId, userProfile.tenant_id, editingTimeDate, editingBooking?.id, editingBooking);
   }
 
   function handleEditTagChange(nextTagId: string) {
@@ -1748,7 +1758,13 @@ export function BookingsPage() {
     setEditSelectedTagId(editPricingTags[0].id);
   }, [editingBooking?.id, editSelectedTagId, editPricingTags]);
 
-  async function fetchTimeSlots(serviceId: string, tenantId: string, date?: Date, excludeBookingId?: string) {
+  async function fetchTimeSlots(
+    serviceId: string,
+    tenantId: string,
+    date?: Date,
+    excludeBookingId?: string,
+    bookingForEmployeeDefault?: Booking | null,
+  ) {
     // Use provided date or fall back to state
     const targetDate = date || editingTimeDate;
     if (!targetDate) {
@@ -1824,6 +1840,19 @@ export function BookingsPage() {
       }
 
       setAvailableTimeSlots(result.slots);
+
+      const empSource = bookingForEmployeeDefault ?? editingBooking;
+      const needEmpPicker =
+        isEmployeeBasedMode && (tenantAssignmentMode === 'manual' || tenantAssignmentMode === 'both');
+      if (needEmpPicker && empSource) {
+        const bid =
+          empSource.employee_id != null && String(empSource.employee_id).trim() !== ''
+            ? String(empSource.employee_id)
+            : empSource.users?.id != null && String(empSource.users.id).trim() !== ''
+              ? String(empSource.users.id)
+              : '';
+        if (bid) setChangeTimeEmployeeId(bid);
+      }
     } catch (error: any) {
       console.error('Error fetching time slots:', error);
       showNotification('error', t('bookings.failedToFetchTimeSlots', { message: error.message }));
@@ -1837,9 +1866,8 @@ export function BookingsPage() {
     if (!isValid(newDate)) return;
     setEditingTimeDate(newDate);
     setSelectedNewSlotId('');
-    setChangeTimeEmployeeId('');
     if (editingBooking && userProfile?.tenant_id) {
-      await fetchTimeSlots(editingBooking.service_id, userProfile.tenant_id, newDate, editingBooking.id);
+      await fetchTimeSlots(editingBooking.service_id, userProfile.tenant_id, newDate, editingBooking.id, editingBooking);
     }
   }
 
@@ -2343,7 +2371,9 @@ export function BookingsPage() {
   }, []);
 
   // Determine which bookings to display
-  const displayBookings = showSearchResults ? searchResults : bookings;
+  const displayBookings = (showSearchResults ? searchResults : bookings).filter(
+    (b) => !hideCancelled || b.status !== 'cancelled'
+  );
   const dateRangeFilteredBookings = filterBookingsByTimeRange(displayBookings);
   const listDisplayBookings = searchType === 'date'
     ? filterBookingsByDate(dateRangeFilteredBookings, searchDate)
@@ -2591,6 +2621,17 @@ export function BookingsPage() {
               {canEditBooking && (
                 <Button
                   size="sm"
+                  variant="secondary"
+                  onClick={() => handleEditBookingClick(booking)}
+                  icon={<Edit className="w-3.5 h-3.5" />}
+                  className="rounded-lg"
+                >
+                  {t('reception.editBooking', 'Edit booking')}
+                </Button>
+              )}
+              {canEditBooking && (
+                <Button
+                  size="sm"
                   variant="ghost"
                   onClick={() => deleteBooking(booking.id)}
                   disabled={deletingBooking === booking.id}
@@ -2710,7 +2751,7 @@ export function BookingsPage() {
           }}
         />
 
-        <div className="grid grid-cols-1 lg:grid-cols-[15rem_minmax(0,1fr)] gap-3 lg:gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-[15rem_minmax(0,1fr)_14rem] gap-3 lg:gap-4 items-end">
           {/* Search Type Selector */}
           <div className="w-full">
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -2822,6 +2863,17 @@ export function BookingsPage() {
             )}
           </div>
 
+          <div className="w-full lg:flex lg:justify-end">
+            <label className="inline-flex w-full lg:w-auto items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 shadow-sm select-none hover:bg-gray-50">
+              <input
+                type="checkbox"
+                checked={hideCancelled}
+                onChange={(e) => setHideCancelled(e.target.checked)}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="whitespace-nowrap">{t('dashboard.hideCancelledBookings', 'Hide cancelled bookings')}</span>
+            </label>
+          </div>
         </div>
 
         {/* Validation Error */}
@@ -4281,6 +4333,22 @@ export function BookingsPage() {
                             });
                           }
                         });
+                        const bEmp =
+                          editingBooking?.employee_id != null &&
+                          String(editingBooking.employee_id).trim() !== ''
+                            ? String(editingBooking.employee_id)
+                            : editingBooking?.users?.id != null &&
+                                String(editingBooking.users.id).trim() !== ''
+                              ? String(editingBooking.users.id)
+                              : '';
+                        if (bEmp && !empMap.has(bEmp)) {
+                          const u = editingBooking?.users;
+                          empMap.set(bEmp, {
+                            id: bEmp,
+                            name: u?.full_name || safeTranslate(t, 'bookings.currentStaff', 'Current staff'),
+                            name_ar: u?.full_name_ar ?? '',
+                          });
+                        }
                         return Array.from(empMap.values()).map(emp => (
                           <option key={emp.id} value={emp.id}>
                             {isAr ? (emp.name_ar || emp.name) : emp.name}

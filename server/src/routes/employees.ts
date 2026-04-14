@@ -3,6 +3,11 @@ import jwt from 'jsonwebtoken';
 import { supabase } from '../db';
 import bcrypt from 'bcryptjs';
 import { invalidateEmployeeAvailabilityForTenant } from '../utils/employeeAvailabilityCache';
+import {
+  buildEffectiveEmployeeShifts,
+  mergeEffectiveShiftsForCalendarDay,
+  toDaysArray,
+} from '../utils/employeeShiftResolution';
 import { getPermissionsForUser } from '../permissions.js';
 import { PERMISSION_IDS } from '../permissions.js';
 import { resolveUserFromDb } from '../middleware/resolveUserFromDb.js';
@@ -556,12 +561,149 @@ router.get('/shifts-page-data', async (req, res) => {
       branchShiftsByBranch.set(bs.branch_id, list);
     }
 
+    const usersList = usersRes.data ?? [];
+    const employeeIds = usersList.map((u: { id: string }) => u.id);
+    const employeeBranchId = new Map<string, string | null | undefined>();
+    for (const u of usersList) {
+      employeeBranchId.set((u as { id: string }).id, (u as { branch_id?: string | null }).branch_id ?? null);
+    }
+    const branchShiftsList = (branchShiftsRes.data ?? []).map((bs: any) => ({
+      branch_id: bs.branch_id,
+      days_of_week: bs.days_of_week,
+      start_time: bs.start_time,
+      end_time: bs.end_time,
+    }));
+
+    const effectiveAll = buildEffectiveEmployeeShifts({
+      availableEmployeeIds: employeeIds,
+      employeeBranchId,
+      branchShiftsList,
+      empShifts: shiftsRes.data ?? [],
+    });
+
+    const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+    const weekStartParam = (req.query.week_start as string) || '';
+    let weekStartStr: string;
+    if (weekStartParam && ISO_DATE.test(weekStartParam)) {
+      weekStartStr = weekStartParam;
+    } else {
+      const now = new Date();
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const sun = d.getDay();
+      d.setDate(d.getDate() - sun);
+      weekStartStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function addDaysStr(iso: string, n: number): string {
+      const [y, m, dd] = iso.split('-').map(Number);
+      const d = new Date(y, m - 1, dd + n, 12, 0, 0, 0);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+    const weekEndStr = addDaysStr(weekStartStr, 6);
+
+    const weekly_availability: Record<
+      string,
+      Array<{ date: string; day_of_week: number; windows: Array<{ start: string; end: string }> }>
+    > = {};
+    for (const eid of employeeIds) {
+      const days: Array<{ date: string; day_of_week: number; windows: Array<{ start: string; end: string }> }> = [];
+      for (let i = 0; i < 7; i++) {
+        const dateStr = addDaysStr(weekStartStr, i);
+        const dow = new Date(
+          Number(dateStr.slice(0, 4)),
+          Number(dateStr.slice(5, 7)) - 1,
+          Number(dateStr.slice(8, 10)),
+          12,
+          0,
+          0,
+          0
+        ).getDay();
+        const shiftsForDay = effectiveAll.filter(
+          (s) => s.employee_id === eid && toDaysArray(s.days_of_week).includes(dow)
+        );
+        const merged = mergeEffectiveShiftsForCalendarDay(shiftsForDay, dow);
+        days.push({
+          date: dateStr,
+          day_of_week: dow,
+          windows: merged.map((m) => ({ start: m.start_time_utc, end: m.end_time_utc })),
+        });
+      }
+      weekly_availability[eid] = days;
+    }
+
+    type WeekBooking = {
+      booking_id: string;
+      status: string;
+      customer_name: string | null;
+      service_name: string;
+      service_name_ar: string | null;
+      start_time: string;
+      end_time: string;
+    };
+    const weekly_bookings: Record<string, Record<string, WeekBooking[]>> = {};
+    for (const eid of employeeIds) {
+      weekly_bookings[eid] = {};
+    }
+
+    if (employeeIds.length > 0) {
+      const { data: bookingRows, error: bookingErr } = await supabase
+        .from('bookings')
+        .select(
+          `
+          id,
+          employee_id,
+          status,
+          customer_name,
+          slots:slot_id(slot_date, start_time, end_time),
+          services:service_id(name, name_ar)
+        `
+        )
+        .eq('tenant_id', tenantId)
+        .in('employee_id', employeeIds)
+        .neq('status', 'cancelled');
+
+      if (bookingErr) {
+        console.error('shifts-page-data bookings:', bookingErr);
+      } else {
+        for (const b of bookingRows || []) {
+          const row = b as any;
+          const eid = row.employee_id as string;
+          if (!eid || !weekly_bookings[eid]) continue;
+          const slot = Array.isArray(row.slots) ? row.slots[0] : row.slots;
+          const sd = slot?.slot_date;
+          if (!sd || typeof sd !== 'string') continue;
+          if (sd < weekStartStr || sd > weekEndStr) continue;
+          const svc = row.services;
+          const startT = String(slot?.start_time || '');
+          const endT = String(slot?.end_time || '');
+          if (!weekly_bookings[eid][sd]) weekly_bookings[eid][sd] = [];
+          weekly_bookings[eid][sd].push({
+            booking_id: row.id,
+            status: row.status,
+            customer_name: row.customer_name ?? null,
+            service_name: svc?.name || '',
+            service_name_ar: svc?.name_ar ?? null,
+            start_time: startT,
+            end_time: endT,
+          });
+        }
+        for (const eid of employeeIds) {
+          for (const sd of Object.keys(weekly_bookings[eid])) {
+            weekly_bookings[eid][sd].sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+          }
+        }
+      }
+    }
+
     res.json({
-      users: usersRes.data ?? [],
+      users: usersList,
       employee_shifts: shiftsRes.data ?? [],
       employee_services: servicesRes.data ?? [],
       branches: branchesListRes.data ?? [],
       branch_shifts_by_branch: Object.fromEntries(branchShiftsByBranch),
+      week: { start: weekStartStr, end: weekEndStr },
+      weekly_availability,
+      weekly_bookings,
     });
   } catch (error: any) {
     console.error('Shifts page data error:', error);

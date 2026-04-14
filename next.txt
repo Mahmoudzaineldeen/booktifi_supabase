@@ -116,13 +116,13 @@ done set option when create a booking we need to add option to consume from pack
 done i need when i create booking when i write the customer number it gives me options in numbers dropdown menu so i dont need to write the custoemr full number and when i choose one of the drop down menu or i wirte the full number the other fildes are autofilled and esure that the data in drop down menu is accurate and ensure that the dropdown menu dont over lap the fileds under it 
 
 
-when edit the booking ensure the booking ensure that the selected employee for booking the selected by default and its slots are loaded by default and still able to select the employee and shifts and so on
+done when edit the booking ensure the booking ensure that the selected employee for booking the selected by default and its slots are loaded by default and still able to select the employee and shifts and so on
 
-add edit button to the main card of booking  
+done add edit button to the main card of booking  
 
 add a cancel filter in bookings
 
-add avable employees shifts in a new page this page is under employees
+add avaiable employees shifts in a new page this page is under employees
 
 devide the settings page debend on the titles WhatsApp Settings and account settings (security settings, Business Information, Currency Settings ) and 
 app manger( all integrations smtp,whatsapp,invoices add logos to switch selection ) , and  assign fixing ticket under settings (all this should appear like the reports dorpdown) and assign-fixing-ticket in dropdown menu
@@ -139,6 +139,8 @@ services and offers in dropdown menu
 
 add option to import services as csv file add fixed temelpate of the csv 
 
+make landing page drag and drop as dashboard
 
+done add vat
 
 social media track link

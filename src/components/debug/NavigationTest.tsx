@@ -86,7 +86,7 @@ export function NavigationTest() {
       { name: 'Dashboard', path: `/${tenant.slug}/admin` },
       { name: 'Services', path: `/${tenant.slug}/admin/services` },
       { name: 'Bookings', path: `/${tenant.slug}/admin/bookings` },
-      { name: 'Settings', path: `/${tenant.slug}/admin/settings` },
+      { name: 'Settings', path: `/${tenant.slug}/admin/settings/business` },
       { name: 'Back to Dashboard', path: `/${tenant.slug}/admin` },
     ];
 

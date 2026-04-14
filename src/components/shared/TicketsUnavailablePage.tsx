@@ -1,5 +1,5 @@
 /**
- * Shown when tickets feature is disabled (settings.tickets_enabled = false).
+ * Shown when tickets feature is disabled (tenant.tickets_enabled = false).
  * Used for: direct URL to success/QR, and any ticket-related customer access.
  */
 

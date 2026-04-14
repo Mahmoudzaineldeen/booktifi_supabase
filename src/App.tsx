@@ -21,6 +21,7 @@ import { BookingsPage } from './pages/tenant/BookingsPage';
 import { VisitorsPage } from './pages/tenant/VisitorsPage';
 import { EmployeesPage } from './pages/tenant/EmployeesPage';
 import { EmployeeShiftsPage } from './pages/tenant/EmployeeShiftsPage';
+import { SettingsLayout } from './pages/tenant/SettingsLayout';
 import { SettingsPage } from './pages/tenant/SettingsPage';
 import { ReceptionPage } from './pages/reception/ReceptionPage';
 import { CashierPage } from './pages/cashier/CashierPage';
@@ -62,6 +63,11 @@ import './lib/i18n';
 function ReceptionVisitorsLegacyRedirect() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   return <Navigate to={`/${tenantSlug}/reception/reports/visitors`} replace />;
+}
+
+function SettingsIndexRedirect() {
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  return <Navigate to={`/${tenantSlug}/admin/settings/account`} replace />;
 }
 
 function AppContent() {
@@ -107,7 +113,10 @@ function AppContent() {
         <Route path="visitors" element={<VisitorsPage />} />
         <Route path="employees" element={<EmployeesPage />} />
         <Route path="employee-shifts" element={<EmployeeShiftsPage />} />
-        <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings" element={<SettingsLayout />}>
+          <Route index element={<SettingsIndexRedirect />} />
+          <Route path=":section" element={<SettingsPage />} />
+        </Route>
         <Route path="landing" element={<LandingPageBuilderWrapper />} />
         <Route path="assign-fixing-ticket" element={<AssignFixingTicketPage />} />
         <Route path="roles" element={<RolesPage />} />

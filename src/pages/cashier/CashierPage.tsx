@@ -435,7 +435,7 @@ export function CashierPage() {
                 <p className="text-gray-600 text-sm">
                   {i18n.language === 'ar' 
                     ? 'التذاكر معطلة في الإعدادات. لتفعيل مسح QR، قم بتشغيل التذاكر من الإعدادات → العمليات.'
-                    : 'Tickets are disabled in settings. To enable QR scanning, turn on tickets in Settings → Operations.'}
+                    : 'Tickets are disabled. To enable QR scanning, turn on tickets in Website Builder → Operations.'}
                 </p>
               </div>
             </CardContent>

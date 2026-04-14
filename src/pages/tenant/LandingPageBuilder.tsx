@@ -3,11 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
 import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
+import { getApiUrl } from '../../lib/apiUrl';
 import { showNotification } from '../../contexts/NotificationContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
-import { Save, Eye, Globe, Upload, X } from 'lucide-react';
+import { Save, Eye, Globe, Upload, X, Wrench, Ticket } from 'lucide-react';
 
 interface LandingPageSettings {
   hero_title: string;
@@ -152,6 +153,9 @@ export function LandingPageBuilder() {
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [ticketsEnabled, setTicketsEnabled] = useState<boolean | undefined>(undefined);
+  const [opsSaving, setOpsSaving] = useState<'maintenance' | 'tickets' | null>(null);
   const [uploadMode, setUploadMode] = useState<{
     heroImage: 'url' | 'upload';
     heroVideo: 'url' | 'upload';
@@ -169,8 +173,8 @@ export function LandingPageBuilder() {
 
   /** Page header text: use friendly default if translation returns the key (avoids showing "landingPage.title" in UI) */
   const pageHeaderTitle = (() => {
-    const text = t('landingPage.title', { defaultValue: 'Landing Page Builder' });
-    return text === 'landingPage.title' ? 'Landing Page Builder' : text;
+    const text = t('landingPage.title', { defaultValue: 'Website Builder' });
+    return text === 'landingPage.title' ? 'Website Builder' : text;
   })();
   const pageHeaderSubtitle = (() => {
     const text = t('landingPage.subtitle', { defaultValue: 'Customize your public booking page' });
@@ -238,6 +242,64 @@ export function LandingPageBuilder() {
   useEffect(() => {
     fetchLandingPageSettings();
   }, [userProfile]);
+
+  useEffect(() => {
+    if (!tenant) return;
+    setMaintenanceMode(!!tenant.maintenance_mode);
+    setTicketsEnabled(tenant.tickets_enabled !== undefined ? tenant.tickets_enabled : true);
+  }, [tenant]);
+
+  async function persistOperationalToggle(
+    field: 'maintenance_mode' | 'tickets_enabled',
+    nextValue: boolean
+  ) {
+    if (!tenant?.id) return;
+    const nextMaintenance = field === 'maintenance_mode' ? nextValue : maintenanceMode;
+    const nextTickets =
+      field === 'tickets_enabled' ? nextValue : ticketsEnabled !== undefined ? ticketsEnabled : true;
+
+    setOpsSaving(field === 'maintenance_mode' ? 'maintenance' : 'tickets');
+    try {
+      const API_URL = getApiUrl();
+      const session = await db.auth.getSession();
+      const token = session.data.session?.access_token;
+      const response = await fetch(`${API_URL}/tenants/settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          name: tenant.name,
+          name_ar: tenant.name_ar,
+          contact_email: tenant.contact_email ?? '',
+          tenant_time_zone: tenant.tenant_time_zone,
+          maintenance_mode: nextMaintenance,
+          tickets_enabled: nextTickets,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to update settings' }));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (result.tenant) {
+        setMaintenanceMode(!!result.tenant.maintenance_mode);
+        setTicketsEnabled(
+          result.tenant.tickets_enabled !== undefined ? result.tenant.tickets_enabled : true
+        );
+      }
+      showNotification('success', t('settings.settingsSavedSuccessfully'));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('settings.errorSavingSettings');
+      console.error('Landing operational toggle:', err);
+      showNotification('error', message);
+    } finally {
+      setOpsSaving(null);
+    }
+  }
 
   async function fetchLandingPageSettings() {
     if (!userProfile?.tenant_id) return;
@@ -414,6 +476,75 @@ export function LandingPageBuilder() {
           </Button>
         </div>
       </div>
+
+      {tenant && (
+        <Card className="mb-6 border border-slate-200/90 bg-gradient-to-br from-slate-50/80 to-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">{t('landingPage.operationalCardTitle')}</CardTitle>
+            <p className="text-sm font-normal text-slate-600">{t('landingPage.operationalCardHint')}</p>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-stretch">
+              <button
+                type="button"
+                disabled={opsSaving === 'maintenance'}
+                onClick={() => void persistOperationalToggle('maintenance_mode', !maintenanceMode)}
+                className={`flex flex-1 min-w-[min(100%,16rem)] items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left text-sm font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-60 ${
+                  maintenanceMode
+                    ? 'border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100/90'
+                    : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
+                }`}
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <Wrench className="h-5 w-5 shrink-0 text-slate-600" aria-hidden />
+                  <span className="truncate">{t('navigation.maintenanceModeNav')}</span>
+                </span>
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                    maintenanceMode ? 'bg-amber-200/80 text-amber-950' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {maintenanceMode ? t('landingPage.statusOn') : t('landingPage.statusOff')}
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={opsSaving === 'tickets' || ticketsEnabled === undefined}
+                onClick={() =>
+                  ticketsEnabled === undefined
+                    ? undefined
+                    : void persistOperationalToggle('tickets_enabled', !ticketsEnabled)
+                }
+                className={`flex flex-1 min-w-[min(100%,16rem)] items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left text-sm font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-60 ${
+                  ticketsEnabled === true
+                    ? 'border-violet-300 bg-violet-50 text-violet-950 hover:bg-violet-100/90'
+                    : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
+                }`}
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <Ticket className="h-5 w-5 shrink-0 text-slate-600" aria-hidden />
+                  <span className="truncate">{t('navigation.enableTicketsNav')}</span>
+                </span>
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                    ticketsEnabled === true
+                      ? 'bg-violet-200/80 text-violet-950'
+                      : ticketsEnabled === undefined
+                        ? 'bg-slate-100 text-slate-400'
+                        : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {ticketsEnabled === undefined
+                    ? t('common.loading')
+                    : ticketsEnabled
+                      ? t('landingPage.statusOn')
+                      : t('landingPage.statusOff')}
+                </span>
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="space-y-6">
         <Card>

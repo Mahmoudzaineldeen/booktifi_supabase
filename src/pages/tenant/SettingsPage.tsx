@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
-import { Settings, Save, Building2, Lock, Eye, EyeOff, Mail, CheckCircle, XCircle, MessageCircle, FileText, ExternalLink, DollarSign, Clock } from 'lucide-react';
+import { Settings, Save, Building2, Lock, Eye, EyeOff, Mail, CheckCircle, XCircle, MessageCircle, FileText, ExternalLink, DollarSign, Clock, User, Image as ImageLucide } from 'lucide-react';
 
 import { getApiUrl } from '../../lib/apiUrl';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
@@ -15,13 +15,16 @@ import { useCurrency } from '../../contexts/CurrencyContext';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
 import { getAvailableCurrencies } from '../../lib/currency';
+import { isValidSettingsSection, normalizeAppManagerTab } from './settingsSections';
 
 export function SettingsPage() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const isRtl = i18n.language === 'ar';
   const { userProfile, tenant, user, signOut, loading: authLoading } = useAuth();
-  const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  const { tenantSlug, section } = useParams<{ tenantSlug: string; section: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const appTab = normalizeAppManagerTab(searchParams.get('tab'));
   const { features: tenantFeatures, reload: reloadTenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
   const [loading, setLoading] = useState(false);
   const [schedulingModeSaving, setSchedulingModeSaving] = useState(false);
@@ -36,22 +39,16 @@ export function SettingsPage() {
     confirmPassword: '',
   });
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  // Initialize formData with undefined for tickets_enabled to prevent false default
-  // This ensures we wait for actual tenant data before setting the checkbox state
   const [formData, setFormData] = useState<{
     name: string;
     name_ar: string;
     contact_email: string;
     tenant_time_zone: string;
-    maintenance_mode: boolean;
-    tickets_enabled: boolean | undefined; // undefined until tenant data loads
   }>({
     name: '',
     name_ar: '',
     contact_email: '',
     tenant_time_zone: 'Asia/Riyadh',
-    maintenance_mode: false,
-    tickets_enabled: undefined, // undefined = not loaded yet, prevents false default
   });
   const [smtpSettings, setSmtpSettings] = useState({
     smtp_host: 'smtp.gmail.com',
@@ -167,20 +164,11 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (tenant) {
-      // CRITICAL: Only set tickets_enabled from tenant data, no default fallback
-      // If tickets_enabled is undefined, it means the field doesn't exist (migration not run)
-      // In that case, default to true for backward compatibility, but only if undefined
-      const ticketsEnabled = tenant.tickets_enabled !== undefined 
-        ? tenant.tickets_enabled 
-        : true; // Default to true only if field doesn't exist (backward compatibility)
-      
       setFormData({
         name: tenant.name || '',
         name_ar: tenant.name_ar || '',
         contact_email: tenant.contact_email || '',
         tenant_time_zone: tenant.tenant_time_zone || 'Asia/Riyadh',
-        maintenance_mode: tenant.maintenance_mode || false,
-        tickets_enabled: ticketsEnabled,
       });
     }
   }, [tenant]);
@@ -1206,11 +1194,6 @@ export function SettingsPage() {
 
     setLoading(true);
     try {
-      // CRITICAL: Ensure tickets_enabled is a boolean, not undefined
-      const ticketsEnabledValue = formData.tickets_enabled !== undefined 
-        ? formData.tickets_enabled 
-        : true; // Default to true if somehow undefined (shouldn't happen)
-
       // Use backend API endpoint instead of direct database update
       const { getApiUrl } = await import('../../lib/apiUrl');
       const API_URL = getApiUrl();
@@ -1228,8 +1211,6 @@ export function SettingsPage() {
           name_ar: formData.name_ar,
           contact_email: formData.contact_email,
           tenant_time_zone: formData.tenant_time_zone,
-          maintenance_mode: formData.maintenance_mode,
-          tickets_enabled: ticketsEnabledValue,
         })
       });
 
@@ -1242,16 +1223,12 @@ export function SettingsPage() {
 
       // Update formData with the actual persisted values from the response
       if (result.tenant) {
-        setFormData(prev => ({
+        setFormData((prev) => ({
           ...prev,
           name: result.tenant.name || prev.name,
           name_ar: result.tenant.name_ar || prev.name_ar,
           contact_email: result.tenant.contact_email || prev.contact_email,
           tenant_time_zone: result.tenant.tenant_time_zone || prev.tenant_time_zone,
-          maintenance_mode: result.tenant.maintenance_mode !== undefined ? result.tenant.maintenance_mode : prev.maintenance_mode,
-          tickets_enabled: result.tenant.tickets_enabled !== undefined 
-            ? result.tenant.tickets_enabled 
-            : true // Fallback only if field doesn't exist (backward compatibility)
         }));
       }
 
@@ -1331,117 +1308,349 @@ export function SettingsPage() {
     );
   }
 
+  if (!isValidSettingsSection(section, userProfile?.role)) {
+    return <Navigate to={`/${tenantSlug}/admin/settings/account`} replace />;
+  }
+
+  if (section === 'whatsapp' && tenantSlug) {
+    return <Navigate to={`/${tenantSlug}/admin/settings/app-manager?tab=whatsapp`} replace />;
+  }
+  if (section === 'integrations' && tenantSlug) {
+    return <Navigate to={`/${tenantSlug}/admin/settings/app-manager?tab=smtp`} replace />;
+  }
+
   return (
-    <div className="p-4 md:p-8">
-      <div className="mb-6 md:mb-8">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="bg-slate-100 p-2.5 rounded-xl">
-            <Settings className="w-6 h-6 text-slate-600" />
-          </div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('navigation.settings')}</h1>
-        </div>
-        <p className="text-sm md:text-base text-slate-600 mt-1">{t('settings.manageSettings')}</p>
-      </div>
+    <div className="max-w-3xl">
+      <div className="space-y-6">
+        {section === 'account' && (
+          <div className="space-y-6">
+            <section className="scroll-mt-24">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <User className="w-5 h-5" />
+                    {t('settings.accountCardTitle')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-xs text-gray-500">{t('settings.accountCardHint')}</p>
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">{userProfile?.full_name || '—'}</p>
+                    <p className="text-sm text-gray-600">{user?.email || '—'}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
 
-      <div className="max-w-3xl">
-        <div className="space-y-6">
-          {/* Business Information Form */}
-          <form onSubmit={handleSubmit}>
-          <Card className="shadow-sm border border-gray-200/80">
-            <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-t-xl">
-              <CardTitle className="flex items-center gap-2 text-xl">
-                <Building2 className="w-6 h-6 text-blue-600" />
-                {t('tenant.businessInformation')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-6">
-              <Input
-                label={t('tenant.businessNameEnglish')}
-                value={formData.name || ''}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                required
-                placeholder={t('tenant.businessNameEnglishPlaceholder')}
-              />
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <section className="scroll-mt-24">
+                <Card className="shadow-sm border border-gray-200/80">
+                  <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-t-xl">
+                    <CardTitle className="flex items-center gap-2 text-xl">
+                      <Building2 className="w-6 h-6 text-blue-600" />
+                      {t('tenant.businessInformation')}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 pt-6">
+                    <Input
+                      label={t('tenant.businessNameEnglish')}
+                      value={formData.name || ''}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      required
+                      placeholder={t('tenant.businessNameEnglishPlaceholder')}
+                    />
 
-              <Input
-                label={t('tenant.businessNameArabic')}
-                value={formData.name_ar || ''}
-                onChange={(e) => setFormData({ ...formData, name_ar: e.target.value })}
-                dir="rtl"
-                placeholder={t('tenant.businessNameArabicPlaceholder')}
-              />
+                    <Input
+                      label={t('tenant.businessNameArabic')}
+                      value={formData.name_ar || ''}
+                      onChange={(e) => setFormData({ ...formData, name_ar: e.target.value })}
+                      dir="rtl"
+                      placeholder={t('tenant.businessNameArabicPlaceholder')}
+                    />
 
-              <Input
-                type="email"
-                label={t('tenant.contactEmail')}
-                value={formData.contact_email || ''}
-                onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
-                required
-                placeholder={t('settings.contactEmailPlaceholder')}
-              />
+                    <Input
+                      type="email"
+                      label={t('tenant.contactEmail')}
+                      value={formData.contact_email || ''}
+                      onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
+                      required
+                      placeholder={t('settings.contactEmailPlaceholder')}
+                    />
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t('tenant.timezone')}
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  value={formData.tenant_time_zone}
-                  onChange={(e) => setFormData({ ...formData, tenant_time_zone: e.target.value })}
-                  required
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {t('tenant.timezone')}
+                      </label>
+                      <select
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={formData.tenant_time_zone}
+                        onChange={(e) => setFormData({ ...formData, tenant_time_zone: e.target.value })}
+                        required
+                      >
+                        <option value="Asia/Riyadh">Asia/Riyadh (Saudi Arabia)</option>
+                        <option value="Asia/Dubai">Asia/Dubai (UAE)</option>
+                        <option value="Asia/Kuwait">Asia/Kuwait</option>
+                        <option value="Asia/Bahrain">Asia/Bahrain</option>
+                        <option value="Asia/Qatar">Asia/Qatar</option>
+                      </select>
+                    </div>
+                  </CardContent>
+                </Card>
+              </section>
+              <div className="flex justify-end gap-3">
+                <Button
+                  type="submit"
+                  loading={loading}
+                  icon={<Save className="w-4 h-4" />}
+                  style={{
+                    background: `linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)`,
+                  }}
                 >
-                  <option value="Asia/Riyadh">Asia/Riyadh (Saudi Arabia)</option>
-                  <option value="Asia/Dubai">Asia/Dubai (UAE)</option>
-                  <option value="Asia/Kuwait">Asia/Kuwait</option>
-                  <option value="Asia/Bahrain">Asia/Bahrain</option>
-                  <option value="Asia/Qatar">Asia/Qatar</option>
-                </select>
+                  {t('tenant.saveSettings')}
+                </Button>
               </div>
-            </CardContent>
-          </Card>
+            </form>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="w-5 h-5" />
-                {t('tenant.operationalSettings')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.maintenance_mode}
-                  onChange={(e) => setFormData({ ...formData, maintenance_mode: e.target.checked })}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                />
-                <div>
-                  <span className="text-sm font-medium text-gray-700">{t('tenant.maintenanceMode')}</span>
-                  <p className="text-xs text-gray-500">{t('tenant.disablePublicBookings')}</p>
-                </div>
-              </label>
-              
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.tickets_enabled === true} // Only checked if explicitly true
-                  onChange={(e) => setFormData({ ...formData, tickets_enabled: e.target.checked })}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                  disabled={formData.tickets_enabled === undefined} // Disable until loaded
-                />
-                <div>
-                  <span className="text-sm font-medium text-gray-700">{t('settings.ticketsLabel')}</span>
-                  <p className="text-xs text-gray-500">
-                    {formData.tickets_enabled === undefined 
-                      ? t('common.loading') 
-                      : t('settings.ticketsDisabledHelp')}
-                  </p>
-                </div>
-              </label>
-            </CardContent>
-          </Card>
+            {userProfile?.role === 'tenant_admin' && (
+              <section className="scroll-mt-24">
+                <Card>
+                  <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50">
+                    <CardTitle className="flex items-center gap-2 text-xl">
+                      <DollarSign className="w-6 h-6 text-green-600" />
+                      {t('settings.currency.title')}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 pt-6">
+                    <p className="text-sm text-gray-600">
+                      {t('settings.currency.description')}
+                    </p>
 
-          {/* Scheduling Configuration (global mode) */}
+                    {currencyMessage && (
+                      <div className={`p-3 rounded-lg text-sm ${
+                        currencyMessage.type === 'success'
+                          ? 'bg-green-50 border border-green-200 text-green-700'
+                          : 'bg-red-50 border border-red-200 text-red-700'
+                      }`}>
+                        <div className="flex items-center gap-2">
+                          {currencyMessage.type === 'success' ? (
+                            <CheckCircle className="w-4 h-4" />
+                          ) : (
+                            <XCircle className="w-4 h-4" />
+                          )}
+                          {currencyMessage.text}
+                        </div>
+                        {currencyMessage.warning && (
+                          <div className="mt-2 pt-2 border-t border-yellow-300 text-yellow-700 text-xs">
+                            {currencyMessage.warning}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">
+                        {t('settings.currency.selectCurrency') || 'Select Currency'}
+                      </label>
+                      <select
+                        value={selectedCurrencyCode}
+                        onChange={(e) => setSelectedCurrencyCode(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        disabled={currencyLoading}
+                      >
+                        {getAvailableCurrencies().map((currency) => (
+                          <option key={currency.code} value={currency.code}>
+                            {currency.symbol} - {currency.name} ({currency.code})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-500">
+                        {t('settings.currency.hint')}
+                      </p>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <Button
+                        onClick={async () => {
+                          if (!userProfile?.tenant_id) {
+                            setCurrencyMessage({ type: 'error', text: t('settings.currency.tenantIdNotFound') });
+                            return;
+                          }
+
+                          if (selectedCurrencyCode === currentCurrencyCode) {
+                            setCurrencyMessage({ type: 'error', text: t('settings.currency.currencyAlreadySet') });
+                            return;
+                          }
+
+                          setCurrencyLoading(true);
+                          setCurrencyMessage(null);
+
+                          try {
+                            const token = localStorage.getItem('auth_token');
+                            const API_URL = getApiUrl();
+                            const response = await fetch(`${API_URL}/tenants/currency`, {
+                              method: 'PUT',
+                              headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json',
+                              },
+                              body: JSON.stringify({ currency_code: selectedCurrencyCode }),
+                            });
+
+                            if (!response.ok) {
+                              const error = await response.json();
+                              throw new Error(error.error || 'Failed to update currency');
+                            }
+
+                            const result = await response.json();
+                            setCurrencyMessage({
+                              type: 'success',
+                              text: t('settings.currency.currencyUpdatedTo', { code: selectedCurrencyCode }),
+                              warning: result.warning,
+                            });
+
+                            await refreshCurrency();
+                          } catch (err: any) {
+                            console.error('Error updating currency:', err);
+                            setCurrencyMessage({
+                              type: 'error',
+                              text: err.message || t('settings.currency.updateFailed'),
+                            });
+                          } finally {
+                            setCurrencyLoading(false);
+                          }
+                        }}
+                        loading={currencyLoading}
+                        icon={<DollarSign className="w-4 h-4" />}
+                      >
+                        {t('settings.currency.save')}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </section>
+            )}
+
+            <section className="scroll-mt-24">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Lock className="w-5 h-5" />
+                    {t('settings.security.title')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handlePasswordChange} className="space-y-4">
+                    {passwordMessage && (
+                      <div className={`p-3 rounded-lg text-sm ${
+                        passwordMessage.type === 'success'
+                          ? 'bg-green-50 border border-green-200 text-green-700'
+                          : 'bg-red-50 border border-red-200 text-red-700'
+                      }`}>
+                        {passwordMessage.text}
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">
+                        {t('settings.security.accountEmail')}
+                      </label>
+                      <Input
+                        type="text"
+                        value={user?.email || ''}
+                        disabled
+                        className="bg-gray-50"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">
+                        {t('settings.security.currentPassword')}
+                      </label>
+                      <div className="relative">
+                        <Input
+                          type={showCurrentPassword ? 'text' : 'password'}
+                          value={passwordData.currentPassword}
+                          onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                          placeholder={t('settings.security.enterCurrentPassword')}
+                          required
+                          className={isRtl ? 'pl-10' : 'pr-10'}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                          className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
+                        >
+                          {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">
+                        {t('settings.security.newPassword')}
+                      </label>
+                      <div className="relative">
+                        <Input
+                          type={showNewPassword ? 'text' : 'password'}
+                          value={passwordData.newPassword}
+                          onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                          placeholder={t('settings.security.enterNewPassword')}
+                          required
+                          minLength={6}
+                          className={isRtl ? 'pl-10' : 'pr-10'}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                          className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
+                        >
+                          {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">
+                        {t('settings.security.confirmPassword')}
+                      </label>
+                      <div className="relative">
+                        <Input
+                          type={showConfirmPassword ? 'text' : 'password'}
+                          value={passwordData.confirmPassword}
+                          onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                          placeholder={t('settings.security.confirmNewPassword')}
+                          required
+                          minLength={6}
+                          className={isRtl ? 'pl-10' : 'pr-10'}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
+                        >
+                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <Button
+                        type="submit"
+                        loading={passwordLoading}
+                        icon={<Lock className="w-4 h-4" />}
+                      >
+                        {t('settings.security.updatePassword')}
+                      </Button>
+                    </div>
+                  </form>
+                </CardContent>
+              </Card>
+            </section>
+          </div>
+        )}
+
+        {section === 'scheduling' && (
+          <section className="scroll-mt-24">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -1582,138 +1791,11 @@ export function SettingsPage() {
               )}
             </CardContent>
           </Card>
+          </section>
+        )}
 
-          <div className="flex justify-end gap-3 pt-4">
-            <Button
-              type="submit"
-              loading={loading}
-              icon={<Save className="w-4 h-4" />}
-              style={{
-                background: `linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)`,
-              }}
-            >
-              {t('tenant.saveSettings')}
-            </Button>
-          </div>
-          </form>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Lock className="w-5 h-5" />
-                {t('settings.security.title')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handlePasswordChange} className="space-y-4">
-                {passwordMessage && (
-                  <div className={`p-3 rounded-lg text-sm ${
-                    passwordMessage.type === 'success'
-                      ? 'bg-green-50 border border-green-200 text-green-700'
-                      : 'bg-red-50 border border-red-200 text-red-700'
-                  }`}>
-                    {passwordMessage.text}
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    {t('settings.security.accountEmail')}
-                  </label>
-                  <Input
-                    type="text"
-                    value={user?.email || ''}
-                    disabled
-                    className="bg-gray-50"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    {t('settings.security.currentPassword')}
-                  </label>
-                  <div className="relative">
-                    <Input
-                      type={showCurrentPassword ? 'text' : 'password'}
-                      value={passwordData.currentPassword}
-                      onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-                      placeholder={t('settings.security.enterCurrentPassword')}
-                      required
-                      className={isRtl ? 'pl-10' : 'pr-10'}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                      className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
-                    >
-                      {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    {t('settings.security.newPassword')}
-                  </label>
-                  <div className="relative">
-                    <Input
-                      type={showNewPassword ? 'text' : 'password'}
-                      value={passwordData.newPassword}
-                      onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-                      placeholder={t('settings.security.enterNewPassword')}
-                      required
-                      minLength={6}
-                      className={isRtl ? 'pl-10' : 'pr-10'}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                      className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
-                    >
-                      {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    {t('settings.security.confirmPassword')}
-                  </label>
-                  <div className="relative">
-                    <Input
-                      type={showConfirmPassword ? 'text' : 'password'}
-                      value={passwordData.confirmPassword}
-                      onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
-                      placeholder={t('settings.security.confirmNewPassword')}
-                      required
-                      minLength={6}
-                      className={isRtl ? 'pl-10' : 'pr-10'}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
-                    >
-                      {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <Button
-                    type="submit"
-                    loading={passwordLoading}
-                    icon={<Lock className="w-4 h-4" />}
-                  >
-                    {t('settings.security.updatePassword')}
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          {/* Currency Settings - Only for Tenant Provider */}
-          {userProfile?.role === 'tenant_admin' && (
+        {section === 'currency' && userProfile?.role === 'tenant_admin' && (
+            <section className="scroll-mt-24">
             <Card>
               <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50">
                 <CardTitle className="flex items-center gap-2 text-xl">
@@ -1829,146 +1911,83 @@ export function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+            </section>
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mail className="w-5 h-5" />
-                {t('settings.smtp.title')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {smtpMessage && (
-                  <div className={`p-3 rounded-lg text-sm ${
-                    smtpMessage.type === 'success'
-                      ? 'bg-green-50 border border-green-200 text-green-700'
-                      : 'bg-red-50 border border-red-200 text-red-700'
-                  }`}>
-                    <div className="flex items-center gap-2">
-                    {smtpMessage.type === 'success' ? (
-                      <CheckCircle className="w-4 h-4" />
-                    ) : (
-                      <XCircle className="w-4 h-4" />
-                    )}
-                    {smtpMessage.text}
-                    </div>
-                    {smtpMessage.hint && (
-                      <div className="mt-2 pt-2 border-t border-red-300 text-red-600 text-xs">
-                        💡 {smtpMessage.hint}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    {t('settings.smtp.host')}
-                  </label>
-                  <Input
-                    type="text"
-                    value={smtpSettings.smtp_host}
-                    onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_host: e.target.value })}
-                    placeholder={t('settings.smtp.hostPlaceholder')}
-                    required
-                  />
-                  <p className="text-xs text-gray-500">{t('settings.smtp.defaultHost')}</p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    {t('settings.smtp.port')}
-                  </label>
-                  <Input
-                    type="number"
-                    value={smtpSettings.smtp_port}
-                    onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_port: parseInt(e.target.value) || 587 })}
-                    placeholder={t('settings.smtp.portPlaceholder')}
-                    required
-                  />
-                  <p className="text-xs text-gray-500">
-                    {t('settings.smtp.portHint')}
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    {t('settings.smtp.user')}
-                  </label>
-                  <Input
-                    type="email"
-                    value={smtpSettings.smtp_user}
-                    onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_user: e.target.value })}
-                    placeholder={t('settings.smtp.userPlaceholder')}
-                    required
-                  />
-                  <p className="text-xs text-gray-500">{t('settings.smtp.userHint')}</p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    {t('settings.smtp.appPassword')}
-                  </label>
-                  <div className="relative">
-                    <Input
-                      type={showSmtpPassword ? 'text' : 'password'}
-                      value={smtpSettings.smtp_password}
-                      onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_password: e.target.value })}
-                      placeholder={t('settings.smtp.appPasswordPlaceholder')}
-                      required
-                      className={isRtl ? 'pl-10' : 'pr-10'}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowSmtpPassword(!showSmtpPassword)}
-                      className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
-                    >
-                      {showSmtpPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  <p className="text-xs text-red-600 font-medium">
-                    {t('settings.smtp.appPasswordWarning')}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {t('settings.smtp.generateAppPassword')}{" "}
-                    <a 
-                      href={t('settings.smtp.appPasswordLink')} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline font-medium"
-                    >
-                      {t('settings.smtp.appPasswordLink')}
-                    </a>
-                  </p>
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <Button
-                    type="button"
-                    onClick={handleSmtpTest}
-                    loading={smtpTestLoading}
-                    variant="secondary"
-                    icon={<Mail className="w-4 h-4" />}
+        {section === 'logos' && (
+          <section className="scroll-mt-24">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ImageLucide className="w-5 h-5" />
+                  {t('settings.logosCardTitle')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-gray-600">{t('settings.logosCardDescription')}</p>
+                {tenantSlug ? (
+                  <Link
+                    to={`/${tenantSlug}/admin/landing`}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-base font-medium bg-gray-200 text-gray-900 hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
                   >
-                    {t('settings.smtp.testEmail')}
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      handleSmtpSave(e as any);
-                    }}
-                    loading={smtpLoading}
-                    icon={<Save className="w-4 h-4" />}
-                  >
-                    {t('settings.smtp.save')}
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                    <ExternalLink className="w-4 h-4 shrink-0" aria-hidden />
+                    {t('settings.openLandingBuilder')}
+                  </Link>
+                ) : null}
+              </CardContent>
+            </Card>
+          </section>
+        )}
 
+        {section === 'app-manager' && (
+          <section className="scroll-mt-24 space-y-6">
+            <p className="text-sm text-gray-600">{t('settings.appManagerCardDescription')}</p>
+            <div
+              className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+              role="tablist"
+              aria-label={t('settings.appManagerIntegrations', 'Integrations')}
+            >
+              {(
+                [
+                  {
+                    id: 'smtp' as const,
+                    label: t('settings.appManagerTabSmtp', 'SMTP / Email'),
+                    logo: 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/gmail.svg',
+                    alt: 'SMTP',
+                  },
+                  {
+                    id: 'whatsapp' as const,
+                    label: t('settings.appManagerTabWhatsapp', 'WhatsApp'),
+                    logo: 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/whatsapp.svg',
+                    alt: 'WhatsApp',
+                  },
+                  {
+                    id: 'invoices' as const,
+                    label: t('settings.appManagerTabInvoices', 'Invoices'),
+                    logo: 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/zoho.svg',
+                    alt: 'Invoices',
+                  },
+                ] as const
+              ).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={appTab === item.id}
+                  onClick={() => setSearchParams({ tab: item.id }, { replace: true })}
+                  className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-all ${
+                    appTab === item.id
+                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200 shadow-sm'
+                      : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <img src={item.logo} alt="" className="h-10 w-10 object-contain" aria-hidden />
+                  <span className="text-sm font-medium text-gray-900">{item.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {appTab === 'whatsapp' && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -2173,7 +2192,150 @@ export function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+        )}
 
+        {appTab === 'smtp' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Mail className="w-5 h-5" />
+                {t('settings.smtp.title')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {smtpMessage && (
+                  <div className={`p-3 rounded-lg text-sm ${
+                    smtpMessage.type === 'success'
+                      ? 'bg-green-50 border border-green-200 text-green-700'
+                      : 'bg-red-50 border border-red-200 text-red-700'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                    {smtpMessage.type === 'success' ? (
+                      <CheckCircle className="w-4 h-4" />
+                    ) : (
+                      <XCircle className="w-4 h-4" />
+                    )}
+                    {smtpMessage.text}
+                    </div>
+                    {smtpMessage.hint && (
+                      <div className="mt-2 pt-2 border-t border-red-300 text-red-600 text-xs">
+                        💡 {smtpMessage.hint}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    {t('settings.smtp.host')}
+                  </label>
+                  <Input
+                    type="text"
+                    value={smtpSettings.smtp_host}
+                    onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_host: e.target.value })}
+                    placeholder={t('settings.smtp.hostPlaceholder')}
+                    required
+                  />
+                  <p className="text-xs text-gray-500">{t('settings.smtp.defaultHost')}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    {t('settings.smtp.port')}
+                  </label>
+                  <Input
+                    type="number"
+                    value={smtpSettings.smtp_port}
+                    onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_port: parseInt(e.target.value) || 587 })}
+                    placeholder={t('settings.smtp.portPlaceholder')}
+                    required
+                  />
+                  <p className="text-xs text-gray-500">
+                    {t('settings.smtp.portHint')}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    {t('settings.smtp.user')}
+                  </label>
+                  <Input
+                    type="email"
+                    value={smtpSettings.smtp_user}
+                    onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_user: e.target.value })}
+                    placeholder={t('settings.smtp.userPlaceholder')}
+                    required
+                  />
+                  <p className="text-xs text-gray-500">{t('settings.smtp.userHint')}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    {t('settings.smtp.appPassword')}
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type={showSmtpPassword ? 'text' : 'password'}
+                      value={smtpSettings.smtp_password}
+                      onChange={(e) => setSmtpSettings({ ...smtpSettings, smtp_password: e.target.value })}
+                      placeholder={t('settings.smtp.appPasswordPlaceholder')}
+                      required
+                      className={isRtl ? 'pl-10' : 'pr-10'}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSmtpPassword(!showSmtpPassword)}
+                      className={`absolute top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 ${isRtl ? 'left-3' : 'right-3'}`}
+                    >
+                      {showSmtpPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-xs text-red-600 font-medium">
+                    {t('settings.smtp.appPasswordWarning')}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {t('settings.smtp.generateAppPassword')}{" "}
+                    <a 
+                      href={t('settings.smtp.appPasswordLink')} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline font-medium"
+                    >
+                      {t('settings.smtp.appPasswordLink')}
+                    </a>
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    type="button"
+                    onClick={handleSmtpTest}
+                    loading={smtpTestLoading}
+                    variant="secondary"
+                    icon={<Mail className="w-4 h-4" />}
+                  >
+                    {t('settings.smtp.testEmail')}
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleSmtpSave(e as any);
+                    }}
+                    loading={smtpLoading}
+                    icon={<Save className="w-4 h-4" />}
+                  >
+                    {t('settings.smtp.save')}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {appTab === 'invoices' && (
+          <>
           <Card>
             <CardHeader className="bg-gradient-to-r from-slate-600 to-slate-800 text-white rounded-t-lg">
               <CardTitle className="flex items-center gap-2 text-white">
@@ -2615,7 +2777,10 @@ export function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-        </div>
+          </>
+        )}
+          </section>
+        )}
       </div>
     </div>
   );
