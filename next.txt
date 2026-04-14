@@ -137,7 +137,7 @@ done move maintance to the landpage so both (maintance mode(onlinebooking) and e
 
 done services and offers in dropdown menu
 
-add option to import services as csv file add fixed temelpate of the csv 
+done add option to import services as csv file add fixed temelpate of the csv 
 
 done in the bookings add a log under the paylog it tells who created the booking and when and who edited the booking and what is the edit he made and booking is canceled and who did and make it simple so it is readble for nonprogramers apply this in booking details section in both admin and receptionst 
 

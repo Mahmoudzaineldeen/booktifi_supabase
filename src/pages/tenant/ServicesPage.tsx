@@ -13,7 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { SearchInput } from '../../components/ui/SearchInput';
-import { Plus, Edit, Trash2, Briefcase, FolderOpen, Clock, X, Upload, Gift, Search } from 'lucide-react';
+import { Plus, Edit, Trash2, Briefcase, FolderOpen, Clock, X, Upload, Gift, Search, FileSpreadsheet } from 'lucide-react';
+import { ServiceImportWizard } from '../../components/tenant/ServiceImportWizard';
 import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import heic2any from 'heic2any';
 
@@ -71,6 +72,7 @@ export function ServicesPage() {
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isOffersModalOpen, setIsOffersModalOpen] = useState(false);
+  const [isImportWizardOpen, setIsImportWizardOpen] = useState(false);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [selectedServiceForSchedule, setSelectedServiceForSchedule] = useState<Service | null>(null);
@@ -1158,13 +1160,20 @@ export function ServicesPage() {
           </div>
           <p className="text-sm md:text-base text-slate-600 mt-1">{t('service.manageServices', 'Manage your services and categories')}</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Button
             onClick={() => setIsCategoryModalOpen(true)}
             variant="secondary"
             icon={<FolderOpen className="w-4 h-4" />}
           >
             {t('service.categories', 'Categories')}
+          </Button>
+          <Button
+            onClick={() => setIsImportWizardOpen(true)}
+            variant="secondary"
+            icon={<FileSpreadsheet className="w-4 h-4" />}
+          >
+            {t('service.import.openButton', 'Import from CSV')}
           </Button>
           <Button onClick={openAddServiceModal} icon={<Plus className="w-4 h-4" />}>
             {t('service.addService', 'Add Service')}
@@ -2157,6 +2166,18 @@ export function ServicesPage() {
           )}
         </div>
       </Modal>
+
+      {userProfile?.tenant_id && (
+        <ServiceImportWizard
+          open={isImportWizardOpen}
+          onClose={() => setIsImportWizardOpen(false)}
+          tenantId={userProfile.tenant_id}
+          branches={branches}
+          categories={categories}
+          hideServiceSlots={hideServiceSlots}
+          onCompleted={() => void fetchServices()}
+        />
+      )}
     </div>
   );
 }

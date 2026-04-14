@@ -1,0 +1,3 @@
+name,name_ar,duration_minutes,base_price,description,description_ar,category,original_price,discount_percentage,service_capacity_per_slot,is_public,is_active
+Classic haircut,قص شعر كلاسيكي,45,80,Wash and cut,غسيل وقص,,100,20,2,true,true
+Deep tissue massage,تدليك الأنسجة العميقة,90,250,,,,,,1,true,true

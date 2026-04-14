@@ -388,20 +388,31 @@ class DatabaseClient {
         };
       },
       delete: () => ({
-        eq: (column: string, value: any) => ({
-          then: async (resolve?: any, reject?: any) => {
-            const result = await self.request(`/delete/${table}`, {
+        eq: (column: string, value: any) => {
+          const where = { [column]: value };
+          const runDelete = async () => {
+            return await self.request(`/delete/${table}`, {
               method: 'POST',
-              body: JSON.stringify({ where: { [column]: value } }),
+              body: JSON.stringify({ where }),
             });
-            if (result.error) {
-              if (reject) reject(result.error);
-              return { data: null, error: result.error };
-            }
-            if (resolve) resolve({ data: result.data, error: null });
-            return { data: result.data, error: null };
-          },
-        }),
+          };
+          const thenable = {
+            then: async (resolve?: any, reject?: any) => {
+              const result = await runDelete();
+              if (result.error) {
+                if (reject) reject(result.error);
+                return { data: null, error: result.error };
+              }
+              if (resolve) resolve({ data: result.data, error: null });
+              return { data: result.data, error: null };
+            },
+          };
+          // Supabase-style: .delete().eq(...).select() — server already returns deleted rows
+          return {
+            select: (_columns?: string) => thenable,
+            ...thenable,
+          };
+        },
       }),
     };
 
