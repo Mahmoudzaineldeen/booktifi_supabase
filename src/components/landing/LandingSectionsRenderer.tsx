@@ -242,7 +242,9 @@ export function LandingSectionsRenderer({
                     const serviceDescription = language === 'ar'
                       ? service.description_ar || service.description || ''
                       : service.description || service.description_ar || '';
-                    const reviewsList = serviceReviewsByServiceId?.[service.id] ?? [];
+                    const reviewsLookupId =
+                      service.is_offer && service.service_id ? String(service.service_id) : service.id;
+                    const reviewsList = serviceReviewsByServiceId?.[reviewsLookupId] ?? [];
                     const calculatedRating =
                       reviewsList.length > 0
                         ? reviewsList.reduce((sum, r) => sum + (r.rating || 0), 0) / reviewsList.length

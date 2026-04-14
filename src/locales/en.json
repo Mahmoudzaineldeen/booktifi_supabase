@@ -435,7 +435,10 @@
     "edit": "Edit",
     "searchServices": "Search services…",
     "showMore": "Show more",
-    "checkAvailability": "Check availability"
+    "checkAvailability": "Check availability",
+    "allPhotos": "All photos",
+    "previousPhoto": "Previous photo",
+    "nextPhoto": "Next photo"
   },
   "dashboard": {
     "dashboard": "Dashboard",

@@ -32,6 +32,8 @@ import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
 import { fetchPublicLandingPage } from '../../lib/landingBuilderApi';
 import type { LandingPageData } from '../../lib/landingSections';
 import { LandingSectionsRenderer } from '../../components/landing/LandingSectionsRenderer';
+import { ServiceAllPhotosLightbox } from '../../components/public/ServiceAllPhotosLightbox';
+import { ServiceDetailPreviewGallery } from '../../components/public/ServiceDetailPreviewGallery';
 
 interface Tenant {
   id: string;
@@ -196,6 +198,11 @@ function PublicBookingPage() {
     isOpen: boolean;
     service: Service | null;
   }>({ isOpen: false, service: null });
+  const [servicePhotosLightbox, setServicePhotosLightbox] = useState<{
+    open: boolean;
+    images: string[];
+    index: number;
+  }>({ open: false, images: [], index: 0 });
   const [storyModal, setStoryModal] = useState<{
     isOpen: boolean;
     images: string[];
@@ -290,6 +297,12 @@ function PublicBookingPage() {
       fetchAllReviews();
     }
   }, [services]);
+
+  useEffect(() => {
+    if (!serviceDetailModal.isOpen) {
+      setServicePhotosLightbox({ open: false, images: [], index: 0 });
+    }
+  }, [serviceDetailModal.isOpen]);
 
   useEffect(() => {
     if (selectedService && selectedDate) {
@@ -1316,8 +1329,269 @@ function PublicBookingPage() {
   const hasVisiblePackagesSection =
     !!dynamicLandingPage?.sections?.some((s) => s.type === 'packages' && s.is_visible !== false);
 
+  /** Service detail + review overlays (must render for both dynamic landing and legacy layouts). */
+  const renderServiceBrowsingOverlays = () => (
+    <>
+      {storyModal.isOpen && storyModal.review && (
+        <ReviewImageStory
+          isOpen={storyModal.isOpen}
+          onClose={() => setStoryModal({ isOpen: false, images: [], review: null })}
+          images={storyModal.images}
+          review={storyModal.review}
+          language={i18n.language as 'en' | 'ar'}
+          autoPlayInterval={5000}
+        />
+      )}
+
+      {serviceDetailModal.isOpen && serviceDetailModal.service && (() => {
+        const modalService = serviceDetailModal.service!;
+        let modalServiceImages: string[] = [];
+        if (modalService.gallery_urls) {
+          if (Array.isArray(modalService.gallery_urls) && modalService.gallery_urls.length > 0) {
+            modalServiceImages = modalService.gallery_urls.filter((img: any) => img && typeof img === 'string');
+          }
+        }
+        if (modalServiceImages.length === 0 && modalService.image_url) {
+          modalServiceImages = [modalService.image_url];
+        }
+
+        const ms = modalService as Service & { is_offer?: boolean; service_id?: string };
+        const reviewsLookupId =
+          ms.is_offer && ms.service_id ? String(ms.service_id) : modalService.id;
+        const serviceReviewsList = serviceReviews[reviewsLookupId] || [];
+        const latestReviews = [...serviceReviewsList]
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, 5)
+          .map((review) => ({
+            ...review,
+            service_name: modalService.name,
+            service_name_ar: modalService.name_ar,
+          }));
+        const modalServiceRating =
+          latestReviews.length > 0
+            ? Math.round(
+                (latestReviews.reduce((sum, review) => sum + (review.rating || 0), 0) / latestReviews.length) * 10
+              ) / 10
+            : Math.round((modalService.average_rating || 0) * 10) / 10;
+        const modalReviewCount =
+          serviceReviewsList.length > 0 ? serviceReviewsList.length : modalService.total_reviews || 0;
+        const modalBookNowPayLaterText = i18n.language === 'ar' ? 'احجز الآن وادفع لاحقاً' : 'Book now, pay later';
+        const modalFlexibleDurationText = i18n.language === 'ar' ? 'مدة مرنة' : 'Flexible duration';
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="fixed inset-0 bg-black bg-opacity-60 animate-[fadeIn_0.3s_ease-out]"
+              onClick={() => setServiceDetailModal({ isOpen: false, service: null })}
+            />
+
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-[min(100%,680px)] max-h-[92vh] overflow-hidden flex flex-col animate-[modalAppear_0.3s_ease-out]">
+              <div className="sticky top-0 bg-white px-4 py-3 md:px-5 md:py-4 flex items-center justify-between z-10 flex-shrink-0 border-b border-gray-100">
+                <h2 className="text-lg md:text-xl font-bold text-gray-900 truncate pr-4">
+                  {i18n.language === 'ar'
+                    ? modalService.name_ar || modalService.name
+                    : modalService.name || modalService.name_ar}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setServiceDetailModal({ isOpen: false, service: null })}
+                  className="text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {modalServiceImages.length > 0 ? (
+                  <div className="px-4 pt-3 md:px-5 md:pt-4">
+                    <ServiceDetailPreviewGallery
+                      images={modalServiceImages}
+                      onOpenAllPhotos={(initialIndex) =>
+                        setServicePhotosLightbox({
+                          open: true,
+                          images: modalServiceImages,
+                          index: initialIndex ?? 0,
+                        })
+                      }
+                    />
+                  </div>
+                ) : null}
+
+                <div className="px-4 md:px-6 pb-6">
+                  <div className="flex items-center gap-2 text-sm text-fuchsia-600 font-semibold">
+                    <Star className="w-4 h-4 fill-current" />
+                    <span>{modalServiceRating || 0}</span>
+                    <span className="underline">
+                      ({modalReviewCount.toLocaleString(i18n.language === 'ar' ? 'ar' : undefined)})
+                    </span>
+                    <span className="text-gray-500 font-normal">{i18n.language === 'ar' ? 'تذاكر' : 'Tickets'}</span>
+                  </div>
+                  <h3 className="text-3xl font-bold text-gray-900 mt-3 leading-tight">
+                    {i18n.language === 'ar'
+                      ? modalService.name_ar || modalService.name
+                      : modalService.name || modalService.name_ar}
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-4 mt-3 text-gray-700">
+                    <div className="inline-flex items-center gap-2">
+                      <CreditCard className="w-4 h-4" />
+                      <span className="underline">{modalBookNowPayLaterText}</span>
+                    </div>
+                    <div className="inline-flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      <span>{modalFlexibleDurationText}</span>
+                    </div>
+                  </div>
+
+                  {latestReviews.length > 0 ? (
+                    <div className="mt-8">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-fuchsia-600 font-semibold text-2xl">
+                          {modalServiceRating || 0}/5 (
+                          {modalReviewCount.toLocaleString(i18n.language === 'ar' ? 'ar' : undefined)})
+                        </p>
+                        <button type="button" className="text-lg font-semibold underline text-gray-900 cursor-default">
+                          {i18n.language === 'ar'
+                            ? `عرض كل ${modalReviewCount} مراجعة`
+                            : `Show all ${modalReviewCount} reviews`}
+                        </button>
+                      </div>
+                      <ReviewsCarousel
+                        reviews={latestReviews}
+                        language={i18n.language as 'en' | 'ar'}
+                        itemsPerPage={2}
+                        onEdit={(review) => {
+                          let existingImages: string[] = [];
+                          if (review.image_url) {
+                            try {
+                              if (review.image_url.startsWith('data:')) {
+                                existingImages = [review.image_url];
+                              } else {
+                                const parsed = JSON.parse(review.image_url);
+                                existingImages = Array.isArray(parsed) ? parsed : [review.image_url];
+                              }
+                            } catch {
+                              existingImages = [review.image_url];
+                            }
+                          }
+                          if (tenant) {
+                            setEditingReview({
+                              id: review.id,
+                              serviceId: review.service_id,
+                              tenantId: tenant.id,
+                              rating: review.rating,
+                              comment: review.comment,
+                              comment_ar: review.comment_ar,
+                              images: existingImages,
+                            });
+                          }
+                        }}
+                        onDelete={async (reviewId) => {
+                          const confirmMessage = isServiceProvider
+                            ? i18n.language === 'ar'
+                              ? 'هل أنت متأكد من حذف هذه المراجعة؟ (أنت تحذف كـ service provider)'
+                              : 'Are you sure you want to delete this review? (You are deleting as service provider)'
+                            : i18n.language === 'ar'
+                              ? 'هل أنت متأكد من حذف هذه المراجعة؟'
+                              : 'Are you sure you want to delete this review?';
+                          const ok = await showConfirm({
+                            title: t('common.confirm'),
+                            description: confirmMessage,
+                            destructive: true,
+                            confirmText: t('common.delete'),
+                            cancelText: t('common.cancel'),
+                          });
+                          if (!ok) return;
+                          try {
+                            const API_URL = getApiUrl();
+                            const token = localStorage.getItem('auth_token');
+                            const response = await fetch(`${API_URL}/reviews/${reviewId}`, {
+                              method: 'DELETE',
+                              headers: {
+                                Authorization: `Bearer ${token}`,
+                              },
+                            });
+                            if (response.ok) {
+                              fetchAllReviews();
+                            } else {
+                              const data = await response.json();
+                              showNotification('error', data.error || t('common.failedToDeleteReview'));
+                            }
+                          } catch (error: any) {
+                            showNotification('error', 'Failed to delete review: ' + error.message);
+                          }
+                        }}
+                        canEdit={isLoggedIn}
+                        canDelete={isLoggedIn || isServiceProvider}
+                        currentUserId={userProfile?.id}
+                      />
+                    </div>
+                  ) : (
+                    <div className="mt-8 text-center py-6 border border-dashed border-gray-200 rounded-xl">
+                      <p className="text-gray-500 text-sm">
+                        {i18n.language === 'ar' ? 'لا توجد مراجعات بعد' : 'No reviews yet'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="sticky bottom-0 bg-white border-t border-gray-200 px-5 py-4 flex items-center justify-between gap-4 flex-shrink-0">
+                <div>
+                  <p className="text-sm text-gray-500">{i18n.language === 'ar' ? 'من' : 'from'}</p>
+                  <p className="text-4xl font-bold text-gray-900 leading-none">
+                    {formatPrice(Number(modalService.base_price || 0))}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setServiceDetailModal({ isOpen: false, service: null });
+                    if (ms.is_offer && ms.service_id) {
+                      navigate(`/${tenantSlug}/book/${ms.service_id}?offer=${modalService.offer_id}`);
+                    } else {
+                      navigate(`/${tenantSlug}/book/${modalService.id}`);
+                    }
+                  }}
+                  className="px-8 py-3 font-semibold text-white rounded-xl transition-all hover:opacity-90"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {i18n.language === 'ar' ? 'تحقق من التوفر' : 'Check availability'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      <ServiceAllPhotosLightbox
+        open={servicePhotosLightbox.open}
+        onClose={() => setServicePhotosLightbox((s) => ({ ...s, open: false }))}
+        images={servicePhotosLightbox.images}
+        initialIndex={servicePhotosLightbox.index}
+      />
+
+      {editingReview && tenant && (
+        <TestimonialForm
+          serviceId={editingReview.serviceId}
+          tenantId={editingReview.tenantId}
+          reviewId={editingReview.id}
+          initialRating={editingReview.rating}
+          initialComment={editingReview.comment}
+          initialCommentAr={editingReview.comment_ar}
+          initialImages={editingReview.images}
+          onClose={() => setEditingReview(null)}
+          onSuccess={() => {
+            setEditingReview(null);
+            fetchAllReviews();
+          }}
+        />
+      )}
+    </>
+  );
+
   if (dynamicLandingPage && dynamicLandingPage.sections.length > 0) {
     return (
+      <>
       <div className="min-h-screen bg-gray-50">
         <header
           className="bg-white/95 backdrop-blur-md shadow-md sticky top-0 z-50 border-b"
@@ -1533,6 +1807,8 @@ function PublicBookingPage() {
           </section>
         )}
       </div>
+      {renderServiceBrowsingOverlays()}
+    </>
     );
   }
 
@@ -2110,6 +2386,7 @@ function PublicBookingPage() {
                                 
                                 <div className="flex gap-2">
                                   <button
+                                    type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setServiceDetailModal({
@@ -2119,7 +2396,7 @@ function PublicBookingPage() {
                                     }}
                                     className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                                   >
-                                    Show more
+                                    {t('booking.showMore')}
                                   </button>
                                   <button
                                     onClick={(e) => {
@@ -2967,249 +3244,7 @@ function PublicBookingPage() {
         </div>
       </Modal>
 
-      {/* Review Image Story Modal */}
-      {storyModal.isOpen && storyModal.review && (
-        <ReviewImageStory
-          isOpen={storyModal.isOpen}
-          onClose={() => setStoryModal({ isOpen: false, images: [], review: null })}
-          images={storyModal.images}
-          review={storyModal.review}
-          language={i18n.language as 'en' | 'ar'}
-          autoPlayInterval={5000}
-        />
-      )}
-
-      {/* Service Detail Modal - gallery + reviews */}
-      {serviceDetailModal.isOpen && serviceDetailModal.service && (() => {
-        const modalService = serviceDetailModal.service!;
-        let modalServiceImages: string[] = [];
-        if (modalService.gallery_urls) {
-          if (Array.isArray(modalService.gallery_urls) && modalService.gallery_urls.length > 0) {
-            modalServiceImages = modalService.gallery_urls.filter((img: any) => img && typeof img === 'string');
-          }
-        }
-        if (modalServiceImages.length === 0 && modalService.image_url) {
-          modalServiceImages = [modalService.image_url];
-        }
-        
-        // Get latest 5 reviews for this service
-        const serviceReviewsList = serviceReviews[modalService.id] || [];
-        const latestReviews = [...serviceReviewsList]
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-          .slice(0, 5)
-          .map(review => ({
-            ...review,
-            service_name: modalService.name,
-            service_name_ar: modalService.name_ar,
-          }));
-        const modalServiceRating = latestReviews.length > 0
-          ? Math.round((latestReviews.reduce((sum, review) => sum + (review.rating || 0), 0) / latestReviews.length) * 10) / 10
-          : Math.round(((modalService.average_rating || 0) * 10)) / 10;
-        const modalReviewCount = serviceReviewsList.length > 0 ? serviceReviewsList.length : (modalService.total_reviews || 0);
-        const modalBookNowPayLaterText = i18n.language === 'ar' ? 'احجز الآن وادفع لاحقاً' : 'Book now, pay later';
-        const modalFlexibleDurationText = i18n.language === 'ar' ? 'مدة مرنة' : 'Flexible duration';
-        
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div 
-              className="fixed inset-0 bg-black bg-opacity-60 animate-[fadeIn_0.3s_ease-out]" 
-              onClick={() => setServiceDetailModal({ isOpen: false, service: null })} 
-            />
-
-            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col animate-[modalAppear_0.3s_ease-out]">
-              <div className="sticky top-0 bg-white px-5 py-4 flex items-center justify-between z-10 flex-shrink-0 border-b border-gray-100">
-                <h2 className="text-lg md:text-xl font-bold text-gray-900 truncate pr-4">
-                  {i18n.language === 'ar' ? (modalService.name_ar || modalService.name) : (modalService.name || modalService.name_ar)}
-                </h2>
-                <button
-                  onClick={() => setServiceDetailModal({ isOpen: false, service: null })}
-                  className="text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto min-h-0">
-                {modalServiceImages.length > 0 ? (
-                  <div className="p-4 md:p-6">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 rounded-xl overflow-hidden bg-gray-100">
-                      <div className="md:col-span-2 h-64 md:h-[320px] relative group">
-                        <img src={modalServiceImages[0]} alt="Service main" className="w-full h-full object-cover" />
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-1 gap-2 h-64 md:h-[320px]">
-                        <div className="h-full relative group">
-                          <img
-                            src={modalServiceImages[1] || modalServiceImages[0]}
-                            alt="Service side 1"
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div className="h-full relative group">
-                          <img
-                            src={modalServiceImages[2] || modalServiceImages[0]}
-                            alt="Service side 2"
-                            className="w-full h-full object-cover"
-                          />
-                          {modalServiceImages.length > 3 && (
-                            <span className="absolute bottom-3 right-3 px-3 py-1.5 rounded-lg bg-black/65 text-white text-sm font-semibold">
-                              +{modalServiceImages.length - 3} {i18n.language === 'ar' ? 'صور' : 'photos'}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="px-4 md:px-6 pb-6">
-                  <div className="flex items-center gap-2 text-sm text-fuchsia-600 font-semibold">
-                    <Star className="w-4 h-4 fill-current" />
-                    <span>{modalServiceRating || 0}</span>
-                    <span className="underline">({modalReviewCount.toLocaleString(i18n.language === 'ar' ? 'ar' : undefined)})</span>
-                    <span className="text-gray-500 font-normal">{i18n.language === 'ar' ? 'تذاكر' : 'Tickets'}</span>
-                  </div>
-                  <h3 className="text-3xl font-bold text-gray-900 mt-3 leading-tight">
-                    {i18n.language === 'ar' ? (modalService.name_ar || modalService.name) : (modalService.name || modalService.name_ar)}
-                  </h3>
-                  <div className="flex flex-wrap items-center gap-4 mt-3 text-gray-700">
-                    <div className="inline-flex items-center gap-2">
-                      <CreditCard className="w-4 h-4" />
-                      <span className="underline">{modalBookNowPayLaterText}</span>
-                    </div>
-                    <div className="inline-flex items-center gap-2">
-                      <Clock className="w-4 h-4" />
-                      <span>{modalFlexibleDurationText}</span>
-                    </div>
-                  </div>
-
-                  {latestReviews.length > 0 ? (
-                    <div className="mt-8">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-fuchsia-600 font-semibold text-2xl">
-                          {modalServiceRating || 0}/5 ({modalReviewCount.toLocaleString(i18n.language === 'ar' ? 'ar' : undefined)})
-                        </p>
-                        <button type="button" className="text-lg font-semibold underline text-gray-900 cursor-default">
-                          {i18n.language === 'ar' ? `عرض كل ${modalReviewCount} مراجعة` : `Show all ${modalReviewCount} reviews`}
-                        </button>
-                      </div>
-                      <ReviewsCarousel
-                        reviews={latestReviews}
-                        language={i18n.language as 'en' | 'ar'}
-                        itemsPerPage={2}
-                        onEdit={(review) => {
-                          let existingImages: string[] = [];
-                          if (review.image_url) {
-                            try {
-                              if (review.image_url.startsWith('data:')) {
-                                existingImages = [review.image_url];
-                              } else {
-                                const parsed = JSON.parse(review.image_url);
-                                existingImages = Array.isArray(parsed) ? parsed : [review.image_url];
-                              }
-                            } catch {
-                              existingImages = [review.image_url];
-                            }
-                          }
-                          if (tenant) {
-                            setEditingReview({
-                              id: review.id,
-                              serviceId: review.service_id,
-                              tenantId: tenant.id,
-                              rating: review.rating,
-                              comment: review.comment,
-                              comment_ar: review.comment_ar,
-                              images: existingImages,
-                            });
-                          }
-                        }}
-                        onDelete={async (reviewId) => {
-                          const confirmMessage = isServiceProvider
-                            ? (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟ (أنت تحذف كـ service provider)' : 'Are you sure you want to delete this review? (You are deleting as service provider)')
-                            : (i18n.language === 'ar' ? 'هل أنت متأكد من حذف هذه المراجعة؟' : 'Are you sure you want to delete this review?');
-                          const ok = await showConfirm({
-                            title: t('common.confirm'),
-                            description: confirmMessage,
-                            destructive: true,
-                            confirmText: t('common.delete'),
-                            cancelText: t('common.cancel'),
-                          });
-                          if (!ok) return;
-                          try {
-                            const API_URL = getApiUrl();
-                            const token = localStorage.getItem('auth_token');
-                            const response = await fetch(`${API_URL}/reviews/${reviewId}`, {
-                              method: 'DELETE',
-                              headers: {
-                                'Authorization': `Bearer ${token}`,
-                              },
-                            });
-                            if (response.ok) {
-                              fetchAllReviews();
-                            } else {
-                              const data = await response.json();
-                              showNotification('error', data.error || t('common.failedToDeleteReview'));
-                            }
-                          } catch (error: any) {
-                            showNotification('error', 'Failed to delete review: ' + error.message);
-                          }
-                        }}
-                        canEdit={isLoggedIn}
-                        canDelete={isLoggedIn || isServiceProvider}
-                        currentUserId={userProfile?.id}
-                      />
-                    </div>
-                  ) : (
-                    <div className="mt-8 text-center py-6 border border-dashed border-gray-200 rounded-xl">
-                      <p className="text-gray-500 text-sm">
-                        {i18n.language === 'ar' ? 'لا توجد مراجعات بعد' : 'No reviews yet'}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="sticky bottom-0 bg-white border-t border-gray-200 px-5 py-4 flex items-center justify-between gap-4 flex-shrink-0">
-                <div>
-                  <p className="text-sm text-gray-500">{i18n.language === 'ar' ? 'من' : 'from'}</p>
-                  <p className="text-4xl font-bold text-gray-900 leading-none">{formatPrice(Number(modalService.base_price || 0))}</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setServiceDetailModal({ isOpen: false, service: null });
-                    if (modalService.is_offer && modalService.service_id) {
-                      navigate(`/${tenantSlug}/book/${modalService.service_id}?offer=${modalService.offer_id}`);
-                    } else {
-                      navigate(`/${tenantSlug}/book/${modalService.id}`);
-                    }
-                  }}
-                  className="px-8 py-3 font-semibold text-white rounded-xl transition-all hover:opacity-90"
-                  style={{ backgroundColor: primaryColor }}
-                >
-                  {i18n.language === 'ar' ? 'تحقق من التوفر' : 'Check availability'}
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Edit Review Modal */}
-      {editingReview && tenant && (
-        <TestimonialForm
-          serviceId={editingReview.serviceId}
-          tenantId={editingReview.tenantId}
-          reviewId={editingReview.id}
-          initialRating={editingReview.rating}
-          initialComment={editingReview.comment}
-          initialCommentAr={editingReview.comment_ar}
-          initialImages={editingReview.images}
-          onClose={() => setEditingReview(null)}
-          onSuccess={() => {
-            setEditingReview(null);
-            fetchAllReviews(); // Refresh reviews after editing
-          }}
-        />
-      )}
+      {renderServiceBrowsingOverlays()}
     </div>
   );
 }
