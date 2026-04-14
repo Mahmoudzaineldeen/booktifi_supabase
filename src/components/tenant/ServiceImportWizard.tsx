@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -22,7 +22,7 @@ import {
   downloadTextFile,
 } from '../../lib/services/serviceCsvConstants';
 import { createServiceWithPostSteps } from '../../lib/services/createServiceFlow';
-import { Download, ChevronRight, ChevronLeft, FileSpreadsheet } from 'lucide-react';
+import { Download, ChevronRight, ChevronLeft, FileSpreadsheet, Upload } from 'lucide-react';
 
 export type ServiceImportCategory = { id: string; name: string; name_ar: string };
 
@@ -80,6 +80,19 @@ export function ServiceImportWizard({
   const [importing, setImporting] = useState(false);
   const [createdCount, setCreatedCount] = useState(0);
   const [failures, setFailures] = useState<{ rowIndex: number; message: string }[]>([]);
+  const [dragActive, setDragActive] = useState(false);
+  const dragDepthRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectAllBranchesRef = useRef<HTMLInputElement>(null);
+
+  const allBranchIds = useMemo(() => branches.map((b) => b.id), [branches]);
+  const allBranchesSelected = allBranchIds.length > 0 && branchIds.length === allBranchIds.length;
+  const someBranchesSelected = branchIds.length > 0 && !allBranchesSelected;
+
+  useEffect(() => {
+    const el = selectAllBranchesRef.current;
+    if (el) el.indeterminate = someBranchesSelected;
+  }, [someBranchesSelected]);
 
   // Match default new service in ServicesPage (`resetServiceForm`): slot_based even when tenant global scheduling is employee-based.
   const schedulingType: 'slot_based' | 'employee_based' = 'slot_based';
@@ -98,6 +111,8 @@ export function ServiceImportWizard({
     setImporting(false);
     setCreatedCount(0);
     setFailures([]);
+    setDragActive(false);
+    dragDepthRef.current = 0;
   }, []);
 
   const handleClose = () => {
@@ -107,24 +122,64 @@ export function ServiceImportWizard({
 
   const previewRows = useMemo(() => rows.slice(0, 8), [rows]);
 
+  const loadCsvFile = useCallback(
+    async (f: File | null | undefined) => {
+      setFileError(null);
+      if (!f) {
+        setFile(null);
+        setRawText('');
+        return;
+      }
+      if (!isAllowedCsvFile(f)) {
+        setFileError(t('service.import.csvOnly'));
+        setFile(null);
+        setRawText('');
+        return;
+      }
+      setFile(f);
+      const text = await f.text();
+      setRawText(text);
+      showNotification('success', t('service.import.fileLoaded', { name: f.name }));
+    },
+    [t]
+  );
+
   const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     e.target.value = '';
-    setFileError(null);
-    if (!f) {
-      setFile(null);
-      setRawText('');
-      return;
+    await loadCsvFile(f);
+  };
+
+  const onDropZoneDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current += 1;
+    setDragActive(true);
+  };
+
+  const onDropZoneDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current -= 1;
+    if (dragDepthRef.current <= 0) {
+      dragDepthRef.current = 0;
+      setDragActive(false);
     }
-    if (!isAllowedCsvFile(f)) {
-      setFileError(t('service.import.csvOnly'));
-      setFile(null);
-      setRawText('');
-      return;
-    }
-    setFile(f);
-    const text = await f.text();
-    setRawText(text);
+  };
+
+  const onDropZoneDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const onDropZoneDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = 0;
+    setDragActive(false);
+    const dropped = e.dataTransfer.files?.[0];
+    void loadCsvFile(dropped);
   };
 
   const goStep2 = () => {
@@ -302,13 +357,47 @@ export function ServiceImportWizard({
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t('service.import.fileLabel')}</label>
               <input
+                ref={fileInputRef}
                 type="file"
                 accept=".csv,text/csv"
-                className="block w-full text-sm text-gray-600"
+                className="sr-only"
+                aria-label={t('service.import.fileLabel')}
                 onChange={onPickFile}
               />
-              {file && <p className="text-xs text-gray-500 mt-1">{file.name}</p>}
-              {fileError && <p className="text-sm text-red-600 mt-1">{fileError}</p>}
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={t('service.import.dropZoneAria')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    fileInputRef.current?.click();
+                  }
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                onDragEnter={onDropZoneDragEnter}
+                onDragLeave={onDropZoneDragLeave}
+                onDragOver={onDropZoneDragOver}
+                onDrop={onDropZoneDrop}
+                className={`cursor-pointer rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+                  dragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50 hover:border-gray-400'
+                }`}
+              >
+                <Upload className="mx-auto h-10 w-10 text-gray-400" aria-hidden />
+                <p className="mt-2 text-sm text-gray-600">{t('service.import.dropZoneHint')}</p>
+                <span
+                  className="mt-3 inline-flex items-center justify-center rounded-lg bg-gray-200 px-3 py-1.5 text-sm font-medium text-gray-900"
+                  aria-hidden
+                >
+                  {t('service.import.browseFiles')}
+                </span>
+              </div>
+              {file && (
+                <p className="mt-2 text-sm text-green-700" role="status">
+                  {t('service.import.fileReadyInline', { name: file.name })}
+                </p>
+              )}
+              {fileError && <p className="text-sm text-red-600 mt-2">{fileError}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t('service.import.delimiter')}</label>
@@ -338,21 +427,35 @@ export function ServiceImportWizard({
                 {branches.length === 0 ? (
                   <p className="text-sm text-gray-500">{t('service.noBranchesYet')}</p>
                 ) : (
-                  branches.map((b) => (
-                    <label key={b.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-gray-800 border-b border-gray-100 pb-2 mb-1">
                       <input
+                        ref={selectAllBranchesRef}
                         type="checkbox"
-                        checked={branchIds.includes(b.id)}
+                        checked={allBranchesSelected}
                         onChange={(e) => {
-                          const on = e.target.checked;
-                          setBranchIds((prev) =>
-                            on ? [...prev, b.id] : prev.filter((id) => id !== b.id)
-                          );
+                          if (e.target.checked) setBranchIds([...allBranchIds]);
+                          else setBranchIds([]);
                         }}
                       />
-                      <span>{b.name}</span>
+                      <span>{t('service.import.selectAllBranches')}</span>
                     </label>
-                  ))
+                    {branches.map((b) => (
+                      <label key={b.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={branchIds.includes(b.id)}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setBranchIds((prev) =>
+                              on ? [...prev, b.id] : prev.filter((id) => id !== b.id)
+                            );
+                          }}
+                        />
+                        <span>{b.name}</span>
+                      </label>
+                    ))}
+                  </>
                 )}
               </div>
             </div>
@@ -440,7 +543,12 @@ export function ServiceImportWizard({
               {importing ? (
                 <span>{t('service.import.running')}</span>
               ) : (
-                <span>{t('service.import.resultSummary', { created: createdCount, failed: failures.length })}</span>
+                <span
+                  className={createdCount > 0 && failures.length === 0 ? 'text-green-800 font-medium' : undefined}
+                  role="status"
+                >
+                  {t('service.import.resultSummary', { created: createdCount, failed: failures.length })}
+                </span>
               )}
             </div>
             {importing && (

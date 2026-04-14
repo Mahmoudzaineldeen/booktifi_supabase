@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
@@ -59,6 +60,8 @@ interface Shift {
 
 export function ServicesPage() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { userProfile, hasPermission } = useAuth();
   const { features: tenantFeatures } = useTenantFeatures(userProfile?.tenant_id);
   const { formatPrice, formatPriceString } = useCurrency();
@@ -71,16 +74,12 @@ export function ServicesPage() {
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
-  const [isOffersModalOpen, setIsOffersModalOpen] = useState(false);
   const [isImportWizardOpen, setIsImportWizardOpen] = useState(false);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [selectedServiceForSchedule, setSelectedServiceForSchedule] = useState<Service | null>(null);
-  const [selectedServiceForOffers, setSelectedServiceForOffers] = useState<Service | null>(null);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
-  const [offers, setOffers] = useState<any[]>([]);
-  const [editingOffer, setEditingOffer] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   const [serviceForm, setServiceForm] = useState({
@@ -166,26 +165,6 @@ export function ServicesPage() {
       setCategories(data || []);
     } catch (error: any) {
       console.error('Error fetching categories:', error);
-    }
-  }
-
-  async function fetchOffers(serviceId: string) {
-    if (!userProfile?.tenant_id) return;
-    try {
-      const { data, error } = await db
-        .from('service_offers')
-        .select('*')
-        .eq('service_id', serviceId)
-        .eq('tenant_id', userProfile.tenant_id)
-        .order('created_at', { ascending: false });
-      
-      if (error) {
-        console.error('Error fetching offers:', error);
-        return;
-      }
-      setOffers(data || []);
-    } catch (error: any) {
-      console.error('Error fetching offers:', error);
     }
   }
 
@@ -1317,12 +1296,13 @@ export function ServicesPage() {
                       variant="secondary"
                       size="sm"
                       onClick={() => {
-                        setSelectedServiceForOffers(service);
-                        fetchOffers(service.id);
-                        setIsOffersModalOpen(true);
+                        if (!tenantSlug) return;
+                        navigate(
+                          `/${tenantSlug}/admin/offers?create=1&serviceId=${encodeURIComponent(service.id)}`
+                        );
                       }}
                       icon={<Gift className="w-4 h-4" />}
-                      title={t('service.manageOffers', 'Manage Offers')}
+                      title={t('offers.createOfferForThisService')}
                     />
                     <Button
                       variant="danger"

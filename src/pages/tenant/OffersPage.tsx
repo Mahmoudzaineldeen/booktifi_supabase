@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/db';
@@ -40,6 +41,7 @@ interface ServiceOffer {
 
 export function OffersPage() {
   const { t, i18n } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { userProfile } = useAuth();
   const [services, setServices] = useState<Service[]>([]);
   const [offers, setOffers] = useState<ServiceOffer[]>([]);
@@ -79,6 +81,49 @@ export function OffersPage() {
       fetchOffers();
     }
   }, [filterServiceId]);
+
+  const openCreateOffer = useCallback((serviceId?: string) => {
+    setSelectedServiceId(serviceId || '');
+    setOfferForm({
+      service_id: serviceId || '',
+      name: '',
+      name_ar: '',
+      description: '',
+      description_ar: '',
+      price: 0,
+      original_price: null,
+      discount_percentage: null,
+      duration_minutes: null,
+      perks: [],
+      perks_ar: [],
+      badge: '',
+      badge_ar: '',
+      is_active: true,
+    });
+    setEditingOffer(null);
+    setIsOfferModalOpen(true);
+  }, []);
+
+  /** Open create-offer modal when linked from Services (e.g. ?create=1&serviceId=…) */
+  useEffect(() => {
+    if (loading) return;
+    if (searchParams.get('create') !== '1') return;
+
+    const serviceIdParam = searchParams.get('serviceId') || '';
+    const matched = Boolean(serviceIdParam && services.some((s) => s.id === serviceIdParam));
+
+    if (serviceIdParam && !matched) {
+      showNotification('warning', t('offers.serviceFromLinkNotFound'));
+      openCreateOffer();
+    } else {
+      openCreateOffer(matched ? serviceIdParam : undefined);
+    }
+
+    const next = new URLSearchParams(searchParams);
+    next.delete('create');
+    next.delete('serviceId');
+    setSearchParams(next, { replace: true });
+  }, [loading, services, searchParams, setSearchParams, openCreateOffer, t]);
 
   // Auto-fill offer form when service is selected (only when creating new offer, not editing)
   useEffect(() => {
@@ -171,28 +216,6 @@ export function OffersPage() {
     } catch (error: any) {
       console.error('Error fetching offers:', error);
     }
-  }
-
-  function openCreateOffer(serviceId?: string) {
-    setSelectedServiceId(serviceId || '');
-    setOfferForm({
-      service_id: serviceId || '',
-      name: '',
-      name_ar: '',
-      description: '',
-      description_ar: '',
-      price: 0,
-      original_price: null,
-      discount_percentage: null,
-      duration_minutes: null,
-      perks: [],
-      perks_ar: [],
-      badge: '',
-      badge_ar: '',
-      is_active: true
-    });
-    setEditingOffer(null);
-    setIsOfferModalOpen(true);
   }
 
   function openEditOffer(offer: ServiceOffer) {
