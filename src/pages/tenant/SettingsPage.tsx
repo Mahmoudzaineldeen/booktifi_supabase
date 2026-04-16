@@ -1734,6 +1734,16 @@ export function SettingsPage() {
                     checked={(tenantFeatures?.scheduling_mode ?? 'service_slot_based') === 'service_slot_based'}
                     onChange={async () => {
                       if (!userProfile?.tenant_id) return;
+                      const ok = await showConfirm({
+                        title: t('settings.schedulingConfirmServiceSlotTitle', 'Switch to service slot based?'),
+                        description: t(
+                          'settings.schedulingConfirmServiceSlotDescription',
+                          'This will change scheduling for your whole business. Available booking slots will follow each service’s slot setup instead of employee shifts. Shift-based availability will stop driving open times, which can change what customers and reception see. Confirm only if you are ready for this impact on shifts and slots.',
+                        ),
+                        confirmText: t('common.confirm'),
+                        cancelText: t('common.cancel'),
+                      });
+                      if (!ok) return;
                       setSchedulingModeMessage(null);
                       setSchedulingModeSaving(true);
                       try {
@@ -1763,6 +1773,16 @@ export function SettingsPage() {
                     checked={(tenantFeatures?.scheduling_mode ?? 'service_slot_based') === 'employee_based'}
                     onChange={async () => {
                       if (!userProfile?.tenant_id) return;
+                      const ok = await showConfirm({
+                        title: t('settings.schedulingConfirmEmployeeTitle', 'Switch to employee based?'),
+                        description: t(
+                          'settings.schedulingConfirmEmployeeDescription',
+                          'This will change scheduling for your whole business. Available slots will follow employee working shifts instead of service-defined slots. Service slot management will be hidden in the admin UI. How employees appear on the calendar and how many slots show can change. Confirm only if shifts are configured the way you want.',
+                        ),
+                        confirmText: t('common.confirm'),
+                        cancelText: t('common.cancel'),
+                      });
+                      if (!ok) return;
                       setSchedulingModeMessage(null);
                       setSchedulingModeSaving(true);
                       try {
@@ -1799,6 +1819,16 @@ export function SettingsPage() {
                           checked={(tenantFeatures as any)?.employee_assignment_mode === 'automatic'}
                           onChange={async () => {
                             if (!userProfile?.tenant_id) return;
+                            const ok = await showConfirm({
+                              title: t('settings.schedulingConfirmAutoAssignTitle', 'Set assignment to automatic?'),
+                              description: t(
+                                'settings.schedulingConfirmAutoAssignDescription',
+                                'Employees will be assigned to new bookings automatically when the system can match them. This can change how bookings line up with shifts and which time slots stay open or get blocked. Reception may see different suggested staff than with manual assignment.',
+                              ),
+                              confirmText: t('common.confirm'),
+                              cancelText: t('common.cancel'),
+                            });
+                            if (!ok) return;
                             setSchedulingModeMessage(null);
                             setSchedulingModeSaving(true);
                             try {
@@ -1825,6 +1855,16 @@ export function SettingsPage() {
                           checked={(tenantFeatures as any)?.employee_assignment_mode === 'manual'}
                           onChange={async () => {
                             if (!userProfile?.tenant_id) return;
+                            const ok = await showConfirm({
+                              title: t('settings.schedulingConfirmManualAssignTitle', 'Set assignment to manual?'),
+                              description: t(
+                                'settings.schedulingConfirmManualAssignDescription',
+                                'Reception (or admins) will choose the employee for each booking. That can change how quickly slots fill and how bookings align with shift coverage. Available slots still follow employee shifts, but staffing choices are no longer automatic.',
+                              ),
+                              confirmText: t('common.confirm'),
+                              cancelText: t('common.cancel'),
+                            });
+                            if (!ok) return;
                             setSchedulingModeMessage(null);
                             setSchedulingModeSaving(true);
                             try {
