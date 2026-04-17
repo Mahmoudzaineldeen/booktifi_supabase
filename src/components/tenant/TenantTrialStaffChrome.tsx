@@ -33,7 +33,7 @@ export function TenantTrialBannerStrip() {
     setLiveTenant(tenant);
   }, [tenant]);
 
-  const tenantId = userProfile?.tenant_id;
+  const tenantId = userProfile?.tenant_id ?? tenant?.id;
 
   useEffect(() => {
     if (!tenantId) return;
@@ -45,7 +45,10 @@ export function TenantTrialBannerStrip() {
         )
         .eq('id', tenantId)
         .maybeSingle()
-        .then((res: { data: Record<string, unknown> | null }) => {
+        .then((res: { data: Record<string, unknown> | null; error?: { message?: string } | null }) => {
+          if (res.error && import.meta.env.DEV) {
+            console.warn('[TenantTrialBannerStrip] tenant trial refetch failed:', res.error.message || res.error);
+          }
           const data = res.data;
           if (data) setLiveTenant((prev) => ({ ...(prev || {}), ...data }) as Tenant);
         });
@@ -84,9 +87,11 @@ export function TenantTrialBannerStrip() {
 
   return (
     <div
-      className="w-full shrink-0 bg-amber-50 border-b border-amber-200 text-amber-950 px-3 py-2 text-center text-sm font-medium z-[31]"
+      data-testid="tenant-trial-banner"
+      className="w-full shrink-0 bg-amber-100 border-b border-amber-300 text-amber-950 px-3 py-2.5 text-center text-sm font-semibold shadow-sm z-[31]"
       role="status"
       aria-live="polite"
+      aria-label={line}
     >
       <span className="inline-flex items-center gap-2 justify-center">
         <span aria-hidden>⏳</span>

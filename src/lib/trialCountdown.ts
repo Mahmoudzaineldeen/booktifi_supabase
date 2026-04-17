@@ -10,7 +10,9 @@ export function shouldShowTrialCountdownBanner(tenant: Tenant | null | undefined
   const enabled = (tenant as Tenant & { trial_countdown_enabled?: unknown }).trial_countdown_enabled;
   // Opt-out: show whenever a future trial end is set unless the tenant explicitly disabled the strip.
   if (enabled === false || enabled === 'false' || enabled === 0) return false;
-  return new Date(tenant.trial_ends_at).getTime() > nowMs;
+  const endMs = new Date(tenant.trial_ends_at).getTime();
+  if (!Number.isFinite(endMs)) return false;
+  return endMs > nowMs;
 }
 
 export function isTenantAccessLocked(tenant: Tenant | null | undefined): boolean {
