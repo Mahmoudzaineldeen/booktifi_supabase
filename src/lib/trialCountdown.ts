@@ -3,12 +3,20 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { ar } from 'date-fns/locale';
 import type { Tenant } from '../types';
 
+function trialCountdownFlagOn(tenant: Tenant | null | undefined): boolean {
+  const v = tenant?.trial_countdown_enabled as unknown;
+  return v === true || v === 1 || String(v).toLowerCase() === 'true';
+}
+
 export function shouldShowTrialCountdownBanner(tenant: Tenant | null | undefined, nowMs = Date.now()): boolean {
   if (!tenant?.trial_ends_at) return false;
-  if (tenant.trial_status === 'expired') return false;
-  if (tenant.trial_countdown_enabled !== true) return false;
+  const endMs = new Date(tenant.trial_ends_at as string).getTime();
+  if (!Number.isFinite(endMs) || endMs <= nowMs) return false;
   if (tenant.is_active === false) return false;
-  return new Date(tenant.trial_ends_at).getTime() > nowMs;
+  const status = String(tenant.trial_status ?? 'active').toLowerCase();
+  if (status === 'expired') return false;
+  if (!trialCountdownFlagOn(tenant)) return false;
+  return true;
 }
 
 export function isTenantAccessLocked(tenant: Tenant | null | undefined): boolean {
