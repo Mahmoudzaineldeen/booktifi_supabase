@@ -1,13 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatTrialCountdownDisplay, isTenantAccessLocked, shouldShowTrialCountdownBanner } from '../../lib/trialCountdown';
 import { TenantExpiredFullScreen } from './TenantExpiredFullScreen';
 import { db } from '../../lib/db';
 import type { Tenant } from '../../types';
-
-const TENANT_TRIAL_SELECT =
-  'id,is_active,trial_ends_at,trial_status,trial_countdown_enabled,trial_message_override,tenant_time_zone,announced_time_zone';
 
 type GateProps = { children: React.ReactNode };
 
@@ -28,49 +25,44 @@ export function TenantStaffTrialGate({ children }: GateProps) {
 /** Sticky countdown strip for staff (place below mobile header, inside pt-16 column). */
 export function TenantTrialBannerStrip() {
   const { i18n } = useTranslation();
-  const { tenant, userProfile, isImpersonating } = useAuth();
+  const { tenant, userProfile } = useAuth();
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [liveTenant, setLiveTenant] = useState(tenant);
 
-  // Merge auth tenant into live state without wiping trial_* that we already loaded via refetch
-  // (some code paths may hydrate tenant before PostgREST exposes new columns, or omit fields).
   useEffect(() => {
-    if (!tenant) {
-      setLiveTenant(null);
-      return;
-    }
-    setLiveTenant((prev) => {
-      const next = { ...tenant } as Tenant;
-      if (!prev) return next;
-      if (next.trial_ends_at == null && prev.trial_ends_at != null) next.trial_ends_at = prev.trial_ends_at;
-      if (next.trial_countdown_enabled === undefined && prev.trial_countdown_enabled !== undefined) {
-        next.trial_countdown_enabled = prev.trial_countdown_enabled;
-      }
-      if (next.trial_status === undefined && prev.trial_status !== undefined) next.trial_status = prev.trial_status;
-      if (next.trial_message_override === undefined && prev.trial_message_override !== undefined) {
-        next.trial_message_override = prev.trial_message_override;
-      }
-      return next;
-    });
+    setLiveTenant(tenant);
   }, [tenant]);
 
   const tenantId = userProfile?.tenant_id;
 
-  const refreshTrialFields = useCallback(async () => {
-    if (!tenantId) return;
-    const { data, error } = await db.from('tenants').select(TENANT_TRIAL_SELECT).eq('id', tenantId).maybeSingle();
-    if (error || !data) return;
-    setLiveTenant((prev) => ({ ...(prev || {}), ...data }) as Tenant);
-  }, [tenantId]);
-
-  // Mount + focus: pick up Super Admin trial edits without requiring tab blur/re-login.
   useEffect(() => {
     if (!tenantId) return;
-    void refreshTrialFields();
-    const onFocus = () => void refreshTrialFields();
+    const refreshTenantTrialState = () => {
+      void db
+        .from('tenants')
+        .select(
+          'id,is_active,trial_ends_at,trial_status,trial_countdown_enabled,trial_message_override,tenant_time_zone,announced_time_zone'
+        )
+        .eq('id', tenantId)
+        .maybeSingle()
+        .then((res: { data: Record<string, unknown> | null }) => {
+          const data = res.data;
+          if (data) setLiveTenant((prev) => ({ ...(prev || {}), ...data }) as Tenant);
+        });
+    };
+
+    // Fetch immediately so newly-updated trial settings are reflected without requiring tab focus.
+    refreshTenantTrialState();
+
+    const onFocus = () => refreshTenantTrialState();
+    const periodicRefresh = window.setInterval(refreshTenantTrialState, 60_000);
+
     window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, [tenantId, refreshTrialFields]);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.clearInterval(periodicRefresh);
+    };
+  }, [tenantId]);
 
   useEffect(() => {
     if (!liveTenant || !shouldShowTrialCountdownBanner(liveTenant, nowMs)) return;
@@ -85,15 +77,10 @@ export function TenantTrialBannerStrip() {
 
   const line = useMemo(() => {
     if (!showBanner || !liveTenant) return '';
-    const formatted = formatTrialCountdownDisplay(liveTenant, nowMs, i18n.language);
-    if (formatted) return formatted;
-    // Rare edge cases (date math): still show a line when trial is active and countdown is enabled.
-    return i18n.language === 'ar'
-      ? 'تنبيه: اشتراكك التجريبي ينتهي قريباً. راجع إدارة المنصة للتفاصيل.'
-      : 'Reminder: your trial is ending soon. Contact your administrator for details.';
+    return formatTrialCountdownDisplay(liveTenant, nowMs, i18n.language);
   }, [showBanner, liveTenant, nowMs, i18n.language]);
 
-  if (!showBanner) return null;
+  if (!showBanner || !line) return null;
 
   return (
     <div
