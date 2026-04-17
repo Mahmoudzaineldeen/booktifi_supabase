@@ -29,10 +29,11 @@ server/scripts/set-user-password.ts
 # Stored dev passwords (used by set-password retrieve)
 server/scripts/.dev-passwords.json
 
-# Allow both .env files to be tracked
-# Note: These files may contain sensitive data - ensure they don't contain production secrets
-#/.env
-#!server/.env
+# Environment files (secrets — never commit)
+.env
+**/.env
+!.env.example
+!**/.env.example
 
 # Local AI memory/reference notes (never commit)
 .local-ai-memory/
