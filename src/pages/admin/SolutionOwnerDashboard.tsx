@@ -17,7 +17,16 @@ import { createTimeoutSignal } from '../../lib/requestTimeout';
 import { showNotification } from '../../contexts/NotificationContext';
 
 // Minimal columns for list view (smaller payload, faster load)
-const TENANTS_LIST_SELECT = 'id,name,name_ar,industry,contact_email,contact_phone,address,is_active,subscription_end,created_at,updated_at,slug,tenant_time_zone,announced_time_zone,subscription_start,public_page_enabled,maintenance_mode,theme_preset';
+const TENANTS_LIST_SELECT =
+  'id,name,name_ar,industry,contact_email,contact_phone,address,is_active,subscription_end,created_at,updated_at,slug,tenant_time_zone,announced_time_zone,subscription_start,public_page_enabled,maintenance_mode,theme_preset,trial_ends_at,trial_status,trial_countdown_enabled,trial_message_override';
+
+function toDatetimeLocalValue(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 const INDUSTRY_OPTIONS = ['restaurant', 'salon', 'clinic', 'parking', 'venue', 'other'] as const;
 const MAIN_INDUSTRIES = ['restaurant', 'salon', 'clinic', 'parking', 'venue'];
@@ -71,6 +80,12 @@ export function SolutionOwnerDashboard() {
   const [loginAsEmail, setLoginAsEmail] = useState('');
   const [loginAsLoading, setLoginAsLoading] = useState(false);
   const [loginAsError, setLoginAsError] = useState('');
+
+  const [trialForm, setTrialForm] = useState({
+    trial_ends_at_local: '',
+    trial_countdown_enabled: false,
+    trial_message_override: '',
+  });
 
   useEffect(() => {
     // Wait for auth to finish loading
@@ -264,7 +279,11 @@ export function SolutionOwnerDashboard() {
 
       const { error } = await client
         .from('tenants')
-        .update({ is_active: !tenant.is_active })
+        .update({
+          is_active: !tenant.is_active,
+          trial_status: tenant.is_active ? 'expired' : 'active',
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', tenant.id);
 
       if (error) throw error;
@@ -284,18 +303,32 @@ export function SolutionOwnerDashboard() {
     try {
       const client = db;
 
-      const { error: updateError } = await client
-        .from('tenants')
-        .update({
-          name: newTenant.name,
-          name_ar: newTenant.name_ar,
-          industry: newTenant.industry,
-          contact_email: newTenant.contact_email,
-          contact_phone: newTenant.contact_phone,
-          address: newTenant.address,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', editingTenant.id);
+      const trialEndsIso = trialForm.trial_ends_at_local.trim()
+        ? new Date(trialForm.trial_ends_at_local).toISOString()
+        : null;
+      const reactivates =
+        trialEndsIso !== null &&
+        !Number.isNaN(new Date(trialEndsIso).getTime()) &&
+        new Date(trialEndsIso).getTime() > Date.now();
+
+      const updatePayload: Record<string, unknown> = {
+        name: newTenant.name,
+        name_ar: newTenant.name_ar,
+        industry: newTenant.industry,
+        contact_email: newTenant.contact_email,
+        contact_phone: newTenant.contact_phone,
+        address: newTenant.address,
+        trial_ends_at: trialEndsIso,
+        trial_countdown_enabled: trialForm.trial_countdown_enabled,
+        trial_message_override: trialForm.trial_message_override.trim() || null,
+        updated_at: new Date().toISOString(),
+      };
+      if (reactivates) {
+        updatePayload.is_active = true;
+        updatePayload.trial_status = 'active';
+      }
+
+      const { error: updateError } = await client.from('tenants').update(updatePayload).eq('id', editingTenant.id);
 
       if (updateError) throw updateError;
 
@@ -355,6 +388,11 @@ export function SolutionOwnerDashboard() {
       contact_phone: tenant.contact_phone || '',
       address: tenant.address || '',
       admin_password: '', // Don't show password when editing
+    });
+    setTrialForm({
+      trial_ends_at_local: toDatetimeLocalValue(tenant.trial_ends_at),
+      trial_countdown_enabled: !!(tenant as Tenant).trial_countdown_enabled,
+      trial_message_override: ((tenant as Tenant).trial_message_override as string) || '',
     });
     setError('');
     setShowEditModal(true);
@@ -1026,6 +1064,43 @@ export function SolutionOwnerDashboard() {
             onChange={(e) => setNewTenant({ ...newTenant, address: e.target.value })}
             placeholder="123 Main St, Riyadh"
           />
+
+          <div className="border-t border-gray-200 pt-4 mt-2 space-y-3">
+            <p className="text-sm font-semibold text-gray-800">{t('admin.trialSection', 'Trial')}</p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('admin.trialEndsAt', 'Trial ends at')}
+              </label>
+              <input
+                type="datetime-local"
+                value={trialForm.trial_ends_at_local}
+                onChange={(e) => setTrialForm((f) => ({ ...f, trial_ends_at_local: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">{t('admin.trialEndsAtHint', 'Leave empty to clear. Uses your browser local time when set.')}</p>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-800 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={trialForm.trial_countdown_enabled}
+                onChange={(e) => setTrialForm((f) => ({ ...f, trial_countdown_enabled: e.target.checked }))}
+                className="rounded border-gray-300"
+              />
+              {t('admin.trialCountdownEnabled', 'Show trial countdown banner to tenant staff')}
+            </label>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('admin.trialMessageOverride', 'Banner message (optional)')}
+              </label>
+              <textarea
+                value={trialForm.trial_message_override}
+                onChange={(e) => setTrialForm((f) => ({ ...f, trial_message_override: e.target.value }))}
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder={t('admin.trialMessagePlaceholder', 'Your free trial ends soon')}
+              />
+            </div>
+          </div>
 
           <div className="flex gap-3 pt-4">
             <Button type="submit" fullWidth loading={updating}>

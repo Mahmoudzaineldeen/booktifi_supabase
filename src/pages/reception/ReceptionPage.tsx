@@ -36,6 +36,7 @@ import { showConfirm } from '../../contexts/ConfirmContext';
 import { useCustomerPhoneSearch, type CustomerSuggestion } from '../../hooks/useCustomerPhoneSearch';
 import { CustomerPhoneSuggestionsDropdown } from '../../components/reception/CustomerPhoneSuggestionsDropdown';
 import { AssignFixingTicketForm } from '../../components/support/AssignFixingTicketForm';
+import { TenantStaffTrialGate, TenantTrialBannerStrip } from '../../components/tenant/TenantTrialStaffChrome';
 import { formatTimeTo12Hour, formatDateTimeTo12Hour } from '../../lib/timeFormat';
 import {
   getConsecutiveSlotsForQuantity as getConsecutiveSlotsForQuantityLib,
@@ -4465,6 +4466,7 @@ export function ReceptionPage() {
   const displayBookings = groupBookings(bookingsToDisplay);
 
   return (
+    <TenantStaffTrialGate>
     <div className="min-h-screen bg-gray-50 overflow-x-hidden">
       {isImpersonating && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between shrink-0 sticky top-0 z-50">
@@ -4482,6 +4484,7 @@ export function ReceptionPage() {
           </Button>
         </div>
       )}
+      <TenantTrialBannerStrip />
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -7388,5 +7391,6 @@ export function ReceptionPage() {
         )}
       </div>
     </div>
+    </TenantStaffTrialGate>
   );
 }

@@ -29,6 +29,7 @@ import {
   PanelsTopLeft,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
+import { TenantStaffTrialGate, TenantTrialBannerStrip } from '../tenant/TenantTrialStaffChrome';
 
 function routeMatches(location: { pathname: string; hash: string }, to: string): boolean {
   const [pathRaw, frag] = to.split('#');
@@ -315,6 +316,7 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
   );
 
   return (
+    <TenantStaffTrialGate>
     <div className="min-h-screen bg-gray-50">
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-30">
@@ -342,7 +344,9 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
         />
       )}
 
-      <div className="flex h-screen pt-16 lg:pt-0">
+      <div className="flex flex-col h-screen pt-16 lg:pt-0 min-h-0">
+        <TenantTrialBannerStrip />
+        <div className="flex flex-1 min-h-0">
         <aside className={`
           fixed lg:static inset-y-0 left-0 z-50
           w-64 bg-white border-r border-gray-200 flex flex-col
@@ -787,7 +791,9 @@ export function TenantLayout({ children, tenantSlug: propTenantSlug }: TenantLay
           )}
           <div className="flex-1">{children}</div>
         </main>
+        </div>
       </div>
     </div>
+    </TenantStaffTrialGate>
   );
 }

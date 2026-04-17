@@ -385,24 +385,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             .maybeSingle();
 
           if (tenantData) {
-            // Check if tenant account is active (for tenant-based roles)
-            if ((data.role === 'tenant_admin' || data.role === 'receptionist' || data.role === 'cashier') && tenantData.is_active === false) {
-              debugLog('Tenant Account Deactivated', {
-                tenantId: tenantData.id,
-                slug: tenantData.slug,
-                userRole: data.role,
-              });
-              // Sign out the user if tenant is deactivated
-              await db.auth.signOut();
-              setUser(null);
-              setUserProfile(null);
-              setTenant(null);
-              userProfileRef.current = null;
-              fetchingProfileRef.current = null;
-              setLoading(false);
-              return;
-            }
-            
             debugLog('Tenant Data Fetched Successfully', {
               tenantId: tenantData.id,
               slug: tenantData.slug,

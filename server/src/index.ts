@@ -29,6 +29,8 @@ import { startZohoReceiptWorker } from './jobs/zohoReceiptWorker';
 import { startZohoTokenRefresh } from './jobs/zohoTokenRefresh';
 import { zohoCredentials } from './config/zohoCredentials';
 import { logger } from './utils/logger';
+import { blockInactiveTenantMutations } from './middleware/blockInactiveTenantMutations';
+import { startExpireTenantTrialsJob } from './jobs/expireTenantTrials';
 
 // Get the directory of the current module
 const __filename = fileURLToPath(import.meta.url);
@@ -72,6 +74,7 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '250mb' })); // Increased payload limit to support 200MB file uploads for service providers and users
 app.use(express.urlencoded({ extended: true, limit: '250mb' }));
+app.use(blockInactiveTenantMutations);
 
 // Health check (both /health and /api/health for compatibility)
 app.get('/health', (req, res) => {
@@ -185,4 +188,7 @@ app.listen(PORT, '0.0.0.0', () => {
   logger.info('Background jobs started', undefined, { job: 'zohoTokenRefresh' });
   console.log(`🔄 Zoho token auto-refresh enabled (runs every ${tokenRefreshInterval / 1000 / 60} minutes)`);
   console.log(`   Tokens will be refreshed automatically 15 minutes before expiration`);
+
+  startExpireTenantTrialsJob();
+  logger.info('Background jobs started', undefined, { job: 'expireTenantTrials' });
 });

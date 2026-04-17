@@ -13,6 +13,7 @@ import { ReviewForm } from '../../components/reviews/ReviewForm';
 import { Modal } from '../../components/ui/Modal';
 import { getApiUrl } from '../../lib/apiUrl';
 import { normalizeLandingPageSettings } from '../../lib/landingPageSettings';
+import { TenantStaffTrialGate, TenantTrialBannerStrip } from '../../components/tenant/TenantTrialStaffChrome';
 
 interface Booking {
   id: string;
@@ -393,12 +394,14 @@ export function CustomerDashboard() {
   }
 
   return (
+    <TenantStaffTrialGate>
     <div 
       className="min-h-screen" 
       style={{ 
         background: `linear-gradient(135deg, ${primaryColor}08 0%, ${secondaryColor}08 100%)`
       }}
     >
+      <TenantTrialBannerStrip />
       {/* Header - Matching Public Booking Page Style */}
       <header 
         className="bg-white/95 backdrop-blur-md shadow-md sticky top-0 z-50 border-b transition-all duration-300" 
@@ -929,6 +932,7 @@ export function CustomerDashboard() {
         />
       )}
     </div>
+    </TenantStaffTrialGate>
   );
 }
 

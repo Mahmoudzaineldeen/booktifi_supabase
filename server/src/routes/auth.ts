@@ -229,12 +229,7 @@ router.post('/signin', async (req, res) => {
         .maybeSingle();
       tenant = tenantData || null;
 
-      // Check if tenant account is active (for tenant-based roles)
-      if (tenant && (user.role === 'tenant_admin' || user.role === 'receptionist' || user.role === 'cashier' || user.role === 'coordinator')) {
-        if (tenant.is_active === false) {
-          return res.status(403).json({ error: 'This service provider account has been deactivated. Please contact support.' });
-        }
-      }
+      // Inactive tenant (e.g. trial expired): still allow sign-in so users can see read-only state and support message.
     }
 
     // Generate JWT token with all required fields (include branch_id, role_id for RBAC)

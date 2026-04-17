@@ -43,6 +43,11 @@ export interface Tenant {
   subscription_start: string;
   subscription_end?: string;
   is_active: boolean;
+  /** Trial / subscription messaging (Super Admin). */
+  trial_ends_at?: string | null;
+  trial_status?: 'active' | 'expired';
+  trial_countdown_enabled?: boolean;
+  trial_message_override?: string | null;
   public_page_enabled: boolean;
   maintenance_mode: boolean;
   maintenance_message?: string;

@@ -34,6 +34,7 @@ import {
 import { getApiUrl } from '../../lib/apiUrl';
 import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import { showNotification } from '../../contexts/NotificationContext';
+import { TenantStaffTrialGate, TenantTrialBannerStrip } from '../../components/tenant/TenantTrialStaffChrome';
 
 interface SlotInfo {
   id?: string;
@@ -211,7 +212,9 @@ export function EmployeePage() {
   for (let i = 0; i < allDays.length; i += 7) weeks.push(allDays.slice(i, i + 7));
 
   return (
+    <TenantStaffTrialGate>
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-blue-50/20 to-slate-50 overflow-x-hidden">
+      <TenantTrialBannerStrip />
       {/* Header */}
       <header className="bg-white/90 backdrop-blur border-b border-slate-200/80 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
@@ -494,5 +497,6 @@ export function EmployeePage() {
         </div>
       </div>
     </div>
+    </TenantStaffTrialGate>
   );
 }

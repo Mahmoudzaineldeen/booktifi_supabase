@@ -18,6 +18,7 @@ import { getApiUrl } from '../../lib/apiUrl';
 import { extractBookingIdFromQR } from '../../lib/qrUtils';
 import { showNotification } from '../../contexts/NotificationContext';
 import { AssignFixingTicketForm } from '../../components/support/AssignFixingTicketForm';
+import { TenantStaffTrialGate, TenantTrialBannerStrip } from '../../components/tenant/TenantTrialStaffChrome';
 
 interface Booking {
   id: string;
@@ -289,6 +290,7 @@ export function CashierPage() {
   }
 
   return (
+    <TenantStaffTrialGate>
     <div className="min-h-screen bg-gray-50 overflow-x-hidden">
       {isImpersonating && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between shrink-0 sticky top-0 z-50">
@@ -306,6 +308,7 @@ export function CashierPage() {
           </Button>
         </div>
       )}
+      <TenantTrialBannerStrip />
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -647,5 +650,6 @@ export function CashierPage() {
         </Modal>
       )}
     </div>
+    </TenantStaffTrialGate>
   );
 }

@@ -696,7 +696,17 @@
     "editTenant": "Edit tenant",
     "deleteTenant": "Delete tenant",
     "tenantToDelete": "Tenant to delete:",
-    "noContactInfo": "No contact info"
+    "noContactInfo": "No contact info",
+    "trialSection": "Trial",
+    "trialEndsAt": "Trial ends at",
+    "trialEndsAtHint": "Leave empty to clear. Values use your browser local timezone.",
+    "trialCountdownEnabled": "Show trial countdown banner to tenant staff",
+    "trialMessageOverride": "Banner message (optional)",
+    "trialMessagePlaceholder": "Your free trial ends soon"
+  },
+  "trial": {
+    "expiredTitle": "Your trial has expired",
+    "expiredBody": "Please contact support to continue using the system."
   },
   "reception": {
     "title": "Reception Desk",

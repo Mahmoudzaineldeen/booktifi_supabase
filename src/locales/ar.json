@@ -969,7 +969,17 @@
     "editTenant": "تعديل المستأجر",
     "deleteTenant": "حذف المستأجر",
     "tenantToDelete": "المستأجر المراد حذفه:",
-    "noContactInfo": "لا توجد معلومات اتصال"
+    "noContactInfo": "لا توجد معلومات اتصال",
+    "trialSection": "التجربة",
+    "trialEndsAt": "انتهاء التجربة في",
+    "trialEndsAtHint": "اتركه فارغاً للمسح. يُستخدم التوقيت المحلي للمتصفح.",
+    "trialCountdownEnabled": "عرض شريط العد التنازلي لموظفي المنشأة",
+    "trialMessageOverride": "رسالة الشريط (اختياري)",
+    "trialMessagePlaceholder": "تنتهي تجربتك المجانية قريباً"
+  },
+  "trial": {
+    "expiredTitle": "انتهت فترة التجربة",
+    "expiredBody": "يرجى التواصل مع الدعم لمتابعة استخدام النظام."
   },
   "reception": {
     "title": "مكتب الاستقبال",
