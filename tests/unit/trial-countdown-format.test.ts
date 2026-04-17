@@ -3,6 +3,7 @@ import {
   formatTrialCountdownCore,
   formatTrialCountdownDisplay,
   getTrialCountdownParts,
+  isArabicTrialLocale,
   shouldShowTrialCountdownBanner,
   isTenantAccessLocked,
 } from '../../src/lib/trialCountdown';
@@ -137,5 +138,23 @@ describe('trial countdown helpers', () => {
     });
     const s = formatTrialCountdownDisplay(t, now, 'ar');
     expect(s).toMatch(/ينتهي|تجريبي/);
+  });
+
+  it('formatTrialCountdownCore uses Arabic for lang=ar-SA', () => {
+    const now = new Date('2026-04-17T12:00:00.000Z').getTime();
+    const end = new Date('2026-04-21T23:59:00.000Z').toISOString();
+    const t = baseTenant({
+      trial_ends_at: end,
+      tenant_time_zone: 'UTC',
+      announced_time_zone: 'UTC',
+    });
+    const s = formatTrialCountdownCore(t, now, 'ar-SA');
+    expect(s).toMatch(/ينتهي|تجريبي/);
+  });
+
+  it('isArabicTrialLocale recognizes ar variants', () => {
+    expect(isArabicTrialLocale('ar')).toBe(true);
+    expect(isArabicTrialLocale('ar-SA')).toBe(true);
+    expect(isArabicTrialLocale('en')).toBe(false);
   });
 });

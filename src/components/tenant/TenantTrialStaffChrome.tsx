@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   formatTrialCountdownCore,
   getTrialCountdownParts,
-  getTrialElapsedRatio,
+  isArabicTrialLocale,
   isTenantAccessLocked,
   shouldShowTrialCountdownBanner,
 } from '../../lib/trialCountdown';
@@ -73,7 +73,7 @@ function CountdownDigitBox({
   );
 }
 
-/** Premium trial strip: glass card, progress, countdown. */
+/** Premium trial strip: glass card and countdown. */
 export function TenantTrialBannerStrip() {
   const { t, i18n } = useTranslation();
   const { tenant, userProfile } = useAuth();
@@ -139,15 +139,12 @@ export function TenantTrialBannerStrip() {
     return getTrialCountdownParts(liveTenant, nowMs);
   }, [showBanner, liveTenant, nowMs]);
 
+  const uiLang = i18n.resolvedLanguage ?? i18n.language;
+
   const countdownLine = useMemo(() => {
     if (!showBanner || !liveTenant) return '';
-    return formatTrialCountdownCore(liveTenant, nowMs, i18n.language);
-  }, [showBanner, liveTenant, nowMs, i18n.language]);
-
-  const progressRatio = useMemo(() => {
-    if (!showBanner || !liveTenant) return null;
-    return getTrialElapsedRatio(liveTenant, nowMs);
-  }, [showBanner, liveTenant, nowMs]);
+    return formatTrialCountdownCore(liveTenant, nowMs, uiLang);
+  }, [showBanner, liveTenant, nowMs, uiLang]);
 
   const overrideLine = useMemo(() => {
     if (!showBanner || !liveTenant) return '';
@@ -161,8 +158,7 @@ export function TenantTrialBannerStrip() {
   const hoursLabel = t('trial.banner.hours', 'Hours');
   const minsLabel = t('trial.banner.minutes', 'Min');
   const secsLabel = t('trial.banner.seconds', 'Sec');
-  const isRtl = i18n.language === 'ar';
-  const progressPct = progressRatio != null ? Math.round(progressRatio * 100) : null;
+  const isRtl = isArabicTrialLocale(uiLang);
 
   return (
     <div
@@ -202,33 +198,19 @@ export function TenantTrialBannerStrip() {
               </div>
             </div>
 
-            <div className="flex w-full flex-col items-stretch gap-4 lg:w-auto lg:min-w-[min(100%,22rem)] lg:items-end">
-              <div className="flex justify-center sm:justify-end" dir="ltr">
-                <div className="inline-flex items-end gap-1 rounded-2xl bg-white/80 px-3 py-3 shadow-inner ring-1 ring-indigo-100/80 sm:gap-1.5">
-                  <CountdownDigitBox value={parts.days} label={daysLabel} isDayUnit />
-                  <CountdownSep />
-                  <CountdownDigitBox value={parts.hours} label={hoursLabel} isDayUnit={false} />
-                  <CountdownSep />
-                  <CountdownDigitBox value={parts.minutes} label={minsLabel} isDayUnit={false} />
-                  <CountdownSep />
-                  <CountdownDigitBox value={parts.seconds} label={secsLabel} isDayUnit={false} emphasize />
-                </div>
+            <div
+              className="flex w-full justify-center lg:w-auto lg:min-w-[min(100%,22rem)] lg:justify-end"
+              dir="ltr"
+            >
+              <div className="inline-flex items-end gap-1 rounded-2xl bg-white/80 px-3 py-3 shadow-inner ring-1 ring-indigo-100/80 sm:gap-1.5">
+                <CountdownDigitBox value={parts.days} label={daysLabel} isDayUnit />
+                <CountdownSep />
+                <CountdownDigitBox value={parts.hours} label={hoursLabel} isDayUnit={false} />
+                <CountdownSep />
+                <CountdownDigitBox value={parts.minutes} label={minsLabel} isDayUnit={false} />
+                <CountdownSep />
+                <CountdownDigitBox value={parts.seconds} label={secsLabel} isDayUnit={false} emphasize />
               </div>
-
-              {progressPct != null ? (
-                <div className="w-full max-w-xl lg:ms-auto">
-                  <div className="mb-1 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    <span>{t('trial.banner.progressLabel', 'Trial progress')}</span>
-                    <span>{progressPct}%</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-slate-200/80 ring-1 ring-slate-200/60">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500 transition-[width] duration-500 ease-out"
-                      style={{ width: `${progressPct}%` }}
-                    />
-                  </div>
-                </div>
-              ) : null}
             </div>
           </div>
         </div>

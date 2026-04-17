@@ -1,7 +1,17 @@
-import { differenceInCalendarDays, differenceInHours, differenceInMinutes } from 'date-fns';
-import { formatInTimeZone } from 'date-fns-tz';
+import {
+  differenceInCalendarDays,
+  differenceInHours,
+  differenceInMinutes,
+  format,
+} from 'date-fns';
 import { ar } from 'date-fns/locale';
 import type { Tenant } from '../types';
+
+/** True for `ar`, `ar-SA`, etc. (i18n often uses region codes; `lang === 'ar'` alone misses them). */
+export function isArabicTrialLocale(lang: string | undefined): boolean {
+  const l = (lang || '').toLowerCase();
+  return l === 'ar' || l.startsWith('ar-');
+}
 
 export function shouldShowTrialCountdownBanner(tenant: Tenant | null | undefined, nowMs = Date.now()): boolean {
   if (!tenant?.trial_ends_at) return false;
@@ -45,21 +55,6 @@ export function getTrialCountdownParts(
 }
 
 /**
- * Elapsed fraction of the trial window from subscription_start (or created_at) to trial_ends_at.
- * Used for a progress bar; returns null if dates are missing or invalid.
- */
-export function getTrialElapsedRatio(tenant: Tenant | null | undefined, nowMs: number): number | null {
-  if (!tenant?.trial_ends_at) return null;
-  const end = new Date(tenant.trial_ends_at as string).getTime();
-  const startRaw = tenant.subscription_start || tenant.created_at;
-  if (!startRaw) return null;
-  const start = new Date(startRaw as string).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
-  const r = (nowMs - start) / (end - start);
-  return Math.min(1, Math.max(0, r));
-}
-
-/**
  * Time-until-trial-end line only (ignores `trial_message_override`).
  * Use this when the UI should always show the countdown and treat override as a separate hint.
  */
@@ -69,17 +64,19 @@ export function formatTrialCountdownCore(tenant: Tenant, nowMs: number, lang: st
   const endMs = new Date(tenant.trial_ends_at as string).getTime();
   if (!Number.isFinite(endMs)) return '';
 
-  const tz = tenant.announced_time_zone || tenant.tenant_time_zone || 'UTC';
-  const isAr = lang === 'ar';
+  const isAr = isArabicTrialLocale(lang);
   const locale = isAr ? ar : undefined;
 
   const msLeft = endMs - nowMs;
   if (msLeft <= 0) return '';
 
-  const weekdayTime = formatInTimeZone(new Date(endMs), tz, 'EEEE — h:mm a', { locale });
-  const timeOnly = formatInTimeZone(new Date(endMs), tz, 'h:mm a', { locale });
+  const endDate = new Date(endMs);
+  const nowDate = new Date(nowMs);
+  // Match super-admin "trial ends at" entry (browser-local datetime-local → ISO): show wall clock in the viewer's local TZ, not tenant TZ (which shifted the displayed hour vs what was typed).
+  const weekdayTime = format(endDate, 'EEEE — h:mm a', { locale });
+  const timeOnly = format(endDate, 'h:mm a', { locale });
 
-  const days = differenceInCalendarDays(new Date(endMs), new Date(nowMs));
+  const days = differenceInCalendarDays(endDate, nowDate);
   if (days >= 1) {
     if (isAr) {
       return days === 1
@@ -91,7 +88,7 @@ export function formatTrialCountdownCore(tenant: Tenant, nowMs: number, lang: st
       : `Your free trial ends in ${days} days — ${weekdayTime}`;
   }
 
-  const hours = differenceInHours(new Date(endMs), new Date(nowMs));
+  const hours = differenceInHours(endDate, nowDate);
   if (hours >= 1) {
     if (isAr) {
       return hours === 1
@@ -103,7 +100,7 @@ export function formatTrialCountdownCore(tenant: Tenant, nowMs: number, lang: st
       : `Your trial ends in ${hours} hours — today at ${timeOnly}`;
   }
 
-  const mins = Math.max(1, differenceInMinutes(new Date(endMs), new Date(nowMs)));
+  const mins = Math.max(1, differenceInMinutes(endDate, nowDate));
   if (isAr) {
     return mins === 1
       ? 'ينتهي اشتراكك التجريبي خلال دقيقة واحدة'
