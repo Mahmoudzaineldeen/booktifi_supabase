@@ -16,7 +16,15 @@ const EXEMPT_PREFIXES = [
 
 function isExemptPath(path: string): boolean {
   const p = path.split('?')[0] || '';
-  return EXEMPT_PREFIXES.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
+  if (EXEMPT_PREFIXES.some((prefix) => p === prefix || p.startsWith(`${prefix}/`))) {
+    return true;
+  }
+  // Generic read-only SELECT proxy (POST/GET). Needed for read-only UI when tenant is inactive
+  // and so staff can refresh trial fields without being blocked as a "mutation".
+  if (p === '/api/query' || p.startsWith('/api/query/')) {
+    return true;
+  }
+  return false;
 }
 
 async function tenantIsActive(tenantId: string): Promise<boolean> {

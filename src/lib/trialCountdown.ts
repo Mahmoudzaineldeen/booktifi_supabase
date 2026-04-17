@@ -6,9 +6,10 @@ import type { Tenant } from '../types';
 export function shouldShowTrialCountdownBanner(tenant: Tenant | null | undefined, nowMs = Date.now()): boolean {
   if (!tenant?.trial_ends_at) return false;
   if (tenant.trial_status === 'expired') return false;
-  const enabled = (tenant as Tenant & { trial_countdown_enabled?: unknown }).trial_countdown_enabled;
-  if (!(enabled === true || enabled === 'true' || enabled === 1)) return false;
   if (tenant.is_active === false) return false;
+  const enabled = (tenant as Tenant & { trial_countdown_enabled?: unknown }).trial_countdown_enabled;
+  // Opt-out: show whenever a future trial end is set unless the tenant explicitly disabled the strip.
+  if (enabled === false || enabled === 'false' || enabled === 0) return false;
   return new Date(tenant.trial_ends_at).getTime() > nowMs;
 }
 

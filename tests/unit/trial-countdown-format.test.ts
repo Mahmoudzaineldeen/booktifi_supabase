@@ -46,6 +46,17 @@ describe('trial countdown helpers', () => {
         })
       )
     ).toBe(false);
+
+    expect(
+      shouldShowTrialCountdownBanner(
+        baseTenant({
+          trial_ends_at: end,
+          trial_status: 'active',
+          trial_countdown_enabled: undefined,
+          is_active: true,
+        })
+      )
+    ).toBe(true);
   });
 
   it('isTenantAccessLocked is true when tenant inactive', () => {
