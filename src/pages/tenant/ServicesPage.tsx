@@ -1,11 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { useTenantFeatures } from '../../hooks/useTenantFeatures';
 import { db } from '../../lib/db';
-import { getApiUrl } from '../../lib/apiUrl';
 import { apiFetch, getAuthHeaders } from '../../lib/apiClient';
 import { showNotification } from '../../contexts/NotificationContext';
 import { showConfirm } from '../../contexts/ConfirmContext';
@@ -14,8 +13,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { SearchInput } from '../../components/ui/SearchInput';
-import { Plus, Edit, Trash2, Briefcase, FolderOpen, Clock, X, Upload, Gift, Search, FileSpreadsheet } from 'lucide-react';
+import { Plus, Edit, Trash2, FolderOpen, Clock, X, Search, FileSpreadsheet, Package, Banknote } from 'lucide-react';
 import { ServiceImportWizard } from '../../components/tenant/ServiceImportWizard';
+import { ServiceActionsMenu } from '../../components/tenant/ServiceActionsMenu';
 import { formatTimeTo12Hour } from '../../lib/timeFormat';
 import heic2any from 'heic2any';
 
@@ -81,6 +81,31 @@ export function ServicesPage() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSearchQuery(searchQuery.trim()), 280);
+    return () => window.clearTimeout(t);
+  }, [searchQuery]);
+
+  const isRtl = i18n.dir() === 'rtl' || i18n.language.startsWith('ar');
+
+  const filteredServices = useMemo(() => {
+    const query = debouncedSearchQuery.toLowerCase();
+    if (!query) return services;
+    return services.filter((service) => {
+      const name = (service.name || '').toLowerCase();
+      const nameAr = (service.name_ar || '').toLowerCase();
+      const description = (service.description || '').toLowerCase();
+      const descriptionAr = (service.description_ar || '').toLowerCase();
+      return (
+        name.includes(query) ||
+        nameAr.includes(query) ||
+        description.includes(query) ||
+        descriptionAr.includes(query)
+      );
+    });
+  }, [services, debouncedSearchQuery]);
 
   const [serviceForm, setServiceForm] = useState({
     name: '',
@@ -844,6 +869,69 @@ export function ServicesPage() {
     })();
   }
 
+  function openDuplicateService(service: Service) {
+    setEditingService(null);
+    const suffix = t('service.duplicateNameSuffix', ' (Copy)');
+    const baseEn = (service.name || '').trim();
+    const baseAr = (service.name_ar || '').trim();
+    const dupName = baseEn ? `${baseEn}${suffix}` : `${t('service.services', 'Services')}${suffix}`;
+    const dupNameAr = baseAr ? `${baseAr}${suffix}` : dupName;
+    const serviceData = service as any;
+    let galleryUrls: string[] = [];
+    if (serviceData.gallery_urls) {
+      if (Array.isArray(serviceData.gallery_urls)) {
+        galleryUrls = serviceData.gallery_urls.filter((img: any) => img && typeof img === 'string');
+      }
+    }
+    const schedulingType = serviceData.scheduling_type || 'slot_based';
+    setServiceForm({
+      name: dupName,
+      name_ar: dupNameAr,
+      description: service.description,
+      description_ar: service.description_ar,
+      duration_minutes: service.duration_minutes,
+      base_price: service.base_price,
+      original_price: serviceData.original_price || null,
+      discount_percentage: serviceData.discount_percentage || null,
+      capacity_per_slot: service.capacity_per_slot,
+      capacity_mode: schedulingType === 'employee_based' ? 'employee_based' : 'service_based',
+      service_duration_minutes: serviceData.service_duration_minutes || service.duration_minutes,
+      service_capacity_per_slot: serviceData.service_capacity_per_slot || null,
+      is_public: service.is_public,
+      is_active: service.is_active,
+      category_id: service.category_id || '',
+      image_url: serviceData.image_url || '',
+      gallery_urls: galleryUrls.length > 0 ? galleryUrls : serviceData.image_url ? [serviceData.image_url] : [],
+      is_combo: false,
+      combo_services: [],
+      scheduling_type: schedulingType,
+      assignment_mode: serviceData.assignment_mode || (schedulingType === 'employee_based' ? 'manual_assign' : null),
+      branch_ids: [],
+    });
+    setIsServiceModalOpen(true);
+    (async () => {
+      try {
+        const [tagsRes, branchesRes, assignRes] = await Promise.all([
+          apiFetch('/tags', { headers: getAuthHeaders() }).then((r) => r.json()),
+          apiFetch(`/branches/by-service/${service.id}/branches`, { headers: getAuthHeaders() }).then((r) => r.json()),
+          apiFetch(`/tags/services/${service.id}`, { headers: getAuthHeaders() }).then((r) => r.json()),
+        ]);
+        const list = tagsRes.tags || [];
+        setPricingTagsCatalog(list);
+        if (assignRes.tag_ids?.length) setServiceTagIds(assignRes.tag_ids);
+        else {
+          const def = list.find((tg: { is_default?: boolean }) => tg.is_default);
+          setServiceTagIds(def?.id ? [def.id] : []);
+        }
+        if (branchesRes.data?.branch_ids) {
+          setServiceForm((prev) => ({ ...prev, branch_ids: branchesRes.data.branch_ids }));
+        }
+      } catch {
+        void loadPricingTagsForNewService();
+      }
+    })();
+  }
+
   function openEditCategory(cat: Category) {
     setEditingCategory(cat);
     setCategoryForm({
@@ -1121,203 +1209,208 @@ export function ServicesPage() {
 
   if (loading) {
     return (
-      <div className="p-4 md:p-8">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+      <div className="mx-auto max-w-7xl p-6">
+        <div className="mb-8 animate-pulse space-y-3 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="h-7 w-40 rounded-lg bg-slate-200" />
+          <div className="h-4 w-64 max-w-full rounded bg-slate-100" />
+          <div className="mt-4 flex flex-wrap gap-3">
+            <div className="h-10 w-32 rounded-xl bg-slate-100" />
+            <div className="h-10 w-36 rounded-xl bg-slate-100" />
+            <div className="h-10 w-40 rounded-xl bg-slate-200" />
+          </div>
+        </div>
+        <div className="mb-6 h-11 max-w-md rounded-2xl border border-gray-100 bg-slate-100" />
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div
+              key={i}
+              className="animate-pulse rounded-2xl border border-gray-100 bg-white p-6 shadow-sm"
+            >
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div className="h-5 w-14 shrink-0 rounded-full bg-slate-100" />
+                <div className="h-9 w-9 shrink-0 rounded-xl bg-slate-100" />
+              </div>
+              <div className="mb-4 h-6 flex-1 rounded-lg bg-slate-200" />
+              <div className="space-y-3 border-t border-slate-100 pt-4">
+                <div className="flex justify-between gap-4">
+                  <div className="h-4 w-20 rounded bg-slate-100" />
+                  <div className="h-4 w-16 rounded bg-slate-100" />
+                </div>
+                <div className="flex justify-between gap-4">
+                  <div className="h-4 w-16 rounded bg-slate-100" />
+                  <div className="h-4 w-20 rounded bg-slate-100" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
 
+  const noSearchMatches = filteredServices.length === 0 && services.length > 0;
+  const showEmptyLibrary = services.length === 0;
+
   return (
-    <div className="p-4 md:p-8">
-      <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <div className="bg-blue-100 p-2.5 rounded-xl">
-              <Briefcase className="w-6 h-6 text-blue-600" />
-            </div>
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('service.services', 'Services')}</h1>
+    <div className="mx-auto max-w-7xl p-6">
+      <div className="mb-8 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition-shadow duration-200 hover:shadow-md">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+              {t('service.services', 'Services')}
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              {t('service.manageServices', 'Manage your services and offerings')}
+            </p>
           </div>
-          <p className="text-sm md:text-base text-slate-600 mt-1">{t('service.manageServices', 'Manage your services and categories')}</p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <Button
-            onClick={() => setIsCategoryModalOpen(true)}
-            variant="secondary"
-            icon={<FolderOpen className="w-4 h-4" />}
-          >
-            {t('service.categories', 'Categories')}
-          </Button>
-          <Button
-            onClick={() => setIsImportWizardOpen(true)}
-            variant="secondary"
-            icon={<FileSpreadsheet className="w-4 h-4" />}
-          >
-            {t('service.import.openButton', 'Import from CSV')}
-          </Button>
-          <Button onClick={openAddServiceModal} icon={<Plus className="w-4 h-4" />}>
-            {t('service.addService', 'Add Service')}
-          </Button>
+          <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+            <Button type="button" onClick={openAddServiceModal} icon={<Plus className="h-4 w-4" />}>
+              {t('service.addService', 'Add Service')}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => setIsImportWizardOpen(true)}
+              variant="outline"
+              icon={<FileSpreadsheet className="h-4 w-4" />}
+              className="border-gray-200"
+            >
+              {t('service.import.openButton', 'Import from CSV')}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => setIsCategoryModalOpen(true)}
+              variant="outline"
+              icon={<FolderOpen className="h-4 w-4" />}
+              className="border-gray-200"
+            >
+              {t('service.categories', 'Categories')}
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* Search Bar */}
-      {services.length > 0 && (
-        <div className="mb-6">
-          <SearchInput
-            placeholder={i18n.language === 'ar' ? 'ابحث عن خدمة...' : 'Search services...'}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onClear={() => setSearchQuery('')}
-          />
+      <div className="mb-6">
+        <SearchInput
+          placeholder={t('service.searchPlaceholder')}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onClear={() => setSearchQuery('')}
+        />
+      </div>
+
+      {noSearchMatches ? (
+        <Card className="rounded-2xl border border-gray-100 shadow-sm">
+          <CardContent className="py-14 text-center">
+            <Search className="mx-auto mb-4 h-14 w-14 text-slate-300" />
+            <h3 className="mb-2 text-xl font-semibold text-slate-900">{t('common.noResultsFound')}</h3>
+            <p className="mb-8 text-sm text-slate-600">
+              {i18n.language === 'ar'
+                ? `لم يتم العثور على خدمات تطابق "${debouncedSearchQuery}"`
+                : `No services found matching "${debouncedSearchQuery}"`}
+            </p>
+            <Button type="button" onClick={() => setSearchQuery('')} variant="outline" className="border-gray-200">
+              {t('common.clearSearch')}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : showEmptyLibrary ? (
+        <div className="rounded-2xl border border-dashed border-gray-200 bg-gradient-to-b from-slate-50/80 to-white p-10 text-center shadow-sm md:p-14">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+            <Package className="h-8 w-8" strokeWidth={1.75} />
+          </div>
+          <h3 className="mb-2 text-xl font-semibold text-slate-900">{t('service.noServicesYet', 'No services yet')}</h3>
+          <p className="mx-auto mb-8 max-w-md text-sm text-slate-500">
+            {t('service.getStarted', 'Start by adding your first service')}
+          </p>
+          <Button type="button" onClick={openAddServiceModal} icon={<Plus className="h-4 w-4" />}>
+            {t('service.addService', 'Add Service')}
+          </Button>
         </div>
-      )}
-
-      {/* Filtered Services */}
-      {(() => {
-        const filteredServices = services.filter(service => {
-          if (!searchQuery.trim()) return true;
-          const query = searchQuery.toLowerCase().trim();
-          const name = (service.name || '').toLowerCase();
-          const nameAr = (service.name_ar || '').toLowerCase();
-          const description = (service.description || '').toLowerCase();
-          const descriptionAr = (service.description_ar || '').toLowerCase();
-          return name.includes(query) || nameAr.includes(query) || 
-                 description.includes(query) || descriptionAr.includes(query);
-        });
-
-        if (filteredServices.length === 0 && services.length > 0) {
-          return (
-            <Card className="shadow-sm border border-gray-200/80">
-              <CardContent className="py-12 text-center">
-                <Search className="w-16 h-16 text-slate-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  {t('common.noResultsFound')}
-                </h3>
-                <p className="text-gray-600 mb-6">
-                  {i18n.language === 'ar' 
-                    ? `لم يتم العثور على خدمات تطابق "${searchQuery}"`
-                    : `No services found matching "${searchQuery}"`}
-                </p>
-                <Button onClick={() => setSearchQuery('')} variant="secondary">
-                  {t('common.clearSearch')}
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        }
-
-        if (filteredServices.length === 0) {
-          return (
-            <Card className="shadow-sm border border-gray-200/80">
-              <CardContent className="py-12 text-center">
-                <Briefcase className="w-16 h-16 text-slate-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">{t('service.noServicesYet', 'No services yet')}</h3>
-                <p className="text-gray-600 mb-6">{t('service.getStarted', 'Get started by adding your first service')}</p>
-                <Button onClick={openAddServiceModal} icon={<Plus className="w-4 h-4" />}>
-                  {t('service.addService', 'Add Service')}
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        }
-
-        return (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredServices.map((service) => (
-            <Card key={service.id} className="shadow-sm border border-gray-200/80 hover:shadow-md transition-shadow">
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <span className="truncate">
-                    {i18n.language === 'ar' ? (service.name_ar || service.name) : service.name}
-                  </span>
-                  <span className={`text-xs px-2 py-1 rounded ${
-                    service.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                  }`}>
-                    {service.is_active ? t('service.active', 'Active') : t('employee.inactive', 'Inactive')}
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {service.service_categories && (
-                  <p className="text-xs text-gray-500 mb-2">
-                    {i18n.language === 'ar' ? service.service_categories.name_ar : service.service_categories.name}
-                  </p>
-                )}
-                <p className="text-sm text-gray-600 mb-4 line-clamp-2">
-                  {i18n.language === 'ar' ? (service.description_ar || service.description) : service.description}
-                </p>
-                <div className="space-y-2 mb-4">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">{t('service.duration', 'Duration')}</span>
-                    <span className="font-medium">
-                      {service.duration_minutes} min
+      ) : (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {filteredServices.map((service, index) => {
+            const showSchedule = !(hideServiceSlots || service.scheduling_type === 'employee_based');
+            return (
+              <div
+                key={service.id}
+                className="h-full animate-fadeInUp [content-visibility:auto]"
+                style={{ animationDelay: `${Math.min(index, 20) * 40}ms` }}
+              >
+              <Card
+                padding="none"
+                className="group flex h-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-200 ease-in-out hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.99]"
+              >
+                <CardHeader className="border-b border-gray-100 p-6 pb-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <span
+                      className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        service.is_active
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {service.is_active ? t('service.active', 'Active') : t('employee.inactive', 'Inactive')}
                     </span>
+                    <ServiceActionsMenu
+                      isRtl={isRtl}
+                      onEdit={() => openEditService(service)}
+                      onDuplicate={() => openDuplicateService(service)}
+                      onDelete={() => deleteService(service.id)}
+                      onSchedule={showSchedule ? () => openScheduleModal(service) : undefined}
+                      onOffer={
+                        tenantSlug
+                          ? () =>
+                              navigate(
+                                `/${tenantSlug}/admin/offers?create=1&serviceId=${encodeURIComponent(service.id)}`
+                              )
+                          : undefined
+                      }
+                      showSchedule={showSchedule}
+                      showOffer={!!tenantSlug}
+                    />
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">{t('service.price', 'Price')}</span>
-                    <span className="font-medium">{formatPrice(service.base_price)}</span>
-                  </div>
-                  {!(hideServiceSlots || service.scheduling_type === 'employee_based') && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">{t('service.capacity', 'Capacity')}</span>
-                    <span className="font-medium">
-                      {service.capacity_per_slot}
+                  <CardTitle className="mt-3 min-w-0 text-lg font-semibold leading-snug tracking-tight text-slate-900">
+                    <span className="line-clamp-2">
+                      {i18n.language === 'ar' ? service.name_ar || service.name : service.name}
                     </span>
+                  </CardTitle>
+                  {service.service_categories ? (
+                    <p className="mt-1 text-xs font-medium text-slate-500">
+                      {i18n.language === 'ar' ? service.service_categories.name_ar : service.service_categories.name}
+                    </p>
+                  ) : null}
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col p-6 pt-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm text-slate-700">
+                      <Clock className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                      <span className="tabular-nums font-medium">
+                        {service.duration_minutes} {t('service.min', 'min')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-slate-700">
+                      <Banknote className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                      <span className="tabular-nums font-semibold text-slate-900">{formatPrice(service.base_price)}</span>
+                    </div>
+                    {showSchedule ? (
+                      <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
+                        <span>{t('service.capacity', 'Capacity')}</span>
+                        <span className="font-medium tabular-nums text-slate-700">{service.capacity_per_slot}</span>
+                      </div>
+                    ) : null}
                   </div>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {(hideServiceSlots || service.scheduling_type === 'employee_based') ? (
-                    <p className="text-xs text-gray-500 italic">
+                  {hideServiceSlots || service.scheduling_type === 'employee_based' ? (
+                    <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-500">
                       {t('service.employeeBasedNoShifts', 'Uses employee shifts. Configure in Employees.')}
                     </p>
-                  ) : (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      fullWidth
-                      onClick={() => openScheduleModal(service)}
-                      icon={<Clock className="w-4 h-4" />}
-                    >
-                      Schedule
-                    </Button>
-                  )}
-                  <div className="flex gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      fullWidth
-                      onClick={() => openEditService(service)}
-                      icon={<Edit className="w-4 h-4" />}
-                    >
-                      {t('common.edit')}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        if (!tenantSlug) return;
-                        navigate(
-                          `/${tenantSlug}/admin/offers?create=1&serviceId=${encodeURIComponent(service.id)}`
-                        );
-                      }}
-                      icon={<Gift className="w-4 h-4" />}
-                      title={t('offers.createOfferForThisService')}
-                    />
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      onClick={() => deleteService(service.id)}
-                      icon={<Trash2 className="w-4 h-4" />}
-                    />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            ))}
-          </div>
-        );
-      })()}
+                  ) : null}
+                </CardContent>
+              </Card>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <Modal
         isOpen={isServiceModalOpen}

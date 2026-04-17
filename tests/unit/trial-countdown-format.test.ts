@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { formatTrialCountdownDisplay, shouldShowTrialCountdownBanner, isTenantAccessLocked } from '../../src/lib/trialCountdown';
+import {
+  formatTrialCountdownCore,
+  formatTrialCountdownDisplay,
+  getTrialCountdownParts,
+  shouldShowTrialCountdownBanner,
+  isTenantAccessLocked,
+} from '../../src/lib/trialCountdown';
 import type { Tenant } from '../../src/types';
 
 function baseTenant(over: Partial<Tenant> = {}): Tenant {
@@ -80,6 +86,32 @@ describe('trial countdown helpers', () => {
       trial_message_override: 'Custom headline',
     });
     expect(formatTrialCountdownDisplay(t, Date.now(), 'en')).toBe('Custom headline');
+  });
+
+  it('getTrialCountdownParts splits ms into units', () => {
+    const now = new Date('2026-04-17T12:00:00.000Z').getTime();
+    const end = new Date('2026-04-18T13:01:01.000Z').getTime();
+    const t = baseTenant({ trial_ends_at: new Date(end).toISOString() });
+    const p = getTrialCountdownParts(t, now);
+    expect(p).not.toBeNull();
+    expect(p!.days).toBe(1);
+    expect(p!.hours).toBe(1);
+    expect(p!.minutes).toBe(1);
+    expect(p!.seconds).toBe(1);
+  });
+
+  it('formatTrialCountdownCore ignores override and returns countdown', () => {
+    const now = new Date('2026-04-17T12:00:00.000Z').getTime();
+    const end = new Date('2026-04-21T23:59:00.000Z').toISOString();
+    const t = baseTenant({
+      trial_ends_at: end,
+      trial_message_override: 'ادفع',
+      tenant_time_zone: 'UTC',
+      announced_time_zone: 'UTC',
+    });
+    const s = formatTrialCountdownCore(t, now, 'ar');
+    expect(s).toMatch(/ينتهي|تجريبي/);
+    expect(s).not.toBe('ادفع');
   });
 
   it('formatTrialCountdownDisplay shows days in English', () => {
