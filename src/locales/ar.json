@@ -975,7 +975,9 @@
     "trialEndsAtHint": "اتركه فارغاً للمسح. يُستخدم التوقيت المحلي للمتصفح.",
     "trialCountdownEnabled": "عرض شريط العد التنازلي لموظفي المنشأة",
     "trialMessageOverride": "رسالة الشريط (اختياري)",
-    "trialMessagePlaceholder": "تنتهي تجربتك المجانية قريباً"
+    "trialMessagePlaceholder": "تنتهي تجربتك المجانية قريباً",
+    "tenantSaved": "تم حفظ بيانات المستأجر بنجاح.",
+    "tenantStatusUpdated": "تم تحديث حالة المستأجر."
   },
   "trial": {
     "expiredTitle": "انتهت فترة التجربة",

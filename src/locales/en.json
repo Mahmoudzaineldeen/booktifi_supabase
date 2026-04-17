@@ -702,7 +702,9 @@
     "trialEndsAtHint": "Leave empty to clear. Values use your browser local timezone.",
     "trialCountdownEnabled": "Show trial countdown banner to tenant staff",
     "trialMessageOverride": "Banner message (optional)",
-    "trialMessagePlaceholder": "Your free trial ends soon"
+    "trialMessagePlaceholder": "Your free trial ends soon",
+    "tenantSaved": "Tenant saved successfully.",
+    "tenantStatusUpdated": "Tenant status updated."
   },
   "trial": {
     "expiredTitle": "Your trial has expired",

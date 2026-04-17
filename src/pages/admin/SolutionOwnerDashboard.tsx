@@ -28,6 +28,17 @@ function toDatetimeLocalValue(iso: string | null | undefined): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** API/db errors often use `{ error, hint }` instead of `message`. */
+function formatApiErrorForAdmin(err: unknown): string {
+  if (err == null) return 'Request failed';
+  if (typeof err === 'string') return err;
+  const e = err as Record<string, unknown>;
+  const primary = [e.message, e.error].find((v) => typeof v === 'string' && String(v).trim()) as string | undefined;
+  const extras = [e.hint, e.details].filter((v) => typeof v === 'string' && String(v).trim()) as string[];
+  const main = (primary && String(primary).trim()) || 'Request failed';
+  return extras.length ? `${main} — ${extras.join(' — ')}` : main;
+}
+
 const INDUSTRY_OPTIONS = ['restaurant', 'salon', 'clinic', 'parking', 'venue', 'other'] as const;
 const MAIN_INDUSTRIES = ['restaurant', 'salon', 'clinic', 'parking', 'venue'];
 function isOtherIndustry(industry: string | undefined): boolean {
@@ -265,8 +276,10 @@ export function SolutionOwnerDashboard() {
         address: '',
         admin_password: '',
       });
-    } catch (err: any) {
-      setError(err.message || 'Failed to create tenant');
+    } catch (err: unknown) {
+      const msg = formatApiErrorForAdmin(err);
+      setError(msg);
+      showNotification('error', msg);
     } finally {
       setCreating(false);
     }
@@ -288,8 +301,12 @@ export function SolutionOwnerDashboard() {
 
       if (error) throw error;
       fetchTenants();
+      showNotification('success', t('admin.tenantStatusUpdated', 'Tenant status updated.'));
     } catch (err) {
       console.error('Error toggling tenant:', err);
+      const msg = formatApiErrorForAdmin(err);
+      setError(msg);
+      showNotification('error', msg);
     }
   }
 
@@ -344,8 +361,11 @@ export function SolutionOwnerDashboard() {
         admin_password: '',
       });
       fetchTenants();
-    } catch (err: any) {
-      setError(err.message || 'Failed to update tenant');
+      showNotification('success', t('admin.tenantSaved', 'Tenant saved successfully.'));
+    } catch (err: unknown) {
+      const msg = formatApiErrorForAdmin(err);
+      setError(msg);
+      showNotification('error', msg);
     } finally {
       setUpdating(false);
     }
@@ -371,8 +391,10 @@ export function SolutionOwnerDashboard() {
       setShowDeleteModal(false);
       setDeletingTenant(null);
       fetchTenants();
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete tenant');
+    } catch (err: unknown) {
+      const msg = formatApiErrorForAdmin(err);
+      setError(msg);
+      showNotification('error', msg);
     } finally {
       setDeleting(false);
     }

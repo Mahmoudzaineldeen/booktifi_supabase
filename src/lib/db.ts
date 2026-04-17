@@ -62,8 +62,20 @@ class DatabaseClient {
       });
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: response.statusText }));
-        
+        const body = await response.json().catch(() => ({}));
+        const message =
+          (typeof body === 'object' &&
+            body !== null &&
+            typeof (body as { message?: string }).message === 'string' &&
+            (body as { message: string }).message) ||
+          (typeof body === 'object' &&
+            body !== null &&
+            typeof (body as { error?: string }).error === 'string' &&
+            (body as { error: string }).error) ||
+          response.statusText ||
+          'Request failed';
+        const error = { ...(typeof body === 'object' && body !== null ? body : {}), message };
+
         // Handle token expiration - try to refresh
         if (response.status === 401 && (error.message?.includes('token') || error.message?.includes('expired') || error.expired)) {
           // Try to refresh token
