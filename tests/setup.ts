@@ -1,9 +1,20 @@
 /**
  * Test Setup File
  * Runs before all tests
+ *
+ * Loads env files so integration tests (e.g. trial-expiry, pricing-tags) see
+ * SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY from server/.env before test modules read process.env.
  */
 
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { config as loadEnv } from 'dotenv';
 import { beforeAll, afterAll } from 'vitest';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+loadEnv({ path: path.resolve(__dirname, '../.env') });
+loadEnv({ path: path.resolve(__dirname, '../.env.local') });
+loadEnv({ path: path.resolve(__dirname, '../server/.env'), override: true });
 
 // Mock localStorage for Node environment
 const localStorageMock = {

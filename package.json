@@ -26,6 +26,7 @@
     "test:integration:employee-based-two": "vitest run tests/integration/employee-based-two-employees-slots.test.ts",
     "test:integration:tenant-features": "vitest run tests/integration/tenant-features-save-and-apply.test.ts",
     "test:integration:pricing-tags": "vitest run tests/integration/pricing-tags-mechanism.test.ts",
+    "test:integration:trial-expiry": "vitest run tests/integration/trial-expiry-deactivates-tenant.test.ts",
     "test:integration:booking-performance": "vitest run tests/integration/booking-creation-performance.test.ts",
     "test:booking-creation-performance": "node tests/backend/11-booking-creation-performance.test.js",
     "test:security": "vitest run tests/security",

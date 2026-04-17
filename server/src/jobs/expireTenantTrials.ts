@@ -1,7 +1,8 @@
 import { supabase } from '../db';
 import { logger } from '../utils/logger';
 
-const DEFAULT_INTERVAL_MS = 60_000;
+/** How often to call `expire_due_tenant_trials` (sets inactive + trial expired). Override with TENANT_TRIAL_EXPIRY_INTERVAL_MS (min 10s). */
+const DEFAULT_INTERVAL_MS = 30_000;
 
 let intervalRef: NodeJS.Timeout | null = null;
 
