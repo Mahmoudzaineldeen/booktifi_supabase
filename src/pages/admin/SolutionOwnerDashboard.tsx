@@ -349,6 +349,38 @@ export function SolutionOwnerDashboard() {
 
       if (updateError) throw updateError;
 
+      // Keep tenant admin login credentials in sync (Solution Owner action).
+      // If contact_email changed, update tenant_admin user's email to match.
+      // If admin_password provided, reset tenant_admin password too.
+      const emailChanged = (newTenant.contact_email || '').trim().toLowerCase() !== (editingTenant.contact_email || '').trim().toLowerCase();
+      const hasPasswordReset = !!newTenant.admin_password?.trim();
+      if (emailChanged || hasPasswordReset) {
+        const apiUrl = getApiUrl().replace(/\/$/, '');
+        const token = localStorage.getItem('auth_token');
+        if (token) {
+          const res = await fetch(`${apiUrl}/tenants/admin/credentials`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              tenant_id: editingTenant.id,
+              ...(emailChanged ? { email: newTenant.contact_email } : {}),
+              ...(hasPasswordReset ? { password: newTenant.admin_password } : {}),
+            }),
+            signal: createTimeoutSignal('/tenants/admin/credentials', false),
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const msg = formatApiErrorForAdmin(json?.error || json);
+            throw new Error(msg || 'Failed to update tenant admin credentials');
+          }
+        } else {
+          throw new Error('Authentication token not found. Please log in again.');
+        }
+      }
+
       setShowEditModal(false);
       setEditingTenant(null);
       setNewTenant({

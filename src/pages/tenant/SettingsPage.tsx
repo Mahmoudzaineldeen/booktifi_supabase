@@ -42,6 +42,7 @@ export function SettingsPage() {
   const [accountCredsLoading, setAccountCredsLoading] = useState(false);
   const [accountCreds, setAccountCreds] = useState<{ email: string; full_name: string }>({ email: '', full_name: '' });
   const isSolutionOwner = userProfile?.role === 'solution_owner';
+  const canUpdateOwnCredentials = userProfile?.role === 'solution_owner' || userProfile?.role === 'tenant_admin';
   const [formData, setFormData] = useState<{
     name: string;
     name_ar: string;
@@ -1372,7 +1373,7 @@ export function SettingsPage() {
 
   async function handleUpdateAccountCredentials(e: React.FormEvent) {
     e.preventDefault();
-    if (!isSolutionOwner) return;
+    if (!canUpdateOwnCredentials) return;
     try {
       setAccountCredsLoading(true);
       const nextEmail = accountCreds.email.trim();
@@ -1751,11 +1752,13 @@ export function SettingsPage() {
                     </div>
                   </form>
 
-                  {isSolutionOwner && (
+                  {canUpdateOwnCredentials && (
                     <form onSubmit={handleUpdateAccountCredentials} className="space-y-4 mt-6 pt-6 border-t border-gray-200">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-semibold text-gray-800">
-                          {t('settings.security.solutionOwnerCredentials', 'Solution Owner credentials')}
+                          {isSolutionOwner
+                            ? t('settings.security.solutionOwnerCredentials', 'Solution Owner credentials')
+                            : t('settings.security.accountCredentials', 'Account credentials')}
                         </p>
                       </div>
 

@@ -2,6 +2,7 @@ import express from 'express';
 import { supabase } from '../db';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
+import bcrypt from 'bcryptjs';
 import { testWhatsAppConnection } from '../services/whatsappService';
 import { testEmailConnection, sendEmail, type SendEmailOptions } from '../services/emailApiService';
 
@@ -151,6 +152,119 @@ function authenticateTenantMember(req: express.Request, res: express.Response, n
 function isSolutionOwner(req: express.Request): boolean {
   return req.user?.role === 'solution_owner';
 }
+
+// Middleware: solution owner only (used for system-wide admin actions)
+function authenticateSolutionOwnerOnly(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authorization header required' });
+    }
+    const token = authHeader.replace('Bearer ', '').trim();
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    if (decoded?.role !== 'solution_owner') {
+      return res.status(403).json({ error: 'Access denied. Only Solution Owner can perform this action.' });
+    }
+    req.user = { id: decoded.id, email: decoded.email, role: decoded.role, tenant_id: decoded.tenant_id };
+    next();
+  } catch (e: any) {
+    if (e?.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token has expired' });
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+/**
+ * Solution Owner: keep tenant admin login credentials in sync.
+ * This updates the tenant_admin user in public.users (email/password_hash) and best-effort updates Supabase Auth too.
+ *
+ * Why: tenant.contact_email is often used as the "business email", and admins expect it to match their login email.
+ */
+router.post('/admin/credentials', authenticateSolutionOwnerOnly, async (req, res) => {
+  try {
+    const { tenant_id, email, password } = req.body as { tenant_id?: string; email?: string; password?: string };
+    const tenantId = typeof tenant_id === 'string' ? tenant_id.trim() : '';
+    if (!tenantId) return res.status(400).json({ error: 'tenant_id is required' });
+
+    const nextEmailRaw = typeof email === 'string' ? email.trim() : '';
+    const nextPasswordRaw = typeof password === 'string' ? password : '';
+    if (!nextEmailRaw && !nextPasswordRaw) {
+      return res.status(400).json({ error: 'Provide email and/or password to update' });
+    }
+
+    const updates: Record<string, any> = {};
+    if (nextEmailRaw) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(nextEmailRaw)) return res.status(400).json({ error: 'Invalid email format' });
+      updates.email = nextEmailRaw.toLowerCase();
+    }
+    if (nextPasswordRaw) {
+      if (nextPasswordRaw.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      updates.password_hash = await bcrypt.hash(nextPasswordRaw, 10);
+    }
+
+    // Find tenant admin (there should be one; if multiple, take newest)
+    const { data: admins, error: adminLookupError } = await supabase
+      .from('users')
+      .select('id,email,role,tenant_id,is_active,created_at')
+      .eq('tenant_id', tenantId)
+      .eq('role', 'tenant_admin')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (adminLookupError) {
+      console.error('[Tenants] admin/credentials lookup error', adminLookupError);
+      return res.status(500).json({ error: adminLookupError.message || 'Failed to look up tenant admin' });
+    }
+    const adminUser = admins && admins.length ? (admins[0] as any) : null;
+    if (!adminUser) {
+      return res.status(404).json({
+        error: 'Tenant admin user not found',
+        hint: 'Create or assign a tenant_admin user for this tenant, then retry.',
+      });
+    }
+
+    const { data: updatedAdmin, error: updateError } = await supabase
+      .from('users')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', adminUser.id)
+      .select('id,email,role,tenant_id,is_active,updated_at')
+      .maybeSingle();
+
+    if (updateError) {
+      console.error('[Tenants] admin/credentials update error', updateError);
+      return res.status(500).json({ error: updateError.message || 'Failed to update tenant admin credentials' });
+    }
+    if (!updatedAdmin) {
+      return res.status(500).json({ error: 'Failed to update tenant admin credentials (no rows updated)' });
+    }
+
+    // Best-effort: keep Supabase Auth in sync (email + password where possible)
+    try {
+      const authUpdate: any = {};
+      if (updates.email) authUpdate.email = updates.email;
+      if (nextPasswordRaw) authUpdate.password = nextPasswordRaw;
+      if (Object.keys(authUpdate).length) {
+        const { error: authErr } = await supabase.auth.admin.updateUserById(adminUser.id, authUpdate);
+        if (authErr) console.warn('[Tenants] ⚠️ Failed syncing Supabase Auth tenant admin', authErr.message);
+      }
+    } catch (e: any) {
+      console.warn('[Tenants] ⚠️ Exception syncing Supabase Auth tenant admin', e?.message || e);
+    }
+
+    console.log('[Tenants] ✅ Tenant admin credentials updated', {
+      tenantId,
+      adminUserId: adminUser.id,
+      changed: Object.keys(updates),
+      prevEmail: adminUser.email,
+      nextEmail: updatedAdmin.email,
+    });
+
+    res.json({ ok: true, admin_user: updatedAdmin });
+  } catch (error: any) {
+    console.error('[Tenants] admin/credentials error', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
 
 // Helper function to get tenant_id for queries (handles solution_owner)
 function getTenantIdForQuery(req: express.Request, requiredTenantId?: string): string | null {
