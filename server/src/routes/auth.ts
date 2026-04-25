@@ -110,7 +110,12 @@ router.post('/signin', async (req, res) => {
   try {
     const { email, password, username, forCustomer } = req.body;
 
-    if (!email && !username) {
+    const rawEmail = typeof email === 'string' ? email.trim() : '';
+    const rawUsername = typeof username === 'string' ? username.trim() : '';
+    const isEmailLogin = !!rawEmail && rawEmail.includes('@');
+    const normalizedEmail = isEmailLogin ? rawEmail.toLowerCase() : rawEmail; // case-insensitive compare
+
+    if (!rawEmail && !rawUsername) {
       return res.status(400).json({ error: 'Email or username is required' });
     }
 
@@ -121,13 +126,13 @@ router.post('/signin', async (req, res) => {
     // Find user by email or username
     let userResult;
 
-    if (email) {
+    if (rawEmail) {
       // Try both email and username with the same value
       // Use .select() instead of .maybeSingle() to get all matches, then filter
       const { data: usersByEmail, error: emailError } = await supabase
         .from('users')
         .select('*')
-        .eq('email', email);
+        .ilike('email', normalizedEmail);
 
       if (!emailError && usersByEmail && usersByEmail.length > 0) {
         // If multiple users with same email, prefer tenant_admin > other roles > customer
@@ -146,7 +151,7 @@ router.post('/signin', async (req, res) => {
         const { data: usersByUsername, error: usernameError } = await supabase
           .from('users')
           .select('*')
-          .eq('username', email);
+          .eq('username', rawEmail);
         
         if (!usernameError && usersByUsername && usersByUsername.length > 0) {
           userResult = { data: usersByUsername[0] };
@@ -156,7 +161,7 @@ router.post('/signin', async (req, res) => {
       const { data: usersByUsername, error } = await supabase
         .from('users')
         .select('*')
-        .eq('username', username);
+        .eq('username', rawUsername);
       
       if (!error && usersByUsername && usersByUsername.length > 0) {
         userResult = { data: usersByUsername[0] };
@@ -170,13 +175,13 @@ router.post('/signin', async (req, res) => {
     const user = userResult.data;
     
     // Log which user was selected (for debugging duplicate emails)
-    if (email) {
+    if (rawEmail) {
       const { data: allUsers } = await supabase
         .from('users')
         .select('id,role')
-        .eq('email', email);
+        .ilike('email', normalizedEmail);
       if (allUsers && allUsers.length > 1) {
-        console.warn(`[Auth] Multiple users found with email ${email}. Selected user ${user.id} (role: ${user.role})`);
+        console.warn(`[Auth] Multiple users found with email ${normalizedEmail}. Selected user ${user.id} (role: ${user.role})`);
       }
     }
 
@@ -614,22 +619,119 @@ router.post('/update', async (req, res) => {
 
     const token = authHeader.replace('Bearer ', '');
     const decoded = jwt.verify(token, JWT_SECRET) as any;
-    const { password } = req.body;
+    const { password, email, full_name } = req.body as { password?: string; email?: string; full_name?: string };
+
+    const userId = decoded?.id ? String(decoded.id) : '';
+    if (!userId) {
+      return res.status(400).json({ error: 'Invalid session: missing user id' });
+    }
+
+    const updates: Record<string, any> = {};
 
     if (password) {
       const hashedPassword = await bcrypt.hash(password, 10);
-      const { error } = await supabase
-        .from('users')
-        .update({ password_hash: hashedPassword })
-        .eq('id', decoded.id);
+      updates.password_hash = hashedPassword;
+    }
 
-      if (error) {
-        console.error('Update user error:', error);
-        return res.status(500).json({ error: error.message });
+    if (typeof email === 'string') {
+      const trimmed = email.trim();
+      if (!trimmed) {
+        return res.status(400).json({ error: 'Email cannot be empty' });
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmed)) {
+        return res.status(400).json({ error: 'Invalid email format' });
+      }
+      // Always store normalized lowercase email so queries remain consistent
+      updates.email = trimmed.toLowerCase();
+    }
+
+    if (typeof full_name === 'string') {
+      const trimmed = full_name.trim();
+      if (!trimmed) {
+        return res.status(400).json({ error: 'Full name cannot be empty' });
+      }
+      updates.full_name = trimmed;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No updates provided' });
+    }
+
+    // Ensure user exists in app profile table before attempting update.
+    // If the JWT was created for an auth user without a public.users row, UPDATE would affect 0 rows
+    // and PostgREST can still return "success" with null data.
+    const { data: existingUser, error: existingError } = await supabase
+      .from('users')
+      .select('id,email,full_name,role,is_active')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (existingError) {
+      console.error('[Auth] Update user: failed to load existing user', { userId, error: existingError });
+      return res.status(500).json({ error: existingError.message || 'Failed to load user profile' });
+    }
+
+    if (!existingUser) {
+      console.error('[Auth] Update user: no public.users row for token user', { userId });
+      return res.status(404).json({
+        error: 'User profile not found. Cannot update credentials.',
+        hint: 'This session user has no row in the users table. Ensure the user exists in public.users with the same id as the session token.',
+      });
+    }
+
+    // Update app profile row (public.users) - this is what /auth/signin uses
+    const { data: updatedUser, error: updateError } = await supabase
+      .from('users')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', userId)
+      .select('id,email,username,full_name,role,tenant_id,is_active,updated_at')
+      .maybeSingle();
+
+    if (updateError) {
+      console.error('Update user error:', updateError);
+      return res.status(500).json({ error: updateError.message });
+    }
+
+    if (!updatedUser) {
+      console.error('[Auth] Update user: 0 rows updated (unexpected)', {
+        userId,
+        attempted: Object.keys(updates),
+        prevEmail: existingUser.email,
+      });
+      return res.status(500).json({
+        error: 'Failed to update user (no rows updated).',
+        hint: 'This usually indicates a missing row, RLS blocking the update, or the backend not running with service role key.',
+      });
+    }
+
+    console.log('[Auth] ✅ User credentials updated', {
+      userId,
+      changed: Object.keys(updates),
+      prevEmail: existingUser.email,
+      nextEmail: updatedUser.email,
+    });
+
+    // Best-effort: if we are using service role, keep Supabase Auth in sync too.
+    // This matters if any part of the UI relies on Supabase Auth user.email/metadata.
+    if (updates.email || updates.full_name) {
+      try {
+        const authUpdate: any = {};
+        if (updates.email) authUpdate.email = updates.email;
+        if (updates.full_name) {
+          authUpdate.user_metadata = { full_name: updates.full_name };
+        }
+        const { error: authUpdateError } = await supabase.auth.admin.updateUserById(userId, authUpdate);
+        if (authUpdateError) {
+          console.warn('[Auth] ⚠️  Failed to sync Supabase Auth user:', authUpdateError.message);
+          // Continue anyway: login uses public.users in this project.
+        }
+      } catch (e: any) {
+        console.warn('[Auth] ⚠️  Exception syncing Supabase Auth user:', e?.message || e);
       }
     }
 
-    res.json({ message: 'User updated successfully' });
+    res.json({ message: 'User updated successfully', user: updatedUser || null });
   } catch (error: any) {
     console.error('Update user error:', error);
     res.status(500).json({ error: error.message });

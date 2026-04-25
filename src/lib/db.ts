@@ -675,7 +675,7 @@ class DatabaseClient {
         },
       };
     },
-    updateUser: async (updates: { password?: string }) => {
+    updateUser: async (updates: { password?: string; email?: string; full_name?: string }) => {
       const result = await this.request('/auth/update', {
         method: 'POST',
         body: JSON.stringify(updates),

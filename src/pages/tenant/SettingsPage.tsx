@@ -39,6 +39,9 @@ export function SettingsPage() {
     confirmPassword: '',
   });
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [accountCredsLoading, setAccountCredsLoading] = useState(false);
+  const [accountCreds, setAccountCreds] = useState<{ email: string; full_name: string }>({ email: '', full_name: '' });
+  const isSolutionOwner = userProfile?.role === 'solution_owner';
   const [formData, setFormData] = useState<{
     name: string;
     name_ar: string;
@@ -50,6 +53,14 @@ export function SettingsPage() {
     contact_email: '',
     tenant_time_zone: 'Asia/Riyadh',
   });
+
+  useEffect(() => {
+    // Keep local form fields in sync with current profile (used for Solution Owner credential update UI)
+    setAccountCreds({
+      email: (userProfile?.email || user?.email || '').trim(),
+      full_name: (userProfile?.full_name || '').trim(),
+    });
+  }, [userProfile?.email, userProfile?.full_name, user?.email]);
   const [smtpSettings, setSmtpSettings] = useState({
     smtp_host: 'smtp.gmail.com',
     smtp_port: 587,
@@ -1359,6 +1370,39 @@ export function SettingsPage() {
     }
   }
 
+  async function handleUpdateAccountCredentials(e: React.FormEvent) {
+    e.preventDefault();
+    if (!isSolutionOwner) return;
+    try {
+      setAccountCredsLoading(true);
+      const nextEmail = accountCreds.email.trim();
+      const nextName = accountCreds.full_name.trim();
+      if (!nextEmail || !nextEmail.includes('@')) {
+        showNotification('error', t('auth.emailAddressRequired', 'Email address is required.'));
+        return;
+      }
+      if (!nextName) {
+        showNotification('error', t('auth.fullNameRequired', 'Full name is required.'));
+        return;
+      }
+
+      const { error } = await db.auth.updateUser({ email: nextEmail, full_name: nextName });
+      if (error) {
+        throw error;
+      }
+
+      showNotification('success', t('common.saved', 'Saved'));
+      // JWT payload in this app includes email; easiest is to force re-login so everything is consistent.
+      await signOut();
+      navigate('/login');
+    } catch (err: any) {
+      console.error('Error updating account credentials:', err);
+      showNotification('error', err?.message || t('common.error', 'Error'));
+    } finally {
+      setAccountCredsLoading(false);
+    }
+  }
+
   // Show loading state if tenant is not loaded yet
   if (!tenant) {
     return (
@@ -1706,6 +1750,39 @@ export function SettingsPage() {
                       </Button>
                     </div>
                   </form>
+
+                  {isSolutionOwner && (
+                    <form onSubmit={handleUpdateAccountCredentials} className="space-y-4 mt-6 pt-6 border-t border-gray-200">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-gray-800">
+                          {t('settings.security.solutionOwnerCredentials', 'Solution Owner credentials')}
+                        </p>
+                      </div>
+
+                      <Input
+                        type="text"
+                        label={t('auth.fullName', 'Full name')}
+                        value={accountCreds.full_name}
+                        onChange={(e) => setAccountCreds((p) => ({ ...p, full_name: e.target.value }))}
+                        required
+                      />
+
+                      <Input
+                        type="email"
+                        label={t('auth.email', 'Email')}
+                        value={accountCreds.email}
+                        onChange={(e) => setAccountCreds((p) => ({ ...p, email: e.target.value }))}
+                        required
+                        autoComplete="email"
+                      />
+
+                      <div className="flex gap-3">
+                        <Button type="submit" loading={accountCredsLoading}>
+                          {t('common.save', 'Save')}
+                        </Button>
+                      </div>
+                    </form>
+                  )}
                 </CardContent>
               </Card>
             </section>
